@@ -5118,6 +5118,19 @@ git commit -m "feat: wire the exact solves into the public API, with boundary an
 
 ---
 
+## 统计测试的功效是不对称的（Task 7 实测，2026-08-23）
+
+均值有稠密预言机可比；**抽取没有**——它的测试是统计性的，因此可能以确定性比较不会有的方式变弱。逐项缩放两个涨落项、在真实 fixture / 种子 / 抽取数下跑真实断言，测得：
+
+| 测试 | 对 `AᵀN⁻¹ᐟ²ω₁`（数据涨落） | 对 `S⁻¹ᐟ²ω₂`（先验涨落） |
+|---|---|---|
+| `test_gcr_draws_have_the_oracle_mean_and_covariance` | **~10%**（1.10 / 0.90 变红） | **>2000%**（scale 20 仍绿，25 才红） |
+| `test_a_draw_with_uninformative_data_falls_back_to_the_prior` | **0%**（1000 倍幅度仍绿） | **~10%**（1.10 / 0.85 变红） |
+
+机理：`two_linear_latents` 是数据主导的（先验方差 25/49，后验方差 0.0085/0.013）。缩放 ω₂ 把抽取协方差从 `M⁻¹` 变成 `M⁻¹(AᵀN⁻¹A + k²S⁻¹)M⁻¹`，而 `AᵀN⁻¹A ≫ S⁻¹`，所以要到 `k ≈ √(‖AᵀN⁻¹A‖/‖S⁻¹‖) ≈ √(118/0.04) ≈ 54` 才咬——与实测的 25 同阶。
+
+**两条测试互补，各自在对方失明处看见。** 没有活的空洞，但**负担由名字看起来不该承担它的那条测试扛着**——正是上一节记录的那种情形。将来有人看到两条"都在测协方差"的测试、删掉他认为冗余的那条，套件仍会全绿。所以两条的 docstring 互相点名。
+
 ## 一个不可能的目标（Task 6 实测，2026-08-23）
 
 要求 `test_the_precision_floor_alone_makes_the_guard_unreachable` 既**孤立**地址实地板项、又让 `error_bound` **超出阈值一个数量级**，是**自相矛盾**的。设 `r = residual/eps`：
