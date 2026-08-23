@@ -11,7 +11,7 @@ from __future__ import annotations
 import equinox as eqx
 
 from bayesmith.errors import GraphError
-from bayesmith.graph.nodes import Node, Probabilistic
+from bayesmith.graph.nodes import Deterministic, Node, Probabilistic
 
 
 class Plate(eqx.Module):
@@ -50,6 +50,18 @@ class Graph(eqx.Module):
                         f"node {node.name!r} names parent {parent!r}, which is not "
                         "declared before it. Declaration order is topological "
                         "order: declare the parent first."
+                    )
+            if isinstance(node, Deterministic):
+                extra = set(node.linear_in) - set(node.parents)
+                if extra:
+                    raise GraphError(
+                        f"node {node.name!r} declares linear_in={node.linear_in!r}, "
+                        f"which names {sorted(extra)} -- not a parent of this node. "
+                        f"Parents are {node.parents!r}. linear_in is a claim about "
+                        "the model, not a hint -- it decides whether an exact "
+                        "conjugate solve may be used, so it must at least name "
+                        "declared parents before anything checks whether the claim "
+                        "is true."
                     )
             if len(node.plate) > 1:
                 raise GraphError(

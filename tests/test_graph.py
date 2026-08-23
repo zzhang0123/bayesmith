@@ -59,6 +59,41 @@ def test_a_duplicate_node_name_is_refused():
         Graph(nodes=(_x(), _x()), plates=())
 
 
+def test_a_linear_in_name_that_is_not_a_parent_is_refused():
+    """linear_in is a claim to be checked, not trusted -- so the claim must
+    at least be well-formed before anything checks whether it is true.
+    ``mu``'s parents are only ``('x',)``, but it declares linear_in=('a',):
+    'a' is not a parent of this node at all.
+    """
+    n = Deterministic(
+        name="mu", parents=("x",), plate=(), fn=lambda x: x, linear_in=("a",)
+    )
+    with pytest.raises(GraphError, match="linear_in.*not a parent"):
+        Graph(nodes=(_x(), n), plates=())
+
+
+def test_a_linear_in_that_is_a_proper_subset_of_parents_is_accepted():
+    """linear_in need not name every parent -- only the ones claimed linear.
+
+    ``mu`` has two parents, 'x' and 'y', but only claims to be linear in
+    'x'. That is a well-formed (if perhaps false) claim and must not be
+    confused with the case above, where 'a' is not a parent at all.
+    """
+
+    def _y():
+        return Probabilistic(
+            name="y", parents=(), plate=(), dist_fn=lambda: dist.Normal(0.0, 1.0),
+            observed=None,
+        )
+
+    n = Deterministic(
+        name="mu", parents=("x", "y"), plate=(), fn=lambda x, y: x + y,
+        linear_in=("x",),
+    )
+    g = Graph(nodes=(_x(), _y(), n), plates=())
+    assert g.node("mu").linear_in == ("x",)
+
+
 def test_a_node_in_an_undeclared_plate_is_refused():
     n = Const(name="X", parents=(), plate=("obs",), value=jnp.arange(3.0))
     with pytest.raises(GraphError, match="plate 'obs', which the graph does not"):
