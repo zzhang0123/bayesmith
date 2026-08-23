@@ -50,6 +50,10 @@ class ConvergenceError(BayesmithError, RuntimeError):
     instead, because a Python ``if`` cannot branch on a traced value. This
     class is for the checks that run on concrete values, outside any trace --
     ``iterative_gls``'s ``converged=False`` promoted to a hard failure, say.
+
+    No P3a call site actually raises this: ``iterative_gls`` returns
+    ``converged`` as a field instead, by design, and leaves the promotion to
+    its caller. P3b's ``estimate()`` is the expected first one.
     """
 
 

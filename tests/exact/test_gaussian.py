@@ -89,6 +89,52 @@ def test_check_gaussian_catches_a_distribution_that_lies_about_its_log_prob():
         check_gaussian(graph, graph.node("d"), env)
 
 
+def test_check_gaussian_treats_nan_as_a_failure_in_isolation():
+    """Isolates the `not isfinite` half of check_gaussian's own guard.
+
+    `linearity.py`'s `affinity_errors` carries the identical shape of guard
+    (``if not finite or errors[scale] > rtol``, with the identical comment
+    "NaN must count as a FAILURE") and has a dedicated test for it,
+    `test_affinity_errors_treats_nan_as_a_failure_in_isolation` -- added
+    during Task 4 after its implementer diagnosed exactly this "mutation
+    does not go red" situation there. The same guard exists in this
+    module's `check_gaussian` (line: ``if not np.isfinite(errors[offset])
+    or errors[offset] > rtol:``) but had no test of its own: measured,
+    deleting the ``not np.isfinite(errors[offset]) or`` half here left the
+    entire pre-existing suite green.
+
+    NaN, not +inf, is the case that actually needs its own guard: if
+    `log_prob` returned +inf instead of NaN, `departure` would be +inf too
+    and `errors[offset] > rtol` alone would already catch it (`inf > rtol`
+    is True in IEEE-754) -- a check missing the `not isfinite` half would
+    still refuse THAT case. `NaN > rtol` is False, so only a clean NaN
+    isolates the branch, exactly as the linearity.py sibling test does for
+    its own guard.
+
+    NaN only below `loc` (which covers PROBE_OFFSETS' two negative entries,
+    -3.0 and -1.0): the loop raises on the FIRST failing probe and
+    PROBE_OFFSETS is visited in order, so -3.0 is guaranteed to be the one
+    reached, with nothing upstream of it able to raise first for an
+    unrelated reason.
+    """
+
+    class NaNBelowTheMean(dist.Normal):
+        def log_prob(self, value):
+            exact = super().log_prob(value)
+            return jnp.where(value < self.loc, jnp.nan, exact)
+
+    def model():
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        observe("d", lambda w_: NaNBelowTheMean(w_, 0.7), w, obs=jnp.zeros(()))
+
+    graph = trace(model)
+    env = evaluate(graph, {"w": jnp.asarray(0.3)})
+    loc, scale = gaussian_parts(graph, graph.node("d"), env)  # introspection is happy
+    assert jnp.allclose(loc, 0.3) and jnp.allclose(scale, 0.7)
+    with pytest.raises(StructureError, match="log_prob"):
+        check_gaussian(graph, graph.node("d"), env)
+
+
 def test_the_probe_evaluates_log_prob_at_the_shape_the_node_s_value_takes():
     """A dist_fn correct on a scalar and wrong on an array must be refused.
 

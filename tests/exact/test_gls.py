@@ -172,7 +172,16 @@ def test_check_prediction_dependence_catches_a_false_declaration():
             )
 
 
-def test_check_prediction_dependence_accepts_a_true_declaration():
+def test_check_prediction_dependence_accepts_a_correct_false_declaration():
+    """Renamed from `..._accepts_a_true_declaration`, which it never was.
+
+    The old name claimed to exercise `declared=True`; the body has always
+    called with `declared=False`, on `straight_line()` -- a fixture where
+    that declaration happens to be accurate (a constant sigma, so movement
+    is ~0). The name read as covering the OTHER half of the contract, and
+    did not -- see `test_check_prediction_dependence_never_raises_for_a_
+    declared_true_node` below for the test that actually does.
+    """
     with jax.enable_x64(True):
         graph = straight_line()
         block = linear_operator(graph, ("w",), at={})
@@ -180,6 +189,38 @@ def test_check_prediction_dependence_accepts_a_true_declaration():
             block, sigma_from_graph(graph, {}), declared=False
         )
     assert movement == pytest.approx(0.0, abs=1e-12)
+
+
+def test_check_prediction_dependence_never_raises_for_a_declared_true_node():
+    """The other half of the contract: `declared=True` must NEVER raise.
+
+    Not "raises only above rtol" -- never, however large the measured
+    movement is. That is what lets a caller invoke this unconditionally
+    before deciding whether to run the reweighting loop: only `declared=
+    False` combined with real movement is refused.
+
+    Until this test existed, `declared=True` was never called anywhere in
+    this suite -- every call site here passes `declared=False`, including
+    the sibling above, whose old name
+    (`..._accepts_a_true_declaration`) read as though it covered this and
+    did not. Measured: deleting the `not declared and` clause of the guard
+    (`if not declared and movement > rtol:` -> `if movement > rtol:`) left
+    the entire pre-existing 240-test suite green -- a regression that made
+    `declared=True` raise on a genuinely prediction-dependent node, exactly
+    backwards from the contract, would have gone undetected.
+
+    `radiometer()` rather than `straight_line()`: its sigma tracks the
+    prediction directly, so the measured movement is genuinely large
+    (2500, far above `rtol`'s default of 1e-8) -- this is not a vacuous
+    zero-movement pass, unlike the sibling test above.
+    """
+    with jax.enable_x64(True):
+        graph = radiometer()
+        block = linear_operator(graph, ("w",), at={})
+        movement = check_prediction_dependence(
+            block, sigma_from_graph(graph, {}), declared=True
+        )
+    assert movement > 100.0
 
 
 def test_a_capped_run_reports_converged_false_rather_than_pretending():

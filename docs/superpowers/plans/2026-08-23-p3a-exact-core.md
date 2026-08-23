@@ -137,7 +137,7 @@ Task 5 的四条断言实测时顺带量了守卫在**两种精度**下的实际
 | `tests/exact/models.py` | 共享的玩具图构造器 | ~120 |
 | `tests/exact/test_*.py` | 每模块一个，外加验收关口 | — |
 
-**依赖方向**：`conditioning` → 无；`gaussian` → `graph`；`block` → `gaussian` + `graph`；`linearity` → `block` + `bridge`；`solve` → `block` + `conditioning`；`gls` → `solve`；`fisher` → `block`。无环。
+**依赖方向**：`conditioning` → 无；`gaussian` → `graph`；`block` → `gaussian` + `graph`；`linearity` → `block` + `bridge`；`solve` → `block` + `conditioning`；`gls` → `block` + `conditioning` + `gaussian` + `solve`（实测更正，2026-08-23，验收关口收尾复查：原文只写了`solve`，但`gls.py`直接 import 了`block`的`LinearBlock`/`domain_centre`、`conditioning`的`tree_norm`、`gaussian`的`noise_std_at`，不只是`solve`）；`fisher` → `block`。无环。
 
 ---
 

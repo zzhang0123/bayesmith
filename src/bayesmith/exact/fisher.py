@@ -145,6 +145,10 @@ def fisher_information(
             would agree with none of them.
     """
     design = dense_operator(block)
+    # Same 1/sigma**2 weighting as solve.py::_weights, over a flat
+    # concatenation instead of a per-observed dict -- solve.py::_weights is
+    # the reference, so a future floor or clamp on this weighting needs to
+    # land in both places.
     weight = jnp.concatenate(
         [
             jnp.reshape(1.0 / jnp.asarray(noise_std[name]) ** 2, (-1,))
