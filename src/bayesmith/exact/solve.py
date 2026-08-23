@@ -309,9 +309,7 @@ def _conjugate_solve(
         # the remedy is precision, and the natural response to the other
         # message -- tighten tol, raise maxiter -- burns a great many
         # iterations here to arrive at an equally wrong answer.
-        epsilon = float(
-            jnp.finfo(jnp.result_type(*jax.tree.leaves(block.offset))).eps
-        )
+        epsilon = float(jnp.finfo(jnp.result_type(*jax.tree.leaves(block.offset))).eps)
         # Two independent reasons no tol or maxiter can help, and rheplicant
         # carries only the first. The second was measured: at float32,
         # `two_linear_latents` -- a TWO-parameter toy -- lands at

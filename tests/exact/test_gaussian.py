@@ -184,6 +184,29 @@ def test_node_shape_agrees_with_the_numpyro_bridge():
 
 
 def test_observation_parts_covers_every_observed_node():
+    """Keys, shapes, ``scale`` -- and, load-bearing on its own, ``data``.
+
+    ``data`` carries a burden no other test in this package's suite shares:
+    every exact solve is conditioned on these values, but R1 (the matrix-free
+    CG path) and R2 (``tests/exact/oracle.py``'s dense oracle) both read
+    ``data`` through this SAME function, ``observation_parts`` -- so a bug
+    here shifts both sides of the acceptance gate together and the gate
+    cannot see it, structurally, regardless of what else this suite checks.
+    Measured directly: mutating ``observation_parts`` to add 5.0 to every
+    returned ``data`` value leaves the whole acceptance gate green
+    (`tests/exact/test_solve.py::test_wiener_solve_matches_the_dense_oracle`
+    and its siblings) either way.
+
+    The last two assertions below did NOT exist until this finding: before
+    them, that same mutation left the *entire* 174-test suite green except
+    one accidental, unrelated flip in `tests/exact/test_solve.py`
+    (`test_the_precision_floor_alone_makes_the_guard_unreachable`, which
+    reds through a float32 residual perturbation, not because it checks
+    anything about `data`) -- so nothing in this package verified that
+    `observation_parts` returns the right `data` values, anywhere. With them
+    present, the SAME mutation now reds this test specifically, and nothing
+    else in the suite.
+    """
     graph = two_observations(n=7, m=5)
     env = evaluate(graph, {"w": jnp.asarray(1.25)})
     data, loc, scale = observation_parts(graph, env)
@@ -191,6 +214,8 @@ def test_observation_parts_covers_every_observed_node():
     assert data["d1"].shape == loc["d1"].shape == scale["d1"].shape == (7,)
     assert data["d2"].shape == loc["d2"].shape == scale["d2"].shape == (5,)
     assert jnp.allclose(scale["d1"], 0.3) and jnp.allclose(scale["d2"], 0.9)
+    assert jnp.allclose(data["d1"], graph.node("d1").observed)
+    assert jnp.allclose(data["d2"], graph.node("d2").observed)
 
 
 def test_noise_std_at_moves_with_the_latent_only_for_a_prediction_dependent_node():

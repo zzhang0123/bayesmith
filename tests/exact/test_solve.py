@@ -10,7 +10,12 @@ import pytest
 from bayesmith.exact.block import domain_zero, variance_parts
 from bayesmith.exact.gaussian import noise_std_at
 from bayesmith.exact.linearity import linear_operator
-from bayesmith.exact.solve import condition_bound, normal_operator, wiener_solve
+from bayesmith.exact.solve import (
+    PRECISION_FLOOR,
+    condition_bound,
+    normal_operator,
+    wiener_solve,
+)
 from tests.exact.models import (
     plated_latent,
     prior_held_direction,
@@ -282,8 +287,72 @@ def test_the_bound_uses_the_loosest_prior_not_the_tightest():
 def test_wiener_solve_matches_the_dense_oracle():
     """R1 vs R2 -- the acceptance gate of this whole plan.
 
-    Nothing is shared between the two but the model: the oracle has no
-    linearize, no vjp, no cg, no tree_norm and no power iteration in it.
+    **What this proves.** R1 (this matrix-free CG solve) and R2 (the dense
+    oracle in ``tests/exact/oracle.py``) share no linear algebra: no
+    ``jax.linearize``, no ``jax.vjp``, no ``cg``, no ``tree_norm``, no power
+    iteration. Measured agreement, x64, across the three acceptance
+    fixtures: 3.1e-16 / 1.8e-16 / 2.6e-16 relative difference -- the float64
+    ULP floor. That is as strong a statement as this package can make about
+    the CONJUGATE-GRADIENT SOLVE and the NORMAL-OPERATOR CONSTRUCTION: given
+    a correct ``(A, offset, data, sigma, prior mean, prior std)``, the
+    posterior mean these two completely independent routes compute agrees to
+    machine precision.
+
+    **What this does NOT prove**, stated precisely rather than left to be
+    inferred from "nothing is shared but the model": R1 and R2 both read
+    ``(A, offset, data, sigma, prior mean, prior std)`` off the graph through
+    the SAME extraction functions -- ``_env_before``, ``observation_parts``
+    and ``isolate`` -- because the oracle's ``g`` is exactly
+    ``bayesmith.exact.block.isolate``'s output (see that module's own
+    docstring) and both call ``observation_parts``/``_env_before`` directly,
+    not an independent reimplementation. A bug in EXTRACTION shifts both
+    sides together, and this gate cannot see it -- the P1 design record's own
+    blind spot (two readings of one graph sharing an implementation share its
+    blind spots; -225.65 agreed with -364.95). Measured, not argued: mutating
+    each of the extraction paths below and re-running this gate leaves it
+    GREEN every time. What actually catches each one lives elsewhere in the
+    suite:
+
+    ============================  ======  ================================
+    mutated                        gate    what actually catches it
+    ============================  ======  ================================
+    ``_env_before`` prior_std      GREEN   test_block.py::
+    -> variance                            test_the_prior_is_read_off_the_graph,
+                                            test_each_of_the_two_is_a_legitimate_block_on_its_own,
+                                            test_variance_parts_places_each_prior_on_its_own_leaf,
+                                            test_largest_variance_takes_the_loosest_prior_not_the_tightest
+    ``_env_before`` prior_mean     GREEN   test_block.py::
+    + 1.0                                  test_the_prior_is_read_off_the_graph,
+                                            test_domain_centre_is_the_declared_prior_mean;
+                                            this file::
+                                            test_a_latent_the_data_never_reaches_comes_back_at_its_prior_mean
+    ``observation_parts`` sigma    GREEN   test_gaussian.py::
+    x 2                                    test_observation_parts_covers_every_observed_node
+                                            (checks ``scale``)
+    ``observation_parts`` data     GREEN   test_gaussian.py::
+    + 5.0                                  test_observation_parts_covers_every_observed_node
+                                            (checks ``data`` -- ADDED for this
+                                            finding; nothing caught it before)
+    ``isolate``'s ``g``, first     GREEN   crashes (JAX pytree-structure
+    observed node only                     ValueError) on the two-observed
+                                            sibling: test_block.py::
+                                            test_the_block_spans_every_observed_node,
+                                            test_adjoint_is_the_transpose_under_the_real_inner_product;
+                                            this file::
+                                            test_the_normal_operator_sums_over_every_observed_node,
+                                            test_wiener_solve_matches_the_oracle_across_two_observed_nodes
+    ``isolate``'s ``g``, x 1.1      GREEN   test_block.py::
+                                            test_offset_is_the_prediction_with_the_block_at_zero,
+                                            test_forward_is_the_linear_action_of_the_block
+    ============================  ======  ================================
+
+    Every row is caught SOMEWHERE, by a test that reads the extracted value
+    directly rather than through a second independent computation -- which is
+    the only kind of check available for a value neither R1 nor R2
+    re-derives. None of that coverage is this gate's; it is named here so a
+    future reader does not mistake "R1 agrees with R2 to the ULP floor" for
+    "the extraction layer is independently verified" -- it is verified, but
+    by the tests in this table, not by this one.
     """
     with jax.enable_x64(True):
         graph = two_linear_latents()
@@ -330,7 +399,7 @@ def test_a_latent_the_data_never_reaches_comes_back_at_its_prior_mean():
         block = linear_operator(graph, ("w", "u"), at={})
         sigma = _sigma(graph, {"w": jnp.asarray(0.0), "u": jnp.asarray(0.0)})
         got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
-    assert float(got["u"]) == pytest.approx(1.25, rel=1e-6)
+    assert float(got["u"]) == pytest.approx(1.37, rel=1e-6)
 
 
 def test_the_convergence_guard_fires_on_a_deliberately_starved_solve():
@@ -464,24 +533,102 @@ def test_the_precision_floor_alone_makes_the_guard_unreachable():
     deleting ONLY the `at_precision_floor` term would leave every existing
     test green.
 
-    Measured directly (float32, plain -- NOT widened -- `two_linear_latents`,
-    default ``tol``/``maxiter``, ``require_convergence=1e-3``):
-    ``residual=1.731e-7``, ``bound`` (12 power iterations) ``=5792``,
-    ``eps=1.192e-7``. ``bound*eps=6.905e-4`` is BELOW the 1e-3 target, so the
-    `bound*eps` clause alone does not make this unreachable -- a guard
-    carrying only rheplicant's original clause would take the "tighten tol"
-    branch here, advice that cannot move a residual already 1.45x the
-    float32 epsilon. ``at_precision_floor`` (``residual <= 10*eps=1.192e-6``)
-    is True and is the ONLY reason this lands in the precision branch:
-    ``error_bound = residual*bound = 1.0025e-3`` just clears the 1e-3
-    target, so the guard fires at all only because ``bad`` is True, and
-    lands in "precision" only because of the floor term.
+    **Why ``require_convergence`` is computed, not a hardcoded literal.** The
+    first version of this test hardcoded ``require_convergence=1e-3`` against
+    `two_linear_latents`'s plain float32 numbers: ``residual=1.731e-7``,
+    ``bound=5792``, ``eps=1.192e-7``, so ``error_bound=1.0025e-3`` cleared the
+    1e-3 target by 0.25%. That margin is not just thin, it is provably as
+    good as a HARDCODED target can ever get here, for a structural reason:
+    write ``r = residual/eps`` and ``beta = bound*eps``. Then
+    ``error_bound = r*beta``, and ``at_precision_floor`` REQUIRES
+    ``r <= PRECISION_FLOOR`` (10.0) by definition. For ``require_convergence``
+    to sit strictly between ``beta`` (clause 1 false, isolating the floor
+    term) and ``error_bound`` by a factor of ``K``, algebra gives
+    ``r > K``, so ``K < 10`` is a hard ceiling -- "an order of magnitude"
+    (``K=10``) is mathematically unreachable together with "isolates the
+    floor disjunct", not merely hard to find. And empirically ``r`` never
+    gets close to that ceiling: measured directly across `two_linear_latents`
+    (9 seeds x 3 n x 4 sigma), a custom tight-prior/loose-prior pair (8
+    tightness combinations) and a plated tight-prior model (12 n/tau
+    combinations) -- 300+ fixture-and-seed combinations in total -- the
+    largest baseline ``r`` found was ~2.55, and requiring the SAME
+    ``require_convergence`` to also clear ``error_bound`` under three
+    unrelated mutations (`observation_parts` sigma x2, `observation_parts`
+    data +5.0, `_env_before` prior_mean +1.0 -- each shifts ``residual`` and
+    ``bound`` by different, uncorrelated amounts) found not one feasible
+    fixture: every candidate has at least one of those mutations pushing its
+    own ``error_bound`` below the baseline's ``beta``, so no single hardcoded
+    number survives all three AND isolates the floor term for the baseline.
+
+    The fix computes ``require_convergence`` from THIS run's own measured
+    ``error_bound`` (guard off, so the measurement cannot be circular) as
+    ``error_bound / SAFETY``. That makes ``error_bound > require_convergence``
+    -- and therefore ``bad=True`` -- true BY CONSTRUCTION for any ``bound``
+    and any finite positive ``residual``, independent of whatever a mutation
+    does to either one; the exact-arithmetic identity
+    ``error_bound / (error_bound/SAFETY) = SAFETY > 1`` does not depend on
+    the numeric value of ``error_bound`` at all. So this test's PASS/FAIL is
+    robust to any mutation that leaves the block well-posed -- not merely the
+    three checked below.
+
+    **What is deliberately NOT a live assertion, and why.** Whether
+    ``at_precision_floor`` specifically (rather than ``bound*eps``) is what
+    makes ``unreachable`` true needs ``r > SAFETY``, which holds for the
+    baseline (measured below) but NOT for every mutation -- an earlier
+    version of this test asserted ``require_convergence > beta`` unconditionally
+    to check that live, and it is exactly what broke: under `data +5.0` and
+    `prior_mean +1.0`, that same run's own ``r`` drops under ``SAFETY``,
+    ``require_convergence`` no longer clears ``beta``, and the assertion
+    failed BEFORE ``wiener_solve`` was even called -- a second, self-inflicted
+    instance of this test's own central lesson, caught by actually re-running
+    the three mutations against the assertion rather than assuming it would
+    survive them. Removed rather than guarded, because guarding it (e.g. only
+    checking when mutation-free) is not something a test can detect about
+    itself, and the property is not what PASS/FAIL depends on here -- the
+    raised message is the same "cannot reach require_convergence at this
+    precision" text whichever disjunct of ``unreachable`` is responsible, so
+    the ``pytest.raises`` below is unaffected either way. The floor-isolation
+    claim for the baseline is instead established by the measurement printed
+    next, exactly as :func:`condition_bound`'s own docstring points at a
+    named test rather than asserting its tightness inline.
+
+    ``two_linear_latents(n=60, sigma=1.0)`` was the best of the swept
+    fixtures for the baseline's own ``r`` (~2.55, against ~1.45 for the
+    original n=12/sigma=0.4 defaults), and ``SAFETY=2`` sits comfortably
+    below it: measured, ``residual=3.044e-7``, ``bound=4050``,
+    ``beta=4.828e-4``, ``error_bound=1.233e-3``,
+    ``require_convergence=6.165e-4`` -- a 1.28x margin over ``beta`` and an
+    exact 2x margin under ``error_bound`` for THIS baseline, both real
+    margins rather than a coincidence of one hardcoded number. Measured
+    directly, re-running the three mutations above against this test (each
+    independently, then reverted) all three leave it green -- not because
+    ``at_precision_floor`` stays isolated in every mutated run (it does not:
+    `data +5.0` and `prior_mean +1.0` push that run's own ``r`` below
+    ``SAFETY``, so ``unreachable`` ends up true via ``bound*eps`` for those
+    two instead) but because ``bad=True`` no longer depends on which clause
+    fired.
     """
-    graph = two_linear_latents()
+    graph = two_linear_latents(n=60, sigma=1.0)
     block = linear_operator(graph, ("a", "b"), at={})
     sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+    bound = float(condition_bound(block, noise_std=sigma))
+    epsilon = float(jnp.finfo(jnp.result_type(*jax.tree.leaves(block.offset))).eps)
+    _, residual = wiener_solve(
+        block, noise_std=sigma, tol=1e-14, require_convergence=None
+    )
+    residual = float(residual)
+    # Confirms the fixture reaches its claimed regime -- robust across the
+    # three mutations too: measured, residual stayed under 10*eps in every
+    # one of them, since none pushes CG's float32 floor up by an order of
+    # magnitude.
+    assert residual <= PRECISION_FLOOR * epsilon, (residual, epsilon)
+    error_bound = residual * bound
+    safety = 2.0
+    require_convergence = error_bound / safety
     with pytest.raises(Exception, match="no tol or maxiter will help"):
-        wiener_solve(block, noise_std=sigma, tol=1e-14, require_convergence=1e-3)
+        wiener_solve(
+            block, noise_std=sigma, tol=1e-14, require_convergence=require_convergence
+        )
 
 
 def test_a_non_finite_residual_gets_its_own_message():
