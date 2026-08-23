@@ -183,6 +183,15 @@ class Scale(eqx.Module):
         return self.w * x
 
 
+class ScaledNormal(eqx.Module):
+    """Stand-in for a noise model carrying its own parameters."""
+
+    scale: jax.Array
+
+    def __call__(self, loc):
+        return dist.Normal(loc, self.scale)
+
+
 def test_node_identity_fields_are_static():
     n = Deterministic(
         name="a", parents=("x",), plate=(), fn=lambda x: x, linear_in=("x",)
@@ -213,39 +222,6 @@ def test_a_module_fn_exposes_its_parameters_as_traceable_leaves():
     assert grad.fn.w == jnp.array(5.0)
 
 
-def test_const_holds_its_value_as_an_array_leaf():
-    n = Const(name="X", parents=(), plate=(), value=jnp.arange(3.0))
-    (leaf,) = jax.tree.leaves(n)
-    assert jnp.array_equal(leaf, jnp.arange(3.0))
-
-
-def test_probabilistic_is_latent_when_unobserved_and_observed_otherwise():
-    latent = Probabilistic(
-        name="x", parents=(), plate=(), dist_fn=lambda: dist.Normal(0.0, 1.0),
-        observed=None,
-    )
-    seen = Probabilistic(
-        name="d", parents=("x",), plate=(), dist_fn=lambda m: dist.Normal(m, 1.0),
-        observed=jnp.array([1.0, 2.0]),
-    )
-    assert latent.is_latent
-    assert not seen.is_latent
-
-
-def test_every_node_type_is_a_node():
-    for cls in (Const, Deterministic, Probabilistic):
-        assert issubclass(cls, Node)
-
-
-class ScaledNormal(eqx.Module):
-    """Stand-in for a noise model carrying its own parameters."""
-
-    scale: jax.Array
-
-    def __call__(self, loc):
-        return dist.Normal(loc, self.scale)
-
-
 def test_a_module_dist_fn_exposes_its_parameters_as_traceable_leaves():
     """Same rheplicant-compatibility property, for ``Probabilistic.dist_fn``.
 
@@ -269,6 +245,31 @@ def test_a_module_dist_fn_exposes_its_parameters_as_traceable_leaves():
     )(n, jnp.array(0.5))
     assert jnp.isfinite(grad.dist_fn.scale)
     assert grad.dist_fn.scale != 0.0
+
+
+def test_const_holds_its_value_as_an_array_leaf():
+    n = Const(name="X", parents=(), plate=(), value=jnp.arange(3.0))
+    (leaf,) = jax.tree.leaves(n)
+    assert jnp.array_equal(leaf, jnp.arange(3.0))
+
+
+def test_probabilistic_is_latent_when_unobserved_and_observed_otherwise():
+    latent = Probabilistic(
+        name="x", parents=(), plate=(), dist_fn=lambda: dist.Normal(0.0, 1.0),
+        observed=None,
+    )
+    seen = Probabilistic(
+        name="d", parents=("x",), plate=(),
+        dist_fn=lambda m: dist.Normal(m, 1.0),
+        observed=jnp.array([1.0, 2.0]),
+    )
+    assert latent.is_latent
+    assert not seen.is_latent
+
+
+def test_every_node_type_is_a_node():
+    for cls in (Const, Deterministic, Probabilistic):
+        assert issubclass(cls, Node)
 ```
 
 > 这个 `dist_fn` 测试是 Task 1 的质量审查补上的：原来三个"不得为 static"的测试**只覆盖了 `Deterministic.fn`**，而 `nodes.py` 的 docstring 宣称这条理由同时适用于两个字段。若把 `dist_fn` 翻成 static，整套测试不会变红——一个有文档、无守卫的不变量。已实测：翻成 static 后正是这个测试变红。
@@ -292,11 +293,13 @@ parameters carried by its operators are differentiable leaves for free.
 whose array leaves have to stay traceable so gradients reach the parameters
 inside them. A plain lambda placed in the same field simply becomes a
 non-array leaf, which ``eqx.filter_jit`` routes to the static side. Marking
-these fields ``static=True`` would break the Module case: equinox does NOT
-refuse a JAX array in a static field -- measured on 0.13.8, it only emits a
-UserWarning -- so the module would be absorbed into the pytree aux data and
-``filter_grad`` would silently return each parameter's ORIGINAL VALUE in
-place of its gradient. Nothing raises; the answer is merely wrong.
+these fields ``static=True`` would not raise on the Module case: equinox
+does not refuse a JAX array in a static field, it only warns. Construction
+succeeds, the whole module is absorbed into pytree aux data, and
+``eqx.filter_grad`` then silently returns each parameter's *original* value
+in place of a gradient -- nothing raises, the answer is simply wrong. That
+is the stronger argument for keeping these fields non-static: not a
+constructor error to catch, but a silent wrong answer.
 """
 
 from __future__ import annotations
@@ -704,6 +707,22 @@ def test_plate_is_declared_and_attached():
     assert g.node("X").plate == ("obs",)
 
 
+@pytest.mark.parametrize("bad_plate", [123, "obs", 3.5])
+def test_a_non_plateref_plate_value_is_refused(bad_plate):
+    """plate() returns a handle, not a name -- nothing else is accepted.
+
+    Covers both the old silent bug (a bare string used to work, since
+    plate() itself used to return one) and the old crash (a bare int used to
+    escape as an uncaught TypeError instead of an actionable GraphError).
+    """
+
+    def model():
+        const("X", jnp.arange(3.0), plate=bad_plate)
+
+    with pytest.raises(GraphError, match="PlateRef"):
+        trace(model)
+
+
 def test_a_primitive_outside_trace_is_refused():
     with pytest.raises(TraceError, match="must be called inside trace"):
         sample("x", lambda: dist.Normal(0.0, 1.0))
@@ -715,6 +734,15 @@ def test_a_duplicate_name_is_refused_during_tracing():
         sample("x", lambda: dist.Normal(0.0, 1.0))
 
     with pytest.raises(GraphError, match="duplicate node name 'x'"):
+        trace(model)
+
+
+def test_a_duplicate_plate_name_is_refused_during_tracing():
+    def model():
+        plate("obs", 3)
+        plate("obs", 5)
+
+    with pytest.raises(GraphError, match="duplicate plate name 'obs'"):
         trace(model)
 
 
@@ -772,6 +800,44 @@ def test_an_explicit_graph_and_a_traced_one_agree_on_structure():
     assert traced.names == built.names
     assert [n.parents for n in traced.nodes] == [n.parents for n in built.nodes]
     assert traced.node("mu").linear_in == built.node("mu").linear_in
+
+
+def test_a_noderef_from_an_outer_trace_is_refused_by_an_inner_trace():
+    """A handle must resolve by owner, not by name, across trace() calls.
+
+    Reproduces the silent-misattachment failure mode this guards against:
+    without an owner check, the inner "shared" Const would silently satisfy
+    a parent reference actually meant for the outer Probabilistic of the
+    same name, because parents were resolved by name alone.
+    """
+    outer = {}
+
+    def inner_model():
+        const("shared", jnp.array(42.0))
+        det("y", lambda v: v, outer["handle"])
+
+    def outer_model():
+        outer["handle"] = sample("shared", lambda: dist.Normal(0.0, 1.0))
+        trace(inner_model)
+
+    with pytest.raises(GraphError, match="different trace"):
+        trace(outer_model)
+
+
+def test_a_plateref_from_a_different_trace_is_refused():
+    """A plate handle must resolve by owner, not by name, across trace() calls."""
+    outer = {}
+
+    def inner_model():
+        plate("obs", 10)  # same name as the outer plate, unrelated otherwise
+        const("X", jnp.arange(3.0), plate=outer["handle"])
+
+    def outer_model():
+        outer["handle"] = plate("obs", 3)
+        trace(inner_model)
+
+    with pytest.raises(GraphError, match="different trace"):
+        trace(outer_model)
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -792,7 +858,17 @@ package relies on.
 
 Edges are declared by passing a :class:`NodeRef` returned by an earlier
 primitive, not by inspecting argument names. That keeps ``parents`` explicit
-and ordered, which is what ``fn`` and ``dist_fn`` are called with.
+and ordered, which is what ``fn`` and ``dist_fn`` are called with. A
+``NodeRef`` (and likewise a ``PlateRef``) is bound to the recorder of the
+``trace(...)`` call that created it, so a handle from a different trace is
+refused rather than silently resolving by name against whatever the active
+trace happens to have declared -- see ``_parent_names`` and ``_plate_names``.
+
+**Not thread-safe.** ``_STACK`` is a single process-global list. It supports
+nested ``trace(...)`` calls on one thread (an inner trace pushes and pops its
+own recorder around the outer one), but concurrent ``trace(...)`` calls from
+multiple threads race on the same stack and can attribute one thread's nodes
+to another thread's graph. Confine tracing to a single thread at a time.
 """
 
 from __future__ import annotations
@@ -808,15 +884,42 @@ from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
 
 
 class NodeRef:
-    """A handle to a declared node. Pass one to declare an edge."""
+    """A handle to a declared node. Pass one to declare an edge.
 
-    __slots__ = ("name",)
+    Bound to the recorder of the ``trace(...)`` call that created it. A
+    parent must be a ``NodeRef`` minted by the *currently active* trace --
+    enforced in ``_parent_names`` -- so a handle leaked in from an outer or
+    an earlier trace is refused instead of silently resolving against a
+    same-named node the active trace happens to declare.
+    """
 
-    def __init__(self, name: str) -> None:
+    __slots__ = ("_owner", "name")
+
+    def __init__(self, name: str, owner: _Recorder) -> None:
         self.name = name
+        self._owner = owner
 
     def __repr__(self) -> str:
         return f"NodeRef({self.name!r})"
+
+
+class PlateRef:
+    """A handle to a declared plate. Pass one as ``plate=`` to place a node.
+
+    Owner-checked the same way as :class:`NodeRef`, for the same reason:
+    without it, a plate name that merely *coincides* with one declared by a
+    different (or an outer) trace would bind silently -- enforced in
+    ``_plate_names``.
+    """
+
+    __slots__ = ("_owner", "name")
+
+    def __init__(self, name: str, owner: _Recorder) -> None:
+        self.name = name
+        self._owner = owner
+
+    def __repr__(self) -> str:
+        return f"PlateRef({self.name!r})"
 
 
 class _Recorder:
@@ -844,42 +947,91 @@ def _active() -> _Recorder:
     return _STACK[-1]
 
 
-def _parent_names(parents: Sequence[NodeRef]) -> tuple[str, ...]:
+def _parent_names(
+    parents: Sequence[NodeRef], recorder: _Recorder
+) -> tuple[str, ...]:
     for parent in parents:
         if not isinstance(parent, NodeRef):
             raise GraphError(
-                f"parents must be NodeRef values returned by const/det/sample/"
-                f"observe; got {type(parent).__name__}. Pass the handle, not the "
-                "value."
+                "parents must be NodeRef values returned by const/det/sample/"
+                f"observe; got {type(parent).__name__}. Pass the handle, not "
+                "the value."
+            )
+        if parent._owner is not recorder:
+            raise GraphError(
+                f"parent {parent.name!r} is a NodeRef from a different "
+                "trace(...) call. A handle is only valid inside the "
+                "trace(...) that created it -- pass a NodeRef this model just "
+                "declared, not one captured from an outer or an earlier "
+                "trace."
             )
     return tuple(parent.name for parent in parents)
 
 
-def _plate_names(plate_arg: str | Iterable[str] | None) -> tuple[str, ...]:
+def _plate_names(
+    plate_arg: PlateRef | Iterable[PlateRef] | None, recorder: _Recorder
+) -> tuple[str, ...]:
     if plate_arg is None:
         return ()
-    if isinstance(plate_arg, str):
-        return (plate_arg,)
-    return tuple(plate_arg)
+    if isinstance(plate_arg, PlateRef):
+        candidates: tuple[Any, ...] = (plate_arg,)
+    elif isinstance(plate_arg, Iterable) and not isinstance(plate_arg, (str, bytes)):
+        candidates = tuple(plate_arg)
+    else:
+        # Not a PlateRef and not iterable (a bare str, an int, ...) -- let the
+        # loop below reject it with one uniform, actionable message instead
+        # of a bare TypeError from trying to iterate it.
+        candidates = (plate_arg,)
+
+    names: list[str] = []
+    for ref in candidates:
+        if not isinstance(ref, PlateRef):
+            raise GraphError(
+                "plate must be a PlateRef returned by plate(...), or an "
+                f"iterable of them; got {type(ref).__name__}. Pass the handle "
+                "plate() returned, not a bare name."
+            )
+        if ref._owner is not recorder:
+            raise GraphError(
+                f"plate {ref.name!r} is a PlateRef from a different "
+                "trace(...) call. A handle is only valid inside the "
+                "trace(...) that created it -- pass a PlateRef this model "
+                "just declared, not one captured from an outer or an earlier "
+                "trace."
+            )
+        names.append(ref.name)
+    return tuple(names)
 
 
-def plate(name: str, size: int) -> str:
-    """Declare a repetition axis and return its name."""
+# NB: const/det/sample/observe below each take a keyword parameter named
+# "plate" (the node's plate placement), which shadows this module-level
+# function for the duration of each body. None of those bodies call plate()
+# internally, so it is not a bug today -- but if a future edit needs to,
+# rename the parameter first (every call site passes it by keyword, so the
+# rename is a mechanical `plate=` find-and-replace).
+def plate(name: str, size: int) -> PlateRef:
+    """Declare a repetition axis and return a handle to it."""
     recorder = _active()
     for existing in recorder.plates:
         if existing.name == name:
             raise GraphError(f"duplicate plate name {name!r}")
     recorder.plates.append(Plate(name=name, size=int(size)))
-    return name
+    return PlateRef(name, recorder)
 
 
-def const(name: str, value: Any, *, plate: str | Iterable[str] | None = None) -> NodeRef:
+def const(
+    name: str, value: Any, *, plate: PlateRef | Iterable[PlateRef] | None = None
+) -> NodeRef:
     """Declare a fixed input node."""
+    recorder = _active()
     node = Const(
-        name=name, parents=(), plate=_plate_names(plate), value=jnp.asarray(value)
+        name=name,
+        parents=(),
+        plate=_plate_names(plate, recorder),
+        value=jnp.asarray(value),
     )
-    _active().add(node)
-    return NodeRef(name)
+    recorder.add(node)
+    return NodeRef(name, recorder)
 
 
 def det(
@@ -887,36 +1039,38 @@ def det(
     fn: Callable[..., Any],
     *parents: NodeRef,
     linear_in: Iterable[str] = (),
-    plate: str | Iterable[str] | None = None,
+    plate: PlateRef | Iterable[PlateRef] | None = None,
 ) -> NodeRef:
     """Declare a deterministic node: it propagates dependence, no density."""
+    recorder = _active()
     node = Deterministic(
         name=name,
-        parents=_parent_names(parents),
-        plate=_plate_names(plate),
+        parents=_parent_names(parents, recorder),
+        plate=_plate_names(plate, recorder),
         fn=fn,
         linear_in=tuple(linear_in),
     )
-    _active().add(node)
-    return NodeRef(name)
+    recorder.add(node)
+    return NodeRef(name, recorder)
 
 
 def sample(
     name: str,
     dist_fn: Callable[..., Any],
     *parents: NodeRef,
-    plate: str | Iterable[str] | None = None,
+    plate: PlateRef | Iterable[PlateRef] | None = None,
 ) -> NodeRef:
     """Declare a latent probabilistic node."""
+    recorder = _active()
     node = Probabilistic(
         name=name,
-        parents=_parent_names(parents),
-        plate=_plate_names(plate),
+        parents=_parent_names(parents, recorder),
+        plate=_plate_names(plate, recorder),
         dist_fn=dist_fn,
         observed=None,
     )
-    _active().add(node)
-    return NodeRef(name)
+    recorder.add(node)
+    return NodeRef(name, recorder)
 
 
 def observe(
@@ -924,18 +1078,19 @@ def observe(
     dist_fn: Callable[..., Any],
     *parents: NodeRef,
     obs: Any,
-    plate: str | Iterable[str] | None = None,
+    plate: PlateRef | Iterable[PlateRef] | None = None,
 ) -> NodeRef:
     """Declare a probabilistic node conditioned on data."""
+    recorder = _active()
     node = Probabilistic(
         name=name,
-        parents=_parent_names(parents),
-        plate=_plate_names(plate),
+        parents=_parent_names(parents, recorder),
+        plate=_plate_names(plate, recorder),
         dist_fn=dist_fn,
         observed=jnp.asarray(obs),
     )
-    _active().add(node)
-    return NodeRef(name)
+    recorder.add(node)
+    return NodeRef(name, recorder)
 
 
 def trace(model_fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Graph:
@@ -1022,12 +1177,40 @@ def test_a_value_for_an_unknown_name_is_refused():
         evaluate(_linear_model(), {"a": jnp.array(1.0), "nope": jnp.array(0.0)})
 
 
+def test_a_value_for_an_observed_node_explains_it_is_observed():
+    """The refusal names the actual reason, not a generic "not latent".
+
+    An observed node is the most likely real mistake -- someone who has
+    not internalised the latent/observed split and tries to pass all their
+    data through ``values`` -- so it gets its own explanation rather than
+    sharing text with the deterministic/constant/unknown-name cases.
+    """
+    with pytest.raises(
+        GraphError, match="values names 'd', which is an observed node"
+    ):
+        evaluate(_linear_model(), {"a": jnp.array(1.0), "d": jnp.zeros(3)})
+
+
 def test_evaluate_is_differentiable_through_a_module_operator():
-    """A parameterised operator inside a node stays differentiable."""
+    """A parameterised operator inside a node stays differentiable.
+
+    X and w are chosen so the true gradient (``sum(X)``) cannot coincide
+    with w's own value, and the expectation is computed from X rather than
+    written as a bare literal that could drift back into coincidence. Both
+    guard against the same failure mode: equinox does not refuse a JAX
+    array in a static field, it only warns -- so if ``fn`` were ever made
+    static, the whole ``Scale`` module would be absorbed into pytree aux
+    data and ``eqx.filter_grad`` would silently return each leaf's
+    *original* value in place of a gradient. Nothing raises. If w happened
+    to equal ``sum(X)``, that wrong answer would be indistinguishable from
+    the right one.
+    """
+    X = jnp.array([1.0, 5.0])
+    w = jnp.array(2.0)
 
     def model():
-        X = const("X", jnp.array([1.0, 2.0]))
-        det("mu", Scale(w=jnp.array(3.0)), X)
+        Xc = const("X", X)
+        det("mu", Scale(w=w), Xc)
 
     graph = trace(model)
 
@@ -1035,7 +1218,7 @@ def test_evaluate_is_differentiable_through_a_module_operator():
         return jnp.sum(evaluate(g, {})["mu"])
 
     grad = eqx.filter_grad(total)(graph)
-    assert jnp.allclose(grad.nodes[1].fn.w, jnp.array(3.0))
+    assert jnp.allclose(grad.nodes[1].fn.w, jnp.sum(X))
 
 
 def test_evaluate_is_jittable():
@@ -1117,9 +1300,24 @@ def evaluate(graph: Graph, values: Mapping[str, Any] | None = None) -> Env:
     values = dict(values or {})
     unknown = set(values) - set(graph.latents)
     if unknown:
+        name = min(unknown)
+        if name not in graph.names:
+            raise GraphError(
+                f"values names {name!r}, which does not name any node in "
+                f"this graph. Latents are {list(graph.latents)}."
+            )
+        if isinstance(graph.node(name), Probabilistic):
+            # In graph.names but excluded from graph.latents above, and
+            # Probabilistic: the only way to be both is to be observed.
+            raise GraphError(
+                f"values names {name!r}, which is an observed node: its "
+                "value comes from observe(..., obs=...), not from `values`. "
+                f"Latents are {list(graph.latents)}."
+            )
         raise GraphError(
-            f"values names {sorted(unknown)[0]!r}, which is not a latent node of "
-            f"this graph. Latents are {list(graph.latents)}."
+            f"values names {name!r}, which is a deterministic or constant "
+            "node: its value is computed, not supplied via `values`. "
+            f"Latents are {list(graph.latents)}."
         )
 
     env: Env = {}
@@ -1138,8 +1336,13 @@ def evaluate(graph: Graph, values: Mapping[str, Any] | None = None) -> Env:
                     f"latent node {node.name!r} has no value. Supply one in "
                     "`values`, or condition the node with observe(...)."
                 )
-        else:  # pragma: no cover - Node is abstract in practice
-            raise GraphError(f"unknown node type {type(node).__name__}")
+        else:
+            # Live defensive code, not dead code: Node is a plain eqx.Module
+            # (not an ABC) and Graph.__check_init__ does not check node
+            # subtype, so a hand-built Graph containing a bare Node (or any
+            # subclass other than Const/Deterministic/Probabilistic) reaches
+            # this branch and raises correctly here.
+            raise GraphError(f"unknown node type {type(node).__name__}")  # pragma: no cover
     return env
 
 
@@ -1462,6 +1665,28 @@ def test_the_bridged_model_can_be_sampled_from_the_prior():
     predictive = numpyro.infer.Predictive(to_numpyro(graph), num_samples=8)
     draws = predictive(jax.random.key(1))
     assert draws["a"].shape == (8,)
+
+
+def test_a_plated_latent_site_carries_the_plate_axis():
+    """A dropped plate is invisible to the density-agreement check: without
+    subsampling, ``numpyro.plate`` contributes no scale factor, and the
+    plated test above only plates an *observed* site of fixed shape. Plate a
+    *latent* instead: ``dist.Normal(0.0, 1.0)`` has batch shape ``()``, so a
+    sampled value only picks up a leading axis if the plate was actually
+    applied. Plate size 5 appears nowhere else in this file (the other
+    sizes are 3 and 8), so a wrong-but-plausible shape can't pass by luck.
+    """
+    n = 5
+
+    def model():
+        obs = plate("obs", n)
+        sample("x", lambda: dist.Normal(0.0, 1.0), plate=obs)
+
+    graph = trace(model)
+    trace_ = numpyro.handlers.trace(
+        numpyro.handlers.seed(to_numpyro(graph), jax.random.key(0))
+    ).get_trace()
+    assert trace_["x"]["value"].shape == (n,)
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -1751,6 +1976,21 @@ Normal-normal conjugacy: x ~ N(0, tau^2), d_i ~ N(x, sigma^2), i = 1..N gives
     var_post  = 1 / (1/tau^2 + N/sigma^2)
     mean_post = var_post * sum(d) / sigma^2
 
+TAU is deliberately smaller than SIGMA: the prior precision 1/tau^2 = 4.0 is
+16x the per-observation precision 1/sigma^2 = 0.25, so the prior supplies
+about 94% of the posterior precision at n=1, dropping to about 44% at n=20
+and 7% at n=200. That gradient is what makes a silently-dropped prior term
+observable at all: deleting it pulls the posterior mean toward the raw data
+mean by an offset set by the prior, while NUTS keeps sampling the true
+(correct) posterior regardless -- and because the posterior also concentrates
+sharply as n grows, that fixed-looking offset shows up as an enormous
+z-score at every n this file sweeps, not only at the small-n end where the
+prior's precision share is largest. (An earlier version of these constants,
+TAU=2.0 and SIGMA=0.5, had the ratio backwards: the likelihood so dominated
+even at n=1 that dropping the prior term entirely still landed inside this
+test's tolerances -- an oracle that cannot fail this way is not fit to be
+the package's acceptance gate.)
+
 Everything upstream of this file is self-consistent by construction; this is
 where the package first has to be *right*.
 """
@@ -1765,8 +2005,8 @@ from numpyro.diagnostics import effective_sample_size
 from bayesmith.bridge.numpyro_bridge import nuts
 from bayesmith.graph.trace import observe, sample, trace
 
-TAU = 2.0
-SIGMA = 0.5
+TAU = 0.5
+SIGMA = 2.0
 
 
 def _graph(data):
@@ -1834,12 +2074,12 @@ conditional density. The graph's structure is what selects the inference
 method -- exact where a subgraph permits one, NUTS where it does not.
 """
 
-from bayesmith.bridge.numpyro_bridge import nuts, to_numpyro
+from __future__ import annotations
+
+import importlib
+from typing import Any
+
 from bayesmith.errors import BayesmithError, GraphError, TraceError
-from bayesmith.graph.evaluate import evaluate, log_joint
-from bayesmith.graph.graph import Graph, Plate
-from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
-from bayesmith.graph.trace import NodeRef, const, det, observe, plate, sample, trace
 
 __all__ = [
     # tracing
@@ -1850,6 +2090,7 @@ __all__ = [
     "observe",
     "plate",
     "NodeRef",
+    "PlateRef",
     # graph
     "Graph",
     "Plate",
@@ -1868,6 +2109,62 @@ __all__ = [
     "GraphError",
     "TraceError",
 ]
+
+# Every public name above except the three error classes is resolved lazily,
+# on first attribute access, rather than imported here at module scope.
+# Importing eagerly would make `import bayesmith` load numpyro (hence jax) as
+# a side effect -- exactly the regression this module previously had: Python
+# always runs a package's __init__.py before any of its submodules, so even
+# `import bayesmith.errors` was dragging in the whole bridge, which broke the
+# stdlib-only contract errors.py documents for itself and which
+# test_errors_module_imports_no_heavy_dependency enforces. Only errors.py is
+# cheap and stdlib-only, so it alone is still imported eagerly above.
+#
+# name -> (owning submodule, attribute name within it)
+_LAZY_ATTRS: dict[str, tuple[str, str]] = {
+    "trace": ("bayesmith.graph.trace", "trace"),
+    "const": ("bayesmith.graph.trace", "const"),
+    "det": ("bayesmith.graph.trace", "det"),
+    "sample": ("bayesmith.graph.trace", "sample"),
+    "observe": ("bayesmith.graph.trace", "observe"),
+    "plate": ("bayesmith.graph.trace", "plate"),
+    "NodeRef": ("bayesmith.graph.trace", "NodeRef"),
+    "PlateRef": ("bayesmith.graph.trace", "PlateRef"),
+    "Graph": ("bayesmith.graph.graph", "Graph"),
+    "Plate": ("bayesmith.graph.graph", "Plate"),
+    "Node": ("bayesmith.graph.nodes", "Node"),
+    "Const": ("bayesmith.graph.nodes", "Const"),
+    "Deterministic": ("bayesmith.graph.nodes", "Deterministic"),
+    "Probabilistic": ("bayesmith.graph.nodes", "Probabilistic"),
+    "evaluate": ("bayesmith.graph.evaluate", "evaluate"),
+    "log_joint": ("bayesmith.graph.evaluate", "log_joint"),
+    "to_numpyro": ("bayesmith.bridge.numpyro_bridge", "to_numpyro"),
+    "nuts": ("bayesmith.bridge.numpyro_bridge", "nuts"),
+}
+
+# Subpackages reachable as `bayesmith.<name>` after a bare `import bayesmith`,
+# without eagerly importing any of them -- `bridge` in particular is what
+# pulls in numpyro. `errors` is listed too for __dir__'s sake even though the
+# eager import above already binds it as a real attribute, so __getattr__ is
+# never actually consulted for it.
+_LAZY_SUBMODULES = ("graph", "bridge", "errors")
+
+
+def __getattr__(name: str) -> Any:
+    if name in _LAZY_ATTRS:
+        module_name, attr_name = _LAZY_ATTRS[name]
+        value = getattr(importlib.import_module(module_name), attr_name)
+        globals()[name] = value  # cache: later lookups skip __getattr__
+        return value
+    if name in _LAZY_SUBMODULES:
+        module = importlib.import_module(f"{__name__}.{name}")
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_LAZY_ATTRS) | set(_LAZY_SUBMODULES))
 ```
 
 - [ ] **Step 5: 写公共 API 的冒烟测试**
@@ -1880,6 +2177,34 @@ import bayesmith
 def test_every_exported_name_resolves():
     for name in bayesmith.__all__:
         assert hasattr(bayesmith, name), name
+
+
+def test_importing_bayesmith_stays_light():
+    """``import bayesmith`` must not pull in jax or numpyro.
+
+    A subprocess, not an in-process ``sys.modules`` check: by the time this
+    test runs, pytest's own process has almost certainly already imported
+    jax/numpyro via other test modules, which would make an in-process check
+    pass regardless of what ``bayesmith/__init__.py`` actually does. Mirrors
+    ``test_errors_module_imports_no_heavy_dependency`` in ``test_errors.py``
+    -- and pins the more general claim that one relies on: Python always
+    runs a package's ``__init__.py`` before any of its submodules, so a bare
+    ``import bayesmith`` is the more direct thing to check, and the one that
+    was actually broken (an eager ``__init__.py`` drags jax/numpyro in even
+    for ``import bayesmith.errors`` alone).
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import bayesmith, sys; "
+        "print(sorted({'jax', 'numpy', 'numpyro'} & set(sys.modules)))"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"
 
 
 def test_the_readme_example_runs():
@@ -1907,6 +2232,35 @@ Expected: 2 passed
 git add -A
 git commit -m "feat: public API, and pin NUTS against the conjugate closed form"
 ```
+
+---
+
+## 执行记录：质量审查发现了什么
+
+本计划的代码块已回填为仓库的实际内容，与实现 AST 全量一致（Task 0 的 `__init__.py` 除外，那是它当时的正确产物，Task 9 替换了它）。
+
+八轮代码质量审查发现了 **8 个真实缺陷**。值得记录的是它们的分布：**没有一个是实施错误**——每个任务的代码都逐字符符合计划、AST 比对全过。全部 8 个都源于计划本身，形状高度一致：**有文档、无守卫，或守卫看似存在实则无效**。
+
+| # | 任务 | 缺陷 | 为何三道关里只有质量审查能发现 |
+|---|---|---|---|
+| 1 | 0 | 名字承诺"可捕获"的测试只有 `issubclass` 断言 | 规格比对通过——因为计划里写的就是这样 |
+| 2 | 1 | docstring 称"两个字段都不能是 static"，但只有 `fn` 有测试保护 | 需要跨文件推理"这条不变量有守卫吗" |
+| 3 | 2 | `plate_size()` 的 `Raises:` 契约零覆盖 | 需要跑覆盖率或变异测试 |
+| 4 | 2 | 重复 plate 名被静默吞掉（重复节点名却会报错） | 需要注意到同一函数内的不对称 |
+| 5 | 3 | `NodeRef` 只带名字 → 跨 trace 的 handle 静默绑到同名的别的节点 | 需要构造跨作用域场景 |
+| 6 | 4 | 可微性测试的 fixture 数值巧合（`w=3.0`，`sum(X)=3.0`），使**本包最核心保证**的唯一守卫完全无效 | 只有变异测试能发现 |
+| 7 | 7 | 删掉 bridge 的 plate 包装，5 个测试全绿 | 只有变异测试能发现 |
+| 8 | 9 | 公共 API 的急切导入打破了 `errors.py` 的"仅 stdlib"不变量 | 全套测试运行时才暴露 |
+
+另外两处是我在写计划时的事实性错误，由审查纠正：
+
+- **equinox 0.13.8 不会拒绝静态字段里的 JAX 数组**，只发一条 `UserWarning`。后果比报错糟：模块被吸进 pytree aux 数据，`filter_grad` 静默返回参数原值而非梯度。
+- **共轭预言机原本对"先验整个丢失"不敏感**：`TAU=2.0, SIGMA=0.5` 下似然精度是先验的 16 倍，即使 n=1 先验也只占不到 6% 的后验精度。改成 `TAU=0.5, SIGMA=2.0` 后，删除先验项在三个 n 上分别产生 10.4σ / 66.1σ / 34.6σ 的偏离。
+
+**方法论上的两点收获**，可用于后续 P3–P7：
+
+1. **规格合规应当机器化。** 把计划的代码块与提交的文件做 AST 比对，比让代理读两遍文件更强也更快（几秒钟），而且立刻能区分实质差异与排版差异。
+2. **变异测试是唯一能发现"守卫无效"的手段。** 上表 8 个缺陷里有 3 个（#3、#6、#7）只有靠"故意破坏实现、看测试是否变红"才能暴露。应把它作为每个任务的标准动作，而不是审查者的自选项。
 
 ---
 
