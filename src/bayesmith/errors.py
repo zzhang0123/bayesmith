@@ -13,7 +13,7 @@ class BayesmithError(Exception):
 
 
 class GraphError(BayesmithError, ValueError):
-    """A graph was declared inconsistently.
+    """A graph was declared or evaluated inconsistently.
 
     Covers: a node naming a parent that was not declared before it, a
     duplicate node name, a latent node left without a value, and a plate
