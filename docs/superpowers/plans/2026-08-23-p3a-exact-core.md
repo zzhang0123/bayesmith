@@ -107,7 +107,9 @@ Task 5 的四条断言实测时顺带量了守卫在**两种精度**下的实际
 
 ## 一条精度纪律
 
-**本包绝不在任何位置调用 `jax.config.update("jax_enable_x64", ...)`**——进程级全局，会静默改变宿主之后创建的每个数组的 dtype，且关不回去。需要 float64 时用 `with jax.enable_x64(True):`，并在块内转出到 NumPy。需要 x64 的测试打 `@pytest.mark.x64`（marker 已在 `pyproject.toml` 声明）。
+**本包绝不在任何位置调用 `jax.config.update("jax_enable_x64", ...)`**——进程级全局，会静默改变宿主之后创建的每个数组的 dtype，且关不回去。需要 float64 时用 `with jax.enable_x64(True):`，并在块内转出到 NumPy。**不要给 x64 测试打 `@pytest.mark.x64`。** `pyproject.toml` 里那个 marker 是 P1 时期的产物，它的描述说"需要 `JAX_ENABLE_X64=1`，作为单独会话运行"——而 `jax.enable_x64(True)` 是**线程局部**的上下文管理器，计入 jit key、可嵌套、退出完全还原，所以根本不需要单独会话。marker 因此是多余的，本计划的测试一个都没打（Task 5 的实现者正确地指出了这处不一致而没有自行发明约定）。
+
+**但有一条真陷阱**：`jax.enable_x64` 只影响它**之后**创建的数组，而 `const`/`observe` 在 `trace()` 时就调了 `jnp.asarray`。所以**图必须在 `with` 块内构造**——否则图是 float32 的，无论求解跑在什么上下文里，而预言机会变成被比较的两者中精度较低的那个。
 
 ---
 
