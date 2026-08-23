@@ -62,9 +62,24 @@ def evaluate(graph: Graph, values: Mapping[str, Any] | None = None) -> Env:
     values = dict(values or {})
     unknown = set(values) - set(graph.latents)
     if unknown:
+        name = min(unknown)
+        if name not in graph.names:
+            raise GraphError(
+                f"values names {name!r}, which does not name any node in "
+                f"this graph. Latents are {list(graph.latents)}."
+            )
+        if isinstance(graph.node(name), Probabilistic):
+            # In graph.names but excluded from graph.latents above, and
+            # Probabilistic: the only way to be both is to be observed.
+            raise GraphError(
+                f"values names {name!r}, which is an observed node: its "
+                "value comes from observe(..., obs=...), not from `values`. "
+                f"Latents are {list(graph.latents)}."
+            )
         raise GraphError(
-            f"values names {sorted(unknown)[0]!r}, which is not a latent node of "
-            f"this graph. Latents are {list(graph.latents)}."
+            f"values names {name!r}, which is a deterministic or constant "
+            "node: its value is computed, not supplied via `values`. "
+            f"Latents are {list(graph.latents)}."
         )
 
     env: Env = {}
@@ -83,8 +98,13 @@ def evaluate(graph: Graph, values: Mapping[str, Any] | None = None) -> Env:
                     f"latent node {node.name!r} has no value. Supply one in "
                     "`values`, or condition the node with observe(...)."
                 )
-        else:  # pragma: no cover - Node is abstract in practice
-            raise GraphError(f"unknown node type {type(node).__name__}")
+        else:
+            # Live defensive code, not dead code: Node is a plain eqx.Module
+            # (not an ABC) and Graph.__check_init__ does not check node
+            # subtype, so a hand-built Graph containing a bare Node (or any
+            # subclass other than Const/Deterministic/Probabilistic) reaches
+            # this branch and raises correctly here.
+            raise GraphError(f"unknown node type {type(node).__name__}")  # pragma: no cover
     return env
 
 

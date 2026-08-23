@@ -8,8 +8,13 @@ parameters carried by its operators are differentiable leaves for free.
 whose array leaves have to stay traceable so gradients reach the parameters
 inside them. A plain lambda placed in the same field simply becomes a
 non-array leaf, which ``eqx.filter_jit`` routes to the static side. Marking
-these fields ``static=True`` would break the Module case outright: equinox
-refuses a JAX array in a static field.
+these fields ``static=True`` would not raise on the Module case: equinox
+does not refuse a JAX array in a static field, it only warns. Construction
+succeeds, the whole module is absorbed into pytree aux data, and
+``eqx.filter_grad`` then silently returns each parameter's *original* value
+in place of a gradient -- nothing raises, the answer is simply wrong. That
+is the stronger argument for keeping these fields non-static: not a
+constructor error to catch, but a silent wrong answer.
 """
 
 from __future__ import annotations

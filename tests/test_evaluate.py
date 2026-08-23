@@ -47,12 +47,40 @@ def test_a_value_for_an_unknown_name_is_refused():
         evaluate(_linear_model(), {"a": jnp.array(1.0), "nope": jnp.array(0.0)})
 
 
+def test_a_value_for_an_observed_node_explains_it_is_observed():
+    """The refusal names the actual reason, not a generic "not latent".
+
+    An observed node is the most likely real mistake -- someone who has
+    not internalised the latent/observed split and tries to pass all their
+    data through ``values`` -- so it gets its own explanation rather than
+    sharing text with the deterministic/constant/unknown-name cases.
+    """
+    with pytest.raises(
+        GraphError, match="values names 'd', which is an observed node"
+    ):
+        evaluate(_linear_model(), {"a": jnp.array(1.0), "d": jnp.zeros(3)})
+
+
 def test_evaluate_is_differentiable_through_a_module_operator():
-    """A parameterised operator inside a node stays differentiable."""
+    """A parameterised operator inside a node stays differentiable.
+
+    X and w are chosen so the true gradient (``sum(X)``) cannot coincide
+    with w's own value, and the expectation is computed from X rather than
+    written as a bare literal that could drift back into coincidence. Both
+    guard against the same failure mode: equinox does not refuse a JAX
+    array in a static field, it only warns -- so if ``fn`` were ever made
+    static, the whole ``Scale`` module would be absorbed into pytree aux
+    data and ``eqx.filter_grad`` would silently return each leaf's
+    *original* value in place of a gradient. Nothing raises. If w happened
+    to equal ``sum(X)``, that wrong answer would be indistinguishable from
+    the right one.
+    """
+    X = jnp.array([1.0, 5.0])
+    w = jnp.array(2.0)
 
     def model():
-        X = const("X", jnp.array([1.0, 2.0]))
-        det("mu", Scale(w=jnp.array(3.0)), X)
+        Xc = const("X", X)
+        det("mu", Scale(w=w), Xc)
 
     graph = trace(model)
 
@@ -60,7 +88,7 @@ def test_evaluate_is_differentiable_through_a_module_operator():
         return jnp.sum(evaluate(g, {})["mu"])
 
     grad = eqx.filter_grad(total)(graph)
-    assert jnp.allclose(grad.nodes[1].fn.w, jnp.array(3.0))
+    assert jnp.allclose(grad.nodes[1].fn.w, jnp.sum(X))
 
 
 def test_evaluate_is_jittable():
