@@ -60,11 +60,23 @@ class NotGaussian(BayesmithError, TypeError):
     perfectly good non-Gaussian nodes. P3b's classifier catches this and
     routes the block to NUTS.
 
-    **A sibling of** :class:`StructureError`, never a subclass, and derived
-    from a different builtin on purpose. A dispatcher writing
-    ``except NotGaussian`` must NOT also swallow a :class:`StructureError`:
-    that one means a node's *type* says Normal while its own ``log_prob``
-    says otherwise, and silently downgrading that to NUTS would hide a broken
-    model behind an ordinary-looking fallback. Were this class a subclass --
-    or were both ``ValueError`` -- one ``except`` would catch both.
+    **A sibling of** :class:`StructureError`, and never a subclass of it in
+    either direction. A dispatcher writing ``except NotGaussian`` must NOT
+    also swallow a :class:`StructureError`: that one means a node's *type*
+    says Normal while its own ``log_prob`` says otherwise, and silently
+    downgrading it to NUTS would hide a broken model behind an
+    ordinary-looking fallback.
+
+    A subclass relationship, in either direction, is the ONE thing that would
+    break this -- and it is worth being precise about which, because two
+    classes that merely *share* a base are unaffected. ``except`` matches on
+    the raised exception's MRO, not on a common ancestor: these two already
+    share :class:`BayesmithError`, and neither catches the other. Measured,
+    because an earlier draft of this docstring claimed otherwise.
+
+    The differing builtin bases -- ``TypeError`` here against
+    :class:`StructureError`'s ``ValueError`` -- therefore buy something
+    narrower, and something real: a *generic* handler can tell the two apart,
+    so an ``except ValueError`` around a modelling call sees the broken-model
+    case and not the ordinary not-conjugate one.
     """

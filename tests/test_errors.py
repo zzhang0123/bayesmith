@@ -22,12 +22,18 @@ def test_trace_error_is_catchable_as_the_family_and_as_runtime_error():
 
 
 def test_errors_module_imports_no_heavy_dependency():
-    """errors.py is on every import path, so it must stay stdlib-only."""
+    """errors.py is on every import path, so it must stay stdlib-only.
+
+    The name check for P3's three classes rides along in this same
+    subprocess rather than getting one of its own: importing the module is
+    what proves both, so a second spawn would only re-prove the first half.
+    """
     import subprocess
     import sys
 
     code = (
-        "import bayesmith.errors, sys; "
+        "import bayesmith.errors as e, sys; "
+        "assert e.StructureError and e.ConvergenceError and e.NotGaussian; "
         "print(sorted({'jax', 'numpy', 'numpyro'} & set(sys.modules)))"
     )
     out = subprocess.run(
@@ -37,42 +43,23 @@ def test_errors_module_imports_no_heavy_dependency():
     assert out.stdout.strip() == "[]"
 
 
-def test_the_new_error_names_exist_in_the_stdlib_only_module():
-    """The three P3 classes live in errors.py, which may not import jax/numpy.
-
-    This is the only import-shaped assertion Task 0 makes, and deliberately
-    so: an `assert issubclass(StructureError, ValueError)` is true because
-    the class statement says so, not because anything works -- P1's first
-    review finding was exactly that tautology. What StructureError *does* is
-    pinned where it is actually raised: tests/exact/test_gaussian.py (a lying
-    dist_fn) and tests/exact/test_linearity.py (a false linear_in claim).
-    """
-    import subprocess
-    import sys
-
-    code = (
-        "import bayesmith.errors as e;"
-        "assert e.StructureError and e.ConvergenceError and e.NotGaussian;"
-        "import sys;"
-        "heavy = [m for m in ('jax', 'numpy', 'numpyro') if m in sys.modules];"
-        "assert not heavy, heavy"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr
-
-
 def test_catching_not_gaussian_does_not_also_catch_structure_error():
     """The sibling relationship is load-bearing, so it is tested by behaviour.
 
     P3b's classifier writes `except NotGaussian` to mean "this block has no
-    exact structure, route it to NUTS". A StructureError means something
-    else entirely -- a node whose type says Normal while its own log_prob
-    disagrees -- and must escape that clause. If NotGaussian were made a
-    subclass of StructureError, or both were given the same builtin base,
-    this test goes red; `assert not issubclass(...)` would not, because it
-    restates the class statement instead of exercising it.
+    exact structure, route it to NUTS". A StructureError means something else
+    entirely -- a node whose type says Normal while its own log_prob
+    disagrees -- and must escape that clause.
+
+    The two halves cover the two directions a hierarchy could collapse in,
+    and each catches exactly one: half (a) goes red if StructureError is made
+    a subclass of NotGaussian, half (b) if NotGaussian is made a subclass of
+    StructureError. Giving the two the same builtin base changes nothing here
+    and this test stays green -- correctly so, because `except` matches on
+    the MRO and not on a shared ancestor.
+
+    `assert not issubclass(...)` would restate the class statement instead of
+    exercising it, which is the tautology P1's first review finding was about.
     """
     from bayesmith.errors import NotGaussian, StructureError
 
