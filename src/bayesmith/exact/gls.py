@@ -126,7 +126,15 @@ def check_prediction_dependence(
         block: the block sigma might depend on.
         sigma_of: the seam, from :func:`sigma_from_graph`.
         declared: what the node claims.
-        rtol: relative movement below which sigma counts as constant.
+        rtol: relative movement below which sigma counts as constant. Untested
+            AT the boundary -- every fixture in this module's test suite sits
+            far above it (a genuinely prediction-dependent sigma) or far
+            below (a genuinely constant one), never within a decade of
+            ``1e-8`` itself. Judged acceptable: this is a coarse yes/no
+            movement detector guarding a declaration, not a numeric
+            dispatcher choosing between two methods that must agree at a
+            threshold, so there is no boundary-validation-style requirement
+            that both sides produce the same answer there.
 
     Returns:
         The largest relative movement observed.
@@ -266,7 +274,20 @@ def iterative_gls(
         updated, _ = solve_at(sigma_of(latent), None)
         change = jax.tree.map(jnp.subtract, updated, latent)
         # Relative to the NEW iterate: relative to the old one, a step that
-        # starts near zero reports a huge change forever.
+        # starts near zero reports a huge change forever. The rationale is
+        # sound but, at the default MIN_REWEIGHTS=5, unguarded by any fixture
+        # this module ships: measured by swapping the denominator to
+        # tree_norm(latent) and sweeping radiometer() over kappa
+        # 0.001-60 (its full convergent range, up to the onset of
+        # divergence) and weight down to 0.001 -- the two normalisations
+        # agree to 10+ significant digits by the time delta is first
+        # consulted at count=5, because this model's IRLS map stabilises the
+        # ITERATE's magnitude within 1-2 steps even while the CHANGE keeps
+        # shrinking for longer. At min_reweights=1, where delta is consulted
+        # after a single step, the two genuinely disagree (measured at
+        # kappa=3.5: ||first||=6.390 vs ||updated||=3.189, delta=1.004
+        # against the wrong denominator's 0.501) -- see
+        # test_iterative_gls_delta_denominator_uses_the_new_iterate.
         delta = tree_norm(change) / jnp.maximum(tree_norm(updated), 1e-30)
         return count + 1, updated, delta
 

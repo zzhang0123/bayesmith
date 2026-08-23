@@ -61,13 +61,59 @@ def test_iterative_gls_finds_the_fixed_point_a_dense_iteration_finds():
 
     assert bool(result.converged)
     assert np.allclose(flat_domain(result.solution, block.names), x, rtol=1e-6)
-    # Mutation guard (Task 8 mutation 1): a `delta` denominator that reads the
-    # PRE-update iterate rather than the post-update one has nothing left to
-    # shrink it once the sequence is near the fixed point, so a broken
-    # normalisation that never triggers convergence runs out the clock at
-    # max_reweights (100) instead of stopping early -- this fixture converges
-    # in single digits.
+    # Mutation guard. Written for Task 8 mutation 1 (the `step` denominator
+    # swapped from tree_norm(updated) to tree_norm(latent)), but measured NOT
+    # to catch it there: at the default min_reweights=5, mutated and
+    # unmutated code give identical iterations/delta/solution on this
+    # fixture (agreeing to 10+ significant digits) -- see
+    # test_iterative_gls_delta_denominator_uses_the_new_iterate for where
+    # that mutation IS caught, at min_reweights=1. What this assertion DOES
+    # catch is mutation 2 (the two connectives in `unfinished` swapped):
+    # with a valid min<=max, that mutation ignores convergence and always
+    # runs to max_reweights (100), well past this bound.
     assert int(result.iterations) < 50
+
+
+def test_iterative_gls_delta_denominator_uses_the_new_iterate():
+    """Regression pin for `step`'s ``tree_norm(updated)`` denominator.
+
+    At the default ``min_reweights=5``, this choice is unguarded by any
+    fixture in this module (see the comment above and the one on `step`
+    itself) -- the sequence's magnitude stabilises within 1-2 real steps
+    while MIN_REWEIGHTS keeps forcing solves regardless, so by the time
+    ``delta`` is first consulted the two candidate denominators already
+    agree to double precision. At ``min_reweights=1``, ``delta`` is
+    consulted after a single reweighting step, comparing ``first`` (the
+    naive solve at the sigma the prior mean implies) against ``updated``
+    (the first genuinely reweighted solve) -- exactly where the two differ
+    most.
+
+    Measured at ``kappa=3.5`` (radiometer's default weight=3.0, comfortably
+    inside the model's convergent range, which runs up to roughly kappa
+    5-8): ``tree_norm(first)=6.390``, ``tree_norm(updated)=3.189``, giving
+    ``delta=1.004`` normalised by the new iterate against ``0.501``
+    normalised by the old one -- very close to a factor of two apart.
+    ``reweight_tol=0.75`` sits almost exactly halfway between them (0.249
+    below the wrong value, 0.254 below the right one), so the correct
+    denominator does not yet call step 2 converged and takes a 3rd step
+    (``iterations=3``, solution ``w=3.9160``), while the swapped one stops
+    at step 2 (``iterations=2``, solution ``w=4.2542``) -- a directly
+    observable difference in both `iterations` and the returned answer.
+    """
+    with jax.enable_x64(True):
+        graph = radiometer(kappa=3.5, floor=1e-3)
+        block = linear_operator(graph, ("w",), at={})
+        result = iterative_gls(
+            block,
+            sigma_from_graph(graph, {}),
+            tol=1e-14,
+            min_reweights=1,
+            reweight_tol=0.75,
+            max_reweights=300,
+        )
+    assert int(result.iterations) == 3
+    assert bool(result.converged)
+    assert float(result.solution["w"]) == pytest.approx(3.915959928929826, rel=1e-9)
 
 
 def test_the_returned_sigma_really_is_a_fixed_point():
