@@ -4,6 +4,7 @@
 > 上游：`docs/superpowers/specs/2026-08-23-bayesmith-design.md` §五 的 P3。
 > 前置：P1 图核 + P2 NumPyro 桥（已合入 main，92 测试全绿）。
 > 移植源：`/Users/zzhang/projects/e-RHINO/src/rheplicant/inference/`——**只读**。
+> **下游**：本文 §四/§五/§六/§七 的 P3b 部分由 `docs/superpowers/specs/2026-08-23-p3b-dispatch-execution-design.md` 细化，其中三处经实测更正（见下方各 `实测更正` 块）。**冲突处以 P3b spec 为准。**
 
 ## Context
 
@@ -235,9 +236,22 @@ def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
     return gcr_sample(block, observed, noise_std=σ, prior_std=..., key=rng_key)
 ```
 
+> **实测更正（写 P3b spec 时，2026-08-23）**：上面这段**不可实现**，两处都实测。
+> (1) `linear_operator` 没有 `check=` 关键字；实测签名是
+> `(graph, names, at=None, *, scales, rtol, at_points, key)`。
+> (2) `gibbs_fn` **在 trace 下运行**（实测 `gibbs_sites` / `hmc_sites` 的值都是
+> `DynamicJaxprTracer`），而 `unchecked_operator` 内部对每个观测节点调
+> `check_gaussian`，后者做 `bool(jnp.all(...))` 与 `raise`——放进 `jax.jit` 实测
+> 抛 `TracerBoolConversionError`。
+> **决定**：`unchecked_operator` 增加 `probe_gaussian: bool = True`，sweep 内传
+> `False`。同时实测了充分性——高斯探针是唯一的 trace 不安全处。
+> 详见 `docs/superpowers/specs/2026-08-23-p3b-dispatch-execution-design.md` §1.2。
+
 **不移植** `plan.py` 的 sweep 循环、`split_rhat`、`PlanDiagnostics`、chi² 监控，也不移植 `engines.py` 的梯度引擎与 Adam——NumPyro 的 `MCMC` 全部提供，且 r̂ / ESS 走 `numpyro.diagnostics`。
 
 ### 4.2 三个必须外提的守卫
+
+> **实测更正（2026-08-23）**：是**四个**。`check_gaussian` 也必须外提，理由同 §4.1 的更正块。详见 `docs/superpowers/specs/2026-08-23-p3b-dispatch-execution-design.md` §4.2 的表。
 
 `gibbs_fn` 在 jit 下每 sweep 运行：
 
@@ -413,6 +427,15 @@ execution: HMCGibbs(inner=NUTS, gibbs_sites=['alm', 't_ant'])
 - **条件正确性**：固定 `hmc_sites`，`gibbs_fn` 的大量抽取的样本矩 vs R2 的解析条件后验——直接检验 `HMCGibbs` 契约里那句 "user's responsibility"。
 - **MH 不变性**：故意省掉反向密度项，样本矩必须**变红**（§5.4 的静默错误路径的守卫）。
 - **复合 vs 纯 NUTS**：同一张混合图，HMCGibbs 与纯 NUTS 的后验矩在 MC 误差内一致，且 HMCGibbs 的 **ESS/秒更高**——否则这条路径没有存在理由。
+
+> **实测更正（写 P3b spec 时，2026-08-23）**：**「ESS/秒更高」不能作为无条件关口**——
+> 它随被测量的量而反向。实测三组基准（真实 `unchecked_operator` + `gcr_sample` 装进
+> `HMCGibbs`）：良态块上两个方向都输（比值 0.13x–0.91x）；病态块（κ=6.2e4）上
+> **块内 5.98x 赢、块外 0.24x 输**，`ESS(logw)=3.0`（共 500 抽取）。
+> 机制是同一个：GCR 消掉块内自相关，而这恰好在块边界之外停止起作用。
+> **决定**：正确性是关口，ESS/秒 降为一条**具名区域**的基准。
+> 且本条的「后验矩一致」测试必须**拆成两条**——外参数不混合时它会因与正确性无关的
+> 原因变红。详见 `docs/superpowers/specs/2026-08-23-p3b-dispatch-execution-design.md` §1.3 与 §7.2(e)。
 - **SNIS 对 σ 依赖的修正**：与长跑 NUTS 的后验矩一致；且**未修正**的裸 GCR 必须显著偏离（否则这个修正是空的）。
 - **CG 收敛对权重的影响**：x64 下 `tol=1e-6` vs `1e-12` 的加权矩一致（§5.6）。
 
@@ -458,6 +481,14 @@ src/bayesmith/compile/
   dispatch.py      合格性分类 + 分区推导                          新写   ~260
   plan.py          Block / InferencePlan / __str__ / sample / estimate  新写 ~230
 ```
+
+> **实测更正（写 P3b spec 时，2026-08-23）**：目录名 `compile/` 与设计文档 §二 的
+> 公开 UX `plan = compile(graph)` **不能共存**，且失效顺序依赖且静默：先访问属性
+> 可用，其后任何 `import bayesmith.compile.x` 会把 `bayesmith.compile`
+> **静默重绑为 module**，再调用抛 `TypeError: 'module' object is not callable`；
+> 反序则从一开始就不可用。`from bayesmith import compile` 拿到的也是 module。
+> **决定**：目录改名 **`src/bayesmith/dispatch/`**，公开函数名不动。
+> 详见 `docs/superpowers/specs/2026-08-23-p3b-dispatch-execution-design.md` §1.1。
 
 外加 `errors.py` 增补三个类（§1.4，约 +30 行）。扣掉 `_real_parts`（§3.3，−90 行）后源码约 2210 行。每个文件都在 200–400 典型区间内，无一超 800（`coding-style.md`）。
 
