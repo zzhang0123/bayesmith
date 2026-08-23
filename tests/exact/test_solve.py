@@ -696,6 +696,40 @@ def test_gcr_draws_have_the_oracle_mean_and_covariance():
     fixture inverts this one's dominance. Read the two together: neither
     is redundant with the other, and deleting either one for looking like
     a duplicate removes real coverage silently.
+
+    **A second, targeted assertion guards a different thing: cross-MEMBER
+    key independence in ``_split_like``**, as distinct from the
+    cross-ELEMENT independence
+    ``test_gcr_draws_have_no_spurious_correlation_across_a_plated_block``
+    guards. ``_split_like`` derives one key per LEAF of the domain
+    pytree, and this block's domain has two leaves (``a``, ``b``): a bug
+    that gave them the same key instead of independent ones would
+    correlate their prior fluctuations. That is invisible to the
+    full-matrix assertion above -- whose ``atol`` has to stay loose for
+    the diagonal's sake -- by only 2.02x: measured, own numbers, the
+    same-key mutation's off-diagonal (0.00033, 2.5% of ``spread``) clears
+    ``atol`` (0.05*``spread``) by just 2.02x, while the correct
+    implementation's own off-diagonal (-0.000066, 0.5% of ``spread``) is
+    small but not exactly zero either, being 4000 finite draws.
+
+    The TRUE off-diagonal, however, is exactly zero here, for a
+    structural reason: ``two_linear_latents``' ``X = linspace(-2, 2,
+    12)`` sums to zero, so ``A^T N^-1 A``'s cross term (proportional to
+    ``sum(X)``) vanishes and the posterior factorises -- the same
+    mechanism that makes the plated fixture's off-diagonal exactly zero,
+    here arising from the design rather than from independence across a
+    plate. That is what makes ``|off-diagonal|`` a sharp statistic below
+    -- **but only for as long as this fixture keeps that property**. If
+    ``two_linear_latents``' ``X`` is ever changed to something whose sum
+    is not zero, the true off-diagonal stops being zero, and this
+    assertion silently stops being a test against "the truth is zero" and
+    becomes one against whatever nonzero value it becomes instead --
+    still numerically checkable in principle, but not by the fixed
+    literal threshold below, which was sized for a target of zero. It
+    would not fail outright; it would quietly lose most of its power.
+    Measured, own numbers, at the threshold used below (0.01*``spread``):
+    correct ``|off-diagonal|`` 0.000066 sits 2.03x under it; the same-key
+    mutation's 0.00033 sits 2.47x over.
     """
     draws = 4000
     with jax.enable_x64(True):
@@ -712,9 +746,9 @@ def test_gcr_draws_have_the_oracle_mean_and_covariance():
     standard_error = np.sqrt(np.diag(oracle.covariance) / draws)
     assert np.all(np.abs(flat.mean(axis=0) - oracle.mean) < 4 * standard_error)
     spread = np.max(np.diag(oracle.covariance))
-    assert np.allclose(
-        np.cov(flat, rowvar=False), oracle.covariance, rtol=0.1, atol=0.05 * spread
-    )
+    cov = np.cov(flat, rowvar=False)
+    assert np.allclose(cov, oracle.covariance, rtol=0.1, atol=0.05 * spread)
+    assert abs(cov[0, 1]) < 0.01 * spread
 
 
 @pytest.mark.slow
