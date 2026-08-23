@@ -430,3 +430,25 @@ def improper_outside_prior(*, n=6, sigma=0.5, seed=12):
         observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
 
     return trace(model)
+
+
+def unconstrained_latent(*, n=5, sigma=0.5, seed=11):
+    """``u`` reaches no observed node, so its posterior IS its prior.
+
+    An extreme corner the solve must handle rather than divide by: A's column
+    for ``u`` is exactly zero, so the normal operator there is the prior
+    curvature alone and the answer is the prior mean. ``u``'s centre (1.25)
+    and width (0.75) are distinct from every other number in the model, so a
+    solve that returned zero, or the other latent's prior, could not pass.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = 2.0 * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 3.0))
+        sample("u", lambda: dist.Normal(1.25, 0.75))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
