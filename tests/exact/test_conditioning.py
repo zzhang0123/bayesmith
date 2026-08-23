@@ -56,31 +56,42 @@ def test_extreme_eigenvalues_finds_both_ends_of_a_known_spectrum():
     assert float(smallest) == pytest.approx(1.0, rel=1e-3)
 
 
-def test_extreme_eigenvalues_spans_several_pytree_leaves():
-    """The spectrum must be the JOINT one, not one leaf's.
+@pytest.mark.parametrize("extremes_in", ["a", "b"])
+def test_extreme_eigenvalues_spans_several_pytree_leaves(extremes_in):
+    """The spectrum must be the JOINT one, not any single leaf's.
 
-    Two leaves whose individual extremes differ: a per-leaf implementation
-    would report (10, 2) or (100, 20), never (100, 2).
+    Both power iterations are exercised, and the parametrisation is what makes
+    that true. Whichever leaf holds an extreme reproduces it when restricted
+    to that leaf -- unavoidable -- so no single spectrum can catch a
+    single-leaf implementation of both iterations. Measured, on the joint
+    spectrum {2, 10, 20, 100}:
+
+        spectrum              iter1 a  iter1 b  iter2 a  iter2 b
+        a=[10,20] b=[2,100]   caught   missed   caught   missed
+        a=[2,100] b=[10,20]   missed   caught   missed   caught
+
+    Their union is complete, which is why this runs as two cases and not one.
+    An earlier single-case version of this test used a=[2,10] b=[20,100] and
+    silently missed the iter2-first-leaf bug entirely.
+
+    200 iterations, not 40: the shifted operator's top two eigenvalues are 98
+    and 90, a ratio of 0.918, so 40 steps leave ~3% error on a target of 2.0
+    and the test passes or fails on the luck of the starting vector. Measured
+    across 30 keys: at 40 iterations the worst is 229% relative error; at 200
+    all 30 are float32-exact.
     """
-    operator = lambda parts: {
-        "a": jnp.array([2.0, 10.0]) * parts["a"],
-        "b": jnp.array([20.0, 100.0]) * parts["b"],
-    }
+    extremes = jnp.array([2.0, 100.0])
+    middle = jnp.array([10.0, 20.0])
+    diagonals = (
+        {"a": extremes, "b": middle}
+        if extremes_in == "a"
+        else {"a": middle, "b": extremes}
+    )
+
+    def operator(parts):
+        return {name: diagonals[name] * parts[name] for name in diagonals}
+
     template = {"a": jnp.zeros(2), "b": jnp.zeros(2)}
-    # The second power iteration runs on {98, 90, 80, 0}, a top-two ratio of
-    # 90/98 ~= 0.918 -- at 40 iterations that is not yet tight (measured
-    # rel_err ~ 5e-4 for this key, but other keys measured up to 2.3 at 40
-    # iterations: this key's pass at rel=5e-2 was luck, not margin). 200
-    # iterations drives 0.918**200 ~= 4e-8, measured exact (rel_err == 0.0)
-    # across 30 keys, so rel=1e-2 is comfortable.
-    #
-    # KNOWN GAP (measured, not fixed here): rel=1e-2 discriminates a naive
-    # "always use leaf b alone" bug (which would give smallest=20) up to
-    # rel~0.5, generously. It does NOT discriminate "second power iteration
-    # restricted to leaf a alone": leaf a's own shifted spectrum is
-    # {98, 90} vs the joint {98, 90, 80, 0} -- both share the same top (98)
-    # -- so that specific bug reproduces smallest=2.0 exactly, for any
-    # tolerance. See the P3a Task 1 report for the full derivation.
     largest, smallest = extreme_eigenvalues(operator, template, jax.random.key(1), 200)
-    assert float(largest) == pytest.approx(100.0, rel=1e-3)
+    assert float(largest) == pytest.approx(100.0, rel=1e-2)
     assert float(smallest) == pytest.approx(2.0, rel=1e-2)
