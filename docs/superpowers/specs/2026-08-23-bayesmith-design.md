@@ -68,7 +68,8 @@ class Deterministic(Node):
     linear_in: tuple[str, ...] = eqx.field(static=True)   # 声明，且必须被检验
 
 class Probabilistic(Node):
-    dist: DistributionLike     # sample(key, *parents) + log_prob(value, *parents)
+    dist_fn: Callable[..., Any]  # 传入父节点值，返回一个 NumPyro 分布
+                                 # sample 与 log_prob 因此出自同一对象
     observed: jax.Array | None # None 即隐变量
     support: Support = eqx.field(static=True)   # Continuous | Discrete(n)
 ```
@@ -78,6 +79,28 @@ class Probabilistic(Node):
 > 这个陷阱还会污染测试：Task 4 原本的可微性测试用 `w=3.0`、`X=[1.0,2.0]`，而真实梯度 `sum(X)=3.0` 恰好等于 `w` 本身，所以即使 `fn` 被改成 static、返回的是原值，断言照样通过。**凡是断言"梯度等于某常数"的测试，都要确保该常数不等于任何参数的当前值。**
 
 概率节点的接口要求 **sample 与 log_prob 出自同一个对象**。这不是风格偏好——rheplicant 的 `NoiseModel` docstring 已经写下了理由：*"A caller that draws with this and weights with `std` cannot have the two disagree, which is the failure mode of every hand-written `data + sigma * normal` line beside a likelihood carrying its own sigma."*
+
+> ### ⚠ 自洽性检查的固有盲区（P1 终审实测发现）
+>
+> §四把"同一张图的两种独立读法给出同一个数"（`log_joint` vs NumPyro 的 `log_density`）当作核心交叉检验。**它有一个必须写下来的局限：两条扫描共享实现，因此共享盲点。**
+>
+> 实测：`Deterministic.fn` 会被 `vmap` 到 plate 轴上，而 `Probabilistic.dist_fn` 起初不会。对原生广播的 NumPyro 分布这不可见；但对一个**未向量化的外部对象**（正是 rheplicant `NoiseModel` 的情形），两条扫描给出 **-225.65，而正确值是 -364.95**——**彼此完全一致，同时都是错的**。那道交叉检验给出的保护是零。
+>
+> 已修：抽出共享的 `apply_probabilistic`，两条扫描都走它。但结论要留下：**自洽性检验不能发现两边都有的错误。** 真正的独立判据只有解析真值（Task 9 的共轭预言机）和变异测试。P3 引入精确解时，"精确解 vs NUTS"同样是自洽检验——两者若共用同一个 `log_joint`，就共享同一批盲点。
+
+> ### ⚠ 第二条梯度静默丢失的路径（实测，equinox 0.13.8）
+>
+> 把参数化对象交给 `fn`/`dist_fn` 有三种自然写法，**前向值完全相同**，梯度却不同：
+>
+> | 写法 | 梯度 |
+> |---|---|
+> | 直接传模块 | ✅ 正确 |
+> | 绑定方法（`obj.method`） | ✅ 正确——equinox 把具名方法访问包成 `BoundMethod`，它本身是 Module |
+> | 普通闭包（`lambda x: obj.method(x)`） | ❌ **静默为 None** |
+>
+> 闭包是不透明的 `FunctionType` 叶子，`filter_grad` 看不进去。参数永远不更新，且不报错。注意 `__call__` 不享受 `BoundMethod` 待遇（equinox 排除 dunder）。
+>
+> **附带的方法论教训**：核验这条时，我用 `isinstance(grad.dist_fn, NoiseModel)` 判断，而绑定方法的梯度包在 `BoundMethod` 里，于是我的检查恒返回 None——我因此错误地报告"绑定方法也丢梯度"。**测量工具本身也会有盲点；内省要解开包装层再断言。**
 
 ### 1.4 与 rheplicant 的吻合（已验证，非断言）
 
