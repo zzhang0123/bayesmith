@@ -2896,14 +2896,14 @@ def _weights(noise_std: dict[str, Any]) -> dict[str, jax.Array]:
 
 def normal_operator(
     block: LinearBlock, weight: dict[str, Any], prior_variance: dict[str, Any]
-):
+) -> Callable[[dict[str, jax.Array]], dict[str, jax.Array]]:
     """``x -> (A^T N^-1 A + S^-1) x`` over the block's domain."""
 
-    def half_chi2(parts):
+    def half_chi2(parts: dict[str, jax.Array]) -> jax.Array:
         pushed = block.forward(parts)
         return 0.5 * sum(jnp.sum(weight[name] * pushed[name] ** 2) for name in pushed)
 
-    def normal(parts):
+    def normal(parts: dict[str, jax.Array]) -> dict[str, jax.Array]:
         curvature = jax.grad(half_chi2)(parts)
         return jax.tree.map(
             lambda c, p, v: c + p / v, curvature, parts, prior_variance
@@ -3107,6 +3107,12 @@ def test_wiener_solve_matches_the_dense_oracle():
         sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         got, residual = wiener_solve(block, noise_std=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("a", "b"), at={})
+    # The two sides flatten the domain independently -- `flat_domain` walks
+    # `block.names`, the oracle walks the `names` it was handed. Nothing ties
+    # them together, so a caller who passed a differently-ordered tuple to one
+    # side would get a same-length, silently transposed comparison. Assert the
+    # agreement rather than relying on both call sites staying in step.
+    assert [name for name, _ in oracle.order] == list(block.names)
     assert float(residual) < 1e-10
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
 
