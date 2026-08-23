@@ -571,6 +571,39 @@ This generalises it to the guard next door."
 
 ---
 
+
+### 实测记录：Task 2 收尾时两条变异未被杀死（2026-08-24）
+
+Task 2 已完成（`2de46d1`），外加一条后续修复（`23e6ccd`）。spec 合规审查判定 **ISSUES FOUND，一条 MISSING**。两条记在这里，**明确不在 Task 2 的范围内关闭**。
+
+**(1) Step 6 变异行 2「逐元素 `jnp.any` 判决归约改成 above-floor 元素的均值」——全套仍绿。**
+
+计划为它点名的 `test_the_dilution_is_caught_within_a_single_array_too`，以及实现者为它专门加的
+`test_a_lone_lying_channel_is_not_diluted_by_five_honest_ones`，**两条都不变红**。
+
+实测原因：在 `bright_and_faint_channels(lying=1)` 上两列分别是 `relative = 1.454e+00` 与
+`weighted = 2.634e+09`，各自超阈值 **1.2e3 倍**与 **2.6e12 倍**。除以 6 一个都跨不过去。
+fixture docstring 里「被六个诚实项稀释六倍」这句话**算术上是对的、但不充分**，而紧跟的
+「随数组增长稀释无界」那一句**从未被执行到**——`n` 固定在 6。
+
+要真正杀死它，需要**同时**关掉加权那一半**且** `n ≳ 1.2e3`（例如
+`bright_and_faint_observations(sigma_faint=1e13, n≈2000)` 带单个撒谎元素）。加权那一半活着时，
+没有任何可行的 `n` 做得到——需要 `n > 2.6e12`。
+
+> **这一条是本计划自己第三条子判据的实例**：计划的变异行写下时没有算它的功效，于是写了一个
+> 在这个 fixture 上**不可能变红**的目标。与 Task 6「一个不可能的目标」同形——两个约束都是我写的，
+> 冲突摆在纸面上，两行算术即可看出。
+
+**(2) Step 6 变异行 4「`WEIGHTED_RTOL` ÷ 1e6」——知情地不可达。**
+
+Task 1 §5 实测：float32 下每个诚实 fixture 的 above-floor 加权偏离**恰好是 `0.000e+00`**，
+所以在套件实际运行的 dtype 上**没有任何东西从下方约束这个常数**。诚实一侧是被**地板**保护的，
+不是被阈值的取值保护的。`WEIGHTED_RTOL` 的 docstring 已如实写下这一点，并把双侧性转交给
+`test_a_true_claim_with_real_roundoff_passes_at_any_offset_ratio`（它钉的是地板，且实测在地板被
+移除时确实会死）。**记录为具名替代，不是静默空洞。**
+
+---
+
 ## Task 3：B2 修复——`check_prediction_dependence` 的探测方向
 
 **Files:**
