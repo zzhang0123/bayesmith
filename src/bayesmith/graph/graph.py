@@ -28,11 +28,22 @@ class Graph(eqx.Module):
     plates: tuple[Plate, ...]
 
     def __check_init__(self) -> None:
-        plate_names = {p.name for p in self.plates}
+        plate_names: set[str] = set()
+        for p in self.plates:
+            if p.name in plate_names:
+                raise GraphError(
+                    f"duplicate plate name {p.name!r}: plate names must be "
+                    "unique within a graph."
+                )
+            plate_names.add(p.name)
+
         seen: set[str] = set()
         for node in self.nodes:
             if node.name in seen:
-                raise GraphError(f"duplicate node name {node.name!r}")
+                raise GraphError(
+                    f"duplicate node name {node.name!r}: node names must be "
+                    "unique within a graph."
+                )
             for parent in node.parents:
                 if parent not in seen:
                     raise GraphError(

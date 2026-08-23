@@ -76,3 +76,16 @@ def test_nested_plates_are_refused_with_a_reason():
     plates = (Plate(name="a", size=2), Plate(name="b", size=3))
     with pytest.raises(GraphError, match="nested plates are not supported yet"):
         Graph(nodes=(n,), plates=plates)
+
+
+def test_unknown_plate_name_is_refused_by_name():
+    g = Graph(nodes=(), plates=(Plate(name="obs", size=3),))
+    with pytest.raises(GraphError, match="no plate named 'nope'"):
+        g.plate_size("nope")
+
+
+def test_a_duplicate_plate_name_is_refused():
+    n = Const(name="X", parents=(), plate=("obs",), value=jnp.arange(3.0))
+    plates = (Plate(name="obs", size=3), Plate(name="obs", size=5))
+    with pytest.raises(GraphError, match="duplicate plate name 'obs'"):
+        Graph(nodes=(n,), plates=plates)
