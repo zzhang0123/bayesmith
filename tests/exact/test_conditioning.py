@@ -72,8 +72,15 @@ def test_extreme_eigenvalues_spans_several_pytree_leaves():
     # rel_err ~ 5e-4 for this key, but other keys measured up to 2.3 at 40
     # iterations: this key's pass at rel=5e-2 was luck, not margin). 200
     # iterations drives 0.918**200 ~= 4e-8, measured exact (rel_err == 0.0)
-    # across 30 keys, so rel=1e-2 is comfortable and still well inside the
-    # ~0.5 needed to separate this from the per-leaf mutation in Step 6.
+    # across 30 keys, so rel=1e-2 is comfortable.
+    #
+    # KNOWN GAP (measured, not fixed here): rel=1e-2 discriminates a naive
+    # "always use leaf b alone" bug (which would give smallest=20) up to
+    # rel~0.5, generously. It does NOT discriminate "second power iteration
+    # restricted to leaf a alone": leaf a's own shifted spectrum is
+    # {98, 90} vs the joint {98, 90, 80, 0} -- both share the same top (98)
+    # -- so that specific bug reproduces smallest=2.0 exactly, for any
+    # tolerance. See the P3a Task 1 report for the full derivation.
     largest, smallest = extreme_eigenvalues(operator, template, jax.random.key(1), 200)
     assert float(largest) == pytest.approx(100.0, rel=1e-3)
     assert float(smallest) == pytest.approx(2.0, rel=1e-2)
