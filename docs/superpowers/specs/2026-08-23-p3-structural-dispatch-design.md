@@ -37,7 +37,7 @@ P3 是第一个"别人没有"的能力，而它的全部依据是一件事：**�
 | 近似块修正 | **(A) SNIS 与 (B) 带反向密度的 MH 都进**，按图的形状分派 | 用户 2026-08-23 |
 | `linear_in` 未声明 | **不合格 → NUTS**（不声明就不解锁捷径） | 沿用 `nodes.py` 对 `support=None` 已立的原则 |
 | 陪域 | 推广为 `{obs_name: array}` pytree（图可有多个观测节点） | 本文 §三 |
-| 复数隐变量 | `_real_parts` **照移**（天空 alm 是复数） | 本文 §三 |
+| 复数隐变量 | **改为不移植 `_real_parts`**（写 P3a 计划时修正，理由见 §3.3） | 本文 §3.3 |
 | 公开名 | `bayesmith.compile(graph)`，遮蔽内置 `compile` 由 docstring 点名 | 设计文档 §二 的既定 UX |
 
 ---
@@ -80,14 +80,17 @@ dist.log_prob(y)  ==  -0.5*((y-loc)/scale)**2 - log(scale) - 0.5*log(2*pi)
 
 **只有一个提取器。** P1 记录的教训是"两条扫描共享实现就共享盲点"；这里反过来利用它——守卫比对的是 `log_prob` 本身，所以即使提取器有 bug，先验与噪声两处会被**各自独立地**抓住。
 
-### 1.4 两个新异常类
+### 1.4 三个新异常类
 
-`errors.py` 今天只有 `BayesmithError` / `GraphError` / `TraceError`。P3 加两个，**仍然只依赖 stdlib**（该模块的"不导入 jax/numpy"契约由 `test_errors_module_imports_no_heavy_dependency` 强制）：
+`errors.py` 今天只有 `BayesmithError` / `GraphError` / `TraceError`。P3 加三个，**仍然只依赖 stdlib**（该模块的"不导入 jax/numpy"契约由 `test_errors_module_imports_no_heavy_dependency` 强制）：
 
 | 类 | 何时抛 | 基类 |
 |---|---|---|
 | `StructureError` | **一个被声明的结构断言经检验为假**——`linear_in` 声明了但线性性探针不过；`depends_on_prediction=False` 但 σ 确实依赖；`dist_fn` 自称高斯（内省通过）但 `log_prob` 探针不吻合 | `BayesmithError, ValueError` |
 | `ConvergenceError` | 一个迭代过程在**非 jit** 路径上未达到要求的精度（`iterative_gls` 的 `converged=False` 被要求为硬失败时） | `BayesmithError, RuntimeError` |
+| `NotGaussian` | **这个节点的分布不是对角高斯**——纯描述，不含指责。P3b 的分类器捕获它，把该块落到 NUTS | `BayesmithError, TypeError` |
+
+**`NotGaussian` 与 `StructureError` 必须是兄弟而非父子，且基类不同**（`TypeError` vs `ValueError`）。P3b 要 `except NotGaussian` 只捕获前者：探针守卫抛出的 `StructureError` 意味着**节点自称高斯而它自己的密度不是**，那绝不能被静默降级成 NUTS。若 `NotGaussian` 继承自 `StructureError`，一个 `except` 就会同时吞掉两者，而这正是本节开头那条界线要防的事。这条区分是承重的，P3b 要有测试钉住。
 
 **"图不合格"不是错误**，是分派结果——落到 NUTS，理由写进 plan。`StructureError` 只在**声明与事实矛盾**时抛，这是两件不同的事：前者是"你没说"，后者是"你说错了"。
 
@@ -171,7 +174,7 @@ p(x | rest, d)  ∝  exp( -½ Σ (d-m(x))²/σ(x)²  -  Σ log σ(x) ) · π(x)
 | `linear.py::LinearBlock` | `exact/block.py` | 改写：`linear_operator(graph, names, at)` 取代 `(space, pipeline, state_template, name)` |
 | `linear.py::check_linearity` + `_affinity_errors` | `exact/linearity.py` | 改写：探针幅度取自先验；多 `at` 点 |
 | `linear.py::wiener_solve / gcr_sample / _conjugate_solve / _normal_operator / condition_estimate` | `exact/solve.py` | 移植，陪域推广为 pytree |
-| `linear.py::_real_parts / _domain_zero / _domain_centre / _variance_parts / _largest_variance` | `exact/block.py` | 逐字 |
+| `linear.py::_domain_zero / _domain_centre / _variance_parts / _largest_variance` | `exact/block.py` | 逐字 |
 | `conditioning.py`（全部） | `exact/conditioning.py` | 逐字（`tree_norm`、`largest_eigenvalue`、`extreme_eigenvalues`） |
 | `gls.py`（全部） | `exact/gls.py` | 移植 |
 | `uncertainty.py::FlatMatrix / _named_spans / fisher_information / parameter_covariance` | `exact/fisher.py` | 移植子集 |
@@ -188,9 +191,15 @@ rheplicant 的陪域是单个数组（一次观测）。bayesmith 的图可以�
 
 约 10 行改动。定义域早已是 pytree（分组块），所以 `jax.tree.map` 与 `cg` 都不需要改。
 
-### 3.3 复数隐变量
+### 3.3 复数隐变量：`_real_parts` 不移植（2026-08-23 修正）
 
-`_real_parts` 照移。天空 alm 系数是复数，而预测是实的，所以映射是 **ℝ-线性而非 ℂ-线性**，Krylov 方法必须跑在实自由度上。现在不移植将来要痛苦回填。
+初稿写的是"照移"。写 P3a 计划时发现它在 bayesmith 里是**无法触发、因而无法测试的死代码**：
+
+rheplicant 需要 `_real_parts`，是因为 `Latent.init` 可以是复数数组。bayesmith 的隐变量取值来自 `dist_fn` 返回的 NumPyro 分布，而 **NumPyro 没有复数 Normal**——`isinstance(d, dist.Normal)` 对任何复数分布都不成立。所以**块的定义域按构造就是实的**，没有东西可拆。
+
+天空 alm 那类复数量在 bayesmith 里的惯用写法更简单也更好：把实部虚部声明成**一个带尾轴 2 的实隐变量**，由 `fn` 负责合成复数。ℝ-线性 vs ℂ-线性 的区分因此在**图这一层**就解决了，而不是在求解器里补救。
+
+后果：`_conjugate_solve` 里的 `split`/`join` 整套消失，`solve.py` 少约 50 行、`block.py` 少约 40 行。
 
 ### 3.4 x64
 
@@ -432,9 +441,9 @@ P1 的执行记录留下两条方法论，P3 原样采用：
 src/bayesmith/exact/
   gaussian.py      提取器 + 守卫                                  新写   ~150
   conditioning.py  tree_norm / largest / extreme_eigenvalues      逐字   ~120
-  block.py         LinearBlock、linear_operator(graph,...)、域工具 改写   ~240
+  block.py         LinearBlock、linear_operator(graph,...)、域工具 改写   ~200
   linearity.py     check_linearity（先验幅度、多 at 点）          改写   ~170
-  solve.py         wiener_solve / gcr_sample / condition_estimate 移植   ~330
+  solve.py         wiener_solve / gcr_sample / condition_estimate 移植   ~290
   gls.py           iterative_gls / GLSResult                      移植   ~200
   fisher.py        FlatMatrix / fisher_information / param_cov    移植   ~250
   correct.py       log q / SNIS / Kish ESS / khat / MH 接受步     新写   ~170
@@ -444,13 +453,13 @@ src/bayesmith/compile/
   plan.py          Block / InferencePlan / __str__ / sample / estimate  新写 ~230
 ```
 
-外加 `errors.py` 增补两个类（§1.4，约 +20 行）。源码约 2290 行。每个文件都在 200–400 典型区间内，无一超 800（`coding-style.md`）。
+外加 `errors.py` 增补三个类（§1.4，约 +30 行）。扣掉 `_real_parts`（§3.3，−90 行）后源码约 2210 行。每个文件都在 200–400 典型区间内，无一超 800（`coding-style.md`）。
 
 ### 分两个实施计划
 
 本 spec 是**一个**设计，但体量应拆成**两个** plan 文档：
 
-- **P3a 精确解核心**：`gaussian` / `conditioning` / `block` / `linearity` / `solve` / `gls` / `fisher`（~1460 行）。验收关口：**R1 vs R2 在 x64 下 rtol 1e-8**。这一半可独立验证，不依赖分派器。
+- **P3a 精确解核心**：`gaussian` / `conditioning` / `block` / `linearity` / `solve` / `gls` / `fisher`（~1380 行）。验收关口：**R1 vs R2 在 x64 下 rtol 1e-8**。这一半可独立验证，不依赖分派器。
 - **P3b 分派与执行**：`dispatch` / `plan` / `gibbs` / `correct`（~810 行）。验收关口：**HMCGibbs 与纯 NUTS 的后验矩一致且 ESS/秒 更高**，以及 §7.2 全部。
 
 P3b 依赖 P3a。
@@ -505,6 +514,7 @@ P3b 依赖 P3a。
 | `_refuse_a_noise_model_at_the_conjugate_seam` | σ 从分布对象导出，调用方无从传入 `NoiseModel` |
 | `check_noise_std_axis` | σ 已由 numpyro 广播到 `loc` 的形状，一维轴歧义不可能出现 |
 | `_resolve_name` / `_resolve_names` / `_BOTH_SPELLINGS` | 图的隐变量名是权威的；无 `name=` / `names=` 双拼写 |
+| `_real_parts`（复数拆分） | NumPyro 没有复数 Normal，块的定义域按构造是实的（§3.3） |
 | `ParameterSpace` / `Latent` / `State` / `AbstractOperator` 相关全部 | 图取代之 |
 | `plan.py` 的 sweep 循环 / `split_rhat` / `PlanDiagnostics` / chi² 监控 | NumPyro 的 `MCMC` + `numpyro.diagnostics` 提供 |
 | `plan.py::Block(steps=/learning_rate=/engine=)` | 引擎从图推导；NUTS 自适应步长 |
