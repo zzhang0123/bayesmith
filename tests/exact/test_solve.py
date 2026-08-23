@@ -787,3 +787,49 @@ def test_the_mean_of_many_draws_is_the_wiener_solution():
     assert values.mean() == pytest.approx(
         float(mean["w"]), abs=4 * posterior_sd / np.sqrt(draws)
     )
+
+
+@pytest.mark.slow
+def test_gcr_draws_have_no_spurious_correlation_across_a_plated_block():
+    """None of the other three GCR tests uses a plated (multi-element) member,
+    so the draw's CORRELATION structure across one member's own elements was
+    never checked -- only scalar members, where there is no such structure to
+    get wrong. `_split_like` derives one key per LEAF (per member, not per
+    element); correctness then depends on `jax.random.normal(key,
+    leaf.shape)` fanning that single key out into `leaf.shape`-many
+    INDEPENDENT values. Measured: mutating that call to draw one scalar per
+    leaf and broadcast it across the leaf's shape -- so a plate's n entries
+    get one perfectly correlated fluctuation instead of n independent ones --
+    passes every one of the other 177 tests in this suite.
+
+    `plated_latent`'s six `z_i` are iid (independent priors, independent
+    likelihoods, no coupling between them), so the oracle's true covariance
+    is EXACTLY diagonal -- the off-diagonal is not small, it is zero by
+    construction. That makes mean(|off-diagonal|) a much sharper statistic
+    than the full-matrix comparison below: the full comparison's margins are
+    real but not generous (measured, N=4000, key(31): correct max|off-diag|
+    0.00364 sits 2.05x under `atol`; the broadcast mutation's 0.01299 sits
+    1.74x over it) because `atol` has to stay loose enough for MC noise on
+    all 36 entries at once, diagonal included. The second assertion answers
+    a narrower question -- is the off-diagonal centred on its true value of
+    zero -- and separates correct (mean|off|=0.00194) from the mutation
+    (mean|off|=0.00918) by 4.7x, measured with the same draws and key.
+    """
+    draws = 4000
+    with jax.enable_x64(True):
+        graph = plated_latent(n=6)
+        block = linear_operator(graph, ("z",), at={})
+        sigma = _sigma(graph, {"z": jnp.zeros(6)})
+        samples = jax.vmap(
+            lambda k: gcr_sample(
+                block, noise_std=sigma, key=k, tol=1e-14, require_convergence=None
+            )[0]["z"]
+        )(jax.random.split(jax.random.key(31), draws))
+        oracle = graph_oracle(graph, ("z",), at={})
+    _assert_orderings_agree(oracle, block)
+    flat = np.asarray(samples)
+    cov = np.cov(flat, rowvar=False)
+    spread = np.max(np.diag(oracle.covariance))
+    assert np.allclose(cov, oracle.covariance, rtol=0.1, atol=0.05 * spread)
+    off_diag = cov[~np.eye(cov.shape[0], dtype=bool)]
+    assert np.abs(off_diag).mean() < 0.03 * spread
