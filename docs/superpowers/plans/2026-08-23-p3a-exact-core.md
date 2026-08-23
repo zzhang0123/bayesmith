@@ -5118,6 +5118,29 @@ git commit -m "feat: wire the exact solves into the public API, with boundary an
 
 ---
 
+## 验收关口证明什么、不证明什么（Task 6 实测，2026-08-23）
+
+`test_wiener_solve_matches_the_dense_oracle` 是本计划的验收判据，实测 R1 与 R2 在四个 fixture 上一致到 **3.07e-16 / 1.81e-16 / 2.58e-16 / 0.0**——float64 的 ULP 地板。但**它证明的是线性代数，不是模型**。
+
+R1（`wiener_solve`）与 R2（`graph_oracle`）都**直接调用** `_env_before`、`isolate`、`observation_parts`。这三处任何一处的 bug 会让两边**同向移动**，关口纹丝不动。逐一变异实测：
+
+| 被变异的共享件 | 验收关口 | 真正抓住它的是 |
+|---|---|---|
+| `_env_before` 的 `prior_std` → 方差 | 绿 | `test_block.py` 的 4 条 |
+| `_env_before` 的 `prior_mean` + 1.0 | 绿 | `test_a_latent_the_data_never_reaches_comes_back_at_its_prior_mean`（对写死的常数）、`test_domain_centre_is_the_declared_prior_mean` |
+| `observation_parts` 的 sigma × 2 | 绿 | `test_observation_parts_covers_every_observed_node`（它检查 `scale` 的值） |
+| **`observation_parts` 的 data + 5.0** | 绿 | **原本没有任何东西**——见下 |
+| `isolate` 的 g 只取首个观测节点 | 绿（单观测 fixture 上是 no-op） | 双观测的姊妹测试上**崩溃** |
+| `isolate` 的 g × 1.1 | 绿 | `test_offset_is_the_prediction_with_the_block_at_zero`、`test_forward_is_the_linear_action_of_the_block` |
+
+**六个变异，验收关口一个都没抓住。** 这正是 P1 记录的那个盲区，只是这次被量出来了而不是被论证。
+
+**其中一处曾是真空洞**：`observation_parts` 返回的 **data 值**从未被任何测试检查过——键、形状、`scale` 的值都查过，唯独 data 的值没有，而后验完全条件于它。它看起来"有覆盖"，只因为 `test_the_precision_floor_alone_makes_the_guard_unreachable` 会红——而那条测试的余量只有 **0.25%**，它红是因为数据一动 float32 的 CG 残差就跟着动，**与数据是否正确无关**。
+
+> **一个余量过薄、会因无关改动误报的测试，正在掩盖一个真实的覆盖空洞。** 推论：跑套件时不能只问"有没有红"，必须问**红的那条是不是因为正确的理由红的**。
+
+两处都已修（见 Task 6 的审查后增补）。
+
 ## 验收（本计划完成的判据）
 
 - [ ] `.venv/bin/python -m pytest -q` 全绿
