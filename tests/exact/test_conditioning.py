@@ -41,7 +41,11 @@ def test_tree_norm_survives_a_leaf_small_enough_to_underflow_when_squared():
     """
     small = jnp.array([3e-30, 4e-30], dtype=jnp.float32)
     assert float(jnp.sqrt(jnp.sum(small**2))) == 0.0
-    assert float(tree_norm({"x": small})) == pytest.approx(5e-30, rel=1e-5)
+    # abs=0.0 is load-bearing: pytest.approx applies a DEFAULT abs=1e-12 floor
+    # and takes max(rel * expected, abs), so `approx(5e-30, rel=1e-5)` accepts
+    # anything within 1e-12 of it -- including the exact 0.0 the naive
+    # implementation returns, which is the bug this test exists to catch.
+    assert float(tree_norm({"x": small})) == pytest.approx(5e-30, rel=1e-5, abs=0.0)
 
 
 def test_tree_norm_of_an_all_zero_pytree_is_zero():
@@ -56,24 +60,30 @@ def test_largest_eigenvalue_finds_the_top_of_a_known_spectrum():
     assert float(got) == pytest.approx(100.0, rel=1e-4)
 
 
-def test_largest_eigenvalue_approaches_the_truth_from_below():
+@pytest.mark.parametrize("spectrum", [[1.0, 1.0, 1.0, 100.0], [1.0, 99.9, 100.0]])
+def test_largest_eigenvalue_approaches_the_truth_from_below(spectrum):
     """Power iteration underestimates, and the guard depends on knowing it does.
 
     `condition_bound` divides lambda_max by a prior-derived LOWER bound on
     lambda_min to get an UPPER bound on kappa. That bound is only as good as
-    lambda_max, which must therefore never overshoot. Checked at several
-    iteration counts on a near-degenerate top of spectrum, where convergence
-    is slowest and an overshoot would show up first.
+    lambda_max, which must therefore never overshoot.
+
+    Both a well-separated and a nearly-degenerate spectrum, because only the
+    first can catch an overshoot. Measured: `[1, 99.9, 100]` plateaus at
+    99.9396 and is still 0.0029 short after 2000 iterations, so a 0.01%
+    overshoot hides inside its own shortfall; `[1, 1, 1, 100]` reaches exactly
+    100.0 by ten iterations, where any overshoot at all is visible. An earlier
+    version of this test used only the degenerate case and could not catch the
+    mutation named in its own docstring.
     """
-    diag = jnp.array([1.0, 99.9, 100.0])
+    diag = jnp.asarray(spectrum)
+    truth = float(jnp.max(diag))
+    template = {"x": jnp.zeros(len(spectrum))}
     for iterations in (1, 3, 10, 40):
         got = float(
-            largest_eigenvalue(
-                _diagonal(diag), {"x": jnp.zeros(3)}, jax.random.key(4), iterations
-            )
+            largest_eigenvalue(_diagonal(diag), template, jax.random.key(4), iterations)
         )
-        assert got <= 100.0 * (1.0 + 1e-5), (iterations, got)
-    assert got == pytest.approx(100.0, rel=1e-3)
+        assert got <= truth * (1.0 + 1e-6), (iterations, got)
 
 
 @pytest.mark.parametrize("top_in", ["a", "b"])

@@ -288,6 +288,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from bayesmith.errors import GraphError
 from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
 
 
@@ -324,7 +325,11 @@ def test_tree_norm_survives_a_leaf_small_enough_to_underflow_when_squared():
     """
     small = jnp.array([3e-30, 4e-30], dtype=jnp.float32)
     assert float(jnp.sqrt(jnp.sum(small**2))) == 0.0
-    assert float(tree_norm({"x": small})) == pytest.approx(5e-30, rel=1e-5)
+    # abs=0.0 is load-bearing: pytest.approx applies a DEFAULT abs=1e-12 floor
+    # and takes max(rel * expected, abs), so `approx(5e-30, rel=1e-5)` accepts
+    # anything within 1e-12 of it -- including the exact 0.0 the naive
+    # implementation returns, which is the bug this test exists to catch.
+    assert float(tree_norm({"x": small})) == pytest.approx(5e-30, rel=1e-5, abs=0.0)
 
 
 def test_tree_norm_of_an_all_zero_pytree_is_zero():
@@ -337,24 +342,47 @@ def test_largest_eigenvalue_finds_the_top_of_a_known_spectrum():
     assert float(got) == pytest.approx(100.0, rel=1e-4)
 
 
-def test_largest_eigenvalue_approaches_the_truth_from_below():
+@pytest.mark.parametrize(
+    "spectrum", [[1.0, 1.0, 1.0, 100.0], [1.0, 99.9, 100.0]]
+)
+def test_largest_eigenvalue_approaches_the_truth_from_below(spectrum):
     """Power iteration underestimates, and the guard depends on knowing it does.
 
     `condition_bound` divides lambda_max by a prior-derived LOWER bound on
     lambda_min to get an UPPER bound on kappa. That bound is only as good as
-    lambda_max, which must therefore never overshoot. Checked at several
-    iteration counts on a near-degenerate top of spectrum, where convergence
-    is slowest and an overshoot would show up first.
+    lambda_max, which must therefore never overshoot.
+
+    Both a well-separated and a nearly-degenerate spectrum, because only the
+    first can catch an overshoot. Measured: `[1, 99.9, 100]` plateaus at
+    99.9396 and is still 0.0029 short after 2000 iterations, so a 0.01%
+    overshoot hides inside its own shortfall; `[1, 1, 1, 100]` reaches exactly
+    100.0 by ten iterations, where any overshoot at all is visible. An earlier
+    version of this test used only the degenerate case and could not catch the
+    mutation named in its own docstring.
     """
-    diag = jnp.array([1.0, 99.9, 100.0])
+    diag = jnp.asarray(spectrum)
+    truth = float(jnp.max(diag))
+    template = {"x": jnp.zeros(len(spectrum))}
     for iterations in (1, 3, 10, 40):
         got = float(
             largest_eigenvalue(
-                _diagonal(diag), {"x": jnp.zeros(3)}, jax.random.key(4), iterations
+                _diagonal(diag), template, jax.random.key(4), iterations
             )
         )
-        assert got <= 100.0 * (1.0 + 1e-5), (iterations, got)
-    assert got == pytest.approx(100.0, rel=1e-3)
+        assert got <= truth * (1.0 + 1e-6), (iterations, got)
+
+
+def test_largest_eigenvalue_refuses_fewer_than_one_iteration():
+    """Zero iterations returns the norm of an untouched random vector.
+
+    That is a number with no relationship to the operator at all, and it would
+    flow straight into a condition bound. Refused by name rather than
+    returned.
+    """
+    with pytest.raises(GraphError, match="iterations"):
+        largest_eigenvalue(
+            _diagonal(jnp.ones(3)), {"x": jnp.zeros(3)}, jax.random.key(0), 0
+        )
 
 
 @pytest.mark.parametrize("top_in", ["a", "b"])
@@ -501,7 +529,7 @@ def largest_eigenvalue(
 .venv/bin/python -m pytest tests/exact/test_conditioning.py -v
 ```
 
-Expected: 8 passed（参数化的那条算两例）。
+Expected: 10 passed（两条参数化的各算两例）。
 
 - [ ] **Step 6: 变异测试**
 
@@ -525,6 +553,12 @@ Expected: 8 passed（参数化的那条算两例）。
 
 再把 `largest_eigenvalue` 的循环体改成 `return tree_norm(operator(vector))`（只迭代一次，不论 `iterations`），重跑。
 Expected: `test_largest_eigenvalue_finds_the_top_of_a_known_spectrum` **变红**。还原。
+
+再让 `largest_eigenvalue` 超调：`return largest * 1.0001`。**这一行必须写在循环之外**——写在循环内（`largest = tree_norm(image) * 1.0001`）是个**无效变异**：归一化用的正是这个被放大的值，于是 `‖v‖` 缩小同样倍数、下一次 `‖Mv‖` 随之缩小，在收敛处**恰好抵消**，测试不会变红而实现其实没被破坏。实测确认过这一点。
+Expected: `test_largest_eigenvalue_approaches_the_truth_from_below[spectrum0]` **变红**，`[spectrum1]` 保持绿（简并谱本就看不见 0.01% 的超调）。还原。
+
+最后去掉 `iterations < 1` 守卫，重跑。
+Expected: `test_largest_eigenvalue_refuses_fewer_than_one_iteration` **变红**。还原。
 
 最后把 `tree_norm` 的重标定去掉、改成朴素的 `jnp.sqrt(sum(jnp.sum(leaf**2)))`，重跑。
 Expected: 溢出与下溢两条测试**都变红**。还原。
