@@ -882,13 +882,74 @@ def test_check_gaussian_catches_a_distribution_that_lies_about_its_log_prob():
         check_gaussian(graph, graph.node("d"), env)
 
 
+def test_the_probe_evaluates_log_prob_at_the_shape_the_node_s_value_takes():
+    """A dist_fn correct on a scalar and wrong on an array must be refused.
+
+    `gaussian_parts` returns dist_fn's own batch shape, which for a plated
+    latent with an unplated prior -- and for an unplated observed node with
+    vector data -- is a SCALAR while the node's value is an array. Probing at
+    the scalar evaluates log_prob at a shape the consumer never uses.
+
+    Measured before this guard existed: every reported error was exactly 0.0
+    against a real discrepancy of 2.0e6 nats over 2000 observations.
+    """
+
+    class ShapeSensitiveNormal(dist.Normal):
+        def log_prob(self, value):
+            true = super().log_prob(value)
+            return true if jnp.ndim(value) == 0 else true + 1000.0
+
+    def model():
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        observe("d", lambda w_: ShapeSensitiveNormal(w_, 0.7), w, obs=jnp.zeros(200))
+
+    graph = trace(model)
+    env = evaluate(graph, {"w": jnp.asarray(0.3)})
+    loc, _ = gaussian_parts(graph, graph.node("d"), env)
+    assert jnp.shape(loc) == ()  # the gap this test exists for
+    assert node_shape(graph, graph.node("d"), env) == (200,)
+    with pytest.raises(StructureError, match="log_prob"):
+        check_gaussian(graph, graph.node("d"), env)
+
+
+def test_the_probe_is_not_diluted_by_the_entries_that_are_correct():
+    """One wrong element among many must not hide behind the others.
+
+    Measured: with a summed comparison, one entry out of 1e6 off by 50 nats
+    reports a relative error of 1.95e-5 -- under the default rtol, silently
+    accepted. Elementwise it reports 50. Uses 5000 entries here rather than
+    1e6 so the test stays fast; the summed form already fails to catch it at
+    this size.
+    """
+
+    class OneBadEntryNormal(dist.Normal):
+        def log_prob(self, value):
+            true = super().log_prob(value)
+            return true.at[0].add(50.0) if jnp.ndim(value) > 0 else true
+
+    def model():
+        xs = const("X", jnp.ones(5000))
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda u: OneBadEntryNormal(u, 0.7), mu, obs=jnp.zeros(5000))
+
+    graph = trace(model)
+    env = evaluate(graph, {"w": jnp.asarray(0.3)})
+    with pytest.raises(StructureError, match="log_prob"):
+        check_gaussian(graph, graph.node("d"), env)
+
+
 def test_check_gaussian_refuses_a_scale_that_is_not_strictly_positive():
     def model():
         w = sample("w", lambda: dist.Normal(0.0, 1.0))
         observe("d", lambda w_: dist.Normal(w_, 0.0), w, obs=jnp.zeros(()))
 
     graph = trace(model)
-    with pytest.raises(StructureError, match="scale"):
+    # Matching the strict-positivity guard's OWN words, not just "scale": with
+    # a looser match, mutating `scale > 0` to `scale >= 0` still passes,
+    # because sigma=0 then reaches the probe loop, log(0) makes `predicted`
+    # non-finite, and that refusal's message also contains the word "scale".
+    with pytest.raises(StructureError, match="strictly positive"):
         check_gaussian(graph, graph.node("d"), evaluate(graph, {"w": jnp.asarray(0.0)}))
 
 
@@ -968,9 +1029,20 @@ values the fast path will see.
 **Why the introspection is a fast path and not the answer.** Reading
 ``.loc``/``.scale`` off a ``Normal`` trusts the type. A ``Distribution``
 subclass may override ``log_prob`` -- censored, tempered, or simply wrong --
-and keep both attributes, so the type is evidence and not proof. The probe is
-what turns it into proof, at a cost of four ``log_prob`` evaluations per node
-per block build.
+and keep both attributes, so the type is evidence, not proof. The probe is
+what raises the bar, at a cost of five ``log_prob`` evaluations per node per
+block build.
+
+**What the probe does and does not establish.** It establishes that the
+extracted ``(loc, scale)`` reproduce the node's own density *at the probed
+points, elementwise, at the shape the node's value actually takes*. It does
+not establish agreement everywhere: a finite set of points cannot certify a
+claim about a function, and a correction shaped to vanish at exactly these
+offsets -- a quartic with roots there, say -- would pass while being wrong by
+hundreds of nats at the mode. That is an adversarial construction, and the
+threat this guard is placed against is accidental: a censored likelihood, a
+tempered one, a hand-written approximation. Those do not have roots at the
+probe points. Stated so the guarantee is not mistaken for a stronger one.
 """
 
 from __future__ import annotations
@@ -992,8 +1064,10 @@ from bayesmith.graph.nodes import Node, Probabilistic
 #: probe, a wrong ``scale`` produces a mismatch that grows with ``|offset|``,
 #: and a log-density that is not quadratic fails at the outer pair first.
 #: Asymmetric on purpose -- a symmetric set cannot distinguish a sign error in
-#: ``loc`` from a correct one.
-PROBE_OFFSETS: tuple[float, ...] = (-3.0, -1.0, 0.5, 2.0)
+#: ``loc`` from a correct one. ``0.0`` is included because it is the mode:
+#: the single point carrying the most posterior mass, and the point a
+#: correction shaped to vanish at the other offsets is most likely to miss.
+PROBE_OFFSETS: tuple[float, ...] = (-3.0, -1.0, 0.0, 0.5, 2.0)
 
 _LOG_2PI = float(np.log(2.0 * np.pi))
 
@@ -1070,7 +1144,21 @@ def node_shape(graph: Graph, node: Node, env: dict[str, Any]) -> tuple[int, ...]
         shapes.append((graph.plate_size(node.plate[0]),))
     if isinstance(node, Probabilistic) and node.observed is not None:
         shapes.append(jnp.shape(node.observed))
-    return tuple(jnp.broadcast_shapes(*shapes))
+    try:
+        return tuple(jnp.broadcast_shapes(*shapes))
+    except ValueError as exc:
+        raise StructureError(
+            f"node {node.name!r} has shapes that cannot be reconciled: its "
+            f"distribution's loc is {jnp.shape(loc)}"
+            + (f", its plate is {(graph.plate_size(node.plate[0]),)}" if node.plate else "")
+            + (
+                f", its data is {jnp.shape(node.observed)}"
+                if isinstance(node, Probabilistic) and node.observed is not None
+                else ""
+            )
+            + ". A node's value has one shape; these disagree. Raw broadcasting "
+            "would report the same clash without naming the node."
+        ) from exc
 
 
 def check_gaussian(
@@ -1081,23 +1169,47 @@ def check_gaussian(
     Costs ``len(PROBE_OFFSETS)`` evaluations of ``log_prob``. Runs on concrete
     values, **outside** any trace.
 
+    **Probes at the shape the node's VALUE takes**, not at ``dist_fn``'s own
+    batch shape, and compares **elementwise**. Both matter, and both were
+    measured:
+
+    * A plated latent whose ``dist_fn`` takes no plated parent has a scalar
+      ``loc`` and a plate-shaped value; so does an unplated observed node
+      conditioned on a vector. Probing at the scalar evaluates ``log_prob`` at
+      a shape the consumer never uses. Measured on this package's own
+      ``plated_latent`` fixture pattern: a ``Distribution`` subclass correct
+      on a scalar and off by 1000 nats per element on an array passed the
+      guard with every reported error exactly ``0.0``, against a real
+      discrepancy of 2.0e6 nats. This is the same shape of defect P1 recorded
+      -- the guard and the thing it guards looking at different shapes -- and
+      it is fixed the same way.
+    * A summed comparison dilutes a localised defect by the magnitudes of the
+      correct entries. Measured: one wrong element out of 1e6, off by 50 nats,
+      reports a summed relative error of 1.95e-5 -- under the default rtol,
+      silently accepted -- and an elementwise error of 50.
+
     Args:
         graph, node, env: the node under test and the values its parents take.
-        rtol: tolerance on the relative disagreement. Default ``1e3 * eps`` of
-            ``loc``'s dtype, which leaves room for accumulated roundoff in the
-            reduction without admitting a real difference in density.
+        rtol: tolerance on the relative disagreement, per element. Default
+            ``1e3 * eps`` of ``loc``'s dtype, which leaves room for
+            accumulated roundoff without admitting a real difference in
+            density.
 
     Returns:
-        ``{offset: relative error}`` -- useful for reporting how Gaussian a
-        node is, not only whether it passes.
+        ``{offset: worst relative error over the node's entries}`` -- useful
+        for reporting how Gaussian a node is, not only whether it passes.
 
     Raises:
         NotGaussian: propagated from :func:`gaussian_parts`.
         StructureError: if the scale is not strictly positive and finite, or
-            if any probe disagrees by more than ``rtol``.
+            if any probe disagrees by more than ``rtol`` at any entry.
     """
     distribution = unwrap(apply_probabilistic(graph, node, env))
     loc, scale = gaussian_parts(graph, node, env)
+    shape = node_shape(graph, node, env)
+    loc = jnp.broadcast_to(loc, shape)
+    scale = jnp.broadcast_to(scale, shape)
+
     if not bool(jnp.all(jnp.isfinite(scale) & (scale > 0))):
         raise StructureError(
             f"node {node.name!r} has a scale that is not strictly positive and "
@@ -1112,15 +1224,14 @@ def check_gaussian(
     errors: dict[float, float] = {}
     for offset in PROBE_OFFSETS:
         probe = loc + offset * scale
-        actual = float(jnp.sum(distribution.log_prob(probe)))
-        predicted = float(
-            jnp.sum(
-                -0.5 * ((probe - loc) / scale) ** 2 - jnp.log(scale) - 0.5 * _LOG_2PI
-            )
+        actual = jnp.broadcast_to(distribution.log_prob(probe), shape)
+        predicted = (
+            -0.5 * ((probe - loc) / scale) ** 2 - jnp.log(scale) - 0.5 * _LOG_2PI
         )
-        # Relative to the predicted magnitude, with a floor so a probe that
-        # lands where the log-density happens to be ~0 does not divide by it.
-        errors[offset] = abs(actual - predicted) / max(abs(predicted), 1.0)
+        # Elementwise, and floored at 1.0 so a probe landing where the
+        # log-density happens to be ~0 does not divide by it.
+        departure = jnp.abs(actual - predicted) / jnp.maximum(jnp.abs(predicted), 1.0)
+        errors[offset] = float(jnp.max(departure))
         # NaN must count as a FAILURE: `nan > rtol` is False, so a naive
         # comparison treats an unusable probe as evidence of Gaussianity.
         if not np.isfinite(errors[offset]) or errors[offset] > rtol:
@@ -1128,11 +1239,11 @@ def check_gaussian(
             raise StructureError(
                 f"node {node.name!r} is a {type(distribution).__name__}, so its "
                 "loc and scale were read off it directly -- but its own log_prob "
-                f"does not agree with them (rtol={rtol:.2e}; {detail}). A "
-                "Distribution subclass that overrides log_prob keeps both "
-                "attributes and changes the density, so the type is evidence "
-                "and not proof. The exact path would solve the wrong posterior; "
-                "it refuses instead."
+                f"does not agree with them (rtol={rtol:.2e}; worst entry per "
+                f"probe: {detail}). A Distribution subclass that overrides "
+                "log_prob keeps both attributes and changes the density, so the "
+                "type is evidence and not proof. The exact path would solve the "
+                "wrong posterior; it refuses instead."
             )
     return errors
 
@@ -1177,7 +1288,7 @@ def noise_std_at(graph: Graph, values: dict[str, Any]) -> dict[str, jax.Array]:
 .venv/bin/python -m pytest tests/exact/test_gaussian.py -v
 ```
 
-Expected: 9 passed。
+Expected: 11 passed。
 
 - [ ] **Step 6: 变异测试**
 
@@ -1187,6 +1298,12 @@ Expected: 9 passed。
    Expected: `test_node_shape_agrees_with_the_numpyro_bridge` **变红**（得到 `()` 而非 `(6,)`）。还原。
 3. 把 `gaussian_parts` 的 `NotGaussian` 改成 `StructureError`，重跑。
    Expected: `test_gaussian_parts_refuses_a_node_that_is_not_gaussian` **变红**。还原。
+4. 把 `check_gaussian` 里的 `loc = jnp.broadcast_to(loc, shape)` 与 `scale` 那两行删掉（退回在 `dist_fn` 自己的形状上探测），重跑。
+   Expected: `test_the_probe_evaluates_log_prob_at_the_shape_the_node_s_value_takes` **变红**。还原。
+5. 把逐元素比较改回求和（`jnp.sum` 两侧再相除），重跑。
+   Expected: `test_the_probe_is_not_diluted_by_the_entries_that_are_correct` **变红**。还原。
+6. 把 `scale > 0` 改成 `scale >= 0`，重跑。
+   Expected: `test_check_gaussian_refuses_a_scale_that_is_not_strictly_positive` **变红**（改前它会因为另一条消息里也有 "scale" 而假通过）。还原。
 
 - [ ] **Step 7: 提交**
 
