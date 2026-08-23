@@ -14,7 +14,7 @@
 
 ---
 
-## 三条纪律（P1 执行记录留下的，适用于每个任务）
+## 五条纪律（P1 执行记录留下三条，Tasks 1–7 实测追加两条；适用于每个任务）
 
 1. **断言必须验证行为，不能是重言式。** `assert issubclass(X, Y)` 在 `class X(Y)` 已写死时不证明任何东西。每写一条断言问一句：**如果实现是错的，这条会红吗？** 答不上来就重写。
 2. **每个任务收尾做变异测试。** 故意按任务指定的方式破坏实现，确认一条**具名**的测试变红，然后还原。P1 的 8 个缺陷里有 3 个只有它能发现。
@@ -4117,9 +4117,21 @@ Expected: 6 passed。
 - [ ] **Step 5: 变异测试**
 
 1. 把 `step` 里的 `delta` 分母从 `tree_norm(updated)` 改成 `tree_norm(latent)`，重跑。
-   Expected: 不一定变红。补一条断言：`test_iterative_gls_finds_the_fixed_point_a_dense_iteration_finds` 里加 `assert int(result.iterations) < 50`——从先验均值（=0）起步时旧写法的分母是 0，delta 恒为巨大值，迭代会跑满 `max_reweights`。还原。
-2. 把 `unfinished` 的两个连接词交换（`or` 在外、`and` 在内），并令 `min_reweights=5, max_reweights=2` 调用，重跑。
-   Expected: 挂起（无限循环）。**这条变异不要在 CI 里跑**——在本地手工确认后立刻还原，并确认 `min_reweights > max_reweights` 被 `GraphError` 挡在前面。
+
+   > **计划原文给的机理是错的**（Task 8 实测更正）：循环并非从先验均值起步，而是从 `first`——一次真实的求解——所以分母从来不是 0。而且这条变异在实测扫过的约 15 组配置上**完全不可观测**：两种实现的 `iterations` / `delta` / `solution` 一致到 10 位以上有效数字。
+   >
+   > 机理：`MIN_REWEIGHTS = 5` 强制至少 5 次求解，而这个 IRLS 映射在 1–2 步内就把迭代量的**模**稳定下来（尽管**变化量**还在缩小），所以等 `delta` 第一次被查看时 `‖latent‖` 与 `‖updated‖` 已在 float64 精度内相等。
+   >
+   > 唯一不牵强的关法是调小 `min_reweights`（它是文档化的参数，不是内部常量）：`min_reweights=1` 让 `delta` 在 `count=1` 处就被查看，那里 `latent` 是一次求解、`updated` 是第二次，两者的模真正不同。见 Task 8 的执行记录里这条的实测结果。
+
+   仍然加上 `assert int(result.iterations) < 50`——它本身是个合理的回归守卫，且**确实**抓得住上面的变异 2。还原。
+2. 把 `unfinished` 的两个连接词交换（`or` 在外、`and` 在内），重跑。
+
+   > **计划原文声称它会"挂起（无限循环）"，这是错的**（Task 8 实测更正）。交换后的谓词是 `count < max OR (count < min AND delta > tol)`；`count` 每步严格递增，最终两个析取项都为假，**对任何有限的界都必然终止**。以 `min=5, max=2` 调用更是连那个谓词都到不了——`min <= max` 的 `GraphError` 守卫是函数体第一行。
+   >
+   > 我写下一个"会挂起"的预言，而两行逻辑就能证伪它，我没做那两行。与本文件「一个不可能的目标」一节同类：**关于自己代码行为的断言，同样要算过再写。**
+
+   Expected（实测）：以**合法**的 `min <= max`（例如默认值）调用时，循环有界但浪费——它总是跑满 `max_reweights` 而忽略收敛。这**会**被抓住：`test_iterative_gls_finds_the_fixed_point_a_dense_iteration_finds` 的 `iterations < 50` 断言变红（`100 !< 50`）。还原。
 3. 把 `check_prediction_dependence` 的 `DEPENDENCE_PROBES` 改成只有 `(-0.5,)`，重跑。
    Expected: `test_check_prediction_dependence_catches_a_false_declaration` 仍红——辐射计的 σ 在任一侧都动。这条变异因此**没有覆盖单侧探针的真实失效模式**：σ 被单侧钳位时（`sigma = kappa * max(mu, 0) + floor`）每个负探针读出的都恰好是 baseline。补一个玩具模型并补一条测试：
 
