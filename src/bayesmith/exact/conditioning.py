@@ -1,4 +1,3 @@
-# src/bayesmith/exact/conditioning.py
 """Spectral diagnostics for matrix-free symmetric operators.
 
 An iterative solver can cheaply report ``‖M x - b‖``; what a caller actually

@@ -72,7 +72,8 @@ def test_extreme_eigenvalues_spans_several_pytree_leaves(extremes_in):
 
     Their union is complete, which is why this runs as two cases and not one.
     An earlier single-case version of this test used a=[2,10] b=[20,100] and
-    silently missed the iter2-first-leaf bug entirely.
+    silently missed the iter2-first-leaf bug entirely -- found by mutation testing,
+    which is the only thing that finds a guard that does not guard.
 
     200 iterations, not 40: the shifted operator's top two eigenvalues are 98
     and 90, a ratio of 0.918, so 40 steps leave ~3% error on a target of 2.0

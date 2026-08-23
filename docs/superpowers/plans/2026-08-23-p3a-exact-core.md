@@ -32,6 +32,12 @@ PY
 
    用法：把计划里该任务的 python 代码块抠出来存成一个文件，再与提交的源文件比对。**实质差异是可以的**——发现了计划的缺陷就该改实现——但每一处都要在任务收尾时**具名说明**，而不是悄悄漂移。
 
+## 一条排版约定
+
+计划里每个 python 代码块的**首行路径注释**（`# src/bayesmith/exact/conditioning.py`）是给读计划的人看的**元信息**，**不是文件内容**——文件的首行应当是它自己的 docstring。Task 1 首次实现时把它抄进了源文件，之后剥离；后续每个文件都适用这条。
+
+同理，块里的 `# tests/exact/xxx.py` 也不抄。
+
 ## 一条精度纪律
 
 **本包绝不在任何位置调用 `jax.config.update("jax_enable_x64", ...)`**——进程级全局，会静默改变宿主之后创建的每个数组的 dtype，且关不回去。需要 float64 时用 `with jax.enable_x64(True):`，并在块内转出到 NumPy。需要 x64 的测试打 `@pytest.mark.x64`（marker 已在 `pyproject.toml` 声明）。
