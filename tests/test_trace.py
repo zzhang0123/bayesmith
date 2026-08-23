@@ -65,6 +65,22 @@ def test_plate_is_declared_and_attached():
     assert g.node("X").plate == ("obs",)
 
 
+@pytest.mark.parametrize("bad_plate", [123, "obs", 3.5])
+def test_a_non_plateref_plate_value_is_refused(bad_plate):
+    """plate() returns a handle, not a name -- nothing else is accepted.
+
+    Covers both the old silent bug (a bare string used to work, since
+    plate() itself used to return one) and the old crash (a bare int used to
+    escape as an uncaught TypeError instead of an actionable GraphError).
+    """
+
+    def model():
+        const("X", jnp.arange(3.0), plate=bad_plate)
+
+    with pytest.raises(GraphError, match="PlateRef"):
+        trace(model)
+
+
 def test_a_primitive_outside_trace_is_refused():
     with pytest.raises(TraceError, match="must be called inside trace"):
         sample("x", lambda: dist.Normal(0.0, 1.0))
@@ -76,6 +92,15 @@ def test_a_duplicate_name_is_refused_during_tracing():
         sample("x", lambda: dist.Normal(0.0, 1.0))
 
     with pytest.raises(GraphError, match="duplicate node name 'x'"):
+        trace(model)
+
+
+def test_a_duplicate_plate_name_is_refused_during_tracing():
+    def model():
+        plate("obs", 3)
+        plate("obs", 5)
+
+    with pytest.raises(GraphError, match="duplicate plate name 'obs'"):
         trace(model)
 
 
@@ -133,3 +158,41 @@ def test_an_explicit_graph_and_a_traced_one_agree_on_structure():
     assert traced.names == built.names
     assert [n.parents for n in traced.nodes] == [n.parents for n in built.nodes]
     assert traced.node("mu").linear_in == built.node("mu").linear_in
+
+
+def test_a_noderef_from_an_outer_trace_is_refused_by_an_inner_trace():
+    """A handle must resolve by owner, not by name, across trace() calls.
+
+    Reproduces the silent-misattachment failure mode this guards against:
+    without an owner check, the inner "shared" Const would silently satisfy
+    a parent reference actually meant for the outer Probabilistic of the
+    same name, because parents were resolved by name alone.
+    """
+    outer = {}
+
+    def inner_model():
+        const("shared", jnp.array(42.0))
+        det("y", lambda v: v, outer["handle"])
+
+    def outer_model():
+        outer["handle"] = sample("shared", lambda: dist.Normal(0.0, 1.0))
+        trace(inner_model)
+
+    with pytest.raises(GraphError, match="different trace"):
+        trace(outer_model)
+
+
+def test_a_plateref_from_a_different_trace_is_refused():
+    """A plate handle must resolve by owner, not by name, across trace() calls."""
+    outer = {}
+
+    def inner_model():
+        plate("obs", 10)  # same name as the outer plate, unrelated otherwise
+        const("X", jnp.arange(3.0), plate=outer["handle"])
+
+    def outer_model():
+        outer["handle"] = plate("obs", 3)
+        trace(inner_model)
+
+    with pytest.raises(GraphError, match="different trace"):
+        trace(outer_model)
