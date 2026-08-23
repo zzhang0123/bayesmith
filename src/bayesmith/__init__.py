@@ -10,7 +10,14 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from bayesmith.errors import BayesmithError, GraphError, TraceError
+from bayesmith.errors import (
+    BayesmithError,
+    ConvergenceError,
+    GraphError,
+    NotGaussian,
+    StructureError,
+    TraceError,
+)
 
 __all__ = [
     # tracing
@@ -35,13 +42,27 @@ __all__ = [
     # inference
     "to_numpyro",
     "nuts",
+    # exact
+    "linear_operator",
+    "check_linearity",
+    "wiener_solve",
+    "gcr_sample",
+    "condition_bound",
+    "iterative_gls",
+    "sigma_from_graph",
+    "noise_std_at",
+    "fisher_information",
+    "parameter_covariance",
     # errors
     "BayesmithError",
     "GraphError",
     "TraceError",
+    "StructureError",
+    "ConvergenceError",
+    "NotGaussian",
 ]
 
-# Every public name above except the three error classes is resolved lazily,
+# Every public name above except the six error classes is resolved lazily,
 # on first attribute access, rather than imported here at module scope.
 # Importing eagerly would make `import bayesmith` load numpyro (hence jax) as
 # a side effect -- exactly the regression this module previously had: Python
@@ -71,14 +92,25 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "log_joint": ("bayesmith.graph.evaluate", "log_joint"),
     "to_numpyro": ("bayesmith.bridge.numpyro_bridge", "to_numpyro"),
     "nuts": ("bayesmith.bridge.numpyro_bridge", "nuts"),
+    "linear_operator": ("bayesmith.exact.linearity", "linear_operator"),
+    "check_linearity": ("bayesmith.exact.linearity", "check_linearity"),
+    "wiener_solve": ("bayesmith.exact.solve", "wiener_solve"),
+    "gcr_sample": ("bayesmith.exact.solve", "gcr_sample"),
+    "condition_bound": ("bayesmith.exact.solve", "condition_bound"),
+    "iterative_gls": ("bayesmith.exact.gls", "iterative_gls"),
+    "sigma_from_graph": ("bayesmith.exact.gls", "sigma_from_graph"),
+    "noise_std_at": ("bayesmith.exact.gaussian", "noise_std_at"),
+    "fisher_information": ("bayesmith.exact.fisher", "fisher_information"),
+    "parameter_covariance": ("bayesmith.exact.fisher", "parameter_covariance"),
 }
 
 # Subpackages reachable as `bayesmith.<name>` after a bare `import bayesmith`,
 # without eagerly importing any of them -- `bridge` in particular is what
-# pulls in numpyro. `errors` is listed too for __dir__'s sake even though the
-# eager import above already binds it as a real attribute, so __getattr__ is
-# never actually consulted for it.
-_LAZY_SUBMODULES = ("graph", "bridge", "errors")
+# pulls in numpyro, and `exact` reaches numpyro through `bridge` too (see
+# `gaussian.py`'s use of `numpyro.distributions`). `errors` is listed too for
+# __dir__'s sake even though the eager import above already binds it as a
+# real attribute, so __getattr__ is never actually consulted for it.
+_LAZY_SUBMODULES = ("graph", "bridge", "exact", "errors")
 
 
 def __getattr__(name: str) -> Any:

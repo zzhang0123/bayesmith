@@ -14,12 +14,32 @@
 
 ---
 
-## 三条纪律（P1 执行记录留下的，适用于每个任务）
+## 五条纪律（P1 执行记录留下三条，Tasks 1–7 实测追加两条；适用于每个任务）
 
 1. **断言必须验证行为，不能是重言式。** `assert issubclass(X, Y)` 在 `class X(Y)` 已写死时不证明任何东西。每写一条断言问一句：**如果实现是错的，这条会红吗？** 答不上来就重写。
 2. **每个任务收尾做变异测试。** 故意按任务指定的方式破坏实现，确认一条**具名**的测试变红，然后还原。P1 的 8 个缺陷里有 3 个只有它能发现。
-3. **凡断言"结果等于某常数"的测试，该常数不得等于任何参数的当前值。** P1 的 Task 4 用 `w=3.0` 而真实梯度 `sum(X)=3.0`，使本包最核心的保证的唯一守卫完全无效。
-4. **每个任务收尾做 AST 规格比对。** 把本计划该任务的代码块与提交的文件做 AST 比对，而不是让人读两遍——几秒钟，且立刻能区分实质差异与排版差异。P1 的执行记录把它列为两条方法论收获之一。脚本：
+3. **数值巧合会让守卫失效，两个面都要防。**
+   - **断言面**：断言的常数不得等于任何参数的当前值。P1 的 Task 4 用 `w=3.0` 而真实梯度 `sum(X)=3.0`，使本包最核心保证的唯一守卫完全无效。
+   - **变异面**（Task 3 实测新增）：**变异写入的值不得等于正确值**。给 `_env_before` 的确定性分支塞零这个变异一度不变红，因为 fixture 里 `z` 的先验均值恰好是 `0.0`——塞进去的零与正确值重合。改成 `prior_mean=0.8` 才红。
+   两者是同一个根因：**测试区分不了两种实现，因为在这个 fixture 上它们数值相同。**
+4. **变异不变红时，第一个假设是"fixture 没到达它声称的区域"。** 不是"测试写错了"，也不是"变异无效"——那两个是第二、第三假设。本计划执行至今已四次撞上同一形状：
+
+   | 出处 | fixture 声称的区域 | 实测 |
+   |---|---|---|
+   | Task 1 `rel=5e-2 @ 40 iters` | "幂迭代已收敛" | 只在 `key(1)` 上碰巧成立；扫 30 个 key 最差 229% |
+   | Task 1 `approx(5e-30, rel=1e-5)` | "相对容差在起作用" | `approx` 有默认 `abs=1e-12` 地板，容差实际是 1e-12，比被测值大 18 个量级 |
+   | Task 1 近简并谱 `[1, 99.9, 100]` | "从下方逼近，超调可见" | 2000 次迭代仍差 0.0029，0.01% 的超调藏在自己的缺口里 |
+   | Task 2 `n=5000` 稀释测试 | "求和形式在这个规模下已经抓不住" | 求和形式报 1.78e-2，照样抓得住；交叉点在 n=746,000 |
+
+   四次都是**我在计划里写下一个关于规模/区域的断言而没有实测**。诊断办法是现成的：把那个断言当成一个可计算的量算出来（"求和形式在这个 n 下会报多少？"），而不是凭直觉给个数。
+
+   **第五次（Task 5，用户指出）暴露了一个可以单独命名的成因：单向扫描。** `test_the_bound_is_never_below_the_true_condition_number` 把先验宽度扫过 `{1, 1e2, 1e4}`——横跨四个数量级，看上去很像"覆盖了极端值"。但它**只往一个方向走**，而守卫的保证恰好在**另一个方向**才吃紧：往紧的方向到 `L* = 1/√(S_b·λ_min) = 0.0165` 以下，变异才被抓住（比值 0.579 → 5.8e-5）。
+
+   `boundary-validation.md` 的原话是"include both endpoints ... a very low value and a very high one"。**跨越量级 ≠ 双侧。** 从默认值往外扫是单侧探测，而失效模式常呈 U 形——这正是那份方法论开篇就说的。
+
+   → **凡是扫描一个参数，先问"默认值在扫描范围的哪一端？"** 如果它在端点上而不在中间，这个扫描是单侧的。
+
+5. **每个任务收尾做 AST 规格比对。** 把本计划该任务的代码块与提交的文件做 AST 比对，而不是让人读两遍——几秒钟，且立刻能区分实质差异与排版差异。P1 的执行记录把它列为两条方法论收获之一。脚本：
 
 ```bash
 cat > /tmp/ast_compare.py << 'PY'
@@ -32,9 +52,70 @@ PY
 
    用法：把计划里该任务的 python 代码块抠出来存成一个文件，再与提交的源文件比对。**实质差异是可以的**——发现了计划的缺陷就该改实现——但每一处都要在任务收尾时**具名说明**，而不是悄悄漂移。
 
+## 实测更正：删掉 `extreme_eigenvalues`，守卫改用先验界（2026-08-23，Task 1 代码审查）
+
+计划初稿沿用 rheplicant 的做法：用 `extreme_eigenvalues` 在 `λmax·I − M` 上做第二次幂迭代求 `λ_min`，再取 `κ = λmax / max(λ_min, floor)`。**实测证明这在梯度谱上原理性地不成立，且偏差在危险的一侧。**
+
+移位算子的谱是 `λmax − eig`。对梯度谱，它的前若干个特征值全都挤在 `λmax` 附近、彼此间隙趋近于零——幂迭代收敛不了，**加迭代次数没用**。实测（float32，`jax.random.key(0)`）：
+
+| 谱 | 真 κ | 12 次迭代测得 | 2000 次迭代 | `λmax × max(先验方差)` |
+|---|---|---|---|---|
+| 双簇 `3×1e6 + 3×1` | 1e6 | 9.4e5（×0.94） | — | 1e6（×1.00） |
+| 双簇 `20×1e6 + 5×1` | 1e6 | 1e6（×1.00） | — | 1e6（×1.00） |
+| **梯度 50 点几何，κ=1e7** | 1e7 | **179（×1.8e-5）** | 14025（×1.4e-3） | 1e7（×1.00） |
+| 宽 3 点 `{2, 1e3, 1e6}` | 5e5 | 1068（×2.1e-3） | 4582（×9.2e-3） | 5e5（×1.00） |
+
+**偏差方向是危险的那一侧**：λ_min 被高估 → κ 被低估 → `error_bound = residual × κ` 被低估 → **守卫在该报警时保持沉默**，而这正是它存在要防的事。原计划里的 `jnp.maximum(smallest, floor)` 护的是**另一个**方向（低估 λ_min），因此完全不咬。
+
+**替代方案来自同一张表。** `AᵀN⁻¹A` 半正定，所以
+
+    λ_min(AᵀN⁻¹A + S⁻¹) ≥ λ_min(S⁻¹) = 1 / max(先验方差)
+
+这是**严格下界**，于是 `λmax × max(先验方差)` 是 κ 的**上界**（在 λmax 自身估计的精度之内——那一半收敛快且从下方逼近，`test_largest_eigenvalue_approaches_the_truth_from_below` 钉住这一点）。上表末列显示它在四种谱上都紧，包括幂迭代彻底失效的两种。
+
+**决定：**
+
+1. `conditioning.py` **只保留 `largest_eigenvalue`**，删掉 `extreme_eigenvalues`。它在 P3a 里没有使用者，且对其唯一用途已被实测证明不可用——留着是会误导人的死代码。rheplicant 里它仍在（服务于另一条 `identifiability` 路径）；此处记录，免得将来有人照着 rheplicant 又移植一遍。
+2. Task 5 的出口改名 `condition_estimate` → **`condition_bound`**，实现为 `largest_eigenvalue(...) × largest_variance(prior_variance)`。
+3. 成本**减半**：一次幂迭代而非两次。
+4. 语义从"估计"变成"**界**"：守卫的失效方向从"可能静默过关"变成"最多虚报"。虚报只在数据把每个方向都约束得远好于先验时出现，而那恰是 CG 本来就轻松收敛、残差极小从而把松弛吸收掉的区域。
+
+## 实测更正 2：守卫的"无解"判据不充分，会给出做不到的补救（2026-08-23，Task 5 派发前实测）
+
+Task 5 的四条断言实测时顺带量了守卫在**两种精度**下的实际行为，发现默认设置在 float32 下对一个**两参数玩具模型**就虚报：
+
+| 精度 | 模型 | 残差 | κ 上界 | `residual × bound` | 判决（阈值 1e-3） |
+|---|---|---|---|---|---|
+| float32 | `two_linear_latents` | 1.73e-7 | 5792 | **1.003e-3** | **虚报** |
+| float32 | `two_observations` | 6.96e-8 | 5729 | 3.99e-4 | 通过 |
+| float64 | `two_linear_latents` | 2.95e-16 | 5793 | 1.71e-12 | 通过 |
+
+**而且它给的建议无法执行。** 守卫有两条分支：`bound × eps > require_convergence` 走"这是精度问题，开 x64"，否则走"收紧 `tol`、加 `maxiter`"。这里 `5793 × 1.19e-7 = 6.9e-4 < 1e-3`，所以走后者——**而残差 1.73e-7 已经贴在 float32 的地板上**（`eps = 1.19e-7`，比值 1.45），收紧 `tol` 毫无作用。
+
+与 Task 4 的 Important 是同一个形状：**守卫开火但把用户指向一个做不到的动作**。那里是归因错，这里是补救措施错。
+
+**根因**：rheplicant 的 `κ·eps > require_convergence` 是"无 `tol` 可救"的**充分**条件，不是**必要**条件。必要判据是**残差是否已到达该精度下的地板**：`residual ≲ 10·eps` 就意味着 CG 已无事可做。
+
+**决定**：`unreachable` 改为两者取或——
+
+    at_precision_floor = residual <= PRECISION_FLOOR * eps      # PRECISION_FLOOR = 10.0
+    unreachable = (bound * eps > require_convergence) | at_precision_floor
+
+并把局部变量从 `kappa` 改名为 `bound`（它是上界不是估计，名字要照实说），消息里同时报出这个界，并说明它可能比真实 κ 松 `λ_min × max(先验方差)` 倍——那正好是"数据把最弱方向约束得比先验好多少倍"。实测该因子在 `two_linear_latents` 上是 3676。
+
+**这个缺陷只有把守卫真正跑起来、在两种精度下量 `residual × bound` 才会出现。** 计划里 Task 6 的测试全跑在 x64 下，那里有九个数量级的余量。
+
+## 一条排版约定
+
+计划里每个 python 代码块的**首行路径注释**（`# src/bayesmith/exact/conditioning.py`）是给读计划的人看的**元信息**，**不是文件内容**——文件的首行应当是它自己的 docstring。Task 1 首次实现时把它抄进了源文件，之后剥离；后续每个文件都适用这条。
+
+同理，块里的 `# tests/exact/xxx.py` 也不抄。
+
 ## 一条精度纪律
 
-**本包绝不在任何位置调用 `jax.config.update("jax_enable_x64", ...)`**——进程级全局，会静默改变宿主之后创建的每个数组的 dtype，且关不回去。需要 float64 时用 `with jax.enable_x64(True):`，并在块内转出到 NumPy。需要 x64 的测试打 `@pytest.mark.x64`（marker 已在 `pyproject.toml` 声明）。
+**本包绝不在任何位置调用 `jax.config.update("jax_enable_x64", ...)`**——进程级全局，会静默改变宿主之后创建的每个数组的 dtype，且关不回去。需要 float64 时用 `with jax.enable_x64(True):`，并在块内转出到 NumPy。**不要给 x64 测试打 `@pytest.mark.x64`。** `pyproject.toml` 里那个 marker 是 P1 时期的产物，它的描述说"需要 `JAX_ENABLE_X64=1`，作为单独会话运行"——而 `jax.enable_x64(True)` 是**线程局部**的上下文管理器，计入 jit key、可嵌套、退出完全还原，所以根本不需要单独会话。marker 因此是多余的，本计划的测试一个都没打（Task 5 的实现者正确地指出了这处不一致而没有自行发明约定）。
+
+**但有一条真陷阱**：`jax.enable_x64` 只影响它**之后**创建的数组，而 `const`/`observe` 在 `trace()` 时就调了 `jnp.asarray`。所以**图必须在 `with` 块内构造**——否则图是 float32 的，无论求解跑在什么上下文里，而预言机会变成被比较的两者中精度较低的那个。
 
 ---
 
@@ -44,11 +125,11 @@ PY
 |---|---|---|
 | `src/bayesmith/errors.py` | 增补 `StructureError`、`ConvergenceError`、`NotGaussian`。仍仅 stdlib | +30 |
 | `src/bayesmith/exact/__init__.py` | 空的包标记 | 1 |
-| `src/bayesmith/exact/conditioning.py` | `tree_norm`、`largest_eigenvalue`、`extreme_eigenvalues`。不认识图，也不认识块 | ~120 |
+| `src/bayesmith/exact/conditioning.py` | `tree_norm`、`largest_eigenvalue`。不认识图，也不认识块 | ~90 |
 | `src/bayesmith/exact/gaussian.py` | `(loc, scale)` 提取器 + `log_prob` 探针守卫 + 形状规则 + 观测/先验接缝 | ~200 |
 | `src/bayesmith/exact/block.py` | `LinearBlock`、定义域工具、`unchecked_operator(graph, names, at)` | ~240 |
 | `src/bayesmith/exact/linearity.py` | `affinity_errors`、`check_linearity`（先验幅度、多 `at` 点） | ~190 |
-| `src/bayesmith/exact/solve.py` | `condition_estimate`、`wiener_solve`、`gcr_sample`、私有 `_conjugate_solve` | ~290 |
+| `src/bayesmith/exact/solve.py` | `condition_bound`、`wiener_solve`、`gcr_sample`、私有 `_conjugate_solve` | ~270 |
 | `src/bayesmith/exact/gls.py` | `GLSResult`、`iterative_gls` | ~200 |
 | `src/bayesmith/exact/fisher.py` | `FlatMatrix`、`dense_operator`、`fisher_information`、`parameter_covariance` | ~230 |
 | `tests/exact/__init__.py` | 空 | 0 |
@@ -56,7 +137,7 @@ PY
 | `tests/exact/models.py` | 共享的玩具图构造器 | ~120 |
 | `tests/exact/test_*.py` | 每模块一个，外加验收关口 | — |
 
-**依赖方向**：`conditioning` → 无；`gaussian` → `graph`；`block` → `gaussian` + `graph`；`linearity` → `block` + `bridge`；`solve` → `block` + `conditioning`；`gls` → `solve`；`fisher` → `block`。无环。
+**依赖方向**：`conditioning` → 无；`gaussian` → `graph`；`block` → `gaussian` + `graph`；`linearity` → `block` + `bridge`；`solve` → `block` + `conditioning`；`gls` → `block` + `conditioning` + `gaussian` + `solve`（实测更正，2026-08-23，验收关口收尾复查：原文只写了`solve`，但`gls.py`直接 import 了`block`的`LinearBlock`/`domain_centre`、`conditioning`的`tree_norm`、`gaussian`的`noise_std_at`，不只是`solve`）；`fisher` → `block`。无环。
 
 ---
 
@@ -66,7 +147,7 @@ PY
 - Modify: `src/bayesmith/errors.py`
 - Test: `tests/test_errors.py`
 
-- [ ] **Step 1: 追加两个类**
+- [ ] **Step 1: 追加三个类**
 
 在 `src/bayesmith/errors.py` 末尾追加：
 
@@ -106,55 +187,71 @@ class NotGaussian(BayesmithError, TypeError):
     perfectly good non-Gaussian nodes. P3b's classifier catches this and
     routes the block to NUTS.
 
-    **A sibling of** :class:`StructureError`, never a subclass, and derived
-    from a different builtin on purpose. A dispatcher writing
-    ``except NotGaussian`` must NOT also swallow a :class:`StructureError`:
-    that one means a node's *type* says Normal while its own ``log_prob``
-    says otherwise, and silently downgrading that to NUTS would hide a broken
-    model behind an ordinary-looking fallback. Were this class a subclass --
-    or were both ``ValueError`` -- one ``except`` would catch both.
+    **A sibling of** :class:`StructureError`. A dispatcher writing
+    ``except NotGaussian`` must NOT also swallow a :class:`StructureError`: that one means a node's *type*
+    says Normal while its own ``log_prob`` says otherwise, and silently
+    downgrading it to NUTS would hide a broken model behind an
+    ordinary-looking fallback.
+
+    A subclass relationship, in either direction, is the ONE thing that would
+    break this -- and it is worth being precise about which, because two
+    classes that merely *share* a base are unaffected. ``except`` matches on
+    the raised exception's MRO, not on a common ancestor: these two already
+    share :class:`BayesmithError`, and neither catches the other. Measured,
+    because an earlier draft of this docstring claimed otherwise.
+
+    The differing builtin bases -- ``TypeError`` here against
+    :class:`StructureError`'s ``ValueError`` -- therefore buy something
+    narrower, and something real: a *generic* handler can tell the two apart,
+    so an ``except ValueError`` around a modelling call sees the broken-model
+    case and not the ordinary not-conjugate one.
     """
 ```
 
 - [ ] **Step 2: 扩展 stdlib-only 测试**
 
-`tests/test_errors.py` 里已有 `test_errors_module_imports_no_heavy_dependency`。在同一文件追加：
+`tests/test_errors.py` 里已有 `test_errors_module_imports_no_heavy_dependency`。**扩展它**，把三个新名字的存在性检查折进同一个子进程——导入模块这一件事同时证明两件事，另开一个子进程只会把前一半再证一遍：
 
 ```python
-def test_the_new_error_names_exist_in_the_stdlib_only_module():
-    """The two P3 classes live in errors.py, which may not import jax/numpy.
+def test_errors_module_imports_no_heavy_dependency():
+    """errors.py is on every import path, so it must stay stdlib-only.
 
-    This is the only assertion Task 0 makes, and deliberately so: an
-    `assert issubclass(StructureError, ValueError)` is true because the class
-    statement says so, not because anything works -- P1's first review finding
-    was exactly that tautology. What StructureError *does* is pinned where it
-    is actually raised: tests/exact/test_gaussian.py (a lying dist_fn) and
-    tests/exact/test_linearity.py (a false linear_in claim).
+    The name check for P3's three classes rides along in this same
+    subprocess rather than getting one of its own: importing the module is
+    what proves both, so a second spawn would only re-prove the first half.
     """
     import subprocess
     import sys
 
     code = (
-        "import bayesmith.errors as e;"
-        "assert e.StructureError and e.ConvergenceError and e.NotGaussian;"
-        "import sys;"
-        "heavy = [m for m in ('jax', 'numpy', 'numpyro') if m in sys.modules];"
-        "assert not heavy, heavy"
+        "import bayesmith.errors as e, sys; "
+        "assert e.StructureError and e.ConvergenceError and e.NotGaussian; "
+        "print(sorted({'jax', 'numpy', 'numpyro'} & set(sys.modules)))"
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"
+```
 
+再追加这一条。它是 Task 0 唯一的**行为**测试——`assert not issubclass(...)` 不算数，那只是把 class 语句重述一遍，正是 P1 第一条审查发现的重言式：
 
+```python
 def test_catching_not_gaussian_does_not_also_catch_structure_error():
     """The sibling relationship is load-bearing, so it is tested by behaviour.
 
     P3b's classifier writes `except NotGaussian` to mean "this block has no
-    exact structure, route it to NUTS". A StructureError means something
-    else entirely -- a node whose type says Normal while its own log_prob
-    disagrees -- and must escape that clause. If NotGaussian were made a
-    subclass of StructureError, or both were given the same builtin base,
-    this test goes red; `assert not issubclass(...)` would not, because it
-    restates the class statement instead of exercising it.
+    exact structure, route it to NUTS". A StructureError means something else
+    entirely -- a node whose type says Normal while its own log_prob
+    disagrees -- and must escape that clause.
+
+    The two halves cover the two directions a hierarchy could collapse in,
+    and each catches exactly one: half (a) goes red if StructureError is made
+    a subclass of NotGaussian, half (b) if NotGaussian is made a subclass of
+    StructureError. Giving the two the same builtin base changes nothing here
+    and this test stays green -- correctly so, because `except` matches on
+    the MRO and not on a shared ancestor.
     """
     from bayesmith.errors import NotGaussian, StructureError
 
@@ -183,16 +280,22 @@ def test_catching_not_gaussian_does_not_also_catch_structure_error():
 .venv/bin/python -m pytest tests/test_errors.py -v
 ```
 
-Expected: 全部 PASS（原有的 + 1 条新的）。
+Expected: 全部 PASS（原有 3 条，其中一条被扩展，加新增 1 条 = 4 条）。
 
 - [ ] **Step 4: 变异测试**
 
 在 `errors.py` 里把 `class StructureError(BayesmithError, ValueError):` 临时改成从 `numpy` 导入什么东西（例如在文件顶加 `import numpy`），重跑上面的测试。
 
-Expected: `test_the_new_error_names_exist_in_the_stdlib_only_module` **变红**（`heavy` 非空）。还原。
+Expected: `test_errors_module_imports_no_heavy_dependency` **变红**（打印出 `['numpy']` 而非 `[]`）。还原。
 
 再把 `class NotGaussian(BayesmithError, TypeError):` 临时改成 `class NotGaussian(StructureError):`，重跑。
 Expected: `test_catching_not_gaussian_does_not_also_catch_structure_error` **变红**。还原。
+
+把 `NotGaussian` 改名为 `NotGaussianXYZ`（仅类名），重跑。
+Expected: `test_errors_module_imports_no_heavy_dependency` **变红**——这条证明折进去的名字检查确实还在鉴别。还原。
+
+**最后一条是用来验证 docstring 本身的**：把 `class NotGaussian(BayesmithError, TypeError):` 改成 `class NotGaussian(BayesmithError, ValueError):`（与 `StructureError` 同基类，但仍非父子），重跑。
+Expected: `test_catching_not_gaussian_does_not_also_catch_structure_error` **保持绿**。若它变红，说明修正后的 docstring 也是错的。还原。
 
 - [ ] **Step 5: 提交**
 
@@ -209,6 +312,8 @@ git commit -m "feat: add StructureError, ConvergenceError and NotGaussian"
 
 本模块**不认识图，也不认识块**：算子是一个 callable，数据是 pytree。这让数值与模型机制可分离，依赖单向。
 
+**只交付 `largest_eigenvalue`。** 谱的另一端不靠幂迭代求——见上文「实测更正」：那条路在梯度谱上原理性失效，且偏差在危险的一侧。`λ_min` 改由先验曲率给出严格下界，Task 5 的守卫因此用的是 κ 的**上界**而非估计。
+
 **Files:**
 - Create: `src/bayesmith/exact/__init__.py`, `src/bayesmith/exact/conditioning.py`
 - Create: `tests/exact/__init__.py`, `tests/exact/test_conditioning.py`
@@ -224,18 +329,14 @@ printf '"""Structure-dispatched exact solves."""\n' > src/bayesmith/exact/__init
 - [ ] **Step 2: 写失败的测试**
 
 ```python
-# tests/exact/test_conditioning.py
-"""Spectral diagnostics: known spectra, and the float32 overflow they must survive."""
+"""Spectral diagnostics: a known spectrum, and the float32 overflow it survives."""
 
 import jax
 import jax.numpy as jnp
 import pytest
 
-from bayesmith.exact.conditioning import (
-    extreme_eigenvalues,
-    largest_eigenvalue,
-    tree_norm,
-)
+from bayesmith.errors import GraphError
+from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
 
 
 def _diagonal(diag):
@@ -261,6 +362,23 @@ def test_tree_norm_survives_a_leaf_whose_square_overflows_float32():
     assert float(tree_norm({"x": big})) == pytest.approx(5e19, rel=1e-5)
 
 
+def test_tree_norm_survives_a_leaf_small_enough_to_underflow_when_squared():
+    """The other end of the same rescale, and the naive route fails here too.
+
+    Entries at 1e-30 square to 1e-60, which is zero in float32 -- so the naive
+    implementation returns exactly 0.0 for a vector that is emphatically not
+    zero. Both ends matter: a normal operator's domain spans whatever units
+    the model's latents happen to be in.
+    """
+    small = jnp.array([3e-30, 4e-30], dtype=jnp.float32)
+    assert float(jnp.sqrt(jnp.sum(small**2))) == 0.0
+    # abs=0.0 is load-bearing: pytest.approx applies a DEFAULT abs=1e-12 floor
+    # and takes max(rel * expected, abs), so `approx(5e-30, rel=1e-5)` accepts
+    # anything within 1e-12 of it -- including the exact 0.0 the naive
+    # implementation returns, which is the bug this test exists to catch.
+    assert float(tree_norm({"x": small})) == pytest.approx(5e-30, rel=1e-5, abs=0.0)
+
+
 def test_tree_norm_of_an_all_zero_pytree_is_zero():
     assert float(tree_norm({"x": jnp.zeros(4)})) == 0.0
 
@@ -271,29 +389,71 @@ def test_largest_eigenvalue_finds_the_top_of_a_known_spectrum():
     assert float(got) == pytest.approx(100.0, rel=1e-4)
 
 
-def test_extreme_eigenvalues_finds_both_ends_of_a_known_spectrum():
-    diag = jnp.array([1.0, 1.0, 1.0, 100.0])
-    largest, smallest = extreme_eigenvalues(
-        _diagonal(diag), {"x": jnp.zeros(4)}, jax.random.key(0), 20
-    )
-    assert float(largest) == pytest.approx(100.0, rel=1e-4)
-    assert float(smallest) == pytest.approx(1.0, rel=1e-3)
+@pytest.mark.parametrize(
+    "spectrum", [[1.0, 1.0, 1.0, 100.0], [1.0, 99.9, 100.0]]
+)
+def test_largest_eigenvalue_approaches_the_truth_from_below(spectrum):
+    """Power iteration underestimates, and the guard depends on knowing it does.
 
+    `condition_bound` divides lambda_max by a prior-derived LOWER bound on
+    lambda_min to get an UPPER bound on kappa. That bound is only as good as
+    lambda_max, which must therefore never overshoot.
 
-def test_extreme_eigenvalues_spans_several_pytree_leaves():
-    """The spectrum must be the JOINT one, not one leaf's.
-
-    Two leaves whose individual extremes differ: a per-leaf implementation
-    would report (10, 2) or (100, 20), never (100, 2).
+    Both a well-separated and a nearly-degenerate spectrum, because only the
+    first can catch an overshoot. Measured: `[1, 99.9, 100]` plateaus at
+    99.9396 and is still 0.0029 short after 2000 iterations, so a 0.01%
+    overshoot hides inside its own shortfall; `[1, 1, 1, 100]` reaches exactly
+    100.0 by ten iterations, where any overshoot at all is visible. An earlier
+    version of this test used only the degenerate case and could not catch the
+    mutation named in its own docstring.
     """
-    operator = lambda parts: {
-        "a": jnp.array([2.0, 10.0]) * parts["a"],
-        "b": jnp.array([20.0, 100.0]) * parts["b"],
-    }
+    diag = jnp.asarray(spectrum)
+    truth = float(jnp.max(diag))
+    template = {"x": jnp.zeros(len(spectrum))}
+    for iterations in (1, 3, 10, 40):
+        got = float(
+            largest_eigenvalue(
+                _diagonal(diag), template, jax.random.key(4), iterations
+            )
+        )
+        assert got <= truth * (1.0 + 1e-6), (iterations, got)
+
+
+def test_largest_eigenvalue_refuses_fewer_than_one_iteration():
+    """Zero iterations returns the norm of an untouched random vector.
+
+    That is a number with no relationship to the operator at all, and it would
+    flow straight into a condition bound. Refused by name rather than
+    returned.
+    """
+    with pytest.raises(GraphError, match="iterations"):
+        largest_eigenvalue(
+            _diagonal(jnp.ones(3)), {"x": jnp.zeros(3)}, jax.random.key(0), 0
+        )
+
+
+@pytest.mark.parametrize("top_in", ["a", "b"])
+def test_largest_eigenvalue_spans_several_pytree_leaves(top_in):
+    """The spectrum must be the JOINT one, not any single leaf's.
+
+    Parametrised because whichever leaf holds the top reproduces it when
+    restricted to that leaf -- unavoidable -- so one case cannot catch a
+    single-leaf implementation. With the top in "b", restricting to the first
+    leaf reports 20 instead of 100; with it in "a", restricting to the last
+    leaf does. Their union is complete. An earlier single-case version of this
+    idea silently missed one of the two, found by mutation testing, which is
+    the only thing that finds a guard that does not guard.
+    """
+    top = jnp.array([2.0, 100.0])
+    rest = jnp.array([10.0, 20.0])
+    diagonals = {"a": top, "b": rest} if top_in == "a" else {"a": rest, "b": top}
+
+    def operator(parts):
+        return {name: diagonals[name] * parts[name] for name in diagonals}
+
     template = {"a": jnp.zeros(2), "b": jnp.zeros(2)}
-    largest, smallest = extreme_eigenvalues(operator, template, jax.random.key(1), 40)
-    assert float(largest) == pytest.approx(100.0, rel=1e-3)
-    assert float(smallest) == pytest.approx(2.0, rel=5e-2)
+    got = largest_eigenvalue(operator, template, jax.random.key(1), 60)
+    assert float(got) == pytest.approx(100.0, rel=1e-3)
 ```
 
 - [ ] **Step 3: 跑测试，确认失败**
@@ -319,6 +479,23 @@ Everything here takes the operator as a callable and works on pytrees, so it
 knows nothing about :mod:`bayesmith.exact.block`'s blocks and nothing about
 graphs. That keeps the numerics separable from the model machinery and the
 dependency pointing one way.
+
+**Only the top of the spectrum is measured here.** rheplicant's
+``extreme_eigenvalues`` finds ``lambda_min`` by a second power iteration on
+``lambda_max * I - M``; that is deliberately not ported, because it was
+measured to fail in principle on a graded spectrum -- the shifted operator's
+leading eigenvalues all crowd against ``lambda_max`` with vanishing gaps, so
+the iteration cannot separate them however long it runs (2000 steps still
+left a factor of 700 on a 50-point geometric spectrum at kappa=1e7). Worse,
+the bias is one-sided in the dangerous direction: ``lambda_min`` comes back
+too large, so kappa comes back too small, so a convergence guard built on it
+stays silent exactly when it should fire.
+
+``lambda_min`` is instead bounded from below by the prior's own curvature:
+``A^T N^-1 A`` is positive semi-definite, so
+``lambda_min(A^T N^-1 A + S^-1) >= 1 / max(prior_variance)``. See
+:func:`bayesmith.exact.solve.condition_bound`, which turns that into an
+UPPER bound on kappa -- the direction a safety guard needs.
 
 Ported from ``rheplicant.inference.conditioning``.
 """
@@ -391,38 +568,6 @@ def largest_eigenvalue(
         largest = tree_norm(image)
         vector = _scaled(image, jnp.where(largest > 0, largest, 1.0))
     return largest
-
-
-def extreme_eigenvalues(
-    operator: Callable[[Any], Any],
-    template: Any,
-    key: jax.Array,
-    iterations: int,
-) -> tuple[jax.Array, jax.Array]:
-    """``(λ_max, λ_min)`` of a symmetric positive-definite operator.
-
-    ``λ_min`` comes from a second power iteration on ``λ_max I - M``, whose top
-    eigenvalue is ``λ_max - λ_min``. Measuring it beats bounding it: a caller
-    who assumed the worst about ``λ_min`` would call every well-conditioned
-    operator ill-conditioned by the whole dynamic range of the problem.
-
-    The difference is taken between two numbers of size ``λ_max``, so it is
-    cancellation-prone precisely when ``λ_min`` is tiny. Callers holding an
-    independent lower bound on ``λ_min`` -- a prior's curvature, say -- should
-    floor the result with it; that is both rigorous and the scale at which the
-    cancellation bites. :func:`bayesmith.exact.solve.condition_estimate` does
-    exactly that.
-    """
-    largest = largest_eigenvalue(operator, template, key, iterations)
-    spread = largest_eigenvalue(
-        lambda parts: jax.tree.map(
-            lambda leaf, image: largest * leaf - image, parts, operator(parts)
-        ),
-        template,
-        jax.random.fold_in(key, 1),
-        iterations,
-    )
-    return largest, largest - spread
 ```
 
 - [ ] **Step 5: 跑测试，确认通过**
@@ -431,7 +576,7 @@ def extreme_eigenvalues(
 .venv/bin/python -m pytest tests/exact/test_conditioning.py -v
 ```
 
-Expected: 6 passed。
+Expected: 10 passed（两条参数化的各算两例）。
 
 - [ ] **Step 6: 变异测试**
 
@@ -444,8 +589,26 @@ Expected: 6 passed。
 
 重跑。Expected: `test_tree_norm_survives_a_leaf_whose_square_overflows_float32` **变红**（返回 `inf`）。还原。
 
-再把 `extreme_eigenvalues` 的第二次幂迭代改成只用第一个叶子，重跑。
-Expected: `test_extreme_eigenvalues_spans_several_pytree_leaves` **变红**。还原。
+`largest_eigenvalue` 限制到首/末叶子，**两种形状都要跑**：
+
+| 变异 | 必须在哪一例变红 |
+|---|---|
+| 只用首叶 | `top_in="b"` |
+| 只用末叶 | `top_in="a"` |
+
+**没有任何单一谱能同时抓住两种**——持有 λmax 的那个叶子按定义能独自复现它——所以必须参数化。还原。
+
+再把 `largest_eigenvalue` 的循环体改成 `return tree_norm(operator(vector))`（只迭代一次，不论 `iterations`），重跑。
+Expected: `test_largest_eigenvalue_finds_the_top_of_a_known_spectrum` **变红**。还原。
+
+再让 `largest_eigenvalue` 超调：`return largest * 1.0001`。**这一行必须写在循环之外**——写在循环内（`largest = tree_norm(image) * 1.0001`）是个**无效变异**：归一化用的正是这个被放大的值，于是 `‖v‖` 缩小同样倍数、下一次 `‖Mv‖` 随之缩小，在收敛处**恰好抵消**，测试不会变红而实现其实没被破坏。实测确认过这一点。
+Expected: `test_largest_eigenvalue_approaches_the_truth_from_below[spectrum0]` **变红**，`[spectrum1]` 保持绿（简并谱本就看不见 0.01% 的超调）。还原。
+
+最后去掉 `iterations < 1` 守卫，重跑。
+Expected: `test_largest_eigenvalue_refuses_fewer_than_one_iteration` **变红**。还原。
+
+最后把 `tree_norm` 的重标定去掉、改成朴素的 `jnp.sqrt(sum(jnp.sum(leaf**2)))`，重跑。
+Expected: 溢出与下溢两条测试**都变红**。还原。
 
 - [ ] **Step 7: 提交**
 
@@ -766,13 +929,78 @@ def test_check_gaussian_catches_a_distribution_that_lies_about_its_log_prob():
         check_gaussian(graph, graph.node("d"), env)
 
 
+def test_the_probe_evaluates_log_prob_at_the_shape_the_node_s_value_takes():
+    """A dist_fn correct on a scalar and wrong on an array must be refused.
+
+    `gaussian_parts` returns dist_fn's own batch shape, which for a plated
+    latent with an unplated prior -- and for an unplated observed node with
+    vector data -- is a SCALAR while the node's value is an array. Probing at
+    the scalar evaluates log_prob at a shape the consumer never uses.
+
+    Measured before this guard existed: every reported error was exactly 0.0
+    against a real discrepancy of 2.0e6 nats over 2000 observations.
+    """
+
+    class ShapeSensitiveNormal(dist.Normal):
+        def log_prob(self, value):
+            true = super().log_prob(value)
+            return true if jnp.ndim(value) == 0 else true + 1000.0
+
+    def model():
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        observe("d", lambda w_: ShapeSensitiveNormal(w_, 0.7), w, obs=jnp.zeros(200))
+
+    graph = trace(model)
+    env = evaluate(graph, {"w": jnp.asarray(0.3)})
+    loc, _ = gaussian_parts(graph, graph.node("d"), env)
+    assert jnp.shape(loc) == ()  # the gap this test exists for
+    assert node_shape(graph, graph.node("d"), env) == (200,)
+    with pytest.raises(StructureError, match="log_prob"):
+        check_gaussian(graph, graph.node("d"), env)
+
+
+def test_the_probe_is_not_diluted_by_the_entries_that_are_correct():
+    """One wrong element among many must not hide behind the others.
+
+    Measured, and the SIZE is load-bearing. A summed comparison reports
+    `50 / (n * |per-element log-density|)`, so whether it catches the defect
+    depends entirely on n. At the binding probe offset (0.0, where the
+    per-element density is smallest at 0.562) the crossover against the
+    default rtol of 1.19e-4 is n = 746,000. An earlier version of this test
+    used n = 5000, where the summed form still reports 1.78e-2 and catches
+    the defect anyway -- so the test passed under both implementations and
+    could not distinguish them at all. n = 2,000,000 gives 4.45e-5, a factor
+    of 2.7 under rtol. Elementwise reports 50 at any n.
+    """
+
+    class OneBadEntryNormal(dist.Normal):
+        def log_prob(self, value):
+            true = super().log_prob(value)
+            return true.at[0].add(50.0) if jnp.ndim(value) > 0 else true
+
+    def model():
+        xs = const("X", jnp.ones(2_000_000))
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda u: OneBadEntryNormal(u, 0.7), mu, obs=jnp.zeros(2_000_000))
+
+    graph = trace(model)
+    env = evaluate(graph, {"w": jnp.asarray(0.3)})
+    with pytest.raises(StructureError, match="log_prob"):
+        check_gaussian(graph, graph.node("d"), env)
+
+
 def test_check_gaussian_refuses_a_scale_that_is_not_strictly_positive():
     def model():
         w = sample("w", lambda: dist.Normal(0.0, 1.0))
         observe("d", lambda w_: dist.Normal(w_, 0.0), w, obs=jnp.zeros(()))
 
     graph = trace(model)
-    with pytest.raises(StructureError, match="scale"):
+    # Matching the strict-positivity guard's OWN words, not just "scale": with
+    # a looser match, mutating `scale > 0` to `scale >= 0` still passes,
+    # because sigma=0 then reaches the probe loop, log(0) makes `predicted`
+    # non-finite, and that refusal's message also contains the word "scale".
+    with pytest.raises(StructureError, match="strictly positive"):
         check_gaussian(graph, graph.node("d"), evaluate(graph, {"w": jnp.asarray(0.0)}))
 
 
@@ -852,9 +1080,20 @@ values the fast path will see.
 **Why the introspection is a fast path and not the answer.** Reading
 ``.loc``/``.scale`` off a ``Normal`` trusts the type. A ``Distribution``
 subclass may override ``log_prob`` -- censored, tempered, or simply wrong --
-and keep both attributes, so the type is evidence and not proof. The probe is
-what turns it into proof, at a cost of four ``log_prob`` evaluations per node
-per block build.
+and keep both attributes, so the type is evidence, not proof. The probe is
+what raises the bar, at a cost of five ``log_prob`` evaluations per node per
+block build.
+
+**What the probe does and does not establish.** It establishes that the
+extracted ``(loc, scale)`` reproduce the node's own density *at the probed
+points, elementwise, at the shape the node's value actually takes*. It does
+not establish agreement everywhere: a finite set of points cannot certify a
+claim about a function, and a correction shaped to vanish at exactly these
+offsets -- a quartic with roots there, say -- would pass while being wrong by
+hundreds of nats at the mode. That is an adversarial construction, and the
+threat this guard is placed against is accidental: a censored likelihood, a
+tempered one, a hand-written approximation. Those do not have roots at the
+probe points. Stated so the guarantee is not mistaken for a stronger one.
 """
 
 from __future__ import annotations
@@ -876,8 +1115,10 @@ from bayesmith.graph.nodes import Node, Probabilistic
 #: probe, a wrong ``scale`` produces a mismatch that grows with ``|offset|``,
 #: and a log-density that is not quadratic fails at the outer pair first.
 #: Asymmetric on purpose -- a symmetric set cannot distinguish a sign error in
-#: ``loc`` from a correct one.
-PROBE_OFFSETS: tuple[float, ...] = (-3.0, -1.0, 0.5, 2.0)
+#: ``loc`` from a correct one. ``0.0`` is included because it is the mode:
+#: the single point carrying the most posterior mass, and the point a
+#: correction shaped to vanish at the other offsets is most likely to miss.
+PROBE_OFFSETS: tuple[float, ...] = (-3.0, -1.0, 0.0, 0.5, 2.0)
 
 _LOG_2PI = float(np.log(2.0 * np.pi))
 
@@ -954,7 +1195,21 @@ def node_shape(graph: Graph, node: Node, env: dict[str, Any]) -> tuple[int, ...]
         shapes.append((graph.plate_size(node.plate[0]),))
     if isinstance(node, Probabilistic) and node.observed is not None:
         shapes.append(jnp.shape(node.observed))
-    return tuple(jnp.broadcast_shapes(*shapes))
+    try:
+        return tuple(jnp.broadcast_shapes(*shapes))
+    except ValueError as exc:
+        raise StructureError(
+            f"node {node.name!r} has shapes that cannot be reconciled: its "
+            f"distribution's loc is {jnp.shape(loc)}"
+            + (f", its plate is {(graph.plate_size(node.plate[0]),)}" if node.plate else "")
+            + (
+                f", its data is {jnp.shape(node.observed)}"
+                if isinstance(node, Probabilistic) and node.observed is not None
+                else ""
+            )
+            + ". A node's value has one shape; these disagree. Raw broadcasting "
+            "would report the same clash without naming the node."
+        ) from exc
 
 
 def check_gaussian(
@@ -965,23 +1220,47 @@ def check_gaussian(
     Costs ``len(PROBE_OFFSETS)`` evaluations of ``log_prob``. Runs on concrete
     values, **outside** any trace.
 
+    **Probes at the shape the node's VALUE takes**, not at ``dist_fn``'s own
+    batch shape, and compares **elementwise**. Both matter, and both were
+    measured:
+
+    * A plated latent whose ``dist_fn`` takes no plated parent has a scalar
+      ``loc`` and a plate-shaped value; so does an unplated observed node
+      conditioned on a vector. Probing at the scalar evaluates ``log_prob`` at
+      a shape the consumer never uses. Measured on this package's own
+      ``plated_latent`` fixture pattern: a ``Distribution`` subclass correct
+      on a scalar and off by 1000 nats per element on an array passed the
+      guard with every reported error exactly ``0.0``, against a real
+      discrepancy of 2.0e6 nats. This is the same shape of defect P1 recorded
+      -- the guard and the thing it guards looking at different shapes -- and
+      it is fixed the same way.
+    * A summed comparison dilutes a localised defect by the magnitudes of the
+      correct entries. Measured: one wrong element out of 1e6, off by 50 nats,
+      reports a summed relative error of 1.95e-5 -- under the default rtol,
+      silently accepted -- and an elementwise error of 50.
+
     Args:
         graph, node, env: the node under test and the values its parents take.
-        rtol: tolerance on the relative disagreement. Default ``1e3 * eps`` of
-            ``loc``'s dtype, which leaves room for accumulated roundoff in the
-            reduction without admitting a real difference in density.
+        rtol: tolerance on the relative disagreement, per element. Default
+            ``1e3 * eps`` of ``loc``'s dtype, which leaves room for
+            accumulated roundoff without admitting a real difference in
+            density.
 
     Returns:
-        ``{offset: relative error}`` -- useful for reporting how Gaussian a
-        node is, not only whether it passes.
+        ``{offset: worst relative error over the node's entries}`` -- useful
+        for reporting how Gaussian a node is, not only whether it passes.
 
     Raises:
         NotGaussian: propagated from :func:`gaussian_parts`.
         StructureError: if the scale is not strictly positive and finite, or
-            if any probe disagrees by more than ``rtol``.
+            if any probe disagrees by more than ``rtol`` at any entry.
     """
     distribution = unwrap(apply_probabilistic(graph, node, env))
     loc, scale = gaussian_parts(graph, node, env)
+    shape = node_shape(graph, node, env)
+    loc = jnp.broadcast_to(loc, shape)
+    scale = jnp.broadcast_to(scale, shape)
+
     if not bool(jnp.all(jnp.isfinite(scale) & (scale > 0))):
         raise StructureError(
             f"node {node.name!r} has a scale that is not strictly positive and "
@@ -996,15 +1275,14 @@ def check_gaussian(
     errors: dict[float, float] = {}
     for offset in PROBE_OFFSETS:
         probe = loc + offset * scale
-        actual = float(jnp.sum(distribution.log_prob(probe)))
-        predicted = float(
-            jnp.sum(
-                -0.5 * ((probe - loc) / scale) ** 2 - jnp.log(scale) - 0.5 * _LOG_2PI
-            )
+        actual = jnp.broadcast_to(distribution.log_prob(probe), shape)
+        predicted = (
+            -0.5 * ((probe - loc) / scale) ** 2 - jnp.log(scale) - 0.5 * _LOG_2PI
         )
-        # Relative to the predicted magnitude, with a floor so a probe that
-        # lands where the log-density happens to be ~0 does not divide by it.
-        errors[offset] = abs(actual - predicted) / max(abs(predicted), 1.0)
+        # Elementwise, and floored at 1.0 so a probe landing where the
+        # log-density happens to be ~0 does not divide by it.
+        departure = jnp.abs(actual - predicted) / jnp.maximum(jnp.abs(predicted), 1.0)
+        errors[offset] = float(jnp.max(departure))
         # NaN must count as a FAILURE: `nan > rtol` is False, so a naive
         # comparison treats an unusable probe as evidence of Gaussianity.
         if not np.isfinite(errors[offset]) or errors[offset] > rtol:
@@ -1012,11 +1290,11 @@ def check_gaussian(
             raise StructureError(
                 f"node {node.name!r} is a {type(distribution).__name__}, so its "
                 "loc and scale were read off it directly -- but its own log_prob "
-                f"does not agree with them (rtol={rtol:.2e}; {detail}). A "
-                "Distribution subclass that overrides log_prob keeps both "
-                "attributes and changes the density, so the type is evidence "
-                "and not proof. The exact path would solve the wrong posterior; "
-                "it refuses instead."
+                f"does not agree with them (rtol={rtol:.2e}; worst entry per "
+                f"probe: {detail}). A Distribution subclass that overrides "
+                "log_prob keeps both attributes and changes the density, so the "
+                "type is evidence and not proof. The exact path would solve the "
+                "wrong posterior; it refuses instead."
             )
     return errors
 
@@ -1061,7 +1339,7 @@ def noise_std_at(graph: Graph, values: dict[str, Any]) -> dict[str, jax.Array]:
 .venv/bin/python -m pytest tests/exact/test_gaussian.py -v
 ```
 
-Expected: 9 passed。
+Expected: 11 passed。
 
 - [ ] **Step 6: 变异测试**
 
@@ -1071,6 +1349,12 @@ Expected: 9 passed。
    Expected: `test_node_shape_agrees_with_the_numpyro_bridge` **变红**（得到 `()` 而非 `(6,)`）。还原。
 3. 把 `gaussian_parts` 的 `NotGaussian` 改成 `StructureError`，重跑。
    Expected: `test_gaussian_parts_refuses_a_node_that_is_not_gaussian` **变红**。还原。
+4. 把 `check_gaussian` 里的 `loc = jnp.broadcast_to(loc, shape)` 与 `scale` 那两行删掉（退回在 `dist_fn` 自己的形状上探测），重跑。
+   Expected: `test_the_probe_evaluates_log_prob_at_the_shape_the_node_s_value_takes` **变红**。还原。
+5. 把逐元素比较改回求和（`jnp.sum` 两侧再相除），重跑。
+   Expected: `test_the_probe_is_not_diluted_by_the_entries_that_are_correct` **变红**。还原。
+6. 把 `scale > 0` 改成 `scale >= 0`，重跑。
+   Expected: `test_check_gaussian_refuses_a_scale_that_is_not_strictly_positive` **变红**（改前它会因为另一条消息里也有 "scale" 而假通过）。还原。
 
 - [ ] **Step 7: 提交**
 
@@ -1655,6 +1939,16 @@ def test_ancestry_is_transitive_not_just_direct_parents():
 3. 把 `largest_variance` 的 `jnp.max` 改成 `jnp.min`，重跑。
    Expected: `test_largest_variance_takes_the_loosest_prior_not_the_tightest` **变红**（得到 25 而非 49）。还原。
 
+> **审查后的增补（2026-08-23，已实现于 `2095d8a`）。** 代码质量审查通过（0 Critical），并提出五点，全部落地：
+>
+> 1. **`_validated_at`**（新增，在 `_validated_names` 之后调用）：按名检查 `at` 的三种误用——命名非隐变量、命名**块内成员**、遗漏块外隐变量。第二种是危险的那个：原先被静默丢弃，于是"我以为钉住了 `a`"的调用方在实际上求解 `a`，且毫无信号。`_env_before` 原有的兜底 raise 因此不可达，标 `# pragma: no cover`。
+> 2. **伴随测试参数化到四个种子** `[11, 23, 47, 91]`，而非收紧容差。实测：出厂的 `key(11)/key(12)` 达到 1.4e-8，而扫 100 组种子最差 6.3e-6——`rel=1e-5` 是诚实的 float32 预算，但出厂那一组低于噪声地板 700 倍，1e-6 量级的回归会在这里通过而在别处失败。
+> 3. `largest_variance` docstring 的笔误 `1/it` → `1/largest`（计划原文的错）。
+> 4. **`test_env_before_agrees_with_evaluate_on_every_node` 参数化到 plate 与非 plate**，并新增 `plated_latent_through_deterministic` fixture——原 `plated_latent` 根本没有 `Deterministic` 节点，所以"每个节点"这个说法到不了它声称的区域。
+> 5. **`diamond_ancestor` fixture** + `_ancestors` 的去重测试。注意去重是**性能**守卫而非正确性守卫：`set.add` 幂等且图无环，去掉它任何值比较都不变，只有 `graph.node()` 的调用计数会变（6 次 vs 5 次）。因此按性能测。
+>
+> 测试数：14 → 22。
+
 - [ ] **Step 6: 提交**
 
 ```bash
@@ -2198,7 +2492,8 @@ git commit -m "feat: check the linear_in claim at several scales and at-points"
 ```
 
 ---
-## Task 5：正规算子与条件数（`exact/solve.py` 之一）
+## Task 5：正规算子与条件数上界（`exact/solve.py` 之一）
+
 
 `tol` 不是精度。残差与误差差一个条件数：
 
@@ -2378,7 +2673,7 @@ import pytest
 
 from bayesmith.exact.gaussian import noise_std_at
 from bayesmith.exact.linearity import linear_operator
-from bayesmith.exact.solve import condition_estimate, normal_operator
+from bayesmith.exact.solve import condition_bound, normal_operator
 from bayesmith.exact.block import domain_zero, variance_parts
 from tests.exact.models import straight_line, two_linear_latents
 from tests.exact.oracle import graph_oracle
@@ -2388,46 +2683,80 @@ def _sigma(graph, at):
     return noise_std_at(graph, at)
 
 
-def test_a_one_parameter_block_is_perfectly_conditioned():
-    """M is 1x1, so lambda_max == lambda_min and kappa is exactly 1.
+def test_the_bound_is_lambda_max_times_the_loosest_prior_variance():
+    """The bound's definition, checked against a dense eigendecomposition.
 
-    Not a trivial assertion: an implementation that floored lambda_min at the
-    prior's curvature unconditionally, instead of only when the measurement
-    falls below it, would report kappa = ||A^T N^-1 A|| * prior_std**2 here --
-    a number in the hundreds.
+    lambda_max comes from the oracle's precision matrix -- which is built by
+    probing g on a basis and never differentiates anything -- so this is the
+    matrix-free power iteration against an independent route, not against
+    itself.
+    """
+    with jax.enable_x64(True):
+        graph = two_linear_latents()
+        block = linear_operator(graph, ("a", "b"), at={})
+        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        bound = float(condition_bound(block, noise_std=sigma, iterations=80))
+        oracle = graph_oracle(graph, ("a", "b"), at={})
+    largest = float(np.linalg.eigvalsh(oracle.precision)[-1])
+    loosest_variance = float(np.max(oracle.prior_std**2))
+    assert bound == pytest.approx(largest * loosest_variance, rel=1e-3)
+
+
+@pytest.mark.parametrize("loosened", [1.0, 1e2, 1e4])
+def test_the_bound_is_never_below_the_true_condition_number(loosened):
+    """The whole point: it may refuse a good solve, never accept a bad one.
+
+    Swept across four orders of magnitude of prior width, because the bound is
+    tight at one end (the prior alone holds a direction, so lambda_min IS the
+    prior curvature) and loose at the other. Both must stay on the safe side.
+    """
+    import dataclasses
+
+    with jax.enable_x64(True):
+        graph = two_linear_latents()
+        block = linear_operator(graph, ("a", "b"), at={})
+        widened = dataclasses.replace(
+            block,
+            prior_std={**block.prior_std, "b": block.prior_std["b"] * loosened},
+        )
+        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        bound = float(condition_bound(widened, noise_std=sigma, iterations=80))
+        oracle = graph_oracle(graph, ("a", "b"), at={})
+    precision = oracle.precision.copy()
+    # Rebuild the dense precision with b's widened prior, so the comparison is
+    # against the system the bound was actually computed for.
+    precision[1, 1] += 1.0 / (oracle.prior_std[1] * loosened) ** 2 - 1.0 / oracle.prior_std[1] ** 2
+    true_kappa = float(np.linalg.cond(precision))
+    assert bound >= true_kappa * (1.0 - 1e-6), (bound, true_kappa)
+
+
+def test_the_bound_is_loose_when_the_data_constrains_every_direction():
+    """Stated rather than hidden: this is the price of a one-sided guarantee.
+
+    A one-parameter block has a true kappa of exactly 1 -- M is 1x1 -- and the
+    bound reports lambda_max times the prior variance, which is hundreds. That
+    is not a defect; it is what an upper bound derived from the prior must
+    say when the data, not the prior, is what sets lambda_min. CG on such a
+    block converges in one step, so the residual absorbs the slack.
     """
     with jax.enable_x64(True):
         graph = straight_line()
         block = linear_operator(graph, ("w",), at={})
-        kappa = condition_estimate(
-            block, noise_std=_sigma(graph, {"w": jnp.asarray(0.0)}), iterations=40
-        )
-    assert float(kappa) == pytest.approx(1.0, rel=1e-6)
+        sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
+        bound = float(condition_bound(block, noise_std=sigma, iterations=40))
+        oracle = graph_oracle(graph, ("w",), at={})
+    assert float(np.linalg.cond(oracle.precision)) == pytest.approx(1.0, rel=1e-9)
+    assert bound > 100.0
+    assert bound == pytest.approx(
+        float(oracle.precision[0, 0]) * float(oracle.prior_std[0] ** 2), rel=1e-3
+    )
 
 
-def test_condition_estimate_matches_a_dense_eigenvalue_computation():
-    with jax.enable_x64(True):
-        graph = two_linear_latents()
-        block = linear_operator(graph, ("a", "b"), at={})
-        kappa = float(
-            condition_estimate(
-                block,
-                noise_std=_sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)}),
-                iterations=80,
-            )
-        )
-        oracle = graph_oracle(graph, ("a", "b"), at={})
-    eigenvalues = np.linalg.eigvalsh(oracle.precision)
-    assert kappa == pytest.approx(eigenvalues[-1] / eigenvalues[0], rel=1e-3)
+def test_the_bound_grows_in_proportion_to_the_loosest_prior_variance():
+    """It is linear in max(prior_variance) by construction -- verify it is.
 
-
-def test_kappa_grows_with_a_looser_prior():
-    """lambda_min is the prior's curvature once the data stops binding.
-
-    Widening one prior by 1e4 must raise kappa, and by roughly its square --
-    lambda_min goes as 1/prior_std**2. That relation IS the reason the guard
-    is stated as an error bound rather than a residual bound, and a kappa
-    that ignored the prior would be flat across this pair.
+    A bound that ignored the prior would be flat across this pair, and a bound
+    that took the TIGHTEST prior would move the wrong way.
     """
     import dataclasses
 
@@ -2435,16 +2764,13 @@ def test_kappa_grows_with_a_looser_prior():
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
         sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        tight = float(condition_estimate(block, noise_std=sigma, iterations=80))
-        loosened = dataclasses.replace(
-            block, prior_std={**block.prior_std, "b": jnp.asarray(7.0e4)}
+        tight = float(condition_bound(block, noise_std=sigma, iterations=80))
+        widened = dataclasses.replace(
+            block, prior_std={**block.prior_std, "b": block.prior_std["b"] * 100.0}
         )
-        loose = float(condition_estimate(loosened, noise_std=sigma, iterations=80))
-    assert loose > tight
-    # b's prior widened by 1e4, so its share of lambda_min falls by 1e8. The
-    # data still bounds lambda_min from below once the prior stops binding, so
-    # this is a lower bound rather than an equality.
-    assert loose > 1e3 * tight
+        loose = float(condition_bound(widened, noise_std=sigma, iterations=80))
+    # b's prior variance grows by 1e4 and it was already the loosest (7 vs 5).
+    assert loose == pytest.approx(1e4 * tight, rel=1e-2)
 
 
 def test_the_normal_operator_is_symmetric():
@@ -2507,7 +2833,7 @@ def test_the_normal_operator_reproduces_the_dense_precision_matrix():
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'bayesmith.exact.solve'`。
 
-- [ ] **Step 4: 实现（本任务只写到 `condition_estimate`）**
+- [ ] **Step 4: 实现（本任务只写到 `condition_bound`）**
 
 ```python
 # src/bayesmith/exact/solve.py
@@ -2547,12 +2873,21 @@ from bayesmith.exact.block import (
     largest_variance,
     variance_parts,
 )
-from bayesmith.exact.conditioning import extreme_eigenvalues, tree_norm
+from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
 
-#: Power-iteration steps per end of the spectrum. Both ends typically settle
-#: within three; this leaves margin at a fixed cost of ``2 * POWER_ITERATIONS``
-#: operator applications per guarded solve.
+#: Power-iteration steps for the top of the spectrum. The estimate typically
+#: settles within three; this leaves margin at a fixed cost of
+#: ``POWER_ITERATIONS`` operator applications per guarded solve. Only the top
+#: is measured -- see :func:`_condition_bound` for where the bottom comes from
+#: and why it is not measured.
 POWER_ITERATIONS: int = 12
+
+#: Multiple of the working precision's epsilon below which a relative residual
+#: counts as "CG has done all it can here". Measured: a converged float32 solve
+#: on this package's own toy models lands at 1.4-1.5 times eps, so 10 leaves
+#: room without admitting a genuinely unconverged solve, whose residual is
+#: orders of magnitude larger.
+PRECISION_FLOOR: float = 10.0
 
 
 def _weights(noise_std: dict[str, Any]) -> dict[str, jax.Array]:
@@ -2561,14 +2896,14 @@ def _weights(noise_std: dict[str, Any]) -> dict[str, jax.Array]:
 
 def normal_operator(
     block: LinearBlock, weight: dict[str, Any], prior_variance: dict[str, Any]
-):
+) -> Callable[[dict[str, jax.Array]], dict[str, jax.Array]]:
     """``x -> (A^T N^-1 A + S^-1) x`` over the block's domain."""
 
-    def half_chi2(parts):
+    def half_chi2(parts: dict[str, jax.Array]) -> jax.Array:
         pushed = block.forward(parts)
         return 0.5 * sum(jnp.sum(weight[name] * pushed[name] ** 2) for name in pushed)
 
-    def normal(parts):
+    def normal(parts: dict[str, jax.Array]) -> dict[str, jax.Array]:
         curvature = jax.grad(half_chi2)(parts)
         return jax.tree.map(
             lambda c, p, v: c + p / v, curvature, parts, prior_variance
@@ -2577,65 +2912,93 @@ def normal_operator(
     return normal
 
 
-def _condition_number(
+def _condition_bound(
     block: LinearBlock,
     weight: dict[str, Any],
     prior_variance: dict[str, Any],
     key: jax.Array,
     iterations: int,
 ) -> jax.Array:
-    """Estimated ``kappa`` of ``A^T N^-1 A + S^-1``.
+    """Upper bound on ``kappa`` of ``A^T N^-1 A + S^-1``.
 
-    For a group this is the JOINT condition number, and it is the number a
-    per-block guard cannot produce: two latents the data barely distinguishes
-    give a well-conditioned operator each and a badly conditioned one together.
+    ``lambda_max`` is measured. ``lambda_min`` is **not**: it is bounded from
+    below by the prior's own curvature, because ``A^T N^-1 A`` is positive
+    semi-definite and therefore
+
+        lambda_min(A^T N^-1 A + S^-1)  >=  lambda_min(S^-1)  =  1 / max(S)
+
+    so the quotient is an upper bound rather than an estimate. That is the
+    direction a safety guard needs -- an overestimate of kappa can only make
+    the guard refuse a solve that was fine, while an underestimate makes it
+    accept one that was not.
+
+    Measuring ``lambda_min`` instead, by a second power iteration on
+    ``lambda_max * I - M``, is what rheplicant does and what this plan
+    originally specified. It was measured to fail *in principle* on a graded
+    spectrum -- the shifted operator's leading eigenvalues all crowd against
+    ``lambda_max`` with vanishing gaps -- and to fail one-sidedly in the
+    dangerous direction. See :mod:`bayesmith.exact.conditioning`'s module
+    docstring for the numbers.
+
+    **The bound is tight exactly where it matters.** For a block the data does
+    not fully identify, some direction is held by the prior alone and
+    ``lambda_min`` IS the prior's curvature. It is loose in the opposite
+    regime -- data far tighter than the prior in every direction -- where the
+    guard may refuse a solve that was in fact accurate. That regime is also
+    where CG converges in a handful of iterations and the residual is small
+    enough to absorb the slack, which is why the trade is worth taking.
+
+    For a group this is the JOINT bound, and it is the number a per-block
+    guard cannot produce: two latents the data barely distinguishes give a
+    well-conditioned operator each and a badly conditioned one together.
     """
-    largest, smallest = extreme_eigenvalues(
+    largest = largest_eigenvalue(
         normal_operator(block, weight, prior_variance),
         domain_zero(block),
         key,
         iterations,
     )
-    # A^T N^-1 A is positive semi-definite, so lambda_min can never fall below
-    # the prior's own curvature however rank-deficient the data is. The floor
-    # is a lower bound on the truth, so it only ever raises an underestimate --
-    # it does not overwrite a correct measurement.
-    floor = 1.0 / largest_variance(prior_variance)
-    return largest / jnp.maximum(smallest, floor)
+    return largest * largest_variance(prior_variance)
 
 
-def condition_estimate(
+def condition_bound(
     block: LinearBlock,
     *,
     noise_std: dict[str, Any],
     iterations: int = POWER_ITERATIONS,
     key: jax.Array | None = None,
 ) -> jax.Array:
-    """Condition number of the normal operator this block would be solved with.
+    """An upper bound on the conditioning of the system this block is solved with.
 
     Use it to pick ``tol``: for a target relative accuracy ``a``, ask for
-    roughly ``tol = a / kappa``.
+    roughly ``tol = a / condition_bound(...)``.
 
-    A large ``kappa`` is not a defect, it is the design: for a block the data
-    does not fully identify, ``lambda_min`` is exactly ``1/prior_std**2``
-    while ``lambda_max`` is set by the data, so ``kappa`` grows with how much
-    better the data constrains one direction than the prior constrains
-    another.
+    A large bound is not a defect, it is the design: for a block the data does
+    not fully identify, ``lambda_min`` is exactly ``1/prior_std**2`` while
+    ``lambda_max`` is set by the data, so it grows with how much better the
+    data constrains one direction than the prior constrains another.
 
-    Costs ``2 * iterations`` applications of the normal operator -- each the
-    same JVP-plus-VJP a CG iteration costs -- and forms no matrix.
+    Costs ``iterations`` applications of the normal operator -- each the same
+    JVP-plus-VJP a CG iteration costs -- and forms no matrix.
 
     Args:
         block: from :func:`bayesmith.exact.linearity.linear_operator`.
         noise_std: ``{observed: sigma}``, as
             :func:`bayesmith.exact.gaussian.noise_std_at` returns. A decided
-            sigma, not a rule for producing one: a kappa is the conditioning
-            of one particular normal operator.
-        iterations: power-iteration steps per end of the spectrum.
-        key: PRNG key for the starting vectors. Fixed by default, so the
-            estimate is reproducible.
+            sigma, not a rule for producing one: a conditioning number belongs
+            to one particular normal operator.
+        iterations: power-iteration steps for ``lambda_max``.
+        key: PRNG key for the starting vector. Fixed by default, so the bound
+            is reproducible.
+
+    Returns:
+        ``lambda_max * max(prior_variance)``, an upper bound on ``kappa`` --
+        up to the accuracy of the ``lambda_max`` estimate, which converges
+        geometrically and always from BELOW, so it can only make the bound
+        smaller. ``test_largest_eigenvalue_approaches_the_truth_from_below``
+        in ``tests/exact/test_conditioning.py`` pins that direction.
     """
-    return _condition_number(
+    return _condition_bound(
         block,
         _weights(noise_std),
         variance_parts(block),
@@ -2650,12 +3013,12 @@ def condition_estimate(
 .venv/bin/python -m pytest tests/exact/test_solve.py -v
 ```
 
-Expected: 5 passed。
+Expected: 9 passed（参数化的那条算三例）。
 
 - [ ] **Step 6: 变异测试**
 
-1. 把 `_condition_number` 的 `floor` 改成 `1.0 / jnp.min(...)`（用最紧的先验），重跑。
-   Expected: `test_condition_estimate_matches_a_dense_eigenvalue_computation` 或 `test_kappa_grows_with_a_looser_prior` **变红**。还原。
+1. 把 `_condition_bound` 的 `largest_variance` 换成"最紧的先验方差"（`jnp.min` 而非 `jnp.max`），重跑。
+   Expected: `test_the_bound_grows_in_proportion_to_the_loosest_prior_variance` 与 `test_the_bound_is_never_below_the_true_condition_number[10000.0]` **都变红**。第二条尤其重要——取最紧的先验会让这个"界"掉到真 κ 之下，也就是**失去它唯一的保证**。还原。
 2. 把 `normal_operator` 里的 `+ p / v`（先验曲率项）删掉，重跑。
    Expected: `test_the_normal_operator_reproduces_the_dense_precision_matrix` **变红**。还原。
 3. 把 `half_chi2` 的求和改成只对 `sorted(pushed)[0]` 一个观测节点求和，重跑。
@@ -2732,6 +3095,27 @@ def unconstrained_latent(*, n=5, sigma=0.5, seed=11):
 追加到 `tests/exact/test_solve.py`（并在文件顶部补 `from bayesmith.exact.solve import wiener_solve`，以及 `from tests.exact.models import plated_latent, two_observations, unconstrained_latent`、`from tests.exact.oracle import flat_domain`）：
 
 ```python
+def _assert_orderings_agree(oracle, block):
+    """The two sides flatten the domain independently; nothing ties them together.
+
+    `flat_domain` walks `block.names`, per MEMBER; the oracle records `order`
+    per ELEMENT. A caller who passed a differently-ordered tuple to one side
+    would get a same-length, silently transposed comparison, which is why this
+    is asserted rather than trusted -- but it has to be compared at the same
+    granularity. An earlier version of this check compared the per-element name
+    list directly against `block.names`, so for a plated member it read
+    `['z'] * 6 == ('z',)`: False for a block that is perfectly well ordered. It
+    passed only where every member happened to be scalar -- the one place it
+    could not fail. Measured while verifying Task 6's acceptance gate.
+    """
+    per_member = list(dict.fromkeys(name for name, _ in oracle.order))
+    assert per_member == list(block.names), (per_member, block.names)
+    # And the flat lengths must agree, which is what the comparison actually
+    # depends on -- the name check alone would pass for a member whose shape
+    # the two sides disagreed about.
+    assert len(oracle.order) == oracle.mean.size
+
+
 def test_wiener_solve_matches_the_dense_oracle():
     """R1 vs R2 -- the acceptance gate of this whole plan.
 
@@ -2744,6 +3128,7 @@ def test_wiener_solve_matches_the_dense_oracle():
         sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         got, residual = wiener_solve(block, noise_std=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("a", "b"), at={})
+    _assert_orderings_agree(oracle, block)
     assert float(residual) < 1e-10
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
 
@@ -2756,6 +3141,7 @@ def test_wiener_solve_matches_the_oracle_across_two_observed_nodes():
         sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
         got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("w",), at={})
+    _assert_orderings_agree(oracle, block)
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
 
 
@@ -2767,6 +3153,7 @@ def test_wiener_solve_matches_the_oracle_for_a_plated_block():
         sigma = _sigma(graph, {"z": jnp.zeros(6)})
         got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("z",), at={})
+    _assert_orderings_agree(oracle, block)
     assert got["z"].shape == (6,)
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
 
@@ -2820,7 +3207,7 @@ Expected: FAIL — `ImportError: cannot import name 'wiener_solve'`。
 
 - [ ] **Step 4: 实现**
 
-在 `src/bayesmith/exact/solve.py` 顶部的导入里加 `import equinox as eqx`，并在 `condition_estimate` 之后追加：
+在 `src/bayesmith/exact/solve.py` 顶部的导入里加 `import equinox as eqx`，并在 `condition_bound` 之后追加：
 
 ```python
 def _split_like(key: jax.Array, template: Any) -> Any:
@@ -2921,10 +3308,10 @@ def _conjugate_solve(
         # back a draw whose posterior scatter there is orders of magnitude too
         # small. Guarding on the residual certifies precisely nothing in the
         # one regime these solvers exist to serve.
-        kappa = _condition_number(
+        bound = _condition_bound(
             block, weight, prior_variance, jax.random.key(0), POWER_ITERATIONS
         )
-        error_bound = residual * kappa
+        error_bound = residual * bound
         bad = jnp.logical_or(~jnp.isfinite(residual), error_bound > require_convergence)
 
         # Below kappa*eps no tolerance can help: the arithmetic itself cannot
@@ -2935,29 +3322,46 @@ def _conjugate_solve(
         epsilon = float(
             jnp.finfo(jnp.result_type(*jax.tree.leaves(block.offset))).eps
         )
-        unreachable = kappa * epsilon > require_convergence
+        # Two independent reasons no tol or maxiter can help, and rheplicant
+        # carries only the first. The second was measured: at float32,
+        # `two_linear_latents` -- a TWO-parameter toy -- lands at
+        # residual=1.73e-7 against eps=1.19e-7, i.e. CG has already reached the
+        # floor, while bound*eps = 6.9e-4 stays under a 1e-3 target. Without
+        # the second test the caller is told to tighten tol, which cannot move
+        # a residual that is already at the precision floor. A guard whose
+        # remedy is impossible is the same defect as one that misattributes.
+        at_precision_floor = residual <= PRECISION_FLOOR * epsilon
+        unreachable = jnp.logical_or(
+            bound * epsilon > require_convergence, at_precision_floor
+        )
 
         solution = eqx.error_if(
             solution,
             jnp.logical_and(bad, unreachable),
             "wiener_solve/gcr_sample cannot reach require_convergence at this "
-            "precision: the normal operator's condition number times the machine "
-            "epsilon already exceeds it, so no tol or maxiter will help. This is "
-            "the usual signature of a block the data does not identify. Run the "
-            "solve inside `with jax.enable_x64(True):`, or strengthen the prior "
-            "(prior_std bounds the conditioning: kappa ~ ||A^T N^-1 A|| * "
-            "prior_std**2). condition_estimate() reports the number.",
+            "precision, and no tol or maxiter will help -- either the condition "
+            "bound times the machine epsilon already exceeds the target, or the "
+            "relative residual is already at the precision floor, meaning CG has "
+            "done everything this dtype allows. Run the solve inside "
+            "`with jax.enable_x64(True):`, or strengthen the prior. Note that "
+            "condition_bound() reports an UPPER bound: it exceeds the true "
+            "conditioning by lambda_min * max(prior_variance), which is how much "
+            "better the data constrains the weakest direction than the prior "
+            "does -- measured at 3676x on this package's own two-parameter toy. "
+            "So a refusal here may be the bound being conservative rather than "
+            "the answer being inaccurate; x64 settles it either way.",
         )
         solution = eqx.error_if(
             solution,
             jnp.logical_and(bad, ~unreachable),
             "wiener_solve/gcr_sample did not converge: the relative residual "
-            "times the normal operator's condition number -- the bound on the "
-            "RELATIVE ERROR, which is what require_convergence limits -- exceeds "
-            "it. The residual alone looks converged; it is not, along the "
-            "directions the prior dominates. Pass tol ~ require_convergence/kappa "
-            "with a maxiter to match, or strengthen the prior. "
-            "condition_estimate() reports kappa.",
+            "times the condition bound -- the bound on the RELATIVE ERROR, which "
+            "is what require_convergence limits -- exceeds it, and the residual "
+            "is not yet at the precision floor, so there is room to improve it. "
+            "The residual alone looks converged; it is not, along the directions "
+            "the prior dominates. Pass tol ~ require_convergence/bound with a "
+            "maxiter to match, or strengthen the prior. condition_bound() "
+            "reports the bound.",
         )
     return solution, residual
 
@@ -2995,10 +3399,10 @@ def wiener_solve(
             looking exactly like a converged one.
 
             The bound is ``kappa * relative_residual``, with ``kappa`` from
-            :func:`condition_estimate`. That costs ``2 * POWER_ITERATIONS``
+            :func:`condition_bound`. That costs ``POWER_ITERATIONS``
             extra operator applications, which on a well-conditioned block
             roughly DOUBLES the solve. In a Gibbs sweep, call
-            :func:`condition_estimate` once outside the loop, choose ``tol``
+            :func:`condition_bound` once outside the loop, choose ``tol``
             from it, and pass ``require_convergence=None`` inside. What you
             must NOT do is leave ``tol`` at its default and the guard off --
             that is the combination that returns a silently over-confident
@@ -3007,7 +3411,7 @@ def wiener_solve(
     Returns:
         ``(x_hat, relative_residual)``, the residual being
         ``||M x_hat - b|| / ||b||``. Note this is the residual, not the error;
-        multiply by :func:`condition_estimate` for the error bound.
+        multiply by :func:`condition_bound` for the error bound.
 
     Note:
         **Where S comes from.** Each latent's own ``dist_fn`` is this
@@ -3058,7 +3462,7 @@ def test_the_guard_bounds_the_error_not_the_residual():
         loosened = dataclasses.replace(
             block, prior_std={**block.prior_std, "b": jnp.asarray(1e4)}
         )
-        kappa = float(condition_estimate(loosened, noise_std=sigma, iterations=80))
+        kappa = float(condition_bound(loosened, noise_std=sigma, iterations=80))
     assert kappa > 1e6
 ```
 
@@ -3096,7 +3500,7 @@ def test_gcr_draws_have_the_oracle_mean_and_covariance():
     """The draw is exact, so its first two moments are the oracle's.
 
     require_convergence=None inside the vmap on purpose: the guard costs
-    2 * POWER_ITERATIONS operator applications PER DRAW, and tol is set from
+    POWER_ITERATIONS operator applications PER DRAW, and tol is set from
     the block's kappa instead -- which is the bargain wiener_solve's docstring
     recommends and this test is the demonstration of.
     """
@@ -3713,9 +4117,21 @@ Expected: 6 passed。
 - [ ] **Step 5: 变异测试**
 
 1. 把 `step` 里的 `delta` 分母从 `tree_norm(updated)` 改成 `tree_norm(latent)`，重跑。
-   Expected: 不一定变红。补一条断言：`test_iterative_gls_finds_the_fixed_point_a_dense_iteration_finds` 里加 `assert int(result.iterations) < 50`——从先验均值（=0）起步时旧写法的分母是 0，delta 恒为巨大值，迭代会跑满 `max_reweights`。还原。
-2. 把 `unfinished` 的两个连接词交换（`or` 在外、`and` 在内），并令 `min_reweights=5, max_reweights=2` 调用，重跑。
-   Expected: 挂起（无限循环）。**这条变异不要在 CI 里跑**——在本地手工确认后立刻还原，并确认 `min_reweights > max_reweights` 被 `GraphError` 挡在前面。
+
+   > **计划原文给的机理是错的**（Task 8 实测更正）：循环并非从先验均值起步，而是从 `first`——一次真实的求解——所以分母从来不是 0。而且这条变异在实测扫过的约 15 组配置上**完全不可观测**：两种实现的 `iterations` / `delta` / `solution` 一致到 10 位以上有效数字。
+   >
+   > 机理：`MIN_REWEIGHTS = 5` 强制至少 5 次求解，而这个 IRLS 映射在 1–2 步内就把迭代量的**模**稳定下来（尽管**变化量**还在缩小），所以等 `delta` 第一次被查看时 `‖latent‖` 与 `‖updated‖` 已在 float64 精度内相等。
+   >
+   > 唯一不牵强的关法是调小 `min_reweights`（它是文档化的参数，不是内部常量）：`min_reweights=1` 让 `delta` 在 `count=1` 处就被查看，那里 `latent` 是一次求解、`updated` 是第二次，两者的模真正不同。见 Task 8 的执行记录里这条的实测结果。
+
+   仍然加上 `assert int(result.iterations) < 50`——它本身是个合理的回归守卫，且**确实**抓得住上面的变异 2。还原。
+2. 把 `unfinished` 的两个连接词交换（`or` 在外、`and` 在内），重跑。
+
+   > **计划原文声称它会"挂起（无限循环）"，这是错的**（Task 8 实测更正）。交换后的谓词是 `count < max OR (count < min AND delta > tol)`；`count` 每步严格递增，最终两个析取项都为假，**对任何有限的界都必然终止**。以 `min=5, max=2` 调用更是连那个谓词都到不了——`min <= max` 的 `GraphError` 守卫是函数体第一行。
+   >
+   > 我写下一个"会挂起"的预言，而两行逻辑就能证伪它，我没做那两行。与本文件「一个不可能的目标」一节同类：**关于自己代码行为的断言，同样要算过再写。**
+
+   Expected（实测）：以**合法**的 `min <= max`（例如默认值）调用时，循环有界但浪费——它总是跑满 `max_reweights` 而忽略收敛。这**会**被抓住：`test_iterative_gls_finds_the_fixed_point_a_dense_iteration_finds` 的 `iterations < 50` 断言变红（`100 !< 50`）。还原。
 3. 把 `check_prediction_dependence` 的 `DEPENDENCE_PROBES` 改成只有 `(-0.5,)`，重跑。
    Expected: `test_check_prediction_dependence_catches_a_false_declaration` 仍红——辐射计的 σ 在任一侧都动。这条变异因此**没有覆盖单侧探针的真实失效模式**：σ 被单侧钳位时（`sigma = kappa * max(mu, 0) + floor`）每个负探针读出的都恰好是 baseline。补一个玩具模型并补一条测试：
 
@@ -4079,8 +4495,9 @@ Expected: 5 passed。
 
 1. 把 `fisher_information` 的 `include_prior` 默认值改成 `False`，重跑。
    Expected: `test_fisher_with_the_prior_is_the_posterior_precision` **变红**。还原。
-2. 把 `dense_operator` 里的 `sorted(pushed)` 改成 `list(pushed)`（插入序），重跑。
-   Expected: 在 `two_observations`（`d1`/`d2`，插入序恰好也是字典序）上仍绿——所以补一个观测节点名的字典序与声明序**相反**的模型（例如把 `two_observations` 的两个观测改名为 `"z_first"` 与 `"a_second"`），并加一条 `test_dense_operator_matches_the_probed_design_matrix` 的变体。还原。
+2. **这条变异在它指名的位置上不可证伪**（Task 9 实测更正）。`pushed = block.forward(...)` 是 `jax.linearize` 的切线输出，经过 JAX 的 pytree flatten/unflatten——而 **JAX 的 dict 注册无条件按键排序**，所以 `pushed` 在 `dense_operator` 自己的 `sorted()` 跑之前**就已经排好了**，对任何图都成立。建逆序 fixture 也没用：实测建了，变异仍全绿。见上文「JAX 的 dict pytree 无条件按键排序」。
+
+   **真正活着的是隔壁**：`fisher_information` 的 `sorted(noise_std)`——`noise_std` 是普通 dict，带**声明序**。把它改成 `list(noise_std)`，在一个观测节点字典序与声明序**相反**的模型上（`"z_first"` / `"a_second"`）跑，**恰好一条测试变红**。还原。
 3. 把 `FlatMatrix.std()` 的 kind 检查删掉，重跑。
    Expected: 全绿——说明它无守卫。补一条：
 
@@ -4093,7 +4510,9 @@ def test_std_refuses_a_precision():
         fisher = fisher_information(block, noise_std=sigma)
         with pytest.raises(ValueError, match="not an error bar"):
             fisher.std()
-        assert parameter_covariance(fisher).std()["a"].shape == ()
+        # (1,) not () -- FlatMatrix carries span widths, not member shapes, so
+        # std() returns a flat slice. Measured; the plan first said ().
+        assert parameter_covariance(fisher).std()["a"].shape == (1,)
 ```
 
 - [ ] **Step 6: 提交**
@@ -4141,7 +4560,7 @@ from bayesmith.exact.gls import (
     sigma_from_graph,
 )
 from bayesmith.exact.linearity import check_linearity, linear_operator
-from bayesmith.exact.solve import condition_estimate, gcr_sample, wiener_solve
+from bayesmith.exact.solve import condition_bound, gcr_sample, wiener_solve
 
 __all__ = [
     "LinearBlock",
@@ -4153,7 +4572,7 @@ __all__ = [
     "noise_std_at",
     "wiener_solve",
     "gcr_sample",
-    "condition_estimate",
+    "condition_bound",
     "iterative_gls",
     "GLSResult",
     "sigma_from_graph",
@@ -4190,7 +4609,7 @@ from bayesmith.errors import (
     "check_linearity",
     "wiener_solve",
     "gcr_sample",
-    "condition_estimate",
+    "condition_bound",
     "iterative_gls",
     "sigma_from_graph",
     "noise_std_at",
@@ -4217,7 +4636,7 @@ from bayesmith.errors import (
     "check_linearity": ("bayesmith.exact.linearity", "check_linearity"),
     "wiener_solve": ("bayesmith.exact.solve", "wiener_solve"),
     "gcr_sample": ("bayesmith.exact.solve", "gcr_sample"),
-    "condition_estimate": ("bayesmith.exact.solve", "condition_estimate"),
+    "condition_bound": ("bayesmith.exact.solve", "condition_bound"),
     "iterative_gls": ("bayesmith.exact.gls", "iterative_gls"),
     "sigma_from_graph": ("bayesmith.exact.gls", "sigma_from_graph"),
     "noise_std_at": ("bayesmith.exact.gaussian", "noise_std_at"),
@@ -4249,7 +4668,7 @@ def test_every_exact_name_resolves_and_is_the_same_object_as_its_module_s():
         "check_linearity": linearity.check_linearity,
         "wiener_solve": solve.wiener_solve,
         "gcr_sample": solve.gcr_sample,
-        "condition_estimate": solve.condition_estimate,
+        "condition_bound": solve.condition_bound,
         "iterative_gls": gls.iterative_gls,
         "sigma_from_graph": gls.sigma_from_graph,
         "noise_std_at": gaussian.noise_std_at,
@@ -4393,7 +4812,7 @@ from bayesmith.exact.gaussian import check_gaussian, noise_std_at
 from bayesmith.exact.gls import iterative_gls, sigma_from_graph
 from bayesmith.exact.linearity import check_linearity
 from bayesmith.exact.block import unchecked_operator
-from bayesmith.exact.solve import condition_estimate, wiener_solve
+from bayesmith.exact.solve import condition_bound, wiener_solve
 from bayesmith import evaluate, observe, sample, trace
 import numpyro.distributions as dist
 from tests.exact.models import (
@@ -4479,7 +4898,7 @@ def test_the_convergence_guard_flips_at_require_convergence_over_kappa():
         graph = two_linear_latents()
         block = unchecked_operator(graph, ("a", "b"), at={})
         sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        kappa = float(condition_estimate(block, noise_std=sigma, iterations=80))
+        kappa = float(condition_bound(block, noise_std=sigma, iterations=80))
 
         # CG on a 2-parameter system reaches machine precision in 2 steps, so
         # maxiter -- not tol -- is what sets the residual here. Measure the
@@ -4525,7 +4944,7 @@ def test_the_unreachable_branch_names_precision_rather_than_tolerance():
     starved = dataclasses.replace(
         block, prior_std={**block.prior_std, "b": jnp.asarray(1e4, dtype=jnp.float32)}
     )
-    kappa = float(condition_estimate(starved, noise_std=sigma, iterations=80))
+    kappa = float(condition_bound(starved, noise_std=sigma, iterations=80))
     epsilon = float(jnp.finfo(jnp.float32).eps)
     assert kappa * epsilon > 1e-3, "fixture no longer reaches the unreachable branch"
     with pytest.raises(Exception, match="enable_x64"):
@@ -4579,7 +4998,7 @@ import pytest
 
 from bayesmith.exact.gaussian import noise_std_at
 from bayesmith.exact.linearity import linear_operator
-from bayesmith.exact.solve import condition_estimate, wiener_solve
+from bayesmith.exact.solve import condition_bound, wiener_solve
 from tests.exact.models import (
     collinear_pair,
     many_observations,
@@ -4671,11 +5090,11 @@ def test_two_exactly_collinear_parents_are_solved_jointly_and_kappa_says_so():
         block = linear_operator(graph, ("a", "b"), at={})
         sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
-        kappa = float(condition_estimate(block, noise_std=sigma, iterations=80))
+        kappa = float(condition_bound(block, noise_std=sigma, iterations=80))
         oracle = graph_oracle(graph, ("a", "b"), at={})
         single = linear_operator(graph, ("a",), at={"b": jnp.asarray(0.0)})
         single_kappa = float(
-            condition_estimate(single, noise_std=sigma, iterations=80)
+            condition_bound(single, noise_std=sigma, iterations=80)
         )
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
     assert kappa > 100.0
@@ -4711,6 +5130,176 @@ Expected: 无问题。
 git add -A src tests
 git commit -m "feat: wire the exact solves into the public API, with boundary and extreme-value coverage"
 ```
+
+---
+
+## `slow` 标记会把守卫从默认运行里拿掉（Task 10 实测，2026-08-23）
+
+Task 7 花了两轮建起两条测试，专门守住「plate 元素共享一次抽取」与「`_split_like` 跨叶复用 key」这两个真实 bug——两者都只扰动**相关结构**、几乎不动边际方差，因此极难被发现。两条都标了 `@pytest.mark.slow`（各约 1–2 秒）。
+
+实测在 `pytest -m "not slow"` 下重放这两个变异：
+
+| 变异 | 完整运行抓住它的测试 | **`-m "not slow"` 下** |
+|---|---|---|
+| `omega_prior` 每叶只抽一个标量 | Task 7 的 plate 相关测试 + Task 10 的宽 plate 测试 | **只有 Task 10 那条**（Task 7 的被跳过） |
+| `_split_like` 全叶共用一个 key | Task 7 的跨成员测试 + Task 10 的两条极端值测试 | **只有 Task 10 那两条** |
+
+也就是说，在 Task 10 之前，`-m "not slow"`（CI 与日常开发最可能的跑法）对这两个 bug 的覆盖是**零**。
+
+这与前面记录的失效形状都不同：测试写对了、fixture 到达了区域、变异确实会让它变红——**但它在实际使用的运行配置下不执行**。
+
+> **判据**：给一条测试打 `slow` 之前，问它**是不是某个 bug 的唯一守卫**。若是，要么不标，要么在快路径里留一个更便宜的同类守卫。Task 10 的极端值测试恰好扮演了后者（n=200 而非 n=6，1.3 秒，未标 slow），但那是运气而非设计。
+
+## JAX 的 dict pytree 无条件按键排序（Task 9 实测，2026-08-23）
+
+一个此前完全没意识到、但影响整个计划的结构事实：**JAX 的 dict pytree 注册在 flatten/unflatten 时无条件按键排序**。实测：
+
+| dict 的来源 | 键序 |
+|---|---|
+| `jax.linearize` 的 offset 与 tangent 输出 | **总是排序**，无论函数字面返回什么顺序 |
+| `jax.vjp` 的 pullback 结果 | **总是排序**；且 pullback 的**输入**接受任意顺序，答案相同 |
+| Python 推导式建的普通 dict（`noise_std_at`、`observation_parts`） | **声明序** |
+
+后果：**同一个 `sorted(...)` 是否承重，取决于它作用的 dict 来自 JAX 变换的哪一侧。**
+
+* `block.offset` / `block.forward(...)` / `block.adjoint(...)` 是变换的产物 ⟹ **已排序** ⟹ 再 `sorted()` 是**可证的 no-op**，任何 fixture 都抓不住对它的变异。
+* `noise_std_at(...)` / `observation_parts(...)` 的返回是普通 dict ⟹ **声明序** ⟹ `sorted()` **承重**，逆序 fixture 抓得住。
+
+`tests/exact/oracle.py` 里两处 `_flatten(..., obs_order)` 恰好各占一侧：作用于 `g(zero)` 的是 no-op，作用于 `data_tree` / `sigma` 的是承重的。写法相同、地位不同。
+
+> **判据**：给一个 dict 排序前，先问它**是不是刚从 JAX 变换里出来的**。是，则 `sorted()` 只是文档；否，则它是守卫。写变异测试时，这决定了变异是否**可能**被观测到。
+
+## 分离是「点」还是「区域」（Task 8 实测，2026-08-23）
+
+关掉一个变异缺口时，找到**一个**能让两种实现分开的参数点是不够的——必须知道它是**孤立的点**还是**一片区域**。
+
+Task 8 的 `test_iterative_gls_delta_denominator_uses_the_new_iterate` 用 `min_reweights=1, kappa=3.5` 让 `delta` 的两种分母分开（1.004 vs 0.501）。扫描本"不该有影响"的参数：
+
+| 参数 | 保住分离的比例 | 备注 |
+|---|---|---|
+| `seed` | 6 / 20 | 有几个**把大小关系整个倒过来**（seed=8：变异 8.00 vs 正确 1.14）；seed=0 处真实调用**逐位相同**——真假阴性 |
+| `prior_mean` | 1 / 9（只有默认的 0.0） | 根因：先验均值为 0 ⟹ `centre` 处预测恰为 0 ⟹ 首次协方差塌成处处等于 `floor` 的均匀值。**这个大第一步是零均值先验独有的退化热启动** |
+| `kappa` | 3.5 可，**3.0 已失效** | |
+| `n` / `prior_std` / key-fold | 3/9、2/8、5/15 | |
+
+测试本身作为**确定性**的 pin 永远有效；问题在于它的 docstring 暗示了测量不支持的**通用性**。将来有人改 `radiometer` 的默认值、或好心地把它参数化，它会**静静地失去鉴别力而保持绿**。
+
+> **判据**：为关闭一个缺口而选定参数后，扫一遍"不该有影响"的维度（seed、n、先验中心与宽度、噪声尺度），报告分离在多大范围内成立。**若只在一个点上成立，就在 docstring 里写明"这是点不是区域"以及它依赖的具体机制**，而不是用一句含糊的注意事项带过。
+
+同一轮还发现 `step` 的 `jax.tree.map` 限制到第一个隐变量叶子时**全部 11 条测试仍绿**——包括刚为多叶加的那条，机制同上（收敛得太紧，`delta` 还没被查看）。它在 `radiometer_group` 上于 `min_reweights=1`、`reweight_tol ∈ [0.01, 0.05)` 处可观测。
+
+## 测试集合可以在某个结构维度上退化（Task 7 实测，2026-08-23）
+
+前面几次的空洞都是「fixture 到不了它声称的**区域**」（规模、精度、方向）。Task 7 暴露了另一种：**所有 fixture 恰好是同一种形状，而被测代码对形状敏感。**
+
+三条 GCR 抽取测试各自设计得都不错，但它们的定义域**全是标量成员**。于是 `_split_like` 的逐叶分键与 `omega_prior` 的逐叶形状处理从未在多元素成员上被走过。实测两处后果：
+
+| 变异 | 整套件（177 条）的反应 | 真实后果 |
+|---|---|---|
+| `omega_prior` 每叶只抽一个标量、广播到全叶 | **全绿** | plate 内 6 个元素完全相关；**对角几乎全对**（0.142–0.153 对 0.14938），错的只有相关结构（非对角 0.00885 对真值 0） |
+| `_split_like` 所有叶子共用一个 key | **全绿** | 跨成员相关：`two_linear_latents` 上诱导出 0.00033，在 `atol=0.000667` 之下 2.02 倍逃脱 |
+
+两者都**只影响相关结构、几乎不动边际方差**，所以任何只看对角的检查都看不见。
+
+> **可操作的判据**：列出被测代码在哪些**结构维度**上分支——标量 vs 数组、单叶 vs 多叶、单观测 vs 多观测、有 plate vs 无 plate——再检查测试集合在每一维上是否取到过**至少两个值**。`solve.py` 的 `jax.tree.map` 与 `_split_like` 在「叶子内元素数」和「叶子个数」两维上都有分支，而测试集合在这两维上都是常数。
+>
+> 这也意味着 Task 10 的极端值清单不能只覆盖**均值**路径——抽取路径在同样的维度上需要同样的覆盖。
+
+两处都已补测（真实非对角恰为零，使它成为很锐的统计量：plate 因 iid，`two_linear_latents` 因 `ΣX = 0` 使 `AᵀN⁻¹A` 对角化）。
+
+## 统计测试的功效是不对称的（Task 7 实测，2026-08-23）
+
+均值有稠密预言机可比；**抽取没有**——它的测试是统计性的，因此可能以确定性比较不会有的方式变弱。逐项缩放两个涨落项、在真实 fixture / 种子 / 抽取数下跑真实断言，测得：
+
+| 测试 | 对 `AᵀN⁻¹ᐟ²ω₁`（数据涨落） | 对 `S⁻¹ᐟ²ω₂`（先验涨落） |
+|---|---|---|
+| `test_gcr_draws_have_the_oracle_mean_and_covariance` | **~10%**（1.10 / 0.90 变红） | **>2000%**（scale 20 仍绿，25 才红） |
+| `test_a_draw_with_uninformative_data_falls_back_to_the_prior` | **0%**（1000 倍幅度仍绿） | **~10%**（1.10 / 0.85 变红） |
+
+机理：`two_linear_latents` 是数据主导的（先验方差 25/49，后验方差 0.0085/0.013）。缩放 ω₂ 把抽取协方差从 `M⁻¹` 变成 `M⁻¹(AᵀN⁻¹A + k²S⁻¹)M⁻¹`，而 `AᵀN⁻¹A ≫ S⁻¹`，所以要到 `k ≈ √(‖AᵀN⁻¹A‖/‖S⁻¹‖) ≈ √(118/0.04) ≈ 54` 才咬——与实测的 25 同阶。
+
+**两条测试互补，各自在对方失明处看见。** 没有活的空洞，但**负担由名字看起来不该承担它的那条测试扛着**——正是上一节记录的那种情形。将来有人看到两条"都在测协方差"的测试、删掉他认为冗余的那条，套件仍会全绿。所以两条的 docstring 互相点名。
+
+## 一个不可能的目标（Task 6 实测，2026-08-23）
+
+要求 `test_the_precision_floor_alone_makes_the_guard_unreachable` 既**孤立**地址实地板项、又让 `error_bound` **超出阈值一个数量级**，是**自相矛盾**的。设 `r = residual/eps`：
+
+* `at_precision_floor` 触发 ⟺ `r ≤ PRECISION_FLOOR = 10`（定义）
+* 地板项要成为**孤立**的原因，需 `require_convergence > bound·eps`
+* 「超出一个数量级」⟹ `r·(bound·eps) ≥ 10·require_convergence > 10·(bound·eps)` ⟹ `r > 10`
+
+两者直接冲突。实测扫过三个模型族约 300 组参数，`r` 从未超过 **2.55**，所以任何写死的 `require_convergence` 都无法同时满足。
+
+**替代方案**：把 `require_convergence` 从这次运行**自己测出的** `error_bound` 导出（`error_bound / 2`），于是 `bad` 按构造为真，与变异把数字推到哪里无关。实测余量：比 `bound·eps` 高 1.28 倍、比 `error_bound` 低 2 倍。
+
+> **教训**：给出一个数值目标前，先算它是否与已有约束相容。`PRECISION_FLOOR = 10` 和「超出一个数量级」都是我写的，冲突就摆在纸面上，两行代数即可看出——而我是在实现者证明它不可能之后才算的。
+
+## 验收关口证明什么、不证明什么（Task 6 实测，2026-08-23）
+
+`test_wiener_solve_matches_the_dense_oracle` 是本计划的验收判据，实测 R1 与 R2 在四个 fixture 上一致到 **3.07e-16 / 1.81e-16 / 2.58e-16 / 0.0**——float64 的 ULP 地板。但**它证明的是线性代数，不是模型**。
+
+R1（`wiener_solve`）与 R2（`graph_oracle`）都**直接调用** `_env_before`、`isolate`、`observation_parts`。这三处任何一处的 bug 会让两边**同向移动**，关口纹丝不动。逐一变异实测：
+
+| 被变异的共享件 | 验收关口 | 真正抓住它的是 |
+|---|---|---|
+| `_env_before` 的 `prior_std` → 方差 | 绿 | `test_block.py` 的 4 条 |
+| `_env_before` 的 `prior_mean` + 1.0 | 绿 | `test_a_latent_the_data_never_reaches_comes_back_at_its_prior_mean`（对写死的常数）、`test_domain_centre_is_the_declared_prior_mean` |
+| `observation_parts` 的 sigma × 2 | 绿 | `test_observation_parts_covers_every_observed_node`（它检查 `scale` 的值） |
+| **`observation_parts` 的 data + 5.0** | 绿 | **原本没有任何东西**——见下 |
+| `isolate` 的 g 只取首个观测节点 | 绿（单观测 fixture 上是 no-op） | 双观测的姊妹测试上**崩溃** |
+| `isolate` 的 g × 1.1 | 绿 | `test_offset_is_the_prediction_with_the_block_at_zero`、`test_forward_is_the_linear_action_of_the_block` |
+
+**六个变异，验收关口一个都没抓住。** 这正是 P1 记录的那个盲区，只是这次被量出来了而不是被论证。
+
+**其中一处曾是真空洞**：`observation_parts` 返回的 **data 值**从未被任何测试检查过——键、形状、`scale` 的值都查过，唯独 data 的值没有，而后验完全条件于它。它看起来"有覆盖"，只因为 `test_the_precision_floor_alone_makes_the_guard_unreachable` 会红——而那条测试的余量只有 **0.25%**，它红是因为数据一动 float32 的 CG 残差就跟着动，**与数据是否正确无关**。
+
+> **一个余量过薄、会因无关改动误报的测试，正在掩盖一个真实的覆盖空洞。** 推论：跑套件时不能只问"有没有红"，必须问**红的那条是不是因为正确的理由红的**。
+
+两处都已修（见 Task 6 的审查后增补）。
+
+## 执行记录：P3a 完成了什么，以及审查发现了什么
+
+**交付**：`src/bayesmith/exact/` 八个文件、2237 行；测试 92 → **242**；`exact/` 六个文件 100% 覆盖、两个 96–97%（仅剩防御性 `raise`）；52 个提交。
+
+**验收关口已通过**：`test_wiener_solve_matches_the_dense_oracle`——无矩阵 CG（R1）对独立稠密 NumPy 预言机（R2），x64 下四个 fixture 一致到 **3.07e-16 / 1.81e-16 / 2.58e-16 / 0.0**，float64 的 ULP 地板。两者除模型外零共享：无 `linearize`、无 `vjp`、无 `cg`、无 `tree_norm`、无幂迭代。
+
+### 缺陷的分布，以及它为什么是这个分布
+
+约 30 个真实缺陷，**约三分之二源自本计划的文本，而非实现**——与 P1 执行记录的结论一致（"八个缺陷没有一个是实施错误"）。但这一轮看清了**为什么**。计划里的断言分四类，失效率天差地别：
+
+| 断言的类别 | 例子 | 失效率 |
+|---|---|---|
+| **数学与代码结构** | "这个算子按构造对称" | 几乎不出错——写的时候就在推导 |
+| **数值区域** | "n=5000 下求和形式已经抓不住" | **大量出错**——凭直觉给数（实际交叉点 n=746,000） |
+| **通用性** | "这个分离在收敛范围内成立" | **大量出错**——量了一个点，当成一片区域来描述 |
+| **移植来源的行为** | "交换 and/or 会挂起" | **出错且最隐蔽**——在回忆 rheplicant，而不是读 bayesmith |
+
+后三类的共同点：**写下的当时就可以验证，而我没有**。第四类尤其——两条被证伪的预言都能从我刚写的代码里读出来，各两行逻辑。
+
+### 三个最贵的缺陷，都只有实测能定案
+
+1. **`extreme_eigenvalues` 在梯度谱上原理性失效。** 移位算子的前若干特征值挤在 `λmax` 附近、间隙趋零，幂迭代收敛不了——2000 次迭代在 κ=1e7 处仍差 700 倍。且偏差**单侧**：λ_min 被高估 → κ 被低估 → 守卫在该报警时**沉默**。删除，改用 `λmax × max(先验方差)` 这个严格上界，成本减半。读代码看不出来，跑既有测试也看不出来——既有测试用的正是它唯一能work的**双簇**谱。
+2. **`check_gaussian` 在标量上探测，消费者在数组上求值。** 一个"标量对、数组错"的分布完全穿透：守卫报 `errors = {…: 0.0}`，真实差 **200 万 nats**。与 P1 记录的盲区同形——**守卫与被守护者看不同的形状**。
+3. **验收关口证明的是线性代数，不是模型。** 逐一变异 R1 与 R2 共享的六处，**关口一个都没抓住**。其中 `observation_parts` 的 data 值当时**没有任何测试守着**，而它看起来"有覆盖"只因为一条 0.25% 余量的测试会因数据扰动而误报。
+
+### 唯一有效的发现手段，及其长出的四条子判据
+
+上述全部由**变异测试**加上 P1 那条纪律发现：**变异不变红时，按「fixture 到不了它声称的区域」→「变异是 no-op」→「测试写错了」的顺序诊断。** 这一轮它长出四条可操作的子判据：
+
+1. **双侧扫描**。跨越量级 ≠ 双侧。判据：**默认值落在扫描范围的哪一端？** 在端点就是单侧。（`{1, 1e2, 1e4}` 横跨四个数量级却完全测不到守卫的保证；交叉点在 `L* = 1/√(S·λ_min) = 0.0165`，在**紧**的那一侧。）
+2. **点 vs 区域**。找到一个能分开两种实现的参数点不够——扫一遍"不该有影响"的维度，报告分离成立的范围。只在一个点上成立，就写明"这是点不是区域"及其依赖的机制。（那条 delta 测试：20 个 seed 只有 6 个保住分离，几个把大小关系**倒过来**；`prior_mean` 只有默认的 0.0 有效。）
+3. **结构维度**。列出被测代码在哪些结构维度上分支（标量 vs 数组、单叶 vs 多叶、单观测 vs 多观测），检查测试集合在每一维取到**至少两个值**。（三条抽取测试的定义域全是标量成员，两个真实 bug 因此穿透全套件——两者都只扰动**相关结构**、几乎不动边际方差。）
+4. **`slow` 标记会拿掉守卫**。测试写对了、fixture 到位、变异会变红——**但它在 `-m "not slow"` 下不执行**。打标记前问：它是不是某个 bug 的唯一守卫。
+
+### 一个关于工具的结论
+
+最后两个缺陷（`check_gaussian` 的 NaN 析取、`check_prediction_dependence` 的 `declared=True` 路径）在**行覆盖率上是 100%**——那两行早被走另一分支的测试覆盖了。缺的是**分支/行为**覆盖，而那是变异测试、不是 `coverage.py` 能抓的。**覆盖率数字对本包的守卫质量几乎不提供信息。**
+
+### 明确留下的状态
+
+* `ruff format --check` 在 **9 个 P1/P2 时期的文件**上仍有漂移（`graph/evaluate.py`、`graph/trace.py`、若干 `tests/test_*.py`）。不属于 P3a；重排会产生一大片与本阶段无关的 diff。ruff 的部分建议还会让行**超过** 88 字符，说明那些文件当年是手工折行的——值得单独一轮处理。
+* `ConvergenceError` 已定义并测过兄弟关系，但 P3a 无处 raise 它——按设计，`iterative_gls` 把 `converged` 作为字段返回。P3b 的 `estimate()` 是预期的第一个调用点。
+* `fisher_information` 按字符串相等信任 `noise_std` 的键与块的陪域匹配，没有 `jax.tree.map` 那种结构校验。今天每个调用点都安全（都用 `noise_std_at` 的输出），但 P3b 若增加调用者值得加固。
 
 ---
 

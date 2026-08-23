@@ -52,5 +52,15 @@ markers = [
 line-length = 88
 target-version = "py311"
 
+[tool.ruff.lint]
+# RUF022 wants `__all__` sorted alphabetically. Both `__all__` declarations in
+# this package are grouped by narrative instead -- tracing, graph, evaluation,
+# inference, exact, errors -- matching the order each module's own docstring
+# introduces them, which is what a reader following that docstring needs. An
+# alphabetical list would interleave `check_gaussian` with `condition_bound`
+# and `GLSResult` with `LinearBlock`, losing that structure for no gain: these
+# lists are read, not searched. Decided once here rather than as two `noqa`s.
+ignore = ["RUF022"]
+
 [tool.coverage.run]
 source = ["bayesmith"]
