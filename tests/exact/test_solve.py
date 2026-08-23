@@ -677,6 +677,25 @@ def test_gcr_draws_have_the_oracle_mean_and_covariance():
     POWER_ITERATIONS operator applications PER DRAW, and tol is set from
     the block's kappa instead -- which is the bargain wiener_solve's docstring
     recommends and this test is the demonstration of.
+
+    **Measured power, and it is lopsided.** Scaling the DATA fluctuation
+    term (``A^T N^-1/2 omega_1``) by a factor ``k`` and rerunning this
+    exact assertion: red at ``k=1.10`` and ``k=0.90``, green at ``k=1.05``
+    -- roughly the 10% its own ``rtol=0.1`` promises. Scaling the PRIOR
+    fluctuation term (``S^-1/2 omega_2``) instead: green all the way to
+    ``k=20``, first red at ``k=25`` -- this assertion has effectively NO
+    power there. Why: ``two_linear_latents`` is data-dominated (prior
+    variance 25/49 against posterior variance 0.0085/0.013, i.e.
+    ``oracle.precision`` diag ~[118, 75] against ``S^-1`` diag
+    [0.04, 0.0204]), and scaling ``omega_2`` by ``k`` turns the draw
+    covariance from ``M^-1`` into ``M^-1(A^T N^-1 A + k^2 S^-1)M^-1``, so
+    ``k^2 S^-1`` stays negligible next to ``A^T N^-1 A`` until
+    ``k ~ sqrt(118/0.04) ~ 54`` -- same order as the measured crossover.
+    The prior term is guarded instead by
+    ``test_a_draw_with_uninformative_data_falls_back_to_the_prior``, whose
+    fixture inverts this one's dominance. Read the two together: neither
+    is redundant with the other, and deleting either one for looking like
+    a duplicate removes real coverage silently.
     """
     draws = 4000
     with jax.enable_x64(True):
@@ -704,6 +723,20 @@ def test_a_draw_with_uninformative_data_falls_back_to_the_prior():
 
     The check that the S^-1/2 fluctuation term is wired in at the right width:
     drop it and the draws collapse onto the prior MEAN with no scatter at all.
+
+    **Measured power, complementary to
+    test_gcr_draws_have_the_oracle_mean_and_covariance.** Scaling the PRIOR
+    fluctuation term (``S^-1/2 omega_2``) by a factor ``k``: the std
+    assertion goes red at ``k=1.10`` and ``k=0.85``, green at ``k=1.05``
+    and ``k=0.90`` -- roughly the 10% its own ``rel=0.1`` promises. Scaling
+    the DATA fluctuation term (``A^T N^-1/2 omega_1``) instead leaves mean
+    and std unchanged even at ``k=1000`` -- zero power, which is exactly
+    what "the likelihood says nothing" should look like when measured
+    rather than assumed. This is the mirror image of the covariance
+    test's power (~10% on ``omega_1``, none on ``omega_2`` there, on
+    ``two_linear_latents`` where the data dominates instead): the two
+    tests are not redundant, each is blind exactly where the other sees,
+    and both are needed to cover both fluctuation terms.
     """
     draws = 3000
     with jax.enable_x64(True):
@@ -722,7 +755,21 @@ def test_a_draw_with_uninformative_data_falls_back_to_the_prior():
 
 @pytest.mark.slow
 def test_the_mean_of_many_draws_is_the_wiener_solution():
-    """The two exits share one solve, so they cannot disagree about the centre."""
+    """The two exits share one solve, so they cannot disagree about the centre.
+
+    Also, incidentally, an accidental covariance-width detector: Task 7's
+    mutation 4 (dropping ``jnp.sqrt`` from ``sqrt(weight) * omega_data`` in
+    the pairing) widened this fixture's drawn covariance ~6x and turned
+    THIS test red too, alongside
+    test_gcr_draws_have_the_oracle_mean_and_covariance, which it was not
+    written to check -- the wider covariance inflates the Monte Carlo
+    error of the sample MEAN past this test's tolerance, which is sized
+    from the true, un-mutated ``posterior_sd``. That is a side effect of
+    this test's own finite-``draws`` sampling noise, not a designed
+    check: a red here is not by itself evidence of a mean bug in
+    ``gcr_sample``, and whether the covariance test is ALSO red is what
+    tells the two apart.
+    """
     draws = 3000
     with jax.enable_x64(True):
         graph = two_observations()

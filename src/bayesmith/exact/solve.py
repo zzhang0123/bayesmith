@@ -263,6 +263,14 @@ def _conjugate_solve(
             zero,
             _split_like(prior_key, zero),
         )
+        # Getting the prior term's division backwards (`from_prior *
+        # jnp.sqrt(variance)` instead of `/`) is not a sign error: it scales
+        # the WHOLE term's amplitude by `variance` rather than `1/variance`,
+        # since `omega*sqrt(v) == v * (omega/sqrt(v))`. Measured (Task 7
+        # mutation testing, tests/exact/test_solve.py): on `straight_line`'s
+        # `w` (variance=4.0) that mutation moved the drawn std from the true
+        # 2.0 to 8.02 -- exactly the predicted 4x -- and separately widened
+        # `two_linear_latents`' drawn covariance past its oracle comparison.
         rhs = jax.tree.map(
             lambda base, from_data, from_prior, variance: (
                 base + from_data + from_prior / jnp.sqrt(variance)
