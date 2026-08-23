@@ -10,6 +10,8 @@
 
 **Tech Stack:** Python ≥3.11、JAX、Equinox、NumPyro、pytest。
 
+**测试纪律（Task 0 的质量审查发现后补入，适用于全部任务）：** 断言必须验证**行为**，不能是由 class 语句或类型签名本身保证为真的重言式。`assert issubclass(X, Y)` 在 `class X(Y)` 已经写死的情况下不证明任何东西——名字里说"可捕获"，就必须真的 `raise` 并 `pytest.raises` 捕获。每写一个测试，问一句：**如果实现是错的，这条断言会红吗？** 答不上来就重写。
+
 ---
 
 ## 文件结构
@@ -62,7 +64,7 @@ class BayesmithError(Exception):
 
 
 class GraphError(BayesmithError, ValueError):
-    """A graph was declared inconsistently.
+    """A graph was declared or evaluated inconsistently.
 
     Covers: a node naming a parent that was not declared before it, a
     duplicate node name, a latent node left without a value, and a plate
@@ -88,11 +90,17 @@ def test_graph_error_is_catchable_as_the_family_and_as_value_error():
     assert issubclass(GraphError, ValueError)
     with pytest.raises(BayesmithError):
         raise GraphError("bad graph")
+    with pytest.raises(ValueError):
+        raise GraphError("bad graph")
 
 
 def test_trace_error_is_catchable_as_the_family_and_as_runtime_error():
     assert issubclass(TraceError, BayesmithError)
     assert issubclass(TraceError, RuntimeError)
+    with pytest.raises(BayesmithError):
+        raise TraceError("primitive called outside trace()")
+    with pytest.raises(RuntimeError):
+        raise TraceError("primitive called outside trace()")
 
 
 def test_errors_module_imports_no_heavy_dependency():
@@ -105,8 +113,9 @@ def test_errors_module_imports_no_heavy_dependency():
         "print(sorted({'jax', 'numpy', 'numpyro'} & set(sys.modules)))"
     )
     out = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
     )
+    assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "[]"
 ```
 
