@@ -73,6 +73,10 @@ class Probabilistic(Node):
     support: Support = eqx.field(static=True)   # Continuous | Discrete(n)
 ```
 
+> ⚠ **实测的陷阱（2026-08-23，equinox 0.13.8）**：`fn`/`dist_fn` 必须是**非静态**字段，但把它们误设为 `static=True` **不会报错**——equinox 只发一条 `UserWarning`。后果是整个 Module 被吸收进 pytree 的 aux 数据，`filter_grad` 于是**静默返回每个参数的原值而非其梯度**。不抛异常，只是答案错了。
+>
+> 这个陷阱还会污染测试：Task 4 原本的可微性测试用 `w=3.0`、`X=[1.0,2.0]`，而真实梯度 `sum(X)=3.0` 恰好等于 `w` 本身，所以即使 `fn` 被改成 static、返回的是原值，断言照样通过。**凡是断言"梯度等于某常数"的测试，都要确保该常数不等于任何参数的当前值。**
+
 概率节点的接口要求 **sample 与 log_prob 出自同一个对象**。这不是风格偏好——rheplicant 的 `NoiseModel` docstring 已经写下了理由：*"A caller that draws with this and weights with `std` cannot have the two disagree, which is the failure mode of every hand-written `data + sigma * normal` line beside a likelihood carrying its own sigma."*
 
 ### 1.4 与 rheplicant 的吻合（已验证，非断言）

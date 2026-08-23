@@ -292,8 +292,11 @@ parameters carried by its operators are differentiable leaves for free.
 whose array leaves have to stay traceable so gradients reach the parameters
 inside them. A plain lambda placed in the same field simply becomes a
 non-array leaf, which ``eqx.filter_jit`` routes to the static side. Marking
-these fields ``static=True`` would break the Module case outright: equinox
-refuses a JAX array in a static field.
+these fields ``static=True`` would break the Module case: equinox does NOT
+refuse a JAX array in a static field -- measured on 0.13.8, it only emits a
+UserWarning -- so the module would be absorbed into the pytree aux data and
+``filter_grad`` would silently return each parameter's ORIGINAL VALUE in
+place of its gradient. Nothing raises; the answer is merely wrong.
 """
 
 from __future__ import annotations
