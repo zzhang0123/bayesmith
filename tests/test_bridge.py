@@ -68,3 +68,25 @@ def test_the_bridged_model_can_be_sampled_from_the_prior():
     predictive = numpyro.infer.Predictive(to_numpyro(graph), num_samples=8)
     draws = predictive(jax.random.key(1))
     assert draws["a"].shape == (8,)
+
+
+def test_a_plated_latent_site_carries_the_plate_axis():
+    """A dropped plate is invisible to the density-agreement check: without
+    subsampling, ``numpyro.plate`` contributes no scale factor, and the
+    plated test above only plates an *observed* site of fixed shape. Plate a
+    *latent* instead: ``dist.Normal(0.0, 1.0)`` has batch shape ``()``, so a
+    sampled value only picks up a leading axis if the plate was actually
+    applied. Plate size 5 appears nowhere else in this file (the other
+    sizes are 3 and 8), so a wrong-but-plausible shape can't pass by luck.
+    """
+    n = 5
+
+    def model():
+        obs = plate("obs", n)
+        sample("x", lambda: dist.Normal(0.0, 1.0), plate=obs)
+
+    graph = trace(model)
+    trace_ = numpyro.handlers.trace(
+        numpyro.handlers.seed(to_numpyro(graph), jax.random.key(0))
+    ).get_trace()
+    assert trace_["x"]["value"].shape == (n,)
