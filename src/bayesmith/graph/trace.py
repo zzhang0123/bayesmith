@@ -29,7 +29,7 @@ import jax.numpy as jnp
 
 from bayesmith.errors import GraphError, TraceError
 from bayesmith.graph.graph import Graph, Plate
-from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
+from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic, Support
 
 
 class NodeRef:
@@ -207,9 +207,17 @@ def sample(
     name: str,
     dist_fn: Callable[..., Any],
     *parents: NodeRef,
+    support: Support | None = None,
+    depends_on_prediction: bool = True,
     plate: PlateRef | Iterable[PlateRef] | None = None,
 ) -> NodeRef:
-    """Declare a latent probabilistic node."""
+    """Declare a latent probabilistic node.
+
+    ``support`` and ``depends_on_prediction`` are dispatch-axis claims about
+    the model, exactly like ``det``'s ``linear_in`` -- see
+    :class:`~bayesmith.graph.nodes.Probabilistic` for what each default
+    means and why. Nothing in P1 reads either.
+    """
     recorder = _active()
     node = Probabilistic(
         name=name,
@@ -217,6 +225,8 @@ def sample(
         plate=_plate_names(plate, recorder),
         dist_fn=dist_fn,
         observed=None,
+        support=support,
+        depends_on_prediction=depends_on_prediction,
     )
     recorder.add(node)
     return NodeRef(name, recorder)
@@ -227,9 +237,17 @@ def observe(
     dist_fn: Callable[..., Any],
     *parents: NodeRef,
     obs: Any,
+    support: Support | None = None,
+    depends_on_prediction: bool = True,
     plate: PlateRef | Iterable[PlateRef] | None = None,
 ) -> NodeRef:
-    """Declare a probabilistic node conditioned on data."""
+    """Declare a probabilistic node conditioned on data.
+
+    ``support`` and ``depends_on_prediction`` are dispatch-axis claims about
+    the model, exactly like ``det``'s ``linear_in`` -- see
+    :class:`~bayesmith.graph.nodes.Probabilistic` for what each default
+    means and why. Nothing in P1 reads either.
+    """
     recorder = _active()
     node = Probabilistic(
         name=name,
@@ -237,6 +255,8 @@ def observe(
         plate=_plate_names(plate, recorder),
         dist_fn=dist_fn,
         observed=jnp.asarray(obs),
+        support=support,
+        depends_on_prediction=depends_on_prediction,
     )
     recorder.add(node)
     return NodeRef(name, recorder)

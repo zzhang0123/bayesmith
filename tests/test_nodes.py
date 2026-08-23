@@ -3,7 +3,14 @@ import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
 
-from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
+from bayesmith.graph.nodes import (
+    Const,
+    Continuous,
+    Deterministic,
+    Discrete,
+    Node,
+    Probabilistic,
+)
 
 
 class Scale(eqx.Module):
@@ -197,6 +204,46 @@ def test_probabilistic_is_latent_when_unobserved_and_observed_otherwise():
     )
     assert latent.is_latent
     assert not seen.is_latent
+
+
+def test_probabilistic_support_and_depends_on_prediction_default_safely():
+    """Dispatch-axis claims, like Deterministic.linear_in -- P1 does not
+    read either, but the defaults matter for when a future dispatcher does:
+    undeclared must never look like a claim that unlocks a shortcut. See
+    Probabilistic's docstring for the full reasoning.
+    """
+    n = Probabilistic(
+        name="d", parents=(), plate=(), dist_fn=lambda: dist.Normal(0.0, 1.0),
+        observed=None,
+    )
+    assert n.support is None
+    assert n.depends_on_prediction is True
+
+
+def test_probabilistic_support_and_depends_on_prediction_are_static_not_leaves():
+    n = Probabilistic(
+        name="d", parents=("x",), plate=(),
+        dist_fn=ScaledNormal(scale=jnp.array(3.0)), observed=None,
+        support=Discrete(n=4), depends_on_prediction=False,
+    )
+    # Only ScaledNormal's own array parameter is a leaf; support and
+    # depends_on_prediction are static metadata, like name/parents/plate.
+    leaves = jax.tree.leaves(n)
+    assert len(leaves) == 1
+    assert eqx.is_inexact_array(leaves[0])
+    assert n.support == Discrete(n=4)
+    assert n.depends_on_prediction is False
+
+
+def test_discrete_supports_of_different_n_are_distinct():
+    """Discrete carries its state count, not just 'discrete-ness' -- two
+    Discrete supports with different n must not compare or hash equal,
+    since they are different claims about the model.
+    """
+    assert Discrete(n=3) != Discrete(n=4)
+    assert Discrete(n=3) == Discrete(n=3)
+    assert hash(Discrete(n=3)) == hash(Discrete(n=3))
+    assert Continuous() == Continuous()
 
 
 def test_every_node_type_is_a_node():

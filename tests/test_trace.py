@@ -4,7 +4,13 @@ import pytest
 
 from bayesmith.errors import GraphError, TraceError
 from bayesmith.graph.graph import Graph, Plate
-from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
+from bayesmith.graph.nodes import (
+    Const,
+    Continuous,
+    Deterministic,
+    Discrete,
+    Probabilistic,
+)
 from bayesmith.graph.trace import const, det, observe, plate, sample, trace
 
 
@@ -46,6 +52,55 @@ def test_linear_in_is_recorded_as_declared():
         det("mu", lambda v: 2.0 * v, x, linear_in=("x",))
 
     assert trace(model).node("mu").linear_in == ("x",)
+
+
+def test_sample_threads_support_and_depends_on_prediction_through():
+    def model():
+        sample(
+            "x", lambda: dist.Normal(0.0, 1.0),
+            support=Discrete(n=3), depends_on_prediction=False,
+        )
+
+    node = trace(model).node("x")
+    assert node.support == Discrete(n=3)
+    assert node.depends_on_prediction is False
+
+
+def test_observe_threads_support_and_depends_on_prediction_through():
+    """depends_on_prediction=False here, deliberately the opposite of the
+    default (True) -- passing the default value would not distinguish "the
+    argument really flowed through" from "the constructor ignored the
+    argument and used the default regardless", which is exactly the gap
+    that surfaced (and was fixed) via mutation testing during development.
+    """
+
+    def model():
+        observe(
+            "d", lambda: dist.Normal(0.0, 1.0), obs=jnp.array([1.0]),
+            support=Continuous(), depends_on_prediction=False,
+        )
+
+    node = trace(model).node("d")
+    assert node.support == Continuous()
+    assert node.depends_on_prediction is False
+
+
+def test_sample_and_observe_default_support_and_depends_on_prediction_safely():
+    """Every call site that predates support=/depends_on_prediction= (i.e.
+    every one currently in this codebase) must keep getting the safe
+    defaults: undeclared support, and "assume dependence" -- not a claim
+    that happens to unlock a future shortcut it was never verified for.
+    """
+
+    def model():
+        sample("x", lambda: dist.Normal(0.0, 1.0))
+        observe("d", lambda: dist.Normal(0.0, 1.0), obs=jnp.array([1.0]))
+
+    g = trace(model)
+    assert g.node("x").support is None
+    assert g.node("x").depends_on_prediction is True
+    assert g.node("d").support is None
+    assert g.node("d").depends_on_prediction is True
 
 
 def test_observed_data_is_attached_to_the_node():

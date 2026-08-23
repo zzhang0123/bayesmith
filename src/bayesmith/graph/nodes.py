@@ -110,6 +110,29 @@ class Deterministic(Node):
     linear_in: tuple[str, ...] = eqx.field(static=True, default=())
 
 
+class Support(eqx.Module):
+    """Marker for a :class:`Probabilistic` node's support.
+
+    Structural axis for P4's discrete-enumeration dispatch (design doc §1.1:
+    ``support: Support = Continuous | Discrete(n)``). All-static, like
+    :class:`~bayesmith.graph.graph.Plate` -- a closed, hashable marker type
+    rather than an unconstrained value, so a caller cannot accidentally put
+    something unhashable (worst case, a JAX array) into
+    :attr:`Probabilistic.support`, which is exactly the kind of static-field
+    misuse this package's own docstrings elsewhere warn does not raise.
+    """
+
+
+class Continuous(Support):
+    """The node's support is the reals, or an interval of them."""
+
+
+class Discrete(Support):
+    """The node's support is ``n`` known, finite states."""
+
+    n: int = eqx.field(static=True)
+
+
 class Probabilistic(Node):
     """A conditional distribution: contributes one term to the log-density.
 
@@ -121,10 +144,35 @@ class Probabilistic(Node):
             that carries its own sigma.
         observed: the data this node is conditioned on, or ``None`` if the
             node is latent.
+        support: :class:`Continuous`, :class:`Discrete` with a known state
+            count, or ``None`` if undeclared. A **claim about the model**,
+            in the same sense as :attr:`Deterministic.linear_in` -- nothing
+            in P1 reads it; it is recorded here so the declaration exists
+            from the start. Defaults to ``None`` rather than guessing
+            ``Continuous``: every dist_fn in this package's own test suite
+            today happens to be continuous, but encoding that as a default
+            claim would be exactly the kind of unverified assertion this
+            package's dispatch axes exist to never make. A future
+            dispatcher must treat ``None`` as ineligible for any
+            support-specific method and fall through to NUTS, not as a
+            claim of continuity.
+        depends_on_prediction: whether this node's distribution depends on
+            the value it is predicting (ported from rheplicant's
+            ``NoiseModel.depends_on_prediction``: ``False`` means the
+            iterative reweighting loop can be skipped). A claim about the
+            model, like ``support`` above -- nothing in P1 reads it.
+            Defaults to ``True`` (assume dependence), not ``False``, so an
+            undeclared node can never cause a future dispatcher to skip a
+            step it actually needed -- the same "claim nothing, unlock no
+            shortcut" reasoning behind ``linear_in``'s empty-tuple default
+            and ``support``'s ``None`` default above, applied to a boolean
+            gate instead of a name set or a closed type.
     """
 
     dist_fn: Callable[..., Any]
     observed: jax.Array | None
+    support: Support | None = eqx.field(static=True, default=None)
+    depends_on_prediction: bool = eqx.field(static=True, default=True)
 
     @property
     def is_latent(self) -> bool:
