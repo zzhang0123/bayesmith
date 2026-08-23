@@ -15,9 +15,26 @@ import jax.numpy as jnp
 
 from bayesmith.errors import GraphError
 from bayesmith.graph.graph import Graph
-from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
+from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
 
 Env = dict[str, Any]
+
+
+def _plate_in_axes(graph: Graph, node: Node) -> tuple[int | None, ...]:
+    """vmap ``in_axes`` for ``node``'s parents.
+
+    A parent shares the mapped axis (``0``) iff its plate equals the node's
+    own plate; every other parent is broadcast (``None``), unmapped. Shared
+    by :func:`apply_deterministic` and :func:`apply_probabilistic` so this
+    rule is defined in exactly one place instead of twice -- the failure
+    mode Bug 1 hardens against was two independent scans agreeing with each
+    other while both being wrong, and duplicated ``in_axes`` logic is
+    exactly how that kind of drift starts.
+    """
+    return tuple(
+        0 if graph.node(parent).plate == node.plate else None
+        for parent in node.parents
+    )
 
 
 def apply_deterministic(graph: Graph, node: Deterministic, env: Env) -> Any:
@@ -30,10 +47,7 @@ def apply_deterministic(graph: Graph, node: Deterministic, env: Env) -> Any:
     if not node.plate:
         return node.fn(*args)
 
-    in_axes = tuple(
-        0 if graph.node(parent).plate == node.plate else None
-        for parent in node.parents
-    )
+    in_axes = _plate_in_axes(graph, node)
     if all(axis is None for axis in in_axes):
         raise GraphError(
             f"deterministic node {node.name!r} is in plate {node.plate[0]!r} but "
@@ -41,6 +55,44 @@ def apply_deterministic(graph: Graph, node: Deterministic, env: Env) -> Any:
             "a parent in the plate, or drop the plate and let broadcasting do it."
         )
     return jax.vmap(node.fn, in_axes=in_axes)(*args)
+
+
+def apply_probabilistic(graph: Graph, node: Probabilistic, env: Env) -> Any:
+    """Build ``node``'s distribution, vmapping ``dist_fn`` over its plate.
+
+    Public for the same reason as :func:`apply_deterministic`: ``log_joint``
+    and the NumPyro bridge must build the *same* distribution for the *same*
+    node, so both call this one function instead of each independently
+    calling ``node.dist_fn`` unmapped. Before this function existed, both
+    call sites made that same independent (and wrong) choice, which is
+    exactly why the bridge/log_joint cross-check could not catch it -- two
+    scans with an identical blind spot agree with each other by
+    construction, whether or not they agree with the truth.
+
+    Deliberately does **not** raise when a plated node has no plated parent,
+    unlike :func:`apply_deterministic`. That refusal exists there because
+    ``fn``'s return value is an arbitrary array that must already be the
+    right shape -- there is no fallback that is still correct, so refusing
+    is the only safe option. A distribution has a real fallback: calling
+    ``dist_fn`` once, unmapped, yields one shared distribution whose
+    ``log_prob``/``sample`` already know how to broadcast themselves against
+    a plate-shaped value -- plain array broadcasting in ``log_joint``, and
+    ``numpyro.plate``'s own ``.expand()`` in ``to_numpyro``. That is not a
+    workaround, it is the ordinary "N iid draws from one shared prior"
+    pattern -- already relied on today by a plated node with *no* parents at
+    all (see ``test_a_plated_latent_site_carries_the_plate_axis``). Refusing
+    it here would break that already-correct, already-tested pattern for no
+    safety benefit: there is no shape for dist_fn's output to get wrong,
+    only a distribution object whose own broadcasting contract handles it.
+    """
+    args = [env[parent] for parent in node.parents]
+    if not node.plate:
+        return node.dist_fn(*args)
+
+    in_axes = _plate_in_axes(graph, node)
+    if all(axis is None for axis in in_axes):
+        return node.dist_fn(*args)
+    return jax.vmap(node.dist_fn, in_axes=in_axes)(*args)
 
 
 def evaluate(graph: Graph, values: Mapping[str, Any] | None = None) -> Env:
@@ -119,6 +171,6 @@ def log_joint(graph: Graph, values: Mapping[str, Any] | None = None) -> jax.Arra
     total = jnp.zeros(())
     for node in graph.nodes:
         if isinstance(node, Probabilistic):
-            distribution = node.dist_fn(*[env[p] for p in node.parents])
+            distribution = apply_probabilistic(graph, node, env)
             total = total + jnp.sum(distribution.log_prob(env[node.name]))
     return total

@@ -15,7 +15,7 @@ import jax
 import numpyro
 from numpyro.infer import MCMC, NUTS
 
-from bayesmith.graph.evaluate import apply_deterministic
+from bayesmith.graph.evaluate import apply_deterministic, apply_probabilistic
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
 
@@ -39,7 +39,7 @@ def to_numpyro(graph: Graph) -> Callable[[], dict[str, Any]]:
                     node.name, apply_deterministic(graph, node, env)
                 )
             elif isinstance(node, Probabilistic):
-                distribution = node.dist_fn(*[env[p] for p in node.parents])
+                distribution = apply_probabilistic(graph, node, env)
                 if node.plate:
                     name = node.plate[0]
                     with numpyro.plate(name, graph.plate_size(name)):

@@ -1,3 +1,4 @@
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpyro
@@ -7,6 +8,20 @@ from numpyro.infer.util import log_density
 from bayesmith.bridge.numpyro_bridge import to_numpyro
 from bayesmith.graph.evaluate import log_joint
 from bayesmith.graph.trace import const, det, observe, plate, sample, trace
+
+
+class PooledScaleNormal(eqx.Module):
+    """NOT natively broadcasting -- see tests/test_plates.py's copy of this
+    class for the full rationale. Duplicated here rather than imported: it
+    is a small, self-contained test double and importing across test
+    modules would couple two files that should be readable independently.
+    """
+
+    base: jax.Array
+
+    def __call__(self, loc):
+        scale = self.base + 0.1 * jnp.sum(jnp.abs(loc))
+        return dist.Normal(loc, scale)
 
 
 def _graph(data):
@@ -27,6 +42,39 @@ def test_the_bridge_and_log_joint_agree_on_the_density():
     ours = log_joint(graph, at)
     theirs, _ = log_density(to_numpyro(graph), (), {}, at)
     assert jnp.allclose(ours, theirs, rtol=1e-6)
+
+
+def test_the_bridge_and_log_joint_agree_with_the_truth_not_just_each_other():
+    """Bug 1 regression guard.
+
+    ``test_the_bridge_and_log_joint_agree_on_the_density`` above only checks
+    that the two scans agree with EACH OTHER -- which is zero protection
+    against a bug both scans share. Before the fix, neither ``log_joint``
+    nor ``to_numpyro`` vmapped ``dist_fn`` over its plate: both called it
+    once, unmapped, so they agreed with each other (both wrong by the same
+    amount) while disagreeing with the truth. This test adds a third,
+    independently-computed reference -- dist_fn called once per plate
+    element by hand -- and checks all three numbers against each other.
+    """
+    X = jnp.array([1.0, 2.0, 3.0])
+    obs_vals = jnp.array([10.0, 20.0, 30.0])
+    dist_fn = PooledScaleNormal(base=jnp.array(1.0))
+
+    def model():
+        p = plate("obs", 3)
+        Xc = const("X", X, plate=p)
+        observe("d", dist_fn, Xc, obs=obs_vals, plate=p)
+
+    graph = trace(model)
+    ours = log_joint(graph, {})
+    theirs, _ = log_density(to_numpyro(graph), (), {}, {})
+    truth = jnp.sum(
+        jnp.stack([dist_fn(X[i]).log_prob(obs_vals[i]) for i in range(3)])
+    )
+
+    assert jnp.allclose(ours, theirs, rtol=1e-6)
+    assert jnp.allclose(ours, truth, rtol=1e-6)
+    assert jnp.allclose(theirs, truth, rtol=1e-6)
 
 
 def test_latent_sites_carry_the_graph_node_names():
