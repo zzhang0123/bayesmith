@@ -472,6 +472,19 @@ def test_nested_plates_are_refused_with_a_reason():
     plates = (Plate(name="a", size=2), Plate(name="b", size=3))
     with pytest.raises(GraphError, match="nested plates are not supported yet"):
         Graph(nodes=(n,), plates=plates)
+
+
+def test_unknown_plate_name_is_refused_by_name():
+    g = Graph(nodes=(), plates=(Plate(name="obs", size=3),))
+    with pytest.raises(GraphError, match="no plate named 'nope'"):
+        g.plate_size("nope")
+
+
+def test_a_duplicate_plate_name_is_refused():
+    n = Const(name="X", parents=(), plate=("obs",), value=jnp.arange(3.0))
+    plates = (Plate(name="obs", size=3), Plate(name="obs", size=5))
+    with pytest.raises(GraphError, match="duplicate plate name 'obs'"):
+        Graph(nodes=(n,), plates=plates)
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -513,11 +526,22 @@ class Graph(eqx.Module):
     plates: tuple[Plate, ...]
 
     def __check_init__(self) -> None:
-        plate_names = {p.name for p in self.plates}
+        plate_names: set[str] = set()
+        for p in self.plates:
+            if p.name in plate_names:
+                raise GraphError(
+                    f"duplicate plate name {p.name!r}: plate names must be "
+                    "unique within a graph."
+                )
+            plate_names.add(p.name)
+
         seen: set[str] = set()
         for node in self.nodes:
             if node.name in seen:
-                raise GraphError(f"duplicate node name {node.name!r}")
+                raise GraphError(
+                    f"duplicate node name {node.name!r}: node names must be "
+                    "unique within a graph."
+                )
             for parent in node.parents:
                 if parent not in seen:
                     raise GraphError(
@@ -587,7 +611,7 @@ class Graph(eqx.Module):
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `.venv/bin/python -m pytest tests/test_graph.py -v`
-Expected: 9 passed
+Expected: 11 passed
 
 - [ ] **Step 5: 提交**
 
@@ -597,6 +621,8 @@ git commit -m "feat: graph container with structural validation"
 ```
 
 ---
+
+> Task 2 的质量审查用**变异测试**逐条禁用 `__check_init__` 的规则，确认每条规则恰好对应一个失败测试。它还补上了两处：`plate_size()` 的报错路径原本零覆盖（把 `raise` 换成 `return` 全绿），以及重复的 plate 名原本被静默吞掉——而 Task 6 的 vmap 正是从 `plate_size()` 取轴长，静默吞掉会在很远处以形状错误现身。
 
 ## Task 3：追踪器
 
