@@ -235,7 +235,43 @@ def test_probabilistic_is_latent_when_unobserved_and_observed_otherwise():
 def test_every_node_type_is_a_node():
     for cls in (Const, Deterministic, Probabilistic):
         assert issubclass(cls, Node)
+
+
+class ScaledNormal(eqx.Module):
+    """Stand-in for a noise model carrying its own parameters."""
+
+    scale: jax.Array
+
+    def __call__(self, loc):
+        return dist.Normal(loc, self.scale)
+
+
+def test_a_module_dist_fn_exposes_its_parameters_as_traceable_leaves():
+    """Same rheplicant-compatibility property, for ``Probabilistic.dist_fn``.
+
+    Latent (``observed=None``) so the node's only leaf is dist_fn's own
+    parameter -- an observed array would add a second leaf and complicate
+    the leaf-count assertion below.
+    """
+    n = Probabilistic(
+        name="d",
+        parents=("x",),
+        plate=(),
+        dist_fn=ScaledNormal(scale=jnp.array(2.0)),
+        observed=None,
+    )
+    leaves = jax.tree.leaves(n)
+    assert len(leaves) == 1
+    assert eqx.is_inexact_array(leaves[0])
+
+    grad = eqx.filter_grad(
+        lambda node, loc: node.dist_fn(loc).log_prob(jnp.array(1.0))
+    )(n, jnp.array(0.5))
+    assert jnp.isfinite(grad.dist_fn.scale)
+    assert grad.dist_fn.scale != 0.0
 ```
+
+> 这个 `dist_fn` 测试是 Task 1 的质量审查补上的：原来三个"不得为 static"的测试**只覆盖了 `Deterministic.fn`**，而 `nodes.py` 的 docstring 宣称这条理由同时适用于两个字段。若把 `dist_fn` 翻成 static，整套测试不会变红——一个有文档、无守卫的不变量。已实测：翻成 static 后正是这个测试变红。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -337,7 +373,7 @@ class Probabilistic(Node):
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `.venv/bin/python -m pytest tests/test_nodes.py -v`
-Expected: 6 passed
+Expected: 7 passed
 
 - [ ] **Step 5: 提交**
 
@@ -1097,7 +1133,7 @@ def log_joint(graph: Graph, values: Mapping[str, Any] | None = None) -> jax.Arra
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `.venv/bin/python -m pytest tests/test_evaluate.py -v`
-Expected: 6 passed
+Expected: 7 passed
 
 - [ ] **Step 5: 提交**
 
