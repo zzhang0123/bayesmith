@@ -63,14 +63,37 @@ def affinity_errors(
     probe_at: Callable[[int, float], Any],
     scales: Sequence[float],
     rtol: float | None,
+    *,
+    at_description: str = "the linearisation point",
 ) -> tuple[dict[float, float], list[float], float]:
     """Compare a map against its own linearization at zero, probe by probe.
 
     Every number below comes from ``g``, ``zero`` and the probe alone, so a
     single-latent and a grouped check cannot drift into measuring different
     things. Ported from rheplicant, generalised to a pytree codomain.
+
+    Args:
+        at_description: names the point ``zero`` is anchored at -- used only
+            by the non-finite-baseline error below, to say where the graph
+            broke rather than blaming whichever ``linear_in`` happens to be
+            under test.
     """
     baseline, tangent = jax.linearize(g, zero)
+    if not all(bool(jnp.all(jnp.isfinite(leaf))) for leaf in jax.tree.leaves(baseline)):
+        raise StructureError(
+            f"the prediction is already non-finite at {at_description}, before "
+            "any probe is taken -- so nothing here is a statement about any "
+            "linear_in declaration. Some part of the graph overflows at the "
+            "values the latents outside the block are sitting at. If those "
+            "values came from the default prior draws, a heavy-tailed or very "
+            "wide prior on an outside latent is the usual cause; pass "
+            "`at_points=` explicitly to check where the model is actually "
+            "used. Measured example: an outside latent with a Cauchy(0, 1e6) "
+            "prior feeding exp(|z|/50) overflows float32 on about 99.7% of "
+            "draws, and the resulting inf-minus-inf used to be reported as a "
+            "false linearity failure of an unrelated, genuinely affine block "
+            "member."
+        )
     dtype = jnp.result_type(*jax.tree.leaves(baseline))
     if rtol is None:
         rtol = 1e4 * float(jnp.finfo(dtype).eps)
@@ -115,20 +138,75 @@ def prior_at_points(
     cover exactly the range the model itself considers plausible, and they
     work for a non-Gaussian outside latent (which is the usual case: a latent
     is outside the block precisely because it is not conjugate).
+
+    Raises:
+        StructureError: if an outside latent's own prior has no sampler --
+            an improper or reference prior, typically -- propagated from a
+            NumPyro ``NotImplementedError`` with a pointer to ``at_points=``.
     """
+    outside = [name for name in graph.latents if name not in set(names)]
+    if not outside:
+        # Nothing outside the block, so every at-point is the same empty
+        # dict -- drawing it from the prior would cost a full NumPyro
+        # forward trace to learn that, on exactly the small-model case where
+        # the block spans everything.
+        return [{} for _ in range(count)]
+
     from numpyro import handlers
 
     from bayesmith.bridge.numpyro_bridge import to_numpyro
 
     model = to_numpyro(graph)
-    outside = [name for name in graph.latents if name not in set(names)]
     points: list[dict[str, Any]] = []
     for index in range(count):
-        traced = handlers.trace(
-            handlers.seed(model, jax.random.fold_in(key, index))
-        ).get_trace()
+        try:
+            traced = handlers.trace(
+                handlers.seed(model, jax.random.fold_in(key, index))
+            ).get_trace()
+        except NotImplementedError as exc:
+            raise StructureError(
+                "a latent outside the block cannot be sampled from its own "
+                "prior, so the default at-points cannot be drawn. An improper "
+                "or reference prior has no sampler by construction. Pass "
+                "`at_points=` explicitly -- the values the model is actually "
+                "used at are a better choice than prior draws anyway when the "
+                "prior is improper."
+            ) from exc
         points.append({name: traced[name]["value"] for name in outside})
     return points
+
+
+def _refuse_affinity(
+    names: tuple[str, ...],
+    where: str,
+    errors: dict[float, float],
+    failed: list[float],
+    used_rtol: float,
+) -> None:
+    """Build and raise ``check_linearity``'s affine-departure failure.
+
+    Pure message construction with no control flow of its own -- the caller
+    still decides whether to call it. Extracted so ``check_linearity``'s own
+    body stays under this project's <50-line function guideline.
+    """
+    subject = (
+        f"latent {names[0]!r} is declared linear, but the prediction is "
+        "not affine in it"
+        if len(names) == 1
+        else f"latents {list(names)} are not JOINTLY affine -- each "
+        "conditional may well be, which is exactly why this is not "
+        "caught one latent at a time"
+    )
+    detail = ", ".join(f"{s:g}x -> {e:.2e}" for s, e in errors.items())
+    raise StructureError(
+        f"{subject}: departure from its own linearization exceeds "
+        f"rtol={used_rtol:.2e} (above the per-probe roundoff floor) at "
+        f"{failed} times each latent's declared prior width, evaluated at "
+        f"{where} ({detail}). Either drop the linear_in declaration, or "
+        "re-parameterize so the model really is affine there. For a group "
+        "that is only pairwise affine, split it into separate blocks and "
+        "alternate."
+    )
 
 
 def check_linearity(
@@ -189,7 +267,12 @@ def check_linearity(
             never be reached.
         StructureError: if any scale at any at-point departs from affinity by
             more than ``rtol`` while also exceeding the per-probe roundoff
-            floor.
+            floor; if the prediction is already non-finite at an at-point
+            BEFORE any probe is taken, attributed to that at-point rather
+            than misdiagnosed as a failure of this block's own
+            ``linear_in`` (see :func:`affinity_errors`); or if an outside
+            latent's prior has no sampler (propagated from
+            :func:`prior_at_points`).
         NotGaussian: propagated from the block machinery.
     """
     names = _validated_names(graph, names)
@@ -213,6 +296,12 @@ def check_linearity(
         g = isolate(graph, names, point)
         zero = {n: jnp.zeros(domain[n][0], dtype=domain[n][1]) for n in names}
         point_key = jax.random.fold_in(key, point_index)
+        # Names this at-point for BOTH errors affinity_errors can raise.
+        where = (
+            "the caller's own `at`"
+            if point_index == 0
+            else f"prior draw {point_index} of the outside latents"
+        )
 
         def probe_at(index: int, scale: float, _domain=domain, _k=point_key):
             root = jax.random.fold_in(_k, index)
@@ -227,32 +316,12 @@ def check_linearity(
                 for position, member in enumerate(ordered)
             }
 
-        errors, failed, used_rtol = affinity_errors(g, zero, probe_at, scales, rtol)
+        errors, failed, used_rtol = affinity_errors(
+            g, zero, probe_at, scales, rtol, at_description=where
+        )
         collected[point_index] = errors
         if failed:
-            subject = (
-                f"latent {names[0]!r} is declared linear, but the prediction is "
-                "not affine in it"
-                if len(names) == 1
-                else f"latents {list(names)} are not JOINTLY affine -- each "
-                "conditional may well be, which is exactly why this is not "
-                "caught one latent at a time"
-            )
-            detail = ", ".join(f"{s:g}x -> {e:.2e}" for s, e in errors.items())
-            where = (
-                "the caller's own `at`"
-                if point_index == 0
-                else f"prior draw {point_index} of the outside latents"
-            )
-            raise StructureError(
-                f"{subject}: departure from its own linearization exceeds "
-                f"rtol={used_rtol:.2e} (above the per-probe roundoff floor) at "
-                f"{failed} times each latent's declared prior width, evaluated at "
-                f"{where} ({detail}). Either drop the linear_in declaration, or "
-                "re-parameterize so the model really is affine there. For a group "
-                "that is only pairwise affine, split it into separate blocks and "
-                "alternate."
-            )
+            _refuse_affinity(names, where, errors, failed, used_rtol)
     return collected
 
 

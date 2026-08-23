@@ -1,5 +1,6 @@
 """Checking the linear_in claim -- at several scales and at several at-points."""
 
+import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
 import pytest
@@ -7,12 +8,20 @@ import pytest
 from bayesmith import sample, trace
 from bayesmith.errors import GraphError, StructureError
 from bayesmith.exact.block import unchecked_operator
-from bayesmith.exact.linearity import affinity_errors, check_linearity, linear_operator
+from bayesmith.exact.linearity import (
+    DEFAULT_SCALES,
+    affinity_errors,
+    check_linearity,
+    linear_operator,
+    prior_at_points,
+)
 from tests.exact.models import (
     affine_only_at_zero,
     bilinear_pair,
     cubic_tail,
+    improper_outside_prior,
     nan_at_negative_probes,
+    overflowing_outside_latent,
     quadratic_claim,
     straight_line,
     two_linear_latents,
@@ -182,3 +191,85 @@ def test_a_graph_with_no_observed_node_is_refused():
         check_linearity(graph, ("w",), at={})
     with pytest.raises(GraphError, match="observed"):
         linear_operator(graph, ("w",), at={})
+
+
+def test_a_non_finite_baseline_is_attributed_to_the_outside_latent_not_the_member():
+    """A genuinely affine `w` must not be blamed for `z` overflowing elsewhere.
+
+    `z ~ Cauchy(0, 1e6)` feeds `exp(|z| / 50)`, which overflows float32 on
+    about 99.7% of draws (measured: overflow needs `|z| > 4436`, and this
+    Cauchy puts over 99% of its mass beyond that). Holding `z` fixed at ANY
+    value, `mu` is affine in `w` -- so the default at-points, which draw `z`
+    from its own prior, hit the overflow on (virtually certainly) at least
+    one of the two draws, and the failure must name where `z` landed, not
+    `w`'s declaration.
+    """
+    graph = overflowing_outside_latent()
+    with pytest.raises(StructureError, match="non-finite at"):
+        check_linearity(graph, ("w",), at={"z": jnp.asarray(0.0)})
+    # Pinned at a `z` that does NOT overflow, the SAME block is accepted --
+    # proof `w`'s declaration was true all along, and that the raise above
+    # was never really about `w`.
+    check_linearity(
+        graph,
+        ("w",),
+        at={"z": jnp.asarray(0.0)},
+        at_points=[{"z": jnp.asarray(0.0)}],
+    )
+
+
+def test_an_improper_outside_prior_gives_a_named_error_not_a_bare_one():
+    """`ImproperUniform` has no sampler, so drawing default at-points must fail
+    with a message pointing at `at_points=`, not a contextless NotImplementedError
+    surfacing from three layers inside NumPyro.
+    """
+    graph = improper_outside_prior()
+    with pytest.raises(StructureError, match="cannot be sampled"):
+        check_linearity(graph, ("w",), at={"z": jnp.asarray(0.0)})
+    # An explicit at_points sidesteps the sampler entirely and passes: `w`
+    # really is affine, and pointing at `at_points=` in the message is
+    # correct advice, not just an apology for the failure.
+    check_linearity(
+        graph,
+        ("w",),
+        at={"z": jnp.asarray(0.0)},
+        at_points=[{"z": jnp.asarray(0.0)}],
+    )
+
+
+def test_prior_at_points_short_circuits_when_nothing_is_outside(monkeypatch):
+    """No latent outside the block means every at-point is the same empty
+    dict, so drawing it from the prior would cost a full NumPyro forward
+    trace to learn nothing. Counts calls to `to_numpyro` rather than
+    comparing the returned points (`{}` either way, with or without the
+    short-circuit) -- a value-only assertion cannot see the wasted work the
+    short-circuit removes. Same technique as
+    `test_ancestry_dedups_a_diamond` in test_block.py.
+    """
+    import bayesmith.bridge.numpyro_bridge as bridge
+
+    calls: list[object] = []
+    original = bridge.to_numpyro
+
+    def counting(g):
+        calls.append(g)
+        return original(g)
+
+    monkeypatch.setattr(bridge, "to_numpyro", counting)
+
+    graph = straight_line()  # single latent "w" -> nothing outside a ("w",) block
+    points = prior_at_points(graph, ("w",), 2, jax.random.key(0))
+    assert points == [{}, {}]
+    assert calls == []
+
+
+def test_the_default_scales_span_six_orders_of_magnitude():
+    """The span is load-bearing, so it gets a test that says so by name.
+
+    `cubic_tail(prior_std=1.0)` is caught ONLY at the largest scale: measured
+    departures are 0.0 at 1e-3, 4.58e-06 at 1.0, and 7.45e-01 at 1e3, against
+    an rtol of 1.19e-3. Narrow the sweep and that fixture passes silently,
+    while the test that goes red is one whose name is about where the probe
+    magnitude comes from -- not about the sweep at all.
+    """
+    assert max(DEFAULT_SCALES) / min(DEFAULT_SCALES) >= 1e6

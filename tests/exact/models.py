@@ -16,6 +16,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
+from numpyro.distributions import constraints
 
 from bayesmith import const, det, observe, plate, sample, trace
 
@@ -342,5 +343,60 @@ def nan_at_negative_probes(*, n=4, sigma=0.5):
         w = sample("w", lambda: dist.Normal(4.0, 1.0))
         mu = det("mu", lambda w_, x_: jnp.sqrt(w_) * x_, w, xs, linear_in=("w",))
         observe("d", lambda m: dist.Normal(m, sigma), mu, obs=2.0 * x)
+
+    return trace(model)
+
+
+def overflowing_outside_latent(*, n=6, sigma=0.5, seed=11):
+    """``mu = w X + exp(|z| / 50)`` -- `w` is genuinely affine; `z` can overflow.
+
+    ``z ~ Cauchy(0, 1e6)`` is heavy-tailed enough that ``exp(|z| / 50)``
+    overflows float32 on about 99.7% of draws (measured: overflow needs
+    ``|z| > 4436``, and a Cauchy(0, 1e6) puts over 99% of its mass beyond
+    that). Holding ``z`` fixed at ANY value, ``mu`` is affine in ``w`` --
+    `linear_in=("w",)` is TRUE -- so a check that lands on an overflowing
+    ``z`` (the usual outcome of a default prior draw here) and reports a
+    linearity failure of ``w`` is misattributing the fault: the overflow is
+    a statement about where ``z`` sits, not about ``w``. Pinning ``z`` at 0
+    -- where nothing overflows -- and finding the SAME block accepted is
+    what proves the declaration was true all along.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = 1.0 * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        z = sample("z", lambda: dist.Cauchy(0.0, 1e6))
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        mu = det(
+            "mu",
+            lambda w_, z_, x_: w_ * x_ + jnp.exp(jnp.abs(z_) / 50.0),
+            w,
+            z,
+            xs,
+            linear_in=("w",),
+        )
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def improper_outside_prior(*, n=6, sigma=0.5, seed=12):
+    """An outside latent with an improper prior -- no sampler, by construction.
+
+    ``dist.ImproperUniform`` carries infinite mass, so NumPyro's own
+    ``.sample()`` on it raises ``NotImplementedError`` rather than returning
+    a value. ``prior_at_points`` hits this trying to draw a default at-point
+    for ``z``, which sits outside a block on the genuinely-affine ``w``.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = 1.0 * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        z = sample("z", lambda: dist.ImproperUniform(constraints.real, (), ()))
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        mu = det("mu", lambda w_, z_, x_: w_ * x_ + z_, w, z, xs, linear_in=("w",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
 
     return trace(model)
