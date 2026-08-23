@@ -23,6 +23,19 @@ class ScaledNormal(eqx.Module):
     def __call__(self, loc):
         return dist.Normal(loc, self.scale)
 
+    def as_normal(self, loc):
+        """A second, *named* entry point with the same body as ``__call__``.
+
+        Exists so a test can exercise "a bound method" (``model.as_normal``)
+        as a spelling distinct from ``__call__`` itself -- equinox treats
+        the two differently: see the module docstring's second
+        gradient-loss trap. ``__call__`` and other dunder names are exempt
+        from equinox's bound-method-to-pytree wrapping, so testing only
+        ``model.__call__`` would not exercise the "bound method" case at
+        all.
+        """
+        return dist.Normal(loc, self.scale)
+
 
 def test_node_identity_fields_are_static():
     n = Deterministic(
@@ -77,6 +90,93 @@ def test_a_module_dist_fn_exposes_its_parameters_as_traceable_leaves():
     )(n, jnp.array(0.5))
     assert jnp.isfinite(grad.dist_fn.scale)
     assert grad.dist_fn.scale != 0.0
+
+
+def test_a_bound_method_dist_fn_also_exposes_its_parameters_as_traceable_leaves():
+    """The module docstring's second gradient-loss trap, first bullet.
+
+    ``model.as_normal`` is not the same Python object as ``model``, but
+    ``equinox.Module.__getattribute__`` wraps ordinary (non-dunder) method
+    access in its own ``equinox.BoundMethod`` -- an ``eqx.Module`` that
+    stores ``__self__`` (the model) as a genuine, non-static subnode. So the
+    parameter stays reachable and differentiable exactly as it would through
+    the model itself.
+
+    Pinned explicitly because a previous reviewer claimed bound methods lose
+    the gradient (mirroring the closure case below); measured here against
+    this repository's actual, installed equinox version rather than
+    assumed. If a future equinox upgrade changes this, this test -- not a
+    surprise in production -- is where it will show up.
+    """
+    model = ScaledNormal(scale=jnp.array(2.0))
+    n = Probabilistic(
+        name="d", parents=("x",), plate=(), dist_fn=model.as_normal, observed=None,
+    )
+
+    # dist_fn is a BoundMethod, but it is a pytree: the scale parameter is
+    # still the node's one and only leaf, same as the direct-module case.
+    leaves = jax.tree.leaves(n)
+    assert len(leaves) == 1
+    assert eqx.is_inexact_array(leaves[0])
+
+    grad = eqx.filter_grad(
+        lambda node, loc: node.dist_fn(loc).log_prob(jnp.array(1.0))
+    )(n, jnp.array(0.5))
+    # grad.dist_fn is an equinox.BoundMethod, not a ScaledNormal -- dig
+    # through __self__ the same way the forward call would.
+    assert jnp.isfinite(grad.dist_fn.__self__.scale)
+    assert grad.dist_fn.__self__.scale != 0.0
+
+    # And it is the exact value the direct-module spelling produces --
+    # the two are not just "both non-null", they agree.
+    direct = Probabilistic(
+        name="d", parents=("x",), plate=(), dist_fn=model, observed=None,
+    )
+    direct_grad = eqx.filter_grad(
+        lambda node, loc: node.dist_fn(loc).log_prob(jnp.array(1.0))
+    )(direct, jnp.array(0.5))
+    assert grad.dist_fn.__self__.scale == direct_grad.dist_fn.scale
+
+
+def test_a_closure_over_a_module_dist_fn_silently_loses_its_gradient():
+    """The module docstring's second gradient-loss trap, second bullet.
+
+    A plain closure over the module (here, over ``model`` via a ``def``
+    that forwards to it) is an ordinary ``types.FunctionType`` -- an
+    opaque, non-array leaf as far as JAX's pytree machinery is concerned.
+    ``eqx.filter_grad`` therefore excludes it from differentiation
+    entirely. Nothing raises: the forward value is byte-identical to
+    calling the model directly, because the closure really does run with
+    the model's real (correct) value -- only the gradient silently
+    vanishes. This is the same shape as the static-field trap in the
+    module docstring's first paragraph: a silent wrong (here, absent)
+    answer, not a constructor error.
+    """
+    model = ScaledNormal(scale=jnp.array(2.0))
+
+    def dist_fn(loc):
+        return model(loc)
+
+    n = Probabilistic(
+        name="d", parents=("x",), plate=(), dist_fn=dist_fn, observed=None,
+    )
+
+    # The whole closure is one opaque leaf -- not an array, so not the
+    # node's parameter, unlike the module and bound-method spellings above.
+    leaves = jax.tree.leaves(n)
+    assert len(leaves) == 1
+    assert not eqx.is_inexact_array(leaves[0])
+
+    forward = n.dist_fn(jnp.array(0.5)).log_prob(jnp.array(1.0))
+    direct_forward = model(jnp.array(0.5)).log_prob(jnp.array(1.0))
+    assert jnp.allclose(forward, direct_forward)
+
+    grad = eqx.filter_grad(
+        lambda node, loc: node.dist_fn(loc).log_prob(jnp.array(1.0))
+    )(n, jnp.array(0.5))
+    # Not an error, not zero -- absent. eqx.filter_grad reports "excluded
+    # from differentiation" as None at this pytree position.
+    assert grad.dist_fn is None
 
 
 def test_const_holds_its_value_as_an_array_leaf():

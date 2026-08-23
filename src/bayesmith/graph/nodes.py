@@ -15,6 +15,47 @@ succeeds, the whole module is absorbed into pytree aux data, and
 in place of a gradient -- nothing raises, the answer is simply wrong. That
 is the stronger argument for keeping these fields non-static: not a
 constructor error to catch, but a silent wrong answer.
+
+**A second gradient-loss trap, independent of the first.** Even with
+``dist_fn`` correctly non-static, *how* a parameterised module is handed to
+it matters, and equinox does not raise on the wrong choice either. Measured
+against equinox 0.13.8 (this package's pinned version -- re-measure if you
+upgrade, since the second bullet below is equinox-internal behaviour, not a
+bayesmith guarantee):
+
+* ``dist_fn=model`` (the module itself, invoked through its ``__call__``)
+  -- gradient reaches every leaf of ``model``. This is the case the first
+  trap above is about, and the case
+  ``test_a_module_dist_fn_exposes_its_parameters_as_traceable_leaves``
+  pins.
+* ``dist_fn=model.some_method`` (a *bound method*, obtained by ordinary
+  attribute access on the module instance) -- **also correct**, but only
+  because ``equinox.Module.__getattribute__`` intercepts non-dunder method
+  access and substitutes its own ``equinox.BoundMethod``: itself an
+  ``eqx.Module`` that stores ``__self__`` (``model``) as a genuine,
+  non-static subnode. ``model``'s array leaves stay reachable through the
+  bound method exactly as they would through the model itself. Reaching
+  for the dunder explicitly (``model.__call__``) does **not** get this
+  treatment -- equinox's wrapping excludes dunder names -- so that
+  spelling behaves like the next bullet instead, not like this one.
+* a **plain closure** over the module (``def dist_fn(loc): return
+  model(loc)``, or an equivalent lambda) -- **silently loses the
+  gradient**. A closure is an ordinary ``types.FunctionType``: JAX's
+  pytree machinery has no rule for looking inside its ``__closure__``
+  cells, so the whole closure is one opaque, non-array leaf.
+  ``eqx.is_inexact_array`` is ``False`` for it, so ``eqx.partition`` routes
+  it to the static side and ``eqx.filter_grad`` never differentiates
+  through it -- the corresponding position in the returned gradient
+  pytree comes back ``None``.
+
+In every case the *forward* value is byte-identical, because the closure
+still executes with the model's real (correct) value -- only the gradient
+differs, silently. The parameter simply never updates during fitting,
+forever, and nothing signals it. The tests immediately after
+``test_a_module_dist_fn_exposes_its_parameters_as_traceable_leaves`` in
+``tests/test_nodes.py`` pin all three spellings, so a future change to
+equinox's bound-method handling, or to this calling convention, shows up
+as a deliberate decision instead of a surprise.
 """
 
 from __future__ import annotations
