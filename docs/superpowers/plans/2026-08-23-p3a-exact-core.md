@@ -5133,6 +5133,23 @@ git commit -m "feat: wire the exact solves into the public API, with boundary an
 
 ---
 
+## `slow` 标记会把守卫从默认运行里拿掉（Task 10 实测，2026-08-23）
+
+Task 7 花了两轮建起两条测试，专门守住「plate 元素共享一次抽取」与「`_split_like` 跨叶复用 key」这两个真实 bug——两者都只扰动**相关结构**、几乎不动边际方差，因此极难被发现。两条都标了 `@pytest.mark.slow`（各约 1–2 秒）。
+
+实测在 `pytest -m "not slow"` 下重放这两个变异：
+
+| 变异 | 完整运行抓住它的测试 | **`-m "not slow"` 下** |
+|---|---|---|
+| `omega_prior` 每叶只抽一个标量 | Task 7 的 plate 相关测试 + Task 10 的宽 plate 测试 | **只有 Task 10 那条**（Task 7 的被跳过） |
+| `_split_like` 全叶共用一个 key | Task 7 的跨成员测试 + Task 10 的两条极端值测试 | **只有 Task 10 那两条** |
+
+也就是说，在 Task 10 之前，`-m "not slow"`（CI 与日常开发最可能的跑法）对这两个 bug 的覆盖是**零**。
+
+这与前面记录的失效形状都不同：测试写对了、fixture 到达了区域、变异确实会让它变红——**但它在实际使用的运行配置下不执行**。
+
+> **判据**：给一条测试打 `slow` 之前，问它**是不是某个 bug 的唯一守卫**。若是，要么不标，要么在快路径里留一个更便宜的同类守卫。Task 10 的极端值测试恰好扮演了后者（n=200 而非 n=6，1.3 秒，未标 slow），但那是运气而非设计。
+
 ## JAX 的 dict pytree 无条件按键排序（Task 9 实测，2026-08-23）
 
 一个此前完全没意识到、但影响整个计划的结构事实：**JAX 的 dict pytree 注册在 flatten/unflatten 时无条件按键排序**。实测：
