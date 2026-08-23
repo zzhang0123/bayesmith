@@ -60,9 +60,8 @@ class NotGaussian(BayesmithError, TypeError):
     perfectly good non-Gaussian nodes. P3b's classifier catches this and
     routes the block to NUTS.
 
-    **A sibling of** :class:`StructureError`, and never a subclass of it in
-    either direction. A dispatcher writing ``except NotGaussian`` must NOT
-    also swallow a :class:`StructureError`: that one means a node's *type*
+    **A sibling of** :class:`StructureError`. A dispatcher writing
+    ``except NotGaussian`` must NOT also swallow a :class:`StructureError`: that one means a node's *type*
     says Normal while its own ``log_prob`` says otherwise, and silently
     downgrading it to NUTS would hide a broken model behind an
     ordinary-looking fallback.

@@ -106,9 +106,8 @@ class NotGaussian(BayesmithError, TypeError):
     perfectly good non-Gaussian nodes. P3b's classifier catches this and
     routes the block to NUTS.
 
-    **A sibling of** :class:`StructureError`, and never a subclass of it in
-    either direction. A dispatcher writing ``except NotGaussian`` must NOT
-    also swallow a :class:`StructureError`: that one means a node's *type*
+    **A sibling of** :class:`StructureError`. A dispatcher writing
+    ``except NotGaussian`` must NOT also swallow a :class:`StructureError`: that one means a node's *type*
     says Normal while its own ``log_prob`` says otherwise, and silently
     downgrading it to NUTS would hide a broken model behind an
     ordinary-looking fallback.
@@ -206,7 +205,7 @@ Expected: 全部 PASS（原有 3 条，其中一条被扩展，加新增 1 条 =
 
 在 `errors.py` 里把 `class StructureError(BayesmithError, ValueError):` 临时改成从 `numpy` 导入什么东西（例如在文件顶加 `import numpy`），重跑上面的测试。
 
-Expected: `test_the_new_error_names_exist_in_the_stdlib_only_module` **变红**（`heavy` 非空）。还原。
+Expected: `test_errors_module_imports_no_heavy_dependency` **变红**（打印出 `['numpy']` 而非 `[]`）。还原。
 
 再把 `class NotGaussian(BayesmithError, TypeError):` 临时改成 `class NotGaussian(StructureError):`，重跑。
 Expected: `test_catching_not_gaussian_does_not_also_catch_structure_error` **变红**。还原。
