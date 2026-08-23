@@ -151,6 +151,41 @@ def plated_latent(*, n=6, sigma=0.4, tau=1.5, seed=5):
     return trace(model)
 
 
+def plated_latent_through_deterministic(
+    *, n=6, sigma=0.4, tau=1.5, gain=2.0, prior_mean=0.8, seed=15
+):
+    """Like `plated_latent`, but `d`'s loc reaches `z` through a Deterministic node.
+
+    `plated_latent` deliberately has NO Deterministic node on the path (see
+    its own docstring) -- which leaves `_env_before`'s Deterministic branch
+    entirely unexercised whenever the block's sole member is plated, since
+    that branch is simply never reached for that fixture. This one adds a
+    plated `mu_i = gain * z_i` between `z` and `d`, still under one plate, so
+    a block on `z` walks Const-free, member (plated), Deterministic (plated),
+    observed -- the one combination `plated_latent` cannot cover.
+
+    `z`'s prior mean is 0.8, not 0.0: `_env_before` evaluates every block
+    member AT its prior mean, so a zero-mean prior makes `mu = gain * z`
+    evaluate to zero too -- indistinguishable from a Deterministic branch
+    that was replaced by a hardcoded zero. Measured directly: with
+    `prior_mean=0.0` a mutation doing exactly that left this fixture's
+    parametrization of `test_env_before_agrees_with_evaluate_on_every_node`
+    green, `jnp.allclose(0.0, zeros((6,)))` being `True` regardless of which
+    of the two produced it.
+    """
+    key = jax.random.key(seed)
+    truth = prior_mean + tau * jax.random.normal(key, (n,))
+    data = gain * truth + sigma * jax.random.normal(jax.random.fold_in(key, 1), (n,))
+
+    def model():
+        obs = plate("obs", n)
+        z = sample("z", lambda: dist.Normal(prior_mean, tau), plate=obs)
+        mu = det("mu", lambda z_: gain * z_, z, plate=obs, linear_in=("z",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, plate=obs, obs=data)
+
+    return trace(model)
+
+
 def radiometer(*, n=10, weight=3.0, kappa=0.05, floor=1e-3, seed=6):
     """``sigma_i = kappa |mu_i| + floor`` -- sigma tracks the prediction.
 
@@ -191,6 +226,30 @@ def indirect_ancestor(*, n=6, sigma=0.5, seed=8):
         xs = const("X", x_grid)
         tau = sample("tau", lambda: dist.Normal(2.0, 0.5))
         width = det("width", lambda t: jnp.abs(t) + 0.1, tau)
+        x = sample("x", lambda w: dist.Normal(0.0, w), width)
+        mu = det("mu", lambda x_, g_: x_ * g_, x, xs, linear_in=("x",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def diamond_ancestor(*, n=6, sigma=0.5, seed=17):
+    """``tau`` reaches ``x``'s prior along TWO paths, so ancestry must dedupe.
+
+    ``tau -> upper -> width`` and ``tau -> lower -> width``. Walking the
+    ancestry without a seen-set revisits ``tau`` once per path; on a wide DAG
+    that is exponential rather than merely wasteful. Also the first fixture
+    here with a diamond, which this project's extreme-value list asks for.
+    """
+    x_grid = jnp.linspace(1.0, 2.0, n)
+    data = 1.0 * x_grid + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x_grid)
+        tau = sample("tau", lambda: dist.Normal(2.0, 0.5))
+        upper = det("upper", lambda t: jnp.abs(t) + 0.1, tau)
+        lower = det("lower", lambda t: jnp.abs(t) * 0.5 + 0.1, tau)
+        width = det("width", lambda u, v: u + v, upper, lower)
         x = sample("x", lambda w: dist.Normal(0.0, w), width)
         mu = det("mu", lambda x_, g_: x_ * g_, x, xs, linear_in=("x",))
         observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)

@@ -7,6 +7,7 @@ import pytest
 from bayesmith import evaluate
 from bayesmith.errors import GraphError, NotGaussian
 from bayesmith.exact.block import (
+    _ancestors,
     _env_before,
     domain_centre,
     domain_zero,
@@ -16,6 +17,7 @@ from bayesmith.exact.block import (
 )
 from tests.exact.models import (
     plated_latent,
+    plated_latent_through_deterministic,
     shared_ancestor,
     straight_line,
     two_linear_latents,
@@ -42,18 +44,26 @@ def test_forward_is_the_linear_action_of_the_block():
     assert jnp.allclose(got, jnp.linspace(-2.0, 2.0, 12))
 
 
-def test_adjoint_is_the_transpose_under_the_real_inner_product():
+@pytest.mark.parametrize("seed", [11, 23, 47, 91])
+def test_adjoint_is_the_transpose_under_the_real_inner_product(seed):
     """`sum(x * adjoint(y)) == sum(forward(x) * y)`, across both observed nodes.
 
     An adjoint that dropped one observed node, or scaled one, breaks this
     identity; nothing else in the block would notice.
+
+    Several seeds, because one is not a measurement. Measured across 100 seed
+    pairs on this fixture: the achieved relative error ranges from 1.4e-8 to
+    6.3e-6, so `rel=1e-5` is the honest float32 budget -- but the originally
+    shipped pair sat at 1.4e-8, some 700x below what other seeds reach, which
+    would have let a regression in the 1e-6 range pass here and fail
+    elsewhere.
     """
     graph = two_observations()
     block = unchecked_operator(graph, ("w",), at={})
     x = {"w": jnp.asarray(0.37)}
     y = {
-        "d1": jax.random.normal(jax.random.key(11), block.offset["d1"].shape),
-        "d2": jax.random.normal(jax.random.key(12), block.offset["d2"].shape),
+        "d1": jax.random.normal(jax.random.key(seed), block.offset["d1"].shape),
+        "d2": jax.random.normal(jax.random.key(seed + 1), block.offset["d2"].shape),
     }
     pulled = block.adjoint(y)
     pushed = block.forward(x)
@@ -80,18 +90,35 @@ def test_the_prior_is_read_off_the_graph():
     assert jnp.allclose(block.prior_mean["b"], 0.0)
 
 
-def test_env_before_agrees_with_evaluate_on_every_node():
+@pytest.mark.parametrize(
+    ("graph_fn", "block_names", "at"),
+    [
+        (two_linear_latents, ("a",), {"b": jnp.asarray(4.0)}),
+        (plated_latent_through_deterministic, ("z",), {}),
+    ],
+    ids=["unplated", "plated"],
+)
+def test_env_before_agrees_with_evaluate_on_every_node(graph_fn, block_names, at):
     """Pins the six lines `_env_before` duplicates from `evaluate`.
 
     `_env_before` cannot call `evaluate` (it runs before the block has any
     value to give it), so it repeats the isinstance ladder. That is exactly
     the kind of duplication P1 recorded as the start of a silent drift, so
-    the two are compared node by node here.
+    the two are compared node by node here -- for an UNPLATED block member
+    and a PLATED one, so the member branch's own shape/broadcast logic
+    (`node_shape`, `jnp.broadcast_to`) is pinned in both regimes and not just
+    the one the original fixture happened to exercise.
+
+    The plated case uses `plated_latent_through_deterministic`, not the
+    simpler `plated_latent`: `plated_latent` has no Deterministic node on its
+    path by design (see its own docstring), so it cannot also exercise
+    `_env_before`'s Deterministic branch under a plate -- measured directly,
+    a mutation of that branch left a `plated_latent`-based parametrization
+    green. This fixture's `mu = gain * z` closes that gap.
     """
-    graph = two_linear_latents()
-    at = {"b": jnp.asarray(4.0)}
-    env, domain = _env_before(graph, ("a",), at)
-    full = evaluate(graph, {**at, "a": domain["a"][2]})
+    graph = graph_fn()
+    env, domain = _env_before(graph, block_names, at)
+    full = evaluate(graph, {**at, **{n: domain[n][2] for n in block_names}})
     assert set(env) == set(full) == set(graph.names)
     for name in graph.names:
         assert jnp.allclose(env[name], full[name]), name
@@ -168,3 +195,64 @@ def test_ancestry_is_transitive_not_just_direct_parents():
     assert graph.node("x").parents == ("width",)  # tau is NOT a direct parent
     with pytest.raises(NotGaussian, match="ancestor"):
         unchecked_operator(graph, ("tau", "x"), at={})
+
+
+def test_at_naming_something_that_is_not_a_latent_is_refused():
+    graph = two_linear_latents()
+    with pytest.raises(GraphError, match="not latent nodes"):
+        unchecked_operator(
+            graph, ("a",), at={"b": jnp.asarray(4.0), "mu": jnp.asarray(1.0)}
+        )
+
+
+def test_at_naming_a_member_of_the_block_is_refused():
+    """The dangerous case: silently discarded, so the caller is silently wrong.
+
+    A caller who believes they pinned `a` while `a` is also in the block gets
+    a solve FOR `a` that ignores their value entirely, with no signal.
+    """
+    graph = two_linear_latents()
+    with pytest.raises(GraphError, match="IN this block"):
+        unchecked_operator(
+            graph, ("a",), at={"a": jnp.asarray(99999.0), "b": jnp.asarray(4.0)}
+        )
+
+
+def test_a_latent_outside_the_block_with_no_value_is_refused():
+    graph = two_linear_latents()
+    with pytest.raises(GraphError, match="have no value in"):
+        unchecked_operator(graph, ("a",), at={})
+
+
+def test_ancestry_dedups_a_diamond(monkeypatch):
+    """`tau` reaches `x` along two paths; the ancestor walk must not double-count.
+
+    The final SET returned by `_ancestors` is identical with or without the
+    dedup guard -- `set.add` is idempotent and the graph is acyclic, so a
+    redundant re-expansion of an already-seen node changes nothing about what
+    is eventually returned, only how much work it takes to get there. So this
+    counts `graph.node` lookups rather than comparing the returned set: a
+    lookup repeated for `tau` (once reached via `upper`, once via `lower`) is
+    exactly what the missing guard would cause, and exactly what a
+    value-only assertion cannot see.
+    """
+    from tests.exact.models import diamond_ancestor
+
+    graph = diamond_ancestor()
+    assert _ancestors(graph, "x") == {"tau", "upper", "lower", "width"}
+    with pytest.raises(NotGaussian, match="ancestor"):
+        unchecked_operator(graph, ("tau", "x"), at={})
+
+    calls: list[str] = []
+    original = type(graph).node
+
+    def counting(self, name):
+        calls.append(name)
+        return original(self, name)
+
+    monkeypatch.setattr(type(graph), "node", counting)
+    _ancestors(graph, "x")
+    # "x" itself (the seed lookup) plus each of its four ancestors: five
+    # lookups total if -- and only if -- `tau` is expanded once, not once
+    # per path that reaches it.
+    assert sorted(calls) == sorted(["x", "width", "upper", "lower", "tau"])

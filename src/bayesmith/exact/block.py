@@ -113,7 +113,7 @@ def variance_parts(block: LinearBlock) -> dict[str, jax.Array]:
 def largest_variance(prior_variance: dict[str, jax.Array]) -> jax.Array:
     """The biggest prior variance anywhere in the block.
 
-    ``1/it`` floors ``lambda_min`` of the normal operator: ``A^T N^-1 A`` is
+    ``1/largest`` floors ``lambda_min`` of the normal operator: ``A^T N^-1 A`` is
     positive semi-definite, so the LOOSEST prior in the block is what bounds
     the operator from below. Taking the tightest instead would floor the
     estimate above the true ``lambda_min`` and report a condition number
@@ -162,6 +162,46 @@ def _validated_names(graph: Graph, names: Iterable[str]) -> tuple[str, ...]:
             "observed node has no posterior to solve for."
         )
     return names
+
+
+def _validated_at(
+    graph: Graph, names: tuple[str, ...], at: dict[str, Any] | None
+) -> dict[str, Any]:
+    """The values for the latents OUTSIDE the block, checked by name.
+
+    Every other misuse in this module is refused by name; ``at`` was the one
+    surface where a caller's mistake went unremarked. A stale entry for a
+    block member is the dangerous case: it is silently discarded, so a caller
+    who believes they are pinning a member is in fact solving for it.
+    """
+    at = dict(at or {})
+    latents = set(graph.latents)
+    members = set(names)
+
+    stray = sorted(set(at) - latents)
+    if stray:
+        raise GraphError(
+            f"`at` names {stray}, which are not latent nodes of this graph. "
+            f"Latents are {list(graph.latents)}. `at` fixes the latents OUTSIDE "
+            "the block; a deterministic or observed node has no value to fix."
+        )
+    overlap = sorted(set(at) & members)
+    if overlap:
+        raise GraphError(
+            f"`at` names {overlap}, which are IN this block. A block is affine "
+            "given the latents outside it, and its own members are what it "
+            "solves for -- so an entry here is discarded, and a caller who "
+            "believes they pinned a member would be silently wrong. Drop it "
+            "from `at`, or drop it from the block."
+        )
+    missing = sorted(latents - members - set(at))
+    if missing:
+        raise GraphError(
+            f"latents {missing} are outside the block and have no value in "
+            "`at`. A block is affine GIVEN them, so they must be somewhere -- "
+            "pass the current values."
+        )
+    return at
 
 
 def _refuse_internal_ancestry(graph: Graph, names: tuple[str, ...]) -> None:
@@ -238,7 +278,7 @@ def _env_before(
                 env[node.name] = node.observed
             elif node.name in at:
                 env[node.name] = at[node.name]
-            else:
+            else:  # pragma: no cover - _validated_at already refused this
                 raise GraphError(
                     f"latent node {node.name!r} is outside the block and has no "
                     f"value in `at`. A block is affine GIVEN the latents outside "
@@ -284,9 +324,11 @@ def unchecked_operator(
             current values.
 
     Raises:
-        GraphError: if ``names`` is empty, repeats a latent, names something
-            that is not a latent, or if a latent outside the block has no
-            value in ``at``.
+        GraphError: if ``names`` is empty, repeats a latent, or names
+            something that is not a latent; or if ``at`` names something that
+            is not a latent, names a member of this block (silently discarded
+            otherwise -- see :func:`_validated_at`), or omits a latent that
+            is outside the block.
         NotGaussian: if a member or an observed node is not a diagonal
             Gaussian, or if a member is an ancestor of another member.
         StructureError: if a node's own ``log_prob`` disagrees with the
@@ -302,7 +344,7 @@ def unchecked_operator(
         loop deliberately.
     """
     names = _validated_names(graph, names)
-    at = dict(at or {})
+    at = _validated_at(graph, names, at)
     _refuse_internal_ancestry(graph, names)
 
     env, domain = _env_before(graph, names, at)
