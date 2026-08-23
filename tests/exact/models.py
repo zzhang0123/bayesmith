@@ -606,6 +606,87 @@ def improper_outside_prior(*, n=6, sigma=0.5, seed=12):
     return trace(model)
 
 
+def tunable_curvature(*, n=8, departure=0.0, sigma=0.5, prior_std=1.0, seed=14):
+    """``mu = (w + departure * w**2 / prior_std) X``.
+
+    ``departure`` is, to first order, the relative departure from affinity a
+    one-sigma probe sees -- so sweeping it across check_linearity's rtol walks
+    the accept/reject boundary directly, which is what
+    `boundary-validation.md` asks for: evaluate BOTH sides at the threshold
+    rather than trusting the dispatcher's own verdict.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = 1.0 * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, prior_std))
+        mu = det(
+            "mu",
+            lambda w_, x_: (w_ + departure * w_**2 / prior_std) * x_,
+            w,
+            xs,
+            linear_in=("w",),
+        )
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def collinear_pair(*, n=8, sigma=0.4, prior_std=3.0, seed=13):
+    """``mu = (a + b) X`` -- the data cannot tell ``a`` from ``b`` at all.
+
+    Jointly affine, so check_linearity passes and the JOINT block is the right
+    thing: the data fixes ``a + b``, the prior alone fixes ``a - b``, and the
+    joint kappa reports honestly how much worse one direction is determined
+    than the other. Alternating over two one-latent blocks instead would
+    report a converged residual and a condition number of ~1 forever, which is
+    rheplicant's recorded failure in its purest form.
+    """
+    x = jnp.linspace(1.0, 3.0, n)
+    data = 2.0 * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        a = sample("a", lambda: dist.Normal(0.0, prior_std))
+        b = sample("b", lambda: dist.Normal(0.0, prior_std))
+        mu = det(
+            "mu", lambda a_, b_, x_: (a_ + b_) * x_, a, b, xs, linear_in=("a", "b")
+        )
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def wide_plate(*, size, sigma=0.4, tau=1.5, seed=15):
+    """``plated_latent`` at an arbitrary plate size, for the size sweep."""
+    return plated_latent(n=size, sigma=sigma, tau=tau, seed=seed)
+
+
+def many_observations(*, count, n=6, weight=1.5, sigma=0.4, seed=16):
+    """One latent constrained by ``count`` observed nodes.
+
+    Names are ``obs_0 ... obs_{count-1}``, whose sorted order is their
+    declaration order only while ``count <= 10`` -- deliberately, so the
+    codomain ordering is exercised rather than assumed.
+    """
+    key = jax.random.key(seed)
+    grids = [jnp.linspace(1.0, 2.0 + index, n) for index in range(count)]
+    data = [
+        weight * grid + sigma * jax.random.normal(jax.random.fold_in(key, index), (n,))
+        for index, grid in enumerate(grids)
+    ]
+
+    def model():
+        w = sample("w", lambda: dist.Normal(0.0, 4.0))
+        for index, (grid, values) in enumerate(zip(grids, data, strict=True)):
+            xs = const(f"X_{index}", grid)
+            mu = det(f"mu_{index}", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+            observe(f"obs_{index}", lambda m: dist.Normal(m, sigma), mu, obs=values)
+
+    return trace(model)
+
+
 def unconstrained_latent(*, n=5, sigma=0.5, seed=11):
     """``u`` reaches no observed node, so its posterior IS its prior.
 
