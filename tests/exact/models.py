@@ -132,6 +132,84 @@ def two_observations(*, n=7, m=5, weight=1.25, s1=0.3, s2=0.9, seed=4):
     return trace(model)
 
 
+def two_observations_reverse_sorted_names(
+    *, n=7, m=5, weight=1.75, s1=0.35, s2=0.85, seed=19
+):
+    """Like `two_observations`, but the two observed nodes' DECLARED order is
+    the reverse of their ALPHABETICAL order.
+
+    `two_observations` names its nodes "d1" then "d2" -- declared order and
+    sorted order coincide there, so nothing built only from it can tell
+    "rows/weights are in alphabetical order" apart from "rows/weights are in
+    declaration order". Task 9's own mutation list names exactly this gap
+    for `bayesmith.exact.fisher.dense_operator`'s `sorted(pushed)` and
+    predicts it. Declaring "z_first" before "a_second" makes the two orders
+    DISAGREE (declared: z_first, a_second; sorted: a_second, z_first).
+
+    Used against two call sites in `fisher.py` that each build a
+    `sorted(...)`-ordered concatenation: `dense_operator`'s `sorted(pushed)`
+    and `fisher_information`'s `sorted(noise_std)`. Measured (see
+    `tests/exact/test_fisher.py`): only the second is a live mutation risk
+    on this fixture -- `pushed` is a `jax.linearize` tangent output and
+    JAX's dict-pytree flattening already forces it into sorted-key order
+    before `dense_operator` ever runs `sorted()` on it, so that particular
+    swap is a no-op for ANY graph, not only this one. `noise_std` is a plain
+    dict with no such round-trip, so its ordering genuinely depends on
+    `sorted(...)` being called at all.
+    """
+    k1, k2 = jax.random.split(jax.random.key(seed))
+    x1 = jnp.linspace(1.0, 3.0, n)
+    x2 = jnp.linspace(-1.0, 1.0, m)
+    d1 = weight * x1 + s1 * jax.random.normal(k1, (n,))
+    d2 = 2.0 * weight * x2 + s2 * jax.random.normal(k2, (m,))
+
+    def model():
+        a = const("X1", x1)
+        b = const("X2", x2)
+        w = sample("w", lambda: dist.Normal(0.0, 4.5))
+        m1 = det("mu1", lambda w_, x_: w_ * x_, w, a, linear_in=("w",))
+        m2 = det("mu2", lambda w_, x_: 2.0 * w_ * x_, w, b, linear_in=("w",))
+        observe("z_first", lambda u: dist.Normal(u, s1), m1, obs=d1)
+        observe("a_second", lambda u: dist.Normal(u, s2), m2, obs=d2)
+
+    return trace(model)
+
+
+def plated_and_scalar_latents(*, n=4, tau=1.3, prior_std_w=2.7, sigma=0.35, seed=16):
+    """One plated latent (`z`, `n` elements) and one scalar latent (`w`),
+    solved JOINTLY -- HETEROGENEOUS per-member sizes in one block.
+
+    `bayesmith.exact.fisher._spans`'s cumulative-offset arithmetic
+    (`start += size`) is exercised by every other multi-member fixture in
+    this suite only where every member has size 1 (`two_linear_latents`,
+    `radiometer_group`), or by a single plated member with nothing placed
+    after it (`plated_latent`) -- neither can distinguish a member's actual
+    `size` from a hardcoded `1`, or from a DIFFERENT member's size. Here `z`
+    occupies flat slots `[0, n)` and `w` occupies `[n, n+1)`, so a bug that
+    reuses one member's size for the other's span produces a shape mismatch
+    or a wrong span rather than a numerically-coincidental pass.
+
+    `mu_i = z_i + w` (no covariate) is deliberately the simplest jointly
+    affine function of a plate and a scalar: it keeps `A`'s structure
+    legible for a pinned-value assertion -- the "z" columns of the design
+    are exactly `I_n` and the "w" column is all ones.
+    """
+    key = jax.random.key(seed)
+    z_true = jnp.linspace(-1.8, 1.8, n)
+    w_true = 1.6
+    truth = z_true + w_true
+    data = truth + sigma * jax.random.normal(key, (n,))
+
+    def model():
+        obs = plate("obs", n)
+        z = sample("z", lambda: dist.Normal(0.0, tau), plate=obs)
+        w = sample("w", lambda: dist.Normal(0.0, prior_std_w))
+        mu = det("mu", lambda z_, w_: z_ + w_, z, w, plate=obs, linear_in=("z", "w"))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, plate=obs, obs=data)
+
+    return trace(model)
+
+
 def prior_held_direction(*, n=6, sigma=0.4, seed=21):
     """One direction held by the prior alone, one held tightly by the data.
 
