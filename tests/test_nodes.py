@@ -15,6 +15,15 @@ class Scale(eqx.Module):
         return self.w * x
 
 
+class ScaledNormal(eqx.Module):
+    """Stand-in for a noise model carrying its own parameters."""
+
+    scale: jax.Array
+
+    def __call__(self, loc):
+        return dist.Normal(loc, self.scale)
+
+
 def test_node_identity_fields_are_static():
     n = Deterministic(
         name="a", parents=("x",), plate=(), fn=lambda x: x, linear_in=("x",)
@@ -43,6 +52,31 @@ def test_a_module_fn_exposes_its_parameters_as_traceable_leaves():
 
     grad = eqx.filter_grad(lambda node, x: jnp.sum(node.fn(x)))(n, jnp.array(5.0))
     assert grad.fn.w == jnp.array(5.0)
+
+
+def test_a_module_dist_fn_exposes_its_parameters_as_traceable_leaves():
+    """Same rheplicant-compatibility property, for ``Probabilistic.dist_fn``.
+
+    Latent (``observed=None``) so the node's only leaf is dist_fn's own
+    parameter -- an observed array would add a second leaf and complicate
+    the leaf-count assertion below.
+    """
+    n = Probabilistic(
+        name="d",
+        parents=("x",),
+        plate=(),
+        dist_fn=ScaledNormal(scale=jnp.array(2.0)),
+        observed=None,
+    )
+    leaves = jax.tree.leaves(n)
+    assert len(leaves) == 1
+    assert eqx.is_inexact_array(leaves[0])
+
+    grad = eqx.filter_grad(
+        lambda node, loc: node.dist_fn(loc).log_prob(jnp.array(1.0))
+    )(n, jnp.array(0.5))
+    assert jnp.isfinite(grad.dist_fn.scale)
+    assert grad.dist_fn.scale != 0.0
 
 
 def test_const_holds_its_value_as_an_array_leaf():
