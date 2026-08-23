@@ -302,20 +302,46 @@ def test_extreme_eigenvalues_finds_both_ends_of_a_known_spectrum():
     assert float(smallest) == pytest.approx(1.0, rel=1e-3)
 
 
-def test_extreme_eigenvalues_spans_several_pytree_leaves():
-    """The spectrum must be the JOINT one, not one leaf's.
+@pytest.mark.parametrize("extremes_in", ["a", "b"])
+def test_extreme_eigenvalues_spans_several_pytree_leaves(extremes_in):
+    """The spectrum must be the JOINT one, not any single leaf's.
 
-    Two leaves whose individual extremes differ: a per-leaf implementation
-    would report (10, 2) or (100, 20), never (100, 2).
+    Both power iterations are exercised, and the parametrisation is what makes
+    that true. Whichever leaf holds an extreme reproduces it when restricted
+    to that leaf -- unavoidable -- so no single spectrum can catch a
+    single-leaf implementation of both iterations. Measured, on the joint
+    spectrum {2, 10, 20, 100}:
+
+        spectrum              iter1 a  iter1 b  iter2 a  iter2 b
+        a=[10,20] b=[2,100]   caught   missed   caught   missed
+        a=[2,100] b=[10,20]   missed   caught   missed   caught
+
+    Their union is complete, which is why this runs as two cases and not one.
+    An earlier single-case version used a=[2,10] b=[20,100] and silently
+    missed the iter2-first-leaf bug entirely -- found by mutation testing,
+    which is the only thing that finds a guard that does not guard.
+
+    200 iterations, not 40: the shifted operator's top two eigenvalues are 98
+    and 90, a ratio of 0.918, so 40 steps leave ~3% error on a target of 2.0
+    and the test passes or fails on the luck of the starting vector. Measured
+    across 30 keys: at 40 iterations the worst is 229% relative error; at 200
+    all 30 are float32-exact.
     """
-    operator = lambda parts: {
-        "a": jnp.array([2.0, 10.0]) * parts["a"],
-        "b": jnp.array([20.0, 100.0]) * parts["b"],
-    }
+    extremes = jnp.array([2.0, 100.0])
+    middle = jnp.array([10.0, 20.0])
+    diagonals = (
+        {"a": extremes, "b": middle}
+        if extremes_in == "a"
+        else {"a": middle, "b": extremes}
+    )
+
+    def operator(parts):
+        return {name: diagonals[name] * parts[name] for name in diagonals}
+
     template = {"a": jnp.zeros(2), "b": jnp.zeros(2)}
-    largest, smallest = extreme_eigenvalues(operator, template, jax.random.key(1), 40)
-    assert float(largest) == pytest.approx(100.0, rel=1e-3)
-    assert float(smallest) == pytest.approx(2.0, rel=5e-2)
+    largest, smallest = extreme_eigenvalues(operator, template, jax.random.key(1), 200)
+    assert float(largest) == pytest.approx(100.0, rel=1e-2)
+    assert float(smallest) == pytest.approx(2.0, rel=1e-2)
 ```
 
 - [ ] **Step 3: 跑测试，确认失败**
@@ -453,7 +479,7 @@ def extreme_eigenvalues(
 .venv/bin/python -m pytest tests/exact/test_conditioning.py -v
 ```
 
-Expected: 6 passed。
+Expected: 7 passed（参数化的那条算两例）。
 
 - [ ] **Step 6: 变异测试**
 
@@ -466,8 +492,16 @@ Expected: 6 passed。
 
 重跑。Expected: `test_tree_norm_survives_a_leaf_whose_square_overflows_float32` **变红**（返回 `inf`）。还原。
 
-再把 `extreme_eigenvalues` 的第二次幂迭代改成只用第一个叶子，重跑。
-Expected: `test_extreme_eigenvalues_spans_several_pytree_leaves` **变红**。还原。
+`extreme_eigenvalues` 的两次幂迭代 × 限制到首/末叶子，**四种形状都要跑**：
+
+| 变异 | 必须在哪一例变红 |
+|---|---|
+| 第一次迭代只用首叶 | `extremes_in="b"` |
+| 第一次迭代只用末叶 | `extremes_in="a"` |
+| **第二次迭代只用首叶** | `extremes_in="b"` |
+| 第二次迭代只用末叶 | `extremes_in="a"` |
+
+第三行是这条测试原设计漏掉的那一种：原谱 `a=[2,10] b=[20,100]` 下移位算子的前两个特征值 98 与 90 **都在叶子 a 上**，而 a 恰好也是 JAX 字典展平的首叶，所以"只用首叶"照样找到 98，`smallest = 100 − 98 = 2` 巧合地正确。**没有任何单一谱能同时抓住四种**——持有极值的那个叶子按定义能独自复现它——所以必须参数化。还原。
 
 - [ ] **Step 7: 提交**
 
