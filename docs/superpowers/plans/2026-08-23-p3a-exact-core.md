@@ -4495,8 +4495,9 @@ Expected: 5 passed。
 
 1. 把 `fisher_information` 的 `include_prior` 默认值改成 `False`，重跑。
    Expected: `test_fisher_with_the_prior_is_the_posterior_precision` **变红**。还原。
-2. 把 `dense_operator` 里的 `sorted(pushed)` 改成 `list(pushed)`（插入序），重跑。
-   Expected: 在 `two_observations`（`d1`/`d2`，插入序恰好也是字典序）上仍绿——所以补一个观测节点名的字典序与声明序**相反**的模型（例如把 `two_observations` 的两个观测改名为 `"z_first"` 与 `"a_second"`），并加一条 `test_dense_operator_matches_the_probed_design_matrix` 的变体。还原。
+2. **这条变异在它指名的位置上不可证伪**（Task 9 实测更正）。`pushed = block.forward(...)` 是 `jax.linearize` 的切线输出，经过 JAX 的 pytree flatten/unflatten——而 **JAX 的 dict 注册无条件按键排序**，所以 `pushed` 在 `dense_operator` 自己的 `sorted()` 跑之前**就已经排好了**，对任何图都成立。建逆序 fixture 也没用：实测建了，变异仍全绿。见上文「JAX 的 dict pytree 无条件按键排序」。
+
+   **真正活着的是隔壁**：`fisher_information` 的 `sorted(noise_std)`——`noise_std` 是普通 dict，带**声明序**。把它改成 `list(noise_std)`，在一个观测节点字典序与声明序**相反**的模型上（`"z_first"` / `"a_second"`）跑，**恰好一条测试变红**。还原。
 3. 把 `FlatMatrix.std()` 的 kind 检查删掉，重跑。
    Expected: 全绿——说明它无守卫。补一条：
 
@@ -4509,7 +4510,9 @@ def test_std_refuses_a_precision():
         fisher = fisher_information(block, noise_std=sigma)
         with pytest.raises(ValueError, match="not an error bar"):
             fisher.std()
-        assert parameter_covariance(fisher).std()["a"].shape == ()
+        # (1,) not () -- FlatMatrix carries span widths, not member shapes, so
+        # std() returns a flat slice. Measured; the plan first said ().
+        assert parameter_covariance(fisher).std()["a"].shape == (1,)
 ```
 
 - [ ] **Step 6: 提交**
@@ -5129,6 +5132,25 @@ git commit -m "feat: wire the exact solves into the public API, with boundary an
 ```
 
 ---
+
+## JAX 的 dict pytree 无条件按键排序（Task 9 实测，2026-08-23）
+
+一个此前完全没意识到、但影响整个计划的结构事实：**JAX 的 dict pytree 注册在 flatten/unflatten 时无条件按键排序**。实测：
+
+| dict 的来源 | 键序 |
+|---|---|
+| `jax.linearize` 的 offset 与 tangent 输出 | **总是排序**，无论函数字面返回什么顺序 |
+| `jax.vjp` 的 pullback 结果 | **总是排序**；且 pullback 的**输入**接受任意顺序，答案相同 |
+| Python 推导式建的普通 dict（`noise_std_at`、`observation_parts`） | **声明序** |
+
+后果：**同一个 `sorted(...)` 是否承重，取决于它作用的 dict 来自 JAX 变换的哪一侧。**
+
+* `block.offset` / `block.forward(...)` / `block.adjoint(...)` 是变换的产物 ⟹ **已排序** ⟹ 再 `sorted()` 是**可证的 no-op**，任何 fixture 都抓不住对它的变异。
+* `noise_std_at(...)` / `observation_parts(...)` 的返回是普通 dict ⟹ **声明序** ⟹ `sorted()` **承重**，逆序 fixture 抓得住。
+
+`tests/exact/oracle.py` 里两处 `_flatten(..., obs_order)` 恰好各占一侧：作用于 `g(zero)` 的是 no-op，作用于 `data_tree` / `sigma` 的是承重的。写法相同、地位不同。
+
+> **判据**：给一个 dict 排序前，先问它**是不是刚从 JAX 变换里出来的**。是，则 `sorted()` 只是文档；否，则它是守卫。写变异测试时，这决定了变异是否**可能**被观测到。
 
 ## 分离是「点」还是「区域」（Task 8 实测，2026-08-23）
 
