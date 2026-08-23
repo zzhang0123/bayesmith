@@ -22,12 +22,12 @@ unsafe.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 from bayesmith.errors import StructureError
 from bayesmith.exact.block import (
@@ -40,6 +40,7 @@ from bayesmith.exact.block import (
     isolate,
     unchecked_operator,
 )
+from bayesmith.exact.gaussian import noise_std_at
 from bayesmith.graph.graph import Graph
 
 #: Probe magnitudes, as multiples of each latent's declared prior standard
@@ -51,10 +52,125 @@ DEFAULT_SCALES: tuple[float, ...] = (1e-3, 1.0, 1e3)
 #: caller's own ``at`` included. Extras are drawn from the graph's own prior.
 DEFAULT_AT_POINTS: int = 3
 
+#: Departure from affinity **in units of the noise sigma**, above which a
+#: ``linear_in`` claim is refused. Not a relative error, so ``1e4 * eps``
+#: would be meaningless for it: the likelihood divides every residual by
+#: sigma, so sigma is the unit in which "this departure cannot change the
+#: posterior" is a statement with content. At 1e-3, a claim that slips
+#: through moves no residual by as much as a thousandth of a noise width.
+#:
+#: Pinned by measurement over all 48 fixture rows at both dtypes
+#: (``docs/superpowers/plans/2026-08-23-p3b-task1-verdicts.md``): every named
+#: false claim sits at least 4.9e+07x above it, and the worst honest fixture
+#: 2.05e+04x below it in float64 -- in float32 every honest fixture's
+#: above-floor departure is exactly 0.0, so nothing bounds it from below
+#: there at all.
+#:
+#: **The number only means anything with the per-element roundoff floor in
+#: place.** Ungated, this measure grows with the offset-to-noise ratio rather
+#: than with curvature: an exactly affine model breaches 1e-3 at a ratio of
+#: 1e2 in float32, and the window of usable thresholds is empty. The floor,
+#: not this constant, is what keeps honest wide-dynamic-range models --
+#: ``test_a_true_claim_with_real_roundoff_passes_at_any_offset_ratio`` is
+#: where that is pinned.
+WEIGHTED_RTOL: float = 1e-3
 
-def _biggest(tree: Any) -> float:
-    leaves = jax.tree.leaves(tree)
-    return max(float(jnp.max(jnp.abs(leaf))) for leaf in leaves)
+
+def _worse(current: float, value: float) -> float:
+    """``max`` that PROPAGATES NaN.
+
+    Python's builtin returns its first argument whenever the comparison is
+    False, so ``max(0.0, nan)`` is ``0.0`` -- which would report a column of
+    clean zeros for a probe whose verdict is REFUSE, and would quietly break
+    ``test_affinity_errors_treats_nan_as_a_failure_in_isolation``'s reading of
+    the returned number. Measured during Task 1, not assumed.
+    """
+    if math.isnan(current) or math.isnan(value):
+        return math.nan
+    return max(current, value)
+
+
+def _reported(values: jax.Array, kept: jax.Array) -> float:
+    """The worst of ``values`` among the elements the roundoff floor kept.
+
+    That is the number the criterion actually judged, so it is the number the
+    refusal message quotes -- reporting the raw maximum instead would print
+    values above the threshold beside a verdict of "pass" and read as a
+    broken guard.
+
+    NaN survives the mask: ``nan > floor`` is False, so an unusable element
+    would otherwise be masked out and the column would report ``0.0`` for a
+    probe that is a failure precisely because it is unusable.
+    """
+    if not bool(jnp.all(jnp.isfinite(values))):
+        return math.nan
+    return float(jnp.max(jnp.where(kept, values, 0.0)))
+
+
+def _leaf_departures(
+    actual: jax.Array,
+    baseline: jax.Array,
+    predicted: jax.Array,
+    sigma: jax.Array,
+    *,
+    rtol: float,
+    epsilon: float,
+    tiny: float,
+) -> tuple[float, float, bool]:
+    """One codomain leaf's two departure columns, and its verdict.
+
+    Everything here is **per element**. A maximum over the leaf -- or over
+    the whole codomain, which is what this used to take -- lets a bright
+    entry supply both the yardstick and the roundoff floor for a faint one,
+    and each of those dilutions is enough on its own to hide a false claim.
+
+    Returns:
+        ``(relative, sigma_weighted, refused)``. The first two are the worst
+        values among the elements clearing the roundoff floor -- the numbers
+        the criteria actually judged, and so the numbers a refusal quotes --
+        or NaN if the column was unusable anywhere. ``refused`` is True if
+        either criterion fails at any element.
+    """
+    # Measure against the VARIATION, not the total: a large constant offset
+    # would otherwise hide a completely nonlinear response. The divisor is
+    # floored at `finfo(dtype).tiny`, NOT at the 1e-300 literal this used to
+    # carry -- measured, 1e-300 underflows to 0.0 in float32, so an element
+    # the block cannot move at all gives 0/0 = NaN and the finiteness branch
+    # below reads that as a FAILURE. `two_observations`'s covariate grid
+    # contains an exact zero, so that alone refused an entirely honest model.
+    variation = jnp.abs(actual - baseline)
+    departure = jnp.abs(actual - predicted)
+    relative = departure / jnp.maximum(variation, tiny)
+    # A departure smaller than the arithmetic's OWN noise floor is not
+    # evidence of curvature; without this the relative measure explodes at
+    # small probes, where the variation is vanishing but roundoff is not, and
+    # rejects perfectly linear blocks. The floor is set by the magnitudes
+    # actually being differenced AT THIS PROBE -- not by a constant, which
+    # would exempt every model whose prediction is small in its own units.
+    above_floor = departure > 1e4 * epsilon * jnp.maximum(
+        jnp.abs(actual), jnp.abs(baseline)
+    )
+    # In the units the likelihood divides by -- and gated by the SAME floor.
+    # Ungated it measures DYNAMIC RANGE rather than curvature: measured on the
+    # exactly affine `mu = (w + big) X`, it reaches 2.44e-02 at an
+    # offset-to-noise ratio of 1e2 in float32 and 2.50e+01 at 1e17 in float64,
+    # with no curvature anywhere. Gated, every one of those is exactly 0.0.
+    weighted = departure / jnp.abs(sigma)
+    # NaN must count as a FAILURE: `nan > rtol` is False, so a naive
+    # comparison reads an unusable probe as evidence of linearity. Each
+    # criterion is judged on its OWN finiteness -- sharing one check would let
+    # a 0/0 in the relative column condemn a perfectly readable weighted one.
+    refused = (
+        bool(jnp.any((relative > rtol) & above_floor))
+        or bool(jnp.any((weighted > WEIGHTED_RTOL) & above_floor))
+        or not bool(jnp.all(jnp.isfinite(relative)))
+        or not bool(jnp.all(jnp.isfinite(weighted)))
+    )
+    return (
+        _reported(relative, above_floor),
+        _reported(weighted, above_floor),
+        refused,
+    )
 
 
 def affinity_errors(
@@ -64,19 +180,66 @@ def affinity_errors(
     scales: Sequence[float],
     rtol: float | None,
     *,
+    sigma: dict[str, jax.Array],
     at_description: str = "the linearisation point",
-) -> tuple[dict[float, float], list[float], float]:
-    """Compare a map against its own linearization at zero, probe by probe.
+) -> tuple[dict[float, float], list[float], float, dict[float, tuple[float, float]]]:
+    """Compare a map against its own linearization at zero, **per element**.
 
-    Every number below comes from ``g``, ``zero`` and the probe alone, so a
-    single-latent and a grouped check cannot drift into measuring different
-    things. Ported from rheplicant, generalised to a pytree codomain.
+    Every number below comes from ``g``, ``zero``, ``sigma`` and the probe
+    alone, so a single-latent and a grouped check cannot drift into measuring
+    different things. Ported from rheplicant, generalised to a pytree
+    codomain.
 
     Args:
+        sigma: ``{observed: scale}`` read at the same point ``zero`` is
+            anchored at. The unit of the second criterion below.
         at_description: names the point ``zero`` is anchored at -- used only
             by the non-finite-baseline error below, to say where the graph
             broke rather than blaming whichever ``linear_in`` happens to be
             under test.
+
+    Returns:
+        ``(worst, failed, rtol, columns)`` -- ``worst[scale]`` is the larger
+        of the two criteria at that scale (NaN if either was unusable),
+        ``failed`` lists the refused scales, ``rtol`` is the one actually
+        used, and ``columns[scale]`` is ``(relative, sigma-weighted)`` so a
+        refusal can say WHICH criterion fired.
+
+    Two changes from the original, both forced by measurement:
+
+    * **Per element, not a max over the whole codomain.** ``variation`` and
+      ``floor`` were each a maximum over EVERY leaf, so a bright leaf
+      supplied both the yardstick and the roundoff floor for a faint one.
+      Measured: an honest 1e17 component beside a false ``linear_in`` claim
+      on a 1e-2 one reported 2.57e-14 in float32 and PASSED, while the faint
+      node alone was correctly refused at 4.93e+00 -- and the resulting
+      "exact" posterior was 202 true posterior standard deviations wrong. The
+      same dilution happens between ELEMENTS of one leaf, which is the
+      realistic case: a spectrum with one bright foreground channel and five
+      faint signal ones.
+    * **A second criterion in units of sigma.** The relative measure is 0/0
+      on an element the block does not move at all; the weighted one is not,
+      and it is what the likelihood actually cares about. Either one failing
+      is a refusal, and each has a case the other cannot see -- pinned by
+      ``test_the_relative_criterion_is_load_bearing_where_sigma_hides_the_curvature``
+      and ``test_the_dilution_is_caught_within_a_single_array_too``.
+
+    The original already suspected half of this. Its own floor comment said
+    the floor must not be set "by the baseline alone, which would let an
+    unrelated bright component disable the check" -- and then took a global
+    maximum anyway. This finishes that thought.
+
+    :func:`~bayesmith.exact.gaussian.check_gaussian` made the elementwise
+    choice first, and argues it in its docstring: a summed comparison dilutes
+    a localised defect by the magnitudes of the correct entries.
+
+    Note:
+        ``sigma`` is divided by, not validated here. A scale that is zero or
+        non-finite makes the weighted column non-finite, which is a refusal
+        -- correct as a verdict, but attributed to the ``linear_in``
+        declaration rather than to the node whose scale is unusable.
+        :func:`~bayesmith.exact.gaussian.check_gaussian` names that node
+        properly, and runs when the block is built.
     """
     baseline, tangent = jax.linearize(g, zero)
     if not all(bool(jnp.all(jnp.isfinite(leaf))) for leaf in jax.tree.leaves(baseline)):
@@ -98,35 +261,41 @@ def affinity_errors(
     if rtol is None:
         rtol = 1e4 * float(jnp.finfo(dtype).eps)
     epsilon = float(jnp.finfo(dtype).eps)
+    tiny = float(jnp.finfo(dtype).tiny)
 
     errors: dict[float, float] = {}
+    columns: dict[float, tuple[float, float]] = {}
     verdicts: dict[float, bool] = {}
     for index, scale in enumerate(scales):
         probe = probe_at(index, scale)
         actual = g(probe)
         predicted = jax.tree.map(lambda b, t: b + t, baseline, tangent(probe))
-        # Measure against the VARIATION, not the total: a large constant
-        # offset would otherwise hide a completely nonlinear response.
-        variation = _biggest(jax.tree.map(jnp.subtract, actual, baseline))
-        departure = _biggest(jax.tree.map(jnp.subtract, actual, predicted))
-        errors[scale] = departure / max(variation, 1e-300)
+        worst_relative = 0.0
+        worst_weighted = 0.0
+        bad = False
+        # `baseline` comes out of `jax.linearize`, and JAX's dict pytree sorts
+        # keys unconditionally on flatten -- so it is ALREADY sorted and a
+        # `sorted()` here would be a provable no-op (P3a Task 9). Iterating it
+        # directly says that, instead of implying a guarantee this loop makes.
+        for key in baseline:
+            relative, weighted, refused = _leaf_departures(
+                actual[key],
+                baseline[key],
+                predicted[key],
+                sigma[key],
+                rtol=rtol,
+                epsilon=epsilon,
+                tiny=tiny,
+            )
+            worst_relative = _worse(worst_relative, relative)
+            worst_weighted = _worse(worst_weighted, weighted)
+            bad = bad or refused
+        errors[scale] = _worse(worst_relative, worst_weighted)
+        columns[scale] = (worst_relative, worst_weighted)
+        verdicts[scale] = bad
 
-        # A departure smaller than the arithmetic's OWN noise floor is not
-        # evidence of curvature; without this the relative measure explodes at
-        # small probes, where the variation is vanishing but roundoff is not,
-        # and rejects perfectly linear blocks. The floor is set by the
-        # magnitudes actually being differenced AT THIS PROBE -- not by a
-        # constant, which would exempt every model whose prediction is small
-        # in its own units, and not by the baseline alone, which would let an
-        # unrelated bright component disable the check.
-        floor = 1e4 * epsilon * max(_biggest(actual), _biggest(baseline))
-        # NaN must count as a FAILURE: `nan > rtol` is False, so a naive
-        # comparison reads an unusable probe as evidence of linearity.
-        finite = np.isfinite(errors[scale]) and np.isfinite(departure)
-        verdicts[scale] = (not finite) or (errors[scale] > rtol and departure > floor)
-
-    failed = sorted(scale for scale, bad in verdicts.items() if bad)
-    return errors, failed, rtol
+    failed = sorted(scale for scale, is_bad in verdicts.items() if is_bad)
+    return errors, failed, rtol, columns
 
 
 def prior_at_points(
@@ -179,7 +348,7 @@ def prior_at_points(
 def _refuse_affinity(
     names: tuple[str, ...],
     where: str,
-    errors: dict[float, float],
+    columns: dict[float, tuple[float, float]],
     failed: list[float],
     used_rtol: float,
 ) -> None:
@@ -188,6 +357,12 @@ def _refuse_affinity(
     Pure message construction with no control flow of its own -- the caller
     still decides whether to call it. Extracted so ``check_linearity``'s own
     body stays under this project's <50-line function guideline.
+
+    Reports BOTH criteria against BOTH thresholds, per probe. The guard is a
+    disjunction, so one number against one tolerance would be unreadable half
+    the time: a reader would see a value under the tolerance printed beside
+    it and conclude the guard was broken, when the other criterion is what
+    fired.
     """
     subject = (
         f"latent {names[0]!r} is declared linear, but the prediction is "
@@ -197,15 +372,21 @@ def _refuse_affinity(
         "conditional may well be, which is exactly why this is not "
         "caught one latent at a time"
     )
-    detail = ", ".join(f"{s:g}x -> {e:.2e}" for s, e in errors.items())
+    detail = ", ".join(
+        f"{scale:g}x -> {relative:.2e} | {weighted:.2e}"
+        for scale, (relative, weighted) in columns.items()
+    )
     raise StructureError(
-        f"{subject}: departure from its own linearization exceeds "
-        f"rtol={used_rtol:.2e} (above the per-probe roundoff floor) at "
+        f"{subject}: departure from its own linearization is too large at "
         f"{failed} times each latent's declared prior width, evaluated at "
-        f"{where} ({detail}). Either drop the linear_in declaration, or "
-        "re-parameterize so the model really is affine there. For a group "
-        "that is only pairwise affine, split it into separate blocks and "
-        "alternate."
+        f"{where}. Two criteria, per element, over the elements clearing the "
+        f"per-element roundoff floor -- either alone is a refusal: the "
+        f"relative departure against rtol={used_rtol:.2e}, and the departure "
+        f"in units of the noise sigma against weighted_rtol="
+        f"{WEIGHTED_RTOL:.2e}. Worst per probe (relative | sigma-weighted): "
+        f"{detail}. Either drop the linear_in declaration, or re-parameterize "
+        "so the model really is affine there. For a group that is only "
+        "pairwise affine, split it into separate blocks and alternate."
     )
 
 
@@ -235,8 +416,13 @@ def check_linearity(
         scales: probe magnitudes, as multiples of each latent's own declared
             prior standard deviation -- per element, so a latent whose prior
             width varies across its entries is probed accordingly.
-        rtol: tolerance on the relative departure from affinity. Default
-            ``1e4 * eps`` of the prediction's dtype.
+        rtol: tolerance on the **per-element** relative departure from
+            affinity. Default ``1e4 * eps`` of the prediction's dtype --
+            1.19e-03 in float32, which is what this package runs in unless a
+            caller opens ``jax.enable_x64``. It is one of two criteria: the
+            other, :data:`WEIGHTED_RTOL`, measures the same departure in
+            units of the noise sigma and is not a relative error, so this
+            keyword does not reach it.
         at_points: values of the outside latents to check at. Defaults to
             ``at`` plus ``DEFAULT_AT_POINTS - 1`` draws from the graph's own
             prior. **Passing a single point is how a check becomes a
@@ -249,8 +435,13 @@ def check_linearity(
             same points and returns the same verdict.
 
     Returns:
-        ``{at_point_index: {scale: relative error}}`` -- useful for reporting
-        how linear a block is, not only whether it passes.
+        ``{at_point_index: {scale: departure}}``, where each departure is the
+        worse of the two criteria at that scale, over the elements clearing
+        the roundoff floor -- useful for reporting how linear a block is, not
+        only whether it passes. The two are on different scales (one relative,
+        one in units of sigma), so the number says how far from affine the
+        block is, not which criterion it came from; the refusal message
+        separates them.
 
     Raises:
         GraphError: propagated from :func:`~bayesmith.exact.block._validated_names`
@@ -265,9 +456,11 @@ def check_linearity(
             here too because :func:`linear_operator` calls this function
             BEFORE ``unchecked_operator``, so a guard living only there would
             never be reached.
-        StructureError: if any scale at any at-point departs from affinity by
-            more than ``rtol`` while also exceeding the per-probe roundoff
-            floor; if the prediction is already non-finite at an at-point
+        StructureError: if any element of any prediction, at any scale at any
+            at-point, departs from affinity by more than ``rtol`` relatively
+            or by more than :data:`WEIGHTED_RTOL` in units of its own noise
+            sigma, while also clearing that element's roundoff floor; if the
+            prediction is already non-finite at an at-point
             BEFORE any probe is taken, attributed to that at-point rather
             than misdiagnosed as a failure of this block's own
             ``linear_in`` (see :func:`affinity_errors`); or if an outside
@@ -316,12 +509,18 @@ def check_linearity(
                 for position, member in enumerate(ordered)
             }
 
-        errors, failed, used_rtol = affinity_errors(
-            g, zero, probe_at, scales, rtol, at_description=where
+        errors, failed, used_rtol, columns = affinity_errors(
+            g,
+            zero,
+            probe_at,
+            scales,
+            rtol,
+            sigma=noise_std_at(graph, {**point, **zero}),
+            at_description=where,
         )
         collected[point_index] = errors
         if failed:
-            _refuse_affinity(names, where, errors, failed, used_rtol)
+            _refuse_affinity(names, where, columns, failed, used_rtol)
     return collected
 
 

@@ -54,13 +54,22 @@ from tests.exact.models import radiometer_group, tunable_curvature, two_linear_l
 def test_check_linearity_accepts_below_its_rtol(departure):
     """The quiet side of the threshold: a departure this small is roundoff.
 
-    REGION, not point: check_linearity's affinity probe never reads sigma,
-    n or the data -- only the deterministic node `mu` and each member's own
-    prior_std, which `tunable_curvature`'s `w**2 / prior_std` term is built
-    to cancel out of `departure`'s effect by design (see its docstring). So
-    this separation is independent of `tunable_curvature`'s other keyword
-    defaults; it depends only on `DEFAULT_SCALES` (the probe magnitudes) and
-    the working dtype's `rtol`, both fixed here.
+    REGION, not point: the separation is independent of
+    `tunable_curvature`'s other keyword defaults; it depends only on
+    `DEFAULT_SCALES` (the probe magnitudes) and the working dtype's `rtol`,
+    both fixed here. `n` and the data never enter -- only the deterministic
+    node `mu` and each member's own prior_std, which `tunable_curvature`'s
+    `w**2 / prior_std` term is built to cancel out of `departure`'s effect by
+    design (see its docstring).
+
+    **`sigma` DOES enter now**, through the second criterion `check_linearity`
+    gained with B1's fix: a departure worth more than `WEIGHTED_RTOL` noise
+    widths is refused whatever its relative size. That does not move this
+    boundary, and the claim is measured rather than argued -- swept over
+    `sigma` from 1e-30 to 1e+20, both sides of the threshold keep their
+    verdict at every value. The per-element roundoff floor is why: below it
+    the weighted criterion sees exactly 0.0 for these fixtures however small
+    sigma is, and above it the relative criterion has already refused.
     """
     graph = tunable_curvature(departure=departure)
     check_linearity(graph, ("w",), at={}, at_points=[{}])

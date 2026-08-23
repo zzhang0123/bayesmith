@@ -1,5 +1,6 @@
 """Checking the linear_in claim -- at several scales and at several at-points."""
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
@@ -18,13 +19,20 @@ from bayesmith.exact.linearity import (
 from tests.exact.models import (
     affine_only_at_zero,
     bilinear_pair,
+    bright_and_faint_channels,
+    bright_and_faint_observations,
+    bright_and_faint_pair,
     cubic_tail,
+    faint_alone,
     improper_outside_prior,
     nan_at_negative_probes,
     overflowing_outside_latent,
     quadratic_claim,
+    roundoff_stress,
     straight_line,
+    tunable_curvature,
     two_linear_latents,
+    two_observations,
 )
 
 
@@ -127,6 +135,11 @@ def test_affinity_errors_treats_nan_as_a_failure_in_isolation():
     departure is a clean NaN with no accompanying +inf anywhere: a naive
     `errors > rtol` comparison alone reads `nan > rtol` as False and would
     call this affine. Only the `not finite` branch catches it.
+
+    The NaN reaches BOTH criteria here, and each is checked on its own
+    finiteness, so this pins both branches at once: `sigma=1.0` is finite and
+    strictly positive, so `departure / sigma` is NaN only because `departure`
+    is.
     """
 
     def g(x):
@@ -138,8 +151,11 @@ def test_affinity_errors_treats_nan_as_a_failure_in_isolation():
         del index
         return {"w": jnp.asarray(-1.5 * scale)}
 
-    errors, failed, _ = affinity_errors(g, zero, probe_at, (1.0,), None)
+    errors, failed, _, columns = affinity_errors(
+        g, zero, probe_at, (1.0,), None, sigma={"y": jnp.asarray(1.0)}
+    )
     assert not jnp.isfinite(errors[1.0])  # confirms this probe is the clean-NaN case
+    assert all(not jnp.isfinite(column) for column in columns[1.0])
     assert failed == [1.0]
 
 
@@ -273,3 +289,229 @@ def test_the_default_scales_span_six_orders_of_magnitude():
     magnitude comes from -- not about the sweep at all.
     """
     assert max(DEFAULT_SCALES) / min(DEFAULT_SCALES) >= 1e6
+
+
+def test_a_bright_component_does_not_mask_a_false_claim_on_a_faint_one():
+    """The guard must not let one codomain leaf set another's yardstick.
+
+    Measured before the fix: `check_linearity` returned a worst relative
+    error of 2.57e-14 in float32 (3.45e-14 in float64) on this graph -- a
+    clean PASS -- while the faint node ALONE was correctly refused at
+    4.93e+00. The bright leaf supplied both the normalising `variation` and
+    the roundoff `floor`, and each dilution was independent of the other.
+
+    The consequence is not cosmetic: the "exact" posterior on this graph is
+    +1.125 against a truth of +0.803, which is 202 true posterior standard
+    deviations. `d2`'s sigma is 0.01 and `d1`'s is 1e19, so the faint node
+    carries essentially all the information.
+
+    `faint_alone` is asserted here too, in the same test, because the pair is
+    the measurement: refusing the faint node is only evidence about the
+    dilution if the SAME node is refused when its bright sibling is removed.
+    """
+    with pytest.raises(StructureError, match="not affine"):
+        check_linearity(faint_alone(), ["w"])
+    with pytest.raises(StructureError, match="not affine"):
+        check_linearity(bright_and_faint_observations(), ["w"])
+
+
+def test_the_dilution_is_caught_within_a_single_array_too():
+    """Per-leaf is not enough -- the bright and faint entries share a leaf.
+
+    Named by `test_a_bright_component_does_not_mask_a_false_claim_on_a_faint_one`,
+    and it by this one: the two are the leaf-level and element-level halves of
+    one defect, and a fix that only groups by leaf passes the first and fails
+    this. `check_gaussian` made the elementwise choice for exactly this reason
+    and says so in its own docstring.
+    """
+    with pytest.raises(StructureError, match="not affine"):
+        check_linearity(bright_and_faint_channels(), ["w"])
+
+
+def test_an_affine_model_with_the_same_dynamic_range_still_passes():
+    """The two-sided half: huge dynamic range alone must NOT trip the guard.
+
+    Without this, a "fix" that simply tightened the tolerance would pass both
+    tests above while refusing every legitimate wide-dynamic-range model --
+    which is most of this package's intended use.
+
+    Only `mu`'s own fn is replaced, so the honest twin differs from the lying
+    graph in exactly one node: same 1e17 first channel, same per-channel
+    sigmas, same prior, same probes. `mu` is located by NAME rather than by
+    position -- measured, `bright_and_faint_channels().nodes[2]` is `w`, a
+    `Probabilistic` with no `fn` field at all, so a hard-coded index makes
+    this test raise `AttributeError` instead of testing anything.
+    """
+    graph = bright_and_faint_channels(w_true=0.8)
+    where = next(i for i, node in enumerate(graph.nodes) if node.name == "mu")
+    honest = eqx.tree_at(
+        lambda g: g.nodes[where].fn,
+        graph,
+        replace=lambda w_, x_, c_: w_ * x_,
+    )
+    assert check_linearity(honest, ["w"])
+
+
+@pytest.mark.parametrize("bright", [1e-17, 1e-6, 1.0, 1e6, 1e17])
+def test_the_dilution_is_caught_across_the_whole_brightness_range(bright):
+    """Both ENDPOINTS, not only the one the defect was reported at.
+
+    `boundary-validation.md`: a probe that only tests the parameter value the
+    bug was found at cannot say whether the fix has a working range. 1e17 is
+    an endpoint of the plausible range, so the low end is swept too -- at
+    `bright=1e-17` the "bright" leaf is 1e17 times FAINTER than the faint
+    one, which is the same dilution with the roles exchanged, and the false
+    claim must still be refused.
+    """
+    with pytest.raises(StructureError, match="not affine"):
+        check_linearity(bright_and_faint_channels(bright=bright), ["w"])
+
+
+def test_the_dilution_is_caught_for_a_two_member_block():
+    """The structural dimension the other bright/faint fixtures do not cover.
+
+    Every other fixture here has a ONE-member block, so none of them says
+    whether the per-element comparison survives the probe scheme's per-member
+    random directions -- the probe is a different random draw per member, and
+    a joint claim is what `bilinear_pair` shows a per-latent check cannot
+    see. Here the two are combined: only the JOINT claim is false, and only
+    on the faint channels.
+    """
+    with pytest.raises(StructureError, match="JOINTLY"):
+        check_linearity(bright_and_faint_pair(), ["a", "b"])
+
+
+def test_the_relative_criterion_is_load_bearing_where_sigma_hides_the_curvature():
+    """The other two-sided half: `rtol` must still decide something on its own.
+
+    The guard refuses on EITHER of two criteria -- a per-element relative
+    departure against `rtol`, and a departure in units of sigma against
+    `WEIGHTED_RTOL` -- so each needs a case the other cannot reach, or one of
+    them is dead code that a future edit can delete without any test noticing.
+
+    This is the relative half's case. `sigma=1e9` makes the departure worth
+    1.5e-04 sigma at the widest probe, far under `WEIGHTED_RTOL`, while the
+    prediction still differs from its own linearization by ~100% -- so the
+    sigma-weighted criterion sees nothing and only `rtol` refuses. `rtol` is
+    a documented public kwarg, and this is what it decides.
+    """
+    with pytest.raises(StructureError, match="not affine"):
+        check_linearity(tunable_curvature(departure=1e-1, sigma=1e9), ["w"])
+
+
+def test_the_refusal_reports_both_criteria_and_both_thresholds():
+    """One number in the message would not say WHICH criterion refused.
+
+    The guard is a disjunction, so a message quoting a single error against a
+    single threshold is unreadable half the time: a reader sees a number that
+    does not exceed the tolerance printed beside it and concludes the guard
+    is broken. Both columns and both thresholds are reported per probe.
+    """
+    with pytest.raises(StructureError) as raised:
+        check_linearity(bright_and_faint_channels(), ["w"])
+    message = str(raised.value)
+    assert "rtol=" in message
+    assert "weighted_rtol=" in message
+    assert "relative" in message and "sigma-weighted" in message
+
+
+def test_the_per_element_denominator_sees_a_faint_lie_the_noise_cannot():
+    """The two repairs are separable, and this separates them.
+
+    The dilution is caught by two independent halves of the fix: the
+    per-element roundoff FLOOR (which the sigma-weighted criterion is gated
+    by) and the per-element normalising DENOMINATOR. Measured -- reverting
+    the denominator alone to a global maximum over every leaf leaves every
+    other test in this file green, because the weighted criterion catches
+    those fixtures on the floor alone.
+
+    `sigma_faint=1e13` is not a model of anything -- it is chosen to switch
+    the weighted criterion off, and nothing else. Measured, the faint node's
+    departure is then worth at most 9e-07 sigma across all three probes, four
+    orders under `WEIGHTED_RTOL`, so only the relative criterion is left. Its
+    per-element denominator is what this test pins: replace it with a global
+    maximum and the bright leaf's 1e17 variation drives the ratio to ~1e-14,
+    the lie passes, and every other test in this file stays green.
+    """
+    with pytest.raises(StructureError, match="not affine"):
+        check_linearity(bright_and_faint_observations(sigma_faint=1e13), ["w"])
+
+
+def test_the_sigma_weighted_criterion_survives_a_loosened_rtol():
+    """`rtol` is a public kwarg, so it can be loosened until it decides nothing.
+
+    `WEIGHTED_RTOL` has no kwarg and cannot be, which is the point: a caller
+    who widens `rtol` to accommodate a noisy model has not thereby said that
+    a departure worth 4.7e+07 noise widths is acceptable.
+
+    Measured: with `rtol=1e6` the relative criterion cannot fire on any
+    fixture in this file (its largest relative departure is 1.0 by
+    construction, since `departure <= variation` whenever the linearization
+    is the zero map), so this test fails the moment the sigma-weighted half
+    is removed -- which no other test in this file does.
+
+    `tunable_curvature(1e-6)` rather than a grosser lie because it also pins
+    `WEIGHTED_RTOL`'s VALUE from above: its above-floor weighted departure is
+    1.17e+01, so loosening the threshold by 1e6 makes this test go red, where
+    a fixture sitting 4.7e+12 above it would survive any loosening a typo
+    could plausibly introduce.
+    """
+    with pytest.raises(StructureError, match="not affine"):
+        check_linearity(tunable_curvature(departure=1e-6), ["w"], rtol=1e6)
+
+
+def test_a_lone_lying_channel_is_not_diluted_by_five_honest_ones():
+    """The reduction over elements must be `any`, not an average.
+
+    `bright_and_faint_channels()`'s default puts the false claim on five of
+    six channels, so the mean of the per-element departures is within 6/5 of
+    their maximum -- measured, an averaging reduction still refuses it, and
+    the default fixture therefore cannot tell the two apart. With ONE lying
+    channel the average is diluted by a factor of six by the honest entries,
+    and by an unbounded factor as the array grows.
+
+    This is `check_gaussian`'s own argument for its elementwise probe, and
+    the reason `linear_operator` is allowed to be trusted on a spectrum whose
+    defect lives in a single channel.
+    """
+    with pytest.raises(StructureError, match="not affine"):
+        check_linearity(bright_and_faint_channels(lying=1), ["w"])
+
+
+def test_a_covariate_grid_containing_an_exact_zero_is_not_a_failure():
+    """An element the block cannot move at all is 0/0, and must not be a NaN.
+
+    `two_observations`'s second covariate grid is `linspace(-1, 1, 5)`, whose
+    third entry is exactly `0.0`, so `mu2[2]` is identically zero for every
+    `w`: variation 0, departure 0. The per-element relative measure divides
+    those, and the divisor is floored at `finfo(dtype).tiny` for exactly this
+    reason. Measured: with the `1e-300` literal this guard was first drafted
+    with, that floor UNDERFLOWS to 0.0 in float32, the ratio is `0/0 = NaN`,
+    the finiteness branch reads NaN as a failure, and this entirely honest
+    fixture is refused because its covariate grid contains a zero.
+
+    float64 hides the whole thing -- 1e-300 is representable there -- so this
+    test is only meaningful at the dtype the suite actually runs.
+    """
+    assert check_linearity(two_observations(), ["w"])
+
+
+@pytest.mark.parametrize("big, sigma", [(1e0, 1e-2), (1e6, 1e-2), (1e15, 1e-2)])
+def test_a_true_claim_with_real_roundoff_passes_at_any_offset_ratio(big, sigma):
+    """The lower bound on the sigma-weighted criterion, and the only one.
+
+    Every other honest fixture in `models.py` is bitwise exact -- the primal
+    and the linearization evaluate the same expression in the same order, so
+    the departure is identically zero and nothing bounds any tolerance from
+    below. `roundoff_stress` has a REAL departure of order `eps * big * x`
+    with a `linear_in` claim that is nonetheless exactly true.
+
+    `departure / sigma` grows with the offset-to-noise ratio rather than with
+    curvature, so ungated it reaches 2.44e-02 at a ratio of 1e2 in float32 --
+    24 times `WEIGHTED_RTOL` -- for a model with no curvature at all. The
+    per-element roundoff floor is what drives it to exactly 0. Without this
+    test the floor on the weighted criterion can be deleted and the suite
+    stays green, while every wide-dynamic-range model this package targets is
+    refused.
+    """
+    assert check_linearity(roundoff_stress(big=big, sigma=sigma), ["w"])

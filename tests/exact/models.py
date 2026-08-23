@@ -715,3 +715,173 @@ def unconstrained_latent(*, n=5, sigma=0.5, seed=11):
         observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
 
     return trace(model)
+
+
+def bright_and_faint_observations(*, n=6, bright=1e17, sigma_faint=0.01, w_true=0.8):
+    """An honest BRIGHT node beside a lying FAINT one that dominates the posterior.
+
+    `affinity_errors` normalised `departure` by a `variation` taken as a max
+    over EVERY codomain leaf, so the bright node set the yardstick -- and the
+    roundoff floor -- for the faint one. Measured before the fix:
+    `check_linearity` returned 3.45e-14 and PASSED (float64; 2.57e-14 in
+    float32, which is what the suite runs), while `mu2` alone was correctly
+    refused at 4.93e+00, and the "exact" answer was off by 202 true posterior
+    standard deviations.
+
+    `bright=1e17` is not adversarial engineering; it is the dynamic range
+    this package targets -- a foreground in K beside a signal in mK is 1e6,
+    and an interferometric visibility against a monopole is far more.
+
+    No `seed`: every array here is exact, with no noise draw to seed. A
+    `seed=` kwarg would be dead, and a reader would reasonably expect
+    changing it to change the data.
+    """
+    x1 = jnp.linspace(1.0, 2.0, n)
+    x2 = jnp.linspace(1.0, 2.0, n)
+    d1 = bright * w_true * x1
+    d2 = (w_true + 0.5 * w_true**2) * x2
+
+    def model():
+        a = const("X1", x1)
+        b = const("X2", x2)
+        w = sample("w", lambda: dist.Normal(0.0, 3.0))
+        m1 = det("mu1", lambda w_, x_: bright * w_ * x_, w, a, linear_in=("w",))
+        m2 = det("mu2", lambda w_, x_: (w_ + 0.5 * w_**2) * x_, w, b, linear_in=("w",))
+        observe("d1", lambda u: dist.Normal(u, bright * 100.0), m1, obs=d1)
+        observe("d2", lambda u: dist.Normal(u, sigma_faint), m2, obs=d2)
+
+    return trace(model)
+
+
+def faint_alone(*, n=6, sigma_faint=0.01, w_true=0.8):
+    """`bright_and_faint_observations`'s faint node, with no bright sibling.
+
+    The control the defect is read against: the SAME false claim on the SAME
+    node, so a difference in verdict between this and its sibling above can
+    only be the bright leaf's doing. Measured before the fix: refused here at
+    4.93e+00 and accepted there at 3.45e-14.
+    """
+    x2 = jnp.linspace(1.0, 2.0, n)
+    d2 = (w_true + 0.5 * w_true**2) * x2
+
+    def model():
+        b = const("X2", x2)
+        w = sample("w", lambda: dist.Normal(0.0, 3.0))
+        m2 = det("mu2", lambda w_, x_: (w_ + 0.5 * w_**2) * x_, w, b, linear_in=("w",))
+        observe("d2", lambda u: dist.Normal(u, sigma_faint), m2, obs=d2)
+
+    return trace(model)
+
+
+def bright_and_faint_channels(*, n=6, bright=1e17, sigma=0.01, w_true=0.8, lying=None):
+    """The same dilution WITHIN ONE ARRAY -- one bright channel, five faint.
+
+    Sibling of `bright_and_faint_observations`, and the more realistic of the
+    two: a spectrum whose first channel carries a bright foreground and whose
+    remaining channels carry the signal is one observed node, not two. A
+    per-LEAF fix is not enough here -- only a per-ELEMENT comparison sees it,
+    which is the same argument `check_gaussian`'s docstring already makes for
+    its own elementwise probe.
+
+    `C` is a `const` rather than a literal so the curvature can be switched
+    off channel by channel, and so the honest twin of this graph differs from
+    it in exactly one node -- see
+    `test_an_affine_model_with_the_same_dynamic_range_still_passes`.
+
+    Args:
+        lying: how many of the trailing (faint) channels carry the false
+            claim. Defaults to every one of them but the bright channel,
+            which is the configuration the verdict tables were measured at.
+            `lying=1` puts the defect in a MINORITY of entries, which is the
+            only configuration that can tell a per-element `any` apart from
+            an average over the array: with five of six channels lying, the
+            mean of the per-element departures is within 6/5 of their
+            maximum and dilution is invisible.
+    """
+    lying = n - 1 if lying is None else lying
+    x = jnp.concatenate([jnp.array([bright]), jnp.linspace(1.0, 2.0, n - 1)])
+    curvature = jnp.concatenate([jnp.zeros(n - lying), jnp.full(lying, 0.5)])
+    truth = (w_true + curvature * w_true**2) * x
+    scale = jnp.concatenate([jnp.array([bright * 100.0]), jnp.full(n - 1, sigma)])
+
+    def model():
+        xs = const("X", x)
+        cs = const("C", curvature)
+        w = sample("w", lambda: dist.Normal(0.0, 3.0))
+        mu = det(
+            "mu", lambda w_, x_, c_: (w_ + c_ * w_**2) * x_, w, xs, cs, linear_in=("w",)
+        )
+        observe("d", lambda u: dist.Normal(u, scale), mu, obs=truth)
+
+    return trace(model)
+
+
+def bright_and_faint_pair(*, n=6, bright=1e17, sigma=0.01, a_true=0.8, b_true=-0.35):
+    """`bright_and_faint_channels` with a TWO-member block: `mu = (a + b + C a b) X`.
+
+    The dilution and the joint claim in one graph, which no other fixture
+    covers: every other bright/faint fixture has a single-member block, so
+    they cannot say whether the per-element comparison survives the probe
+    scheme's per-member random directions. Each conditional here really is
+    affine -- `bilinear_pair`'s point -- so only the JOINT claim is false,
+    and only on the faint channels, where `C` is non-zero.
+
+    The bright channel dilutes it exactly as before: its own departure is
+    zero (`C[0] == 0`) while its variation is 1e17 times everyone else's, so
+    a `max(departure) / max(variation)` taken across the array reports ~1e-17
+    and passes.
+    """
+    x = jnp.concatenate([jnp.array([bright]), jnp.linspace(1.0, 2.0, n - 1)])
+    curvature = jnp.concatenate([jnp.zeros(1), jnp.full(n - 1, 0.5)])
+    truth = (a_true + b_true + curvature * a_true * b_true) * x
+    scale = jnp.concatenate([jnp.array([bright * 100.0]), jnp.full(n - 1, sigma)])
+
+    def model():
+        xs = const("X", x)
+        cs = const("C", curvature)
+        a = sample("a", lambda: dist.Normal(0.0, 3.0))
+        b = sample("b", lambda: dist.Normal(0.0, 2.0))
+        mu = det(
+            "mu",
+            lambda a_, b_, x_, c_: (a_ + b_ + c_ * a_ * b_) * x_,
+            a,
+            b,
+            xs,
+            cs,
+            linear_in=("a", "b"),
+        )
+        observe("d", lambda u: dist.Normal(u, scale), mu, obs=truth)
+
+    return trace(model)
+
+
+def roundoff_stress(*, big, sigma, n=6):
+    """``mu = (w + big) X`` -- exactly affine in ``w``, with REAL roundoff.
+
+    Every other honest fixture here is bitwise exact: ``g(probe)`` and
+    ``baseline + tangent(probe)`` evaluate the same expression in the same
+    association order, so the departure from affinity is identically zero and
+    nothing bounds any tolerance from below at all. ``(w + big) * x`` breaks
+    that tie honestly -- the primal computes ``(probe + big) * x``, the
+    linearization computes ``big * x + probe * x``, and the two differ by
+    ordinary float rounding of order ``eps * big * x``. The claim
+    ``linear_in=("w",)`` is TRUE.
+
+    ``big / sigma`` is the offset-to-noise ratio, which is what the
+    sigma-weighted criterion has to survive: ``departure / sigma`` grows with
+    that ratio rather than with curvature, so ungated it reaches 2.44e-02 at
+    a ratio of 1e2 in float32 -- far above `WEIGHTED_RTOL` -- for a model
+    with no curvature whatsoever. The per-element roundoff floor is what
+    drives every one of those to exactly 0. Measured in Task 1's verdict
+    tables; this fixture is where the suite keeps that measurement.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = (1.0 + big) * x
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        mu = det("mu", lambda w_, x_: (w_ + big) * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
