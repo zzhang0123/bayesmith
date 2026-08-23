@@ -9,7 +9,7 @@ from bayesmith.exact.block import domain_zero, variance_parts
 from bayesmith.exact.gaussian import noise_std_at
 from bayesmith.exact.linearity import linear_operator
 from bayesmith.exact.solve import condition_bound, normal_operator
-from tests.exact.models import straight_line, two_linear_latents
+from tests.exact.models import prior_held_direction, straight_line, two_linear_latents
 from tests.exact.oracle import graph_oracle
 
 
@@ -36,13 +36,30 @@ def test_the_bound_is_lambda_max_times_the_loosest_prior_variance():
     assert bound == pytest.approx(largest * loosest_variance, rel=1e-3)
 
 
-@pytest.mark.parametrize("loosened", [1.0, 1e2, 1e4])
+@pytest.mark.parametrize("loosened", [1e-4, 1e-2, 1e-1, 1.0, 1e2, 1e4])
 def test_the_bound_is_never_below_the_true_condition_number(loosened):
-    """The whole point: it may refuse a good solve, never accept a bad one.
+    """The whole point: the bound may refuse a good solve, never accept a bad one.
 
-    Swept across four orders of magnitude of prior width, because the bound is
-    tight at one end (the prior alone holds a direction, so lambda_min IS the
-    prior curvature) and loose at the other. Both must stay on the safe side.
+    Swept across eight orders of magnitude of prior width, **in both
+    directions**. Only widening was probed originally, and that half cannot
+    exercise the guarantee at all on this fixture: `a`'s prior variance stays
+    at 25 while the data alone pins `lambda_min` at 75.0 (set by the design
+    and n/sigma**2, not by either prior), so `min(prior_variance) = 25` stays
+    far above `1/lambda_min = 0.013` however far `b` is widened, and a
+    tightest-prior aggregation still lands 1875x ABOVE the true kappa.
+
+    Tightening is where the guarantee is actually load-bearing, and the
+    crossover has a closed form: below
+
+        L* = 1 / sqrt(S_b * lambda_min_data) = 1 / sqrt(49 * 75.02) = 0.0165
+
+    `b`'s prior is tighter than what the data supplies in the weakest
+    direction, so `min(prior_variance)` stops being a valid floor. Measured
+    ratios of a min-based bound to the true kappa: 5.8e-5 at 1e-4, 0.579 at
+    1e-2 (just inside the boundary), 37.8 at 1e-1 (just outside), 1875 at 1
+    and above. The parametrisation deliberately straddles L* rather than
+    only sampling far from it -- boundary-validation.md's rule is to evaluate
+    at the threshold and on both sides of it.
     """
     import dataclasses
 
@@ -186,3 +203,49 @@ def test_the_normal_operator_sums_over_every_observed_node():
         applied = float(normal({"w": jnp.asarray(1.0)})["w"])
         oracle = graph_oracle(graph, ("w",), at={})
     assert applied == pytest.approx(float(oracle.precision[0, 0]), rel=1e-8)
+
+
+def test_the_bound_is_tight_when_the_prior_alone_holds_a_direction():
+    """The regime `condition_bound` exists for, and the justification for its
+    whole design -- which until now nothing tested.
+
+    Every other test of this bound sits on the LOOSE side (3676x, 1e8x, 1e11x
+    over the true kappa) because their fixtures let the data constrain every
+    direction far better than the prior does. The design's defence is about
+    the other side: where the data does not identify a direction, lambda_min
+    IS the prior's curvature and the bound is exact. Measured here: ratio
+    1.0000.
+    """
+    with jax.enable_x64(True):
+        graph = prior_held_direction()
+        block = linear_operator(graph, ("tight", "loose"), at={})
+        sigma = _sigma(graph, {"tight": jnp.asarray(0.0), "loose": jnp.asarray(0.0)})
+        bound = float(condition_bound(block, noise_std=sigma, iterations=80))
+        oracle = graph_oracle(graph, ("tight", "loose"), at={})
+    true_kappa = float(np.linalg.cond(oracle.precision))
+    assert bound == pytest.approx(true_kappa, rel=1e-3)
+
+
+def test_the_bound_uses_the_loosest_prior_not_the_tightest():
+    """Taking the tightest prior would drop the bound BELOW the true kappa.
+
+    That is not a smaller number, it is the loss of the only guarantee this
+    function offers: an upper bound that a convergence guard can be built on.
+    Measured on this fixture, a tightest-prior aggregation lands 1e-8 times
+    the true condition number.
+
+    `two_linear_latents` cannot show this -- there the mutated value is still
+    1875x above the true kappa, so the mutation escapes entirely.
+    """
+    with jax.enable_x64(True):
+        graph = prior_held_direction()
+        block = linear_operator(graph, ("tight", "loose"), at={})
+        sigma = _sigma(graph, {"tight": jnp.asarray(0.0), "loose": jnp.asarray(0.0)})
+        bound = float(condition_bound(block, noise_std=sigma, iterations=80))
+        oracle = graph_oracle(graph, ("tight", "loose"), at={})
+        tightest = float(np.min(oracle.prior_std**2))
+        loosest = float(np.max(oracle.prior_std**2))
+    assert loosest / tightest > 1e6, "fixture no longer separates the two priors"
+    assert bound >= float(np.linalg.cond(oracle.precision)) * (1.0 - 1e-6)
+    # And the tightest-prior aggregation would be catastrophically below it.
+    assert bound * (tightest / loosest) < float(np.linalg.cond(oracle.precision))

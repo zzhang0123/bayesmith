@@ -132,6 +132,36 @@ def two_observations(*, n=7, m=5, weight=1.25, s1=0.3, s2=0.9, seed=4):
     return trace(model)
 
 
+def prior_held_direction(*, n=6, sigma=0.4, seed=21):
+    """One direction held by the prior alone, one held tightly by the data.
+
+    ``loose`` reaches no observed node, so the only thing bounding the normal
+    operator from below in its direction is its own prior curvature --
+    ``lambda_min`` IS ``1/100**2``. ``tight`` has a narrow prior and does see
+    data. That combination is the regime `condition_bound` was designed for,
+    and it is the only shape on which the bound's guarantee can actually be
+    tested: measured, the bound comes out at exactly 1.0000x the true
+    condition number, while the tightest-prior mutation of it lands 1e-8x
+    below -- a factor of 1e8 in the direction that would destroy the
+    guarantee.
+
+    `two_linear_latents` cannot do either job: its data constrains both
+    directions far better than either prior, so the bound is 3676x loose and
+    a tightest-prior mutation still sits 1875x ABOVE the true kappa.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = 0.02 * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        tight = sample("tight", lambda: dist.Normal(0.0, 0.01))
+        sample("loose", lambda: dist.Normal(0.0, 100.0))
+        mu = det("mu", lambda t, x_: t * x_, tight, xs, linear_in=("tight",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
 def plated_latent(*, n=6, sigma=0.4, tau=1.5, seed=5):
     """``z_i ~ N(0, tau)``, ``d_i ~ N(z_i, sigma)`` under one plate.
 

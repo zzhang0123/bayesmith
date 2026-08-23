@@ -106,10 +106,16 @@ def _condition_bound(
     since the measured ``lambda_max`` differs from the true one only by the
     power iteration's own small, one-sided error. When the prior alone holds
     that direction, ``lambda_min`` equals ``1 / max(prior_variance)``, the
-    factor is 1, and the bound is exact. It grows in the opposite regime --
-    data far tighter than the prior in every direction -- where the guard
-    may refuse a solve that was in fact accurate; measured on
-    ``two_linear_latents`` at its declared (unwidened) prior widths: 3676x.
+    factor is 1, and the bound is exact.
+    ``test_the_bound_is_tight_when_the_prior_alone_holds_a_direction`` (in
+    ``tests/exact/test_solve.py``) is what pins that half of the claim --
+    every other test of this bound sits on the loose side (3676x-1e11x over
+    the true kappa, because their fixtures let the data constrain every
+    direction), so until that test existed the design's own justification
+    was untested. It grows in the opposite regime -- data far tighter than
+    the prior in every direction -- where the guard may refuse a solve that
+    was in fact accurate; measured on ``two_linear_latents`` at its
+    declared (unwidened) prior widths: 3676x.
     That regime is also where CG converges in a handful of iterations and
     the residual is small enough to absorb the slack, which is why the
     trade is worth taking.
