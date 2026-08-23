@@ -89,13 +89,81 @@ def test_check_gaussian_catches_a_distribution_that_lies_about_its_log_prob():
         check_gaussian(graph, graph.node("d"), env)
 
 
+def test_the_probe_evaluates_log_prob_at_the_shape_the_node_s_value_takes():
+    """A dist_fn correct on a scalar and wrong on an array must be refused.
+
+    `gaussian_parts` returns dist_fn's own batch shape, which for a plated
+    latent with an unplated prior -- and for an unplated observed node with
+    vector data -- is a SCALAR while the node's value is an array. Probing at
+    the scalar evaluates log_prob at a shape the consumer never uses.
+
+    Measured before this guard existed: every reported error was exactly 0.0
+    against a real discrepancy of 2.0e6 nats over 2000 observations.
+    """
+
+    class ShapeSensitiveNormal(dist.Normal):
+        def log_prob(self, value):
+            true = super().log_prob(value)
+            return true if jnp.ndim(value) == 0 else true + 1000.0
+
+    def model():
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        observe("d", lambda w_: ShapeSensitiveNormal(w_, 0.7), w, obs=jnp.zeros(200))
+
+    graph = trace(model)
+    env = evaluate(graph, {"w": jnp.asarray(0.3)})
+    loc, _ = gaussian_parts(graph, graph.node("d"), env)
+    assert jnp.shape(loc) == ()  # the gap this test exists for
+    assert node_shape(graph, graph.node("d"), env) == (200,)
+    with pytest.raises(StructureError, match="log_prob"):
+        check_gaussian(graph, graph.node("d"), env)
+
+
+def test_the_probe_is_not_diluted_by_the_entries_that_are_correct():
+    """One wrong element among many must not hide behind the others.
+
+    Measured directly against this module's own check_gaussian: a summed
+    comparison dilutes one entry off by 50 nats below the default rtol only
+    once there are enough OTHER entries to swamp it -- around 750,000, for
+    this fixture's smallest-magnitude probe (offset 0.0, scale 0.7). Below
+    that the summed comparison still raises regardless, so it cannot be told
+    apart from the elementwise one: at 5,000 entries -- this test's first
+    draft -- the summed relative error ranges from 1.975e-3 (offset -3.0) to
+    1.78e-2 (offset 0.0), both far above rtol, so THAT mutation went
+    undetected here even though it is a real regression. 2,000,000 entries
+    give comfortable margin (worst-offset relative error 4.45e-5 against
+    rtol 1.19e-4) and still run in a couple hundred milliseconds. Elementwise
+    reports 50 regardless of n.
+    """
+
+    class OneBadEntryNormal(dist.Normal):
+        def log_prob(self, value):
+            true = super().log_prob(value)
+            return true.at[0].add(50.0) if jnp.ndim(value) > 0 else true
+
+    def model():
+        xs = const("X", jnp.ones(2_000_000))
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda u: OneBadEntryNormal(u, 0.7), mu, obs=jnp.zeros(2_000_000))
+
+    graph = trace(model)
+    env = evaluate(graph, {"w": jnp.asarray(0.3)})
+    with pytest.raises(StructureError, match="log_prob"):
+        check_gaussian(graph, graph.node("d"), env)
+
+
 def test_check_gaussian_refuses_a_scale_that_is_not_strictly_positive():
     def model():
         w = sample("w", lambda: dist.Normal(0.0, 1.0))
         observe("d", lambda w_: dist.Normal(w_, 0.0), w, obs=jnp.zeros(()))
 
     graph = trace(model)
-    with pytest.raises(StructureError, match="scale"):
+    # Matching the strict-positivity guard's OWN words, not just "scale": with
+    # a looser match, mutating `scale > 0` to `scale >= 0` still passes,
+    # because sigma=0 then reaches the probe loop, log(0) makes `predicted`
+    # non-finite, and that refusal's message also contains the word "scale".
+    with pytest.raises(StructureError, match="strictly positive"):
         check_gaussian(graph, graph.node("d"), evaluate(graph, {"w": jnp.asarray(0.0)}))
 
 
