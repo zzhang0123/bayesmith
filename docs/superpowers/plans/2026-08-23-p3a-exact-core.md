@@ -5118,6 +5118,20 @@ git commit -m "feat: wire the exact solves into the public API, with boundary an
 
 ---
 
+## 一个不可能的目标（Task 6 实测，2026-08-23）
+
+要求 `test_the_precision_floor_alone_makes_the_guard_unreachable` 既**孤立**地址实地板项、又让 `error_bound` **超出阈值一个数量级**，是**自相矛盾**的。设 `r = residual/eps`：
+
+* `at_precision_floor` 触发 ⟺ `r ≤ PRECISION_FLOOR = 10`（定义）
+* 地板项要成为**孤立**的原因，需 `require_convergence > bound·eps`
+* 「超出一个数量级」⟹ `r·(bound·eps) ≥ 10·require_convergence > 10·(bound·eps)` ⟹ `r > 10`
+
+两者直接冲突。实测扫过三个模型族约 300 组参数，`r` 从未超过 **2.55**，所以任何写死的 `require_convergence` 都无法同时满足。
+
+**替代方案**：把 `require_convergence` 从这次运行**自己测出的** `error_bound` 导出（`error_bound / 2`），于是 `bad` 按构造为真，与变异把数字推到哪里无关。实测余量：比 `bound·eps` 高 1.28 倍、比 `error_bound` 低 2 倍。
+
+> **教训**：给出一个数值目标前，先算它是否与已有约束相容。`PRECISION_FLOOR = 10` 和「超出一个数量级」都是我写的，冲突就摆在纸面上，两行代数即可看出——而我是在实现者证明它不可能之后才算的。
+
 ## 验收关口证明什么、不证明什么（Task 6 实测，2026-08-23）
 
 `test_wiener_solve_matches_the_dense_oracle` 是本计划的验收判据，实测 R1 与 R2 在四个 fixture 上一致到 **3.07e-16 / 1.81e-16 / 2.58e-16 / 0.0**——float64 的 ULP 地板。但**它证明的是线性代数，不是模型**。
