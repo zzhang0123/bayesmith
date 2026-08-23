@@ -275,3 +275,72 @@ def shared_ancestor(*, n=6, sigma=0.5, seed=7):
         observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
 
     return trace(model)
+
+
+def cubic_tail(*, n=6, curvature=1e-6, prior_std=1.0, sigma=0.5, seed=9):
+    """``mu = (w + curvature w**3) X`` -- affine only for small ``|w|``.
+
+    ``linear_in=("w",)`` is false, but detectably so only at probes large
+    enough for the cubic term to matter -- and what sets that scale is the
+    declared prior width. The SAME fn therefore passes with a narrow prior
+    and fails with a wide one, which is the cleanest demonstration that the
+    probe magnitude is read off the prior rather than fixed.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = 1.0 * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, prior_std))
+        mu = det(
+            "mu", lambda w_, x_: (w_ + curvature * w_**3) * x_, w, xs, linear_in=("w",)
+        )
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def affine_only_at_zero(*, n=6, sigma=0.4, seed=10):
+    """``mu = (x + z**2 x**2) X`` -- affine in ``x`` only where ``z == 0``.
+
+    ``z ~ N(3, 1)``, so a prior draw lands nowhere near zero. A check that
+    probes only at the caller's ``at`` (with z pinned to 0) passes; a check
+    that also probes at prior draws does not. That gap is the entire reason
+    check_linearity takes several at-points.
+    """
+    x_grid = jnp.linspace(1.0, 2.0, n)
+    data = 1.0 * x_grid + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x_grid)
+        z = sample("z", lambda: dist.Normal(3.0, 1.0))
+        x = sample("x", lambda: dist.Normal(0.0, 1.0))
+        mu = det(
+            "mu",
+            lambda x_, z_, g_: (x_ + z_**2 * x_**2) * g_,
+            x,
+            z,
+            xs,
+            linear_in=("x",),
+        )
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def nan_at_negative_probes(*, n=4, sigma=0.5):
+    """``mu = sqrt(w) X`` -- NaN wherever a probe goes negative.
+
+    Half of every symmetric probe does. NaN must count as a FAILURE:
+    `nan > rtol` is False, so a naive comparison reads an unusable probe as
+    evidence of linearity.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(4.0, 1.0))
+        mu = det("mu", lambda w_, x_: jnp.sqrt(w_) * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=2.0 * x)
+
+    return trace(model)

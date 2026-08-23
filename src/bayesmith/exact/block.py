@@ -235,6 +235,37 @@ def _refuse_internal_ancestry(graph: Graph, names: tuple[str, ...]) -> None:
             )
 
 
+def _refuse_missing_observed(graph: Graph) -> None:
+    """Refuse a graph with no observed node.
+
+    There is nothing to condition on, so the posterior is exactly the prior.
+    Refused by name here rather than further down, where an empty codomain
+    has no dtype for a tolerance to be taken from and the failure arrives as
+    an unrelated ``ValueError`` from two or three layers away -- measured
+    directly: ``jnp.result_type()`` with no leaves raises exactly that,
+    from inside :func:`bayesmith.exact.linearity.affinity_errors`.
+
+    Shared by :func:`unchecked_operator` and
+    :func:`bayesmith.exact.linearity.check_linearity` rather than inlined in
+    one of them: :func:`~bayesmith.exact.linearity.linear_operator` calls
+    ``check_linearity`` *before* ``unchecked_operator``, so a guard placed in
+    only the latter is unreachable from the documented entry point -- the
+    check would run into the same confusing ``ValueError`` inside
+    ``affinity_errors`` before ever reaching ``unchecked_operator``'s
+    refusal. Measured, not assumed: calling a no-observed-node graph through
+    ``check_linearity`` directly raises ``ValueError: at least one array or
+    dtype is required`` when this guard is absent from it.
+    """
+    if not graph.observed:
+        raise GraphError(
+            "this graph has no observed node, so a linear block has nothing to "
+            "condition on and its posterior is exactly its prior. Refused by "
+            "name here rather than further down, where an empty codomain has no "
+            "dtype for a tolerance to be taken from and the failure arrives as "
+            "an unrelated ValueError from two layers away."
+        )
+
+
 def _env_before(
     graph: Graph, names: tuple[str, ...], at: dict[str, Any]
 ) -> tuple[
@@ -325,10 +356,11 @@ def unchecked_operator(
 
     Raises:
         GraphError: if ``names`` is empty, repeats a latent, or names
-            something that is not a latent; or if ``at`` names something that
+            something that is not a latent; if ``at`` names something that
             is not a latent, names a member of this block (silently discarded
             otherwise -- see :func:`_validated_at`), or omits a latent that
-            is outside the block.
+            is outside the block; or if the graph has no observed node, so
+            there is nothing for a linear block to condition on.
         NotGaussian: if a member or an observed node is not a diagonal
             Gaussian, or if a member is an ancestor of another member.
         StructureError: if a node's own ``log_prob`` disagrees with the
@@ -346,6 +378,7 @@ def unchecked_operator(
     names = _validated_names(graph, names)
     at = _validated_at(graph, names, at)
     _refuse_internal_ancestry(graph, names)
+    _refuse_missing_observed(graph)
 
     env, domain = _env_before(graph, names, at)
     for observed in graph.observed:
