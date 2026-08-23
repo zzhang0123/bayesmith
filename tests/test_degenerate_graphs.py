@@ -4,7 +4,6 @@ Every one of these is a shape a user will eventually build by accident, and
 each exercises a branch that a comfortable three-node example never reaches.
 """
 
-import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
 import pytest
