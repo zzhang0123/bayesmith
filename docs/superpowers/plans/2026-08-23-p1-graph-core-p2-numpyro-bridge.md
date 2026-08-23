@@ -1159,7 +1159,7 @@ def log_joint(graph: Graph, values: Mapping[str, Any] | None = None) -> jax.Arra
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `.venv/bin/python -m pytest tests/test_evaluate.py -v`
-Expected: 7 passed
+Expected: 6 passed
 
 - [ ] **Step 5: 提交**
 
