@@ -88,17 +88,45 @@ def test_iterative_gls_delta_denominator_uses_the_new_iterate():
     (the first genuinely reweighted solve) -- exactly where the two differ
     most.
 
-    Measured at ``kappa=3.5`` (radiometer's default weight=3.0, comfortably
-    inside the model's convergent range, which runs up to roughly kappa
-    5-8): ``tree_norm(first)=6.390``, ``tree_norm(updated)=3.189``, giving
-    ``delta=1.004`` normalised by the new iterate against ``0.501``
-    normalised by the old one -- very close to a factor of two apart.
-    ``reweight_tol=0.75`` sits almost exactly halfway between them (0.249
-    below the wrong value, 0.254 below the right one), so the correct
-    denominator does not yet call step 2 converged and takes a 3rd step
-    (``iterations=3``, solution ``w=3.9160``), while the swapped one stops
-    at step 2 (``iterations=2``, solution ``w=4.2542``) -- a directly
-    observable difference in both `iterations` and the returned answer.
+    At radiometer()'s exact defaults (kappa=3.5, seed=6, prior_mean=0.0,
+    weight=3.0): ``tree_norm(first)=6.390``, ``tree_norm(updated)=3.189``,
+    giving ``delta=1.004`` normalised by the new iterate against ``0.501``
+    normalised by the old one -- a factor of ~2 apart. ``reweight_tol=0.75``
+    sits almost exactly halfway between them (0.249 below the wrong value,
+    0.254 below the right one), so the correct denominator does not yet
+    call step 2 converged and takes a 3rd step (``iterations=3``, solution
+    ``w=3.9160``), while the swapped one stops at step 2 (``iterations=2``,
+    solution ``w=4.2542``).
+
+    **This is a POINT separation, not a region -- measured, not assumed.**
+    Swept three things that "should not matter" before committing this pin:
+
+    * seed 0-19 (kappa=3.5, prior_mean=0.0 fixed): only 6 of 20 preserve
+      the split at reweight_tol=0.75 (3, 4, 6, 9, 10, 16). Several INVERT
+      the ordering outright -- seed=8: correct delta=1.14 vs mutated=8.00;
+      seed=11: correct=1.02 vs mutated=42.98 -- the wrong denominator
+      sometimes reads MORE converged than the right one, not merely
+      differently converged.
+    * kappa 2.0-4.5 (seed=6, prior_mean=0.0 fixed): the split holds for
+      every kappa from 3.25 through 4.5 but fails one grid point below, at
+      3.0 -- a real but narrow band, and only demonstrated within this one
+      seed.
+    * prior_mean (kappa=3.5, seed=6 fixed, via a throwaway variant of
+      ``radiometer`` with the prior mean exposed -- not a committed
+      fixture): ONLY the exact default 0.0 works; 0.01 already breaks it.
+      Mechanism: a zero-mean prior makes the prediction AT the prior mean
+      exactly zero, so the FIRST sigma estimate (evaluated there) collapses
+      to a uniform floor everywhere -- a degenerate, unusually large first
+      step, which is what manufactures the separation this pin relies on.
+      Measured: ``tree_norm(first)`` drops from 6.390 at prior_mean=0.0 to
+      4.7-4.8 for every other prior_mean tried, from -2.0 to 2.0, and none
+      of those split at reweight_tol=0.75.
+
+    So this pin works as committed and will keep working -- but it
+    certifies one point, not a class of inputs. If ``radiometer``'s default
+    seed or weight is ever changed, or a prior mean parameter is ever added
+    and defaulted away from 0.0, these numbers need RE-MEASURING, not just
+    re-running.
     """
     with jax.enable_x64(True):
         graph = radiometer(kappa=3.5, floor=1e-3)
@@ -214,6 +242,15 @@ def test_iterative_gls_handles_a_multi_leaf_multi_observed_block():
     prediction-dependent sigma, which neither of those two constant-sigma
     fixtures has, so this is the first test to run the reweighting loop
     itself on more than one leaf on either side.
+
+    `plated_radiometer` catches NEITHER of the leaf-count mutations this
+    fixture exists for (see
+    `test_iterative_gls_delta_denominator_ignores_extra_latent_leaves`
+    below) -- correctly, not by omission: a plate is one leaf with several
+    elements, not several leaves, so a mutation that restricts a
+    computation to "the first leaf" is a no-op on a domain that has only
+    one. The two fixtures exercise different structural dimensions and
+    neither is redundant with the other.
     """
     from tests.exact.models import radiometer_group
 
@@ -250,6 +287,71 @@ def test_iterative_gls_handles_a_multi_leaf_multi_observed_block():
 
     assert bool(result.converged)
     assert np.allclose(flat_domain(result.solution, block.names), x, rtol=1e-6)
+
+
+def test_iterative_gls_delta_denominator_ignores_extra_latent_leaves():
+    """Regression pin for `step`'s ``change = jax.tree.map(jnp.subtract, ...)``.
+
+    Restricting that tree_map to only the FIRST latent leaf (dropping every
+    other leaf's contribution to `change` before it reaches `tree_norm`)
+    leaves every other test in this file green, including
+    `test_iterative_gls_handles_a_multi_leaf_multi_observed_block` -- same
+    mechanism as the denominator pin above: at the default min_reweights=5,
+    `radiometer_group` converges tightly enough that delta is never
+    consulted while the mutation could still show.
+
+    At ``min_reweights=1`` (delta consulted after one step, on
+    `radiometer_group`'s exact defaults: n=9, m=6, a_true=1.5, b_true=-2.0,
+    kappa=0.04, floor=2e-3, s2=0.25, seed=14): the FULL change norm gives
+    delta_correct=0.01318; the change restricted to leaf ``a`` alone gives
+    delta_mutated=0.00396. ``reweight_tol=0.008`` sits between them (margin
+    0.0040 above the mutated value, 0.0052 below the correct one), so the
+    correct code takes a 3rd step (``iterations=3``, ``a=1.50108,
+    b=-2.00301``) while the mutated one stops at the 2nd (``iterations=2``,
+    ``a=1.50112, b=-2.00307`` -- differing from the correct answer in the
+    4th decimal).
+
+    **Structurally stronger than the denominator pin, but still a point at
+    this exact threshold -- measured, not assumed.** Unlike that pin, the
+    ORDERING here (delta_mutated <= delta_correct) is not a numerical
+    accident: `tree_norm` of a subset of a pytree's leaves cannot exceed
+    `tree_norm` of the whole pytree (dropping a leaf only removes a
+    non-negative term from the sum of squares), so `delta_mutated` can
+    never exceed `delta_correct` for ANY input. Swept to confirm and to
+    check whether reweight_tol=0.008 generalises past this one point:
+
+    * seed 0-19 (kappa=0.04 fixed): the ordering holds at every seed (zero
+      inversions, unlike the denominator pin's seed=8/11), but the fixed
+      threshold reweight_tol=0.008 only splits 6 of 20 (3, 5, 12, 13, 14,
+      15) -- the rest have BOTH deltas above or BOTH below 0.008, so the
+      loop would stop at the same iteration count either way.
+    * kappa 0.01-0.10 (seed=14 fixed): splits for kappa in roughly
+      [0.03, 0.06] and fails outside that band in both directions (too
+      small: both deltas land under the threshold; too large: both land
+      over it) -- a real but narrow band, again only within one seed.
+
+    So: the MECHANISM (restricting to one leaf can only understate
+    convergence) is general and provably one-directional, but this specific
+    ``reweight_tol=0.008`` pin certifies one fixture at its defaults, not a
+    class of inputs. Re-measure if `radiometer_group`'s defaults change.
+    """
+    from tests.exact.models import radiometer_group
+
+    with jax.enable_x64(True):
+        graph = radiometer_group()
+        block = linear_operator(graph, ("a", "b"), at={})
+        result = iterative_gls(
+            block,
+            sigma_from_graph(graph, {}),
+            tol=1e-14,
+            min_reweights=1,
+            reweight_tol=0.008,
+            max_reweights=300,
+        )
+    assert int(result.iterations) == 3
+    assert bool(result.converged)
+    assert float(result.solution["a"]) == pytest.approx(1.5010813415358777, rel=1e-9)
+    assert float(result.solution["b"]) == pytest.approx(-2.003009526038934, rel=1e-9)
 
 
 def test_iterative_gls_handles_a_plated_member():

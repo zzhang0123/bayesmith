@@ -24,6 +24,20 @@ full Gaussian likelihood: the log-determinant's dependence on the solution is
 held fixed rather than differentiated. That difference is exactly what P3b's
 importance weight puts back, which is why this function is both a point
 estimate here and the proposal centre there.
+
+**The gap, measured rather than asserted.** On ``radiometer()`` (true weight
+3.0), minimising the FULL Gaussian NLL densely -- differentiating
+``sum(log(sigma_i(w)))`` through ``w`` rather than freezing it, against the
+GLS fixed point at the same kappa: at kappa=0.05 (radiometer's own default)
+the two agree to 0.08% relative (``w_gls=3.0255`` vs ``w_mle=3.0232``); at
+kappa=1 they are 19.5% apart (``3.4681`` vs ``2.9016``); by kappa=3.5-4 the
+gap is ~50% and the two estimates sit on OPPOSITE sides of the true value
+(``w_gls~4.00`` above it, ``w_mle~2.66-2.67`` below). ``NLL(w_gls) >=
+NLL(w_mle)`` held at every kappa tried, as it must, and the gap shrinks to
+zero as kappa does: freezing sigma's dependence on the solution is exact at
+kappa=0 (sigma does not depend on the prediction at all there) and
+increasingly costly as that dependence strengthens. This is the quantity
+P3b's importance weight exists to correct for.
 """
 
 from __future__ import annotations
@@ -240,6 +254,12 @@ def iterative_gls(
         right way to take a gradient through it.
     """
     if not 1 <= min_reweights <= max_reweights:
+        # GraphError is a misfit here -- this is a bad KEYWORD ARGUMENT to
+        # iterative_gls, not a graph declared or evaluated inconsistently.
+        # It behaves correctly (ValueError, which is what a caller doing
+        # `except ValueError` around argument validation expects), so left
+        # as is rather than churned this late; a dedicated argument-error
+        # class is deferred rather than added for this one call site.
         raise GraphError(
             f"iterative_gls needs 1 <= min_reweights <= max_reweights, got "
             f"{min_reweights} and {max_reweights}. The loop caps at "
@@ -284,10 +304,18 @@ def iterative_gls(
         # consulted at count=5, because this model's IRLS map stabilises the
         # ITERATE's magnitude within 1-2 steps even while the CHANGE keeps
         # shrinking for longer. At min_reweights=1, where delta is consulted
-        # after a single step, the two genuinely disagree (measured at
-        # kappa=3.5: ||first||=6.390 vs ||updated||=3.189, delta=1.004
-        # against the wrong denominator's 0.501) -- see
-        # test_iterative_gls_delta_denominator_uses_the_new_iterate.
+        # after a single step, the two DO disagree at radiometer()'s exact
+        # defaults (kappa=3.5, seed=6, prior_mean=0.0) -- but this is a
+        # POINT separation, not a region, and depends on all three: swept
+        # seed 0-19 and only 6 preserve the split at reweight_tol=0.75
+        # (several invert it outright, e.g. seed=8: correct delta=1.14 vs
+        # mutated=8.00); swept prior_mean and found ONLY the exact default
+        # 0.0 works (0.01 already breaks it), because a zero-mean prior
+        # makes the prediction AT the prior mean exactly zero, collapsing
+        # the first sigma estimate to a uniform floor -- a degenerate warm
+        # start unique to that one value. See
+        # test_iterative_gls_delta_denominator_uses_the_new_iterate for the
+        # full sweep and the numbers this specific pin relies on.
         delta = tree_norm(change) / jnp.maximum(tree_norm(updated), 1e-30)
         return count + 1, updated, delta
 
