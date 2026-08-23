@@ -19,7 +19,18 @@
 1. **断言必须验证行为，不能是重言式。** `assert issubclass(X, Y)` 在 `class X(Y)` 已写死时不证明任何东西。每写一条断言问一句：**如果实现是错的，这条会红吗？** 答不上来就重写。
 2. **每个任务收尾做变异测试。** 故意按任务指定的方式破坏实现，确认一条**具名**的测试变红，然后还原。P1 的 8 个缺陷里有 3 个只有它能发现。
 3. **凡断言"结果等于某常数"的测试，该常数不得等于任何参数的当前值。** P1 的 Task 4 用 `w=3.0` 而真实梯度 `sum(X)=3.0`，使本包最核心的保证的唯一守卫完全无效。
-4. **每个任务收尾做 AST 规格比对。** 把本计划该任务的代码块与提交的文件做 AST 比对，而不是让人读两遍——几秒钟，且立刻能区分实质差异与排版差异。P1 的执行记录把它列为两条方法论收获之一。脚本：
+4. **变异不变红时，第一个假设是"fixture 没到达它声称的区域"。** 不是"测试写错了"，也不是"变异无效"——那两个是第二、第三假设。本计划执行至今已四次撞上同一形状：
+
+   | 出处 | fixture 声称的区域 | 实测 |
+   |---|---|---|
+   | Task 1 `rel=5e-2 @ 40 iters` | "幂迭代已收敛" | 只在 `key(1)` 上碰巧成立；扫 30 个 key 最差 229% |
+   | Task 1 `approx(5e-30, rel=1e-5)` | "相对容差在起作用" | `approx` 有默认 `abs=1e-12` 地板，容差实际是 1e-12，比被测值大 18 个量级 |
+   | Task 1 近简并谱 `[1, 99.9, 100]` | "从下方逼近，超调可见" | 2000 次迭代仍差 0.0029，0.01% 的超调藏在自己的缺口里 |
+   | Task 2 `n=5000` 稀释测试 | "求和形式在这个规模下已经抓不住" | 求和形式报 1.78e-2，照样抓得住；交叉点在 n=746,000 |
+
+   四次都是**我在计划里写下一个关于规模/区域的断言而没有实测**。诊断办法是现成的：把那个断言当成一个可计算的量算出来（"求和形式在这个 n 下会报多少？"），而不是凭直觉给个数。
+
+5. **每个任务收尾做 AST 规格比对。** 把本计划该任务的代码块与提交的文件做 AST 比对，而不是让人读两遍——几秒钟，且立刻能区分实质差异与排版差异。P1 的执行记录把它列为两条方法论收获之一。脚本：
 
 ```bash
 cat > /tmp/ast_compare.py << 'PY'
@@ -915,11 +926,15 @@ def test_the_probe_evaluates_log_prob_at_the_shape_the_node_s_value_takes():
 def test_the_probe_is_not_diluted_by_the_entries_that_are_correct():
     """One wrong element among many must not hide behind the others.
 
-    Measured: with a summed comparison, one entry out of 1e6 off by 50 nats
-    reports a relative error of 1.95e-5 -- under the default rtol, silently
-    accepted. Elementwise it reports 50. Uses 5000 entries here rather than
-    1e6 so the test stays fast; the summed form already fails to catch it at
-    this size.
+    Measured, and the SIZE is load-bearing. A summed comparison reports
+    `50 / (n * |per-element log-density|)`, so whether it catches the defect
+    depends entirely on n. At the binding probe offset (0.0, where the
+    per-element density is smallest at 0.562) the crossover against the
+    default rtol of 1.19e-4 is n = 746,000. An earlier version of this test
+    used n = 5000, where the summed form still reports 1.78e-2 and catches
+    the defect anyway -- so the test passed under both implementations and
+    could not distinguish them at all. n = 2,000,000 gives 4.45e-5, a factor
+    of 2.7 under rtol. Elementwise reports 50 at any n.
     """
 
     class OneBadEntryNormal(dist.Normal):
@@ -928,10 +943,10 @@ def test_the_probe_is_not_diluted_by_the_entries_that_are_correct():
             return true.at[0].add(50.0) if jnp.ndim(value) > 0 else true
 
     def model():
-        xs = const("X", jnp.ones(5000))
+        xs = const("X", jnp.ones(2_000_000))
         w = sample("w", lambda: dist.Normal(0.0, 1.0))
         mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
-        observe("d", lambda u: OneBadEntryNormal(u, 0.7), mu, obs=jnp.zeros(5000))
+        observe("d", lambda u: OneBadEntryNormal(u, 0.7), mu, obs=jnp.zeros(2_000_000))
 
     graph = trace(model)
     env = evaluate(graph, {"w": jnp.asarray(0.3)})
