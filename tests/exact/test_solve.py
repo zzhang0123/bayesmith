@@ -13,6 +13,7 @@ from bayesmith.exact.linearity import linear_operator
 from bayesmith.exact.solve import (
     PRECISION_FLOOR,
     condition_bound,
+    gcr_sample,
     normal_operator,
     wiener_solve,
 )
@@ -666,3 +667,76 @@ def test_a_non_finite_residual_gets_its_own_message():
         assert not bool(jnp.isfinite(residual)), float(residual)
         with pytest.raises(Exception, match="non-finite residual"):
             wiener_solve(broken, noise_std=sigma, tol=1e-14)
+
+
+@pytest.mark.slow
+def test_gcr_draws_have_the_oracle_mean_and_covariance():
+    """The draw is exact, so its first two moments are the oracle's.
+
+    require_convergence=None inside the vmap on purpose: the guard costs
+    POWER_ITERATIONS operator applications PER DRAW, and tol is set from
+    the block's kappa instead -- which is the bargain wiener_solve's docstring
+    recommends and this test is the demonstration of.
+    """
+    draws = 4000
+    with jax.enable_x64(True):
+        graph = two_linear_latents()
+        block = linear_operator(graph, ("a", "b"), at={})
+        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        samples = jax.vmap(
+            lambda k: gcr_sample(
+                block, noise_std=sigma, key=k, tol=1e-14, require_convergence=None
+            )[0]
+        )(jax.random.split(jax.random.key(20), draws))
+        oracle = graph_oracle(graph, ("a", "b"), at={})
+    flat = np.stack([np.asarray(samples[n]).ravel() for n in block.names], axis=1)
+    standard_error = np.sqrt(np.diag(oracle.covariance) / draws)
+    assert np.all(np.abs(flat.mean(axis=0) - oracle.mean) < 4 * standard_error)
+    spread = np.max(np.diag(oracle.covariance))
+    assert np.allclose(
+        np.cov(flat, rowvar=False), oracle.covariance, rtol=0.1, atol=0.05 * spread
+    )
+
+
+@pytest.mark.slow
+def test_a_draw_with_uninformative_data_falls_back_to_the_prior():
+    """With sigma enormous the likelihood says nothing, so the draw is the prior.
+
+    The check that the S^-1/2 fluctuation term is wired in at the right width:
+    drop it and the draws collapse onto the prior MEAN with no scatter at all.
+    """
+    draws = 3000
+    with jax.enable_x64(True):
+        graph = straight_line(sigma=1e6, prior_mean=1.75, prior_std=2.0)
+        block = linear_operator(graph, ("w",), at={})
+        sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
+        samples = jax.vmap(
+            lambda k: gcr_sample(
+                block, noise_std=sigma, key=k, tol=1e-14, require_convergence=None
+            )[0]["w"]
+        )(jax.random.split(jax.random.key(21), draws))
+    values = np.asarray(samples)
+    assert values.mean() == pytest.approx(1.75, abs=4 * 2.0 / np.sqrt(draws))
+    assert values.std() == pytest.approx(2.0, rel=0.1)
+
+
+@pytest.mark.slow
+def test_the_mean_of_many_draws_is_the_wiener_solution():
+    """The two exits share one solve, so they cannot disagree about the centre."""
+    draws = 3000
+    with jax.enable_x64(True):
+        graph = two_observations()
+        block = linear_operator(graph, ("w",), at={})
+        sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
+        mean, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
+        samples = jax.vmap(
+            lambda k: gcr_sample(
+                block, noise_std=sigma, key=k, tol=1e-14, require_convergence=None
+            )[0]["w"]
+        )(jax.random.split(jax.random.key(22), draws))
+        oracle = graph_oracle(graph, ("w",), at={})
+    values = np.asarray(samples)
+    posterior_sd = float(np.sqrt(oracle.covariance[0, 0]))
+    assert values.mean() == pytest.approx(
+        float(mean["w"]), abs=4 * posterior_sd / np.sqrt(draws)
+    )

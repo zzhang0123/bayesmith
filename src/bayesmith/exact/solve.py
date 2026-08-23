@@ -429,3 +429,56 @@ def wiener_solve(
         key=None,
         require_convergence=require_convergence,
     )
+
+
+def gcr_sample(
+    block: LinearBlock,
+    *,
+    noise_std: dict[str, Any],
+    key: jax.Array,
+    tol: float = 1e-6,
+    maxiter: int | None = None,
+    require_convergence: float | None = 1e-3,
+) -> tuple[dict[str, jax.Array], jax.Array]:
+    """Draw an EXACT posterior sample of a linear-Gaussian block.
+
+    The constrained-realization identity: solve the same system
+    :func:`wiener_solve` does, with two white-noise terms added to the
+    right-hand side, so that ``b`` has the posterior-mean numerator as its
+    mean and covariance ``A^T N^-1 A + S^-1`` -- the operator itself. Then
+    ``x = M^-1 b`` has the posterior mean and covariance ``M^-1 M M^-1 =
+    M^-1`` exactly. Not an approximation and not a Markov chain: every call is
+    an independent draw, with no burn-in and nothing to diagnose.
+
+    It costs one CG solve -- the same as the mean -- because the fluctuation
+    enters the right-hand side, never the operator. That is what makes a
+    10^6-dimensional block samplable at all.
+
+    Args:
+        block: from :func:`bayesmith.exact.linearity.linear_operator`.
+        noise_std: ``{observed: sigma}``, exactly as for
+            :func:`wiener_solve`.
+        key: PRNG key. ``vmap`` over split keys for many independent draws.
+        tol: CG tolerance -- a bound on the residual, not on the accuracy.
+        maxiter: CG iteration cap.
+        require_convergence: as for :func:`wiener_solve`, which a draw is MORE
+            exposed to than the mean. The fluctuation term ``S^-1/2 w2`` puts
+            weight on every direction of the latent by construction, including
+            the ones the data is blind to -- so a draw always has something to
+            resolve where the operator is worst conditioned, whereas the mean
+            does only when the prior mean is nonzero.
+
+    Returns:
+        ``(x, relative_residual)``. An unconverged CG returns a draw from the
+        WRONG distribution -- and one that is too NARROW, since the directions
+        left unresolved are the prior-dominated ones that should have carried
+        the most scatter.
+    """
+    return _conjugate_solve(
+        block,
+        noise_std=noise_std,
+        tol=tol,
+        maxiter=maxiter,
+        key=key,
+        require_convergence=require_convergence,
+    )
