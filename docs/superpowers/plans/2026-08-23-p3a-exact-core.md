@@ -32,6 +32,34 @@ PY
 
    用法：把计划里该任务的 python 代码块抠出来存成一个文件，再与提交的源文件比对。**实质差异是可以的**——发现了计划的缺陷就该改实现——但每一处都要在任务收尾时**具名说明**，而不是悄悄漂移。
 
+## 实测更正：删掉 `extreme_eigenvalues`，守卫改用先验界（2026-08-23，Task 1 代码审查）
+
+计划初稿沿用 rheplicant 的做法：用 `extreme_eigenvalues` 在 `λmax·I − M` 上做第二次幂迭代求 `λ_min`，再取 `κ = λmax / max(λ_min, floor)`。**实测证明这在梯度谱上原理性地不成立，且偏差在危险的一侧。**
+
+移位算子的谱是 `λmax − eig`。对梯度谱，它的前若干个特征值全都挤在 `λmax` 附近、彼此间隙趋近于零——幂迭代收敛不了，**加迭代次数没用**。实测（float32，`jax.random.key(0)`）：
+
+| 谱 | 真 κ | 12 次迭代测得 | 2000 次迭代 | `λmax × max(先验方差)` |
+|---|---|---|---|---|
+| 双簇 `3×1e6 + 3×1` | 1e6 | 9.4e5（×0.94） | — | 1e6（×1.00） |
+| 双簇 `20×1e6 + 5×1` | 1e6 | 1e6（×1.00） | — | 1e6（×1.00） |
+| **梯度 50 点几何，κ=1e7** | 1e7 | **179（×1.8e-5）** | 14025（×1.4e-3） | 1e7（×1.00） |
+| 宽 3 点 `{2, 1e3, 1e6}` | 5e5 | 1068（×2.1e-3） | 4582（×9.2e-3） | 5e5（×1.00） |
+
+**偏差方向是危险的那一侧**：λ_min 被高估 → κ 被低估 → `error_bound = residual × κ` 被低估 → **守卫在该报警时保持沉默**，而这正是它存在要防的事。原计划里的 `jnp.maximum(smallest, floor)` 护的是**另一个**方向（低估 λ_min），因此完全不咬。
+
+**替代方案来自同一张表。** `AᵀN⁻¹A` 半正定，所以
+
+    λ_min(AᵀN⁻¹A + S⁻¹) ≥ λ_min(S⁻¹) = 1 / max(先验方差)
+
+这是**严格下界**，于是 `λmax × max(先验方差)` 是 κ 的**上界**（在 λmax 自身估计的精度之内——那一半收敛快且从下方逼近，`test_largest_eigenvalue_approaches_the_truth_from_below` 钉住这一点）。上表末列显示它在四种谱上都紧，包括幂迭代彻底失效的两种。
+
+**决定：**
+
+1. `conditioning.py` **只保留 `largest_eigenvalue`**，删掉 `extreme_eigenvalues`。它在 P3a 里没有使用者，且对其唯一用途已被实测证明不可用——留着是会误导人的死代码。rheplicant 里它仍在（服务于另一条 `identifiability` 路径）；此处记录，免得将来有人照着 rheplicant 又移植一遍。
+2. Task 5 的出口改名 `condition_estimate` → **`condition_bound`**，实现为 `largest_eigenvalue(...) × largest_variance(prior_variance)`。
+3. 成本**减半**：一次幂迭代而非两次。
+4. 语义从"估计"变成"**界**"：守卫的失效方向从"可能静默过关"变成"最多虚报"。虚报只在数据把每个方向都约束得远好于先验时出现，而那恰是 CG 本来就轻松收敛、残差极小从而把松弛吸收掉的区域。
+
 ## 一条排版约定
 
 计划里每个 python 代码块的**首行路径注释**（`# src/bayesmith/exact/conditioning.py`）是给读计划的人看的**元信息**，**不是文件内容**——文件的首行应当是它自己的 docstring。Task 1 首次实现时把它抄进了源文件，之后剥离；后续每个文件都适用这条。
@@ -50,11 +78,11 @@ PY
 |---|---|---|
 | `src/bayesmith/errors.py` | 增补 `StructureError`、`ConvergenceError`、`NotGaussian`。仍仅 stdlib | +30 |
 | `src/bayesmith/exact/__init__.py` | 空的包标记 | 1 |
-| `src/bayesmith/exact/conditioning.py` | `tree_norm`、`largest_eigenvalue`、`extreme_eigenvalues`。不认识图，也不认识块 | ~120 |
+| `src/bayesmith/exact/conditioning.py` | `tree_norm`、`largest_eigenvalue`。不认识图，也不认识块 | ~90 |
 | `src/bayesmith/exact/gaussian.py` | `(loc, scale)` 提取器 + `log_prob` 探针守卫 + 形状规则 + 观测/先验接缝 | ~200 |
 | `src/bayesmith/exact/block.py` | `LinearBlock`、定义域工具、`unchecked_operator(graph, names, at)` | ~240 |
 | `src/bayesmith/exact/linearity.py` | `affinity_errors`、`check_linearity`（先验幅度、多 `at` 点） | ~190 |
-| `src/bayesmith/exact/solve.py` | `condition_estimate`、`wiener_solve`、`gcr_sample`、私有 `_conjugate_solve` | ~290 |
+| `src/bayesmith/exact/solve.py` | `condition_bound`、`wiener_solve`、`gcr_sample`、私有 `_conjugate_solve` | ~270 |
 | `src/bayesmith/exact/gls.py` | `GLSResult`、`iterative_gls` | ~200 |
 | `src/bayesmith/exact/fisher.py` | `FlatMatrix`、`dense_operator`、`fisher_information`、`parameter_covariance` | ~230 |
 | `tests/exact/__init__.py` | 空 | 0 |
@@ -237,6 +265,8 @@ git commit -m "feat: add StructureError, ConvergenceError and NotGaussian"
 
 本模块**不认识图，也不认识块**：算子是一个 callable，数据是 pytree。这让数值与模型机制可分离，依赖单向。
 
+**只交付 `largest_eigenvalue`。** 谱的另一端不靠幂迭代求——见上文「实测更正」：那条路在梯度谱上原理性失效，且偏差在危险的一侧。`λ_min` 改由先验曲率给出严格下界，Task 5 的守卫因此用的是 κ 的**上界**而非估计。
+
 **Files:**
 - Create: `src/bayesmith/exact/__init__.py`, `src/bayesmith/exact/conditioning.py`
 - Create: `tests/exact/__init__.py`, `tests/exact/test_conditioning.py`
@@ -252,18 +282,13 @@ printf '"""Structure-dispatched exact solves."""\n' > src/bayesmith/exact/__init
 - [ ] **Step 2: 写失败的测试**
 
 ```python
-# tests/exact/test_conditioning.py
-"""Spectral diagnostics: known spectra, and the float32 overflow they must survive."""
+"""Spectral diagnostics: a known spectrum, and the float32 overflow it survives."""
 
 import jax
 import jax.numpy as jnp
 import pytest
 
-from bayesmith.exact.conditioning import (
-    extreme_eigenvalues,
-    largest_eigenvalue,
-    tree_norm,
-)
+from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
 
 
 def _diagonal(diag):
@@ -289,6 +314,19 @@ def test_tree_norm_survives_a_leaf_whose_square_overflows_float32():
     assert float(tree_norm({"x": big})) == pytest.approx(5e19, rel=1e-5)
 
 
+def test_tree_norm_survives_a_leaf_small_enough_to_underflow_when_squared():
+    """The other end of the same rescale, and the naive route fails here too.
+
+    Entries at 1e-30 square to 1e-60, which is zero in float32 -- so the naive
+    implementation returns exactly 0.0 for a vector that is emphatically not
+    zero. Both ends matter: a normal operator's domain spans whatever units
+    the model's latents happen to be in.
+    """
+    small = jnp.array([3e-30, 4e-30], dtype=jnp.float32)
+    assert float(jnp.sqrt(jnp.sum(small**2))) == 0.0
+    assert float(tree_norm({"x": small})) == pytest.approx(5e-30, rel=1e-5)
+
+
 def test_tree_norm_of_an_all_zero_pytree_is_zero():
     assert float(tree_norm({"x": jnp.zeros(4)})) == 0.0
 
@@ -299,55 +337,48 @@ def test_largest_eigenvalue_finds_the_top_of_a_known_spectrum():
     assert float(got) == pytest.approx(100.0, rel=1e-4)
 
 
-def test_extreme_eigenvalues_finds_both_ends_of_a_known_spectrum():
-    diag = jnp.array([1.0, 1.0, 1.0, 100.0])
-    largest, smallest = extreme_eigenvalues(
-        _diagonal(diag), {"x": jnp.zeros(4)}, jax.random.key(0), 20
-    )
-    assert float(largest) == pytest.approx(100.0, rel=1e-4)
-    assert float(smallest) == pytest.approx(1.0, rel=1e-3)
+def test_largest_eigenvalue_approaches_the_truth_from_below():
+    """Power iteration underestimates, and the guard depends on knowing it does.
+
+    `condition_bound` divides lambda_max by a prior-derived LOWER bound on
+    lambda_min to get an UPPER bound on kappa. That bound is only as good as
+    lambda_max, which must therefore never overshoot. Checked at several
+    iteration counts on a near-degenerate top of spectrum, where convergence
+    is slowest and an overshoot would show up first.
+    """
+    diag = jnp.array([1.0, 99.9, 100.0])
+    for iterations in (1, 3, 10, 40):
+        got = float(
+            largest_eigenvalue(
+                _diagonal(diag), {"x": jnp.zeros(3)}, jax.random.key(4), iterations
+            )
+        )
+        assert got <= 100.0 * (1.0 + 1e-5), (iterations, got)
+    assert got == pytest.approx(100.0, rel=1e-3)
 
 
-@pytest.mark.parametrize("extremes_in", ["a", "b"])
-def test_extreme_eigenvalues_spans_several_pytree_leaves(extremes_in):
+@pytest.mark.parametrize("top_in", ["a", "b"])
+def test_largest_eigenvalue_spans_several_pytree_leaves(top_in):
     """The spectrum must be the JOINT one, not any single leaf's.
 
-    Both power iterations are exercised, and the parametrisation is what makes
-    that true. Whichever leaf holds an extreme reproduces it when restricted
-    to that leaf -- unavoidable -- so no single spectrum can catch a
-    single-leaf implementation of both iterations. Measured, on the joint
-    spectrum {2, 10, 20, 100}:
-
-        spectrum              iter1 a  iter1 b  iter2 a  iter2 b
-        a=[10,20] b=[2,100]   caught   missed   caught   missed
-        a=[2,100] b=[10,20]   missed   caught   missed   caught
-
-    Their union is complete, which is why this runs as two cases and not one.
-    An earlier single-case version used a=[2,10] b=[20,100] and silently
-    missed the iter2-first-leaf bug entirely -- found by mutation testing,
-    which is the only thing that finds a guard that does not guard.
-
-    200 iterations, not 40: the shifted operator's top two eigenvalues are 98
-    and 90, a ratio of 0.918, so 40 steps leave ~3% error on a target of 2.0
-    and the test passes or fails on the luck of the starting vector. Measured
-    across 30 keys: at 40 iterations the worst is 229% relative error; at 200
-    all 30 are float32-exact.
+    Parametrised because whichever leaf holds the top reproduces it when
+    restricted to that leaf -- unavoidable -- so one case cannot catch a
+    single-leaf implementation. With the top in "b", restricting to the first
+    leaf reports 20 instead of 100; with it in "a", restricting to the last
+    leaf does. Their union is complete. An earlier single-case version of this
+    idea silently missed one of the two, found by mutation testing, which is
+    the only thing that finds a guard that does not guard.
     """
-    extremes = jnp.array([2.0, 100.0])
-    middle = jnp.array([10.0, 20.0])
-    diagonals = (
-        {"a": extremes, "b": middle}
-        if extremes_in == "a"
-        else {"a": middle, "b": extremes}
-    )
+    top = jnp.array([2.0, 100.0])
+    rest = jnp.array([10.0, 20.0])
+    diagonals = {"a": top, "b": rest} if top_in == "a" else {"a": rest, "b": top}
 
     def operator(parts):
         return {name: diagonals[name] * parts[name] for name in diagonals}
 
     template = {"a": jnp.zeros(2), "b": jnp.zeros(2)}
-    largest, smallest = extreme_eigenvalues(operator, template, jax.random.key(1), 200)
-    assert float(largest) == pytest.approx(100.0, rel=1e-2)
-    assert float(smallest) == pytest.approx(2.0, rel=1e-2)
+    got = largest_eigenvalue(operator, template, jax.random.key(1), 60)
+    assert float(got) == pytest.approx(100.0, rel=1e-3)
 ```
 
 - [ ] **Step 3: 跑测试，确认失败**
@@ -373,6 +404,23 @@ Everything here takes the operator as a callable and works on pytrees, so it
 knows nothing about :mod:`bayesmith.exact.block`'s blocks and nothing about
 graphs. That keeps the numerics separable from the model machinery and the
 dependency pointing one way.
+
+**Only the top of the spectrum is measured here.** rheplicant's
+``extreme_eigenvalues`` finds ``lambda_min`` by a second power iteration on
+``lambda_max * I - M``; that is deliberately not ported, because it was
+measured to fail in principle on a graded spectrum -- the shifted operator's
+leading eigenvalues all crowd against ``lambda_max`` with vanishing gaps, so
+the iteration cannot separate them however long it runs (2000 steps still
+left a factor of 700 on a 50-point geometric spectrum at kappa=1e7). Worse,
+the bias is one-sided in the dangerous direction: ``lambda_min`` comes back
+too large, so kappa comes back too small, so a convergence guard built on it
+stays silent exactly when it should fire.
+
+``lambda_min`` is instead bounded from below by the prior's own curvature:
+``A^T N^-1 A`` is positive semi-definite, so
+``lambda_min(A^T N^-1 A + S^-1) >= 1 / max(prior_variance)``. See
+:func:`bayesmith.exact.solve.condition_bound`, which turns that into an
+UPPER bound on kappa -- the direction a safety guard needs.
 
 Ported from ``rheplicant.inference.conditioning``.
 """
@@ -445,38 +493,6 @@ def largest_eigenvalue(
         largest = tree_norm(image)
         vector = _scaled(image, jnp.where(largest > 0, largest, 1.0))
     return largest
-
-
-def extreme_eigenvalues(
-    operator: Callable[[Any], Any],
-    template: Any,
-    key: jax.Array,
-    iterations: int,
-) -> tuple[jax.Array, jax.Array]:
-    """``(λ_max, λ_min)`` of a symmetric positive-definite operator.
-
-    ``λ_min`` comes from a second power iteration on ``λ_max I - M``, whose top
-    eigenvalue is ``λ_max - λ_min``. Measuring it beats bounding it: a caller
-    who assumed the worst about ``λ_min`` would call every well-conditioned
-    operator ill-conditioned by the whole dynamic range of the problem.
-
-    The difference is taken between two numbers of size ``λ_max``, so it is
-    cancellation-prone precisely when ``λ_min`` is tiny. Callers holding an
-    independent lower bound on ``λ_min`` -- a prior's curvature, say -- should
-    floor the result with it; that is both rigorous and the scale at which the
-    cancellation bites. :func:`bayesmith.exact.solve.condition_estimate` does
-    exactly that.
-    """
-    largest = largest_eigenvalue(operator, template, key, iterations)
-    spread = largest_eigenvalue(
-        lambda parts: jax.tree.map(
-            lambda leaf, image: largest * leaf - image, parts, operator(parts)
-        ),
-        template,
-        jax.random.fold_in(key, 1),
-        iterations,
-    )
-    return largest, largest - spread
 ```
 
 - [ ] **Step 5: 跑测试，确认通过**
@@ -485,7 +501,7 @@ def extreme_eigenvalues(
 .venv/bin/python -m pytest tests/exact/test_conditioning.py -v
 ```
 
-Expected: 7 passed（参数化的那条算两例）。
+Expected: 8 passed（参数化的那条算两例）。
 
 - [ ] **Step 6: 变异测试**
 
@@ -498,16 +514,20 @@ Expected: 7 passed（参数化的那条算两例）。
 
 重跑。Expected: `test_tree_norm_survives_a_leaf_whose_square_overflows_float32` **变红**（返回 `inf`）。还原。
 
-`extreme_eigenvalues` 的两次幂迭代 × 限制到首/末叶子，**四种形状都要跑**：
+`largest_eigenvalue` 限制到首/末叶子，**两种形状都要跑**：
 
 | 变异 | 必须在哪一例变红 |
 |---|---|
-| 第一次迭代只用首叶 | `extremes_in="b"` |
-| 第一次迭代只用末叶 | `extremes_in="a"` |
-| **第二次迭代只用首叶** | `extremes_in="b"` |
-| 第二次迭代只用末叶 | `extremes_in="a"` |
+| 只用首叶 | `top_in="b"` |
+| 只用末叶 | `top_in="a"` |
 
-第三行是这条测试原设计漏掉的那一种：原谱 `a=[2,10] b=[20,100]` 下移位算子的前两个特征值 98 与 90 **都在叶子 a 上**，而 a 恰好也是 JAX 字典展平的首叶，所以"只用首叶"照样找到 98，`smallest = 100 − 98 = 2` 巧合地正确。**没有任何单一谱能同时抓住四种**——持有极值的那个叶子按定义能独自复现它——所以必须参数化。还原。
+**没有任何单一谱能同时抓住两种**——持有 λmax 的那个叶子按定义能独自复现它——所以必须参数化。还原。
+
+再把 `largest_eigenvalue` 的循环体改成 `return tree_norm(operator(vector))`（只迭代一次，不论 `iterations`），重跑。
+Expected: `test_largest_eigenvalue_finds_the_top_of_a_known_spectrum` **变红**。还原。
+
+最后把 `tree_norm` 的重标定去掉、改成朴素的 `jnp.sqrt(sum(jnp.sum(leaf**2)))`，重跑。
+Expected: 溢出与下溢两条测试**都变红**。还原。
 
 - [ ] **Step 7: 提交**
 
@@ -2260,7 +2280,8 @@ git commit -m "feat: check the linear_in claim at several scales and at-points"
 ```
 
 ---
-## Task 5：正规算子与条件数（`exact/solve.py` 之一）
+## Task 5：正规算子与条件数上界（`exact/solve.py` 之一）
+
 
 `tol` 不是精度。残差与误差差一个条件数：
 
@@ -2440,7 +2461,7 @@ import pytest
 
 from bayesmith.exact.gaussian import noise_std_at
 from bayesmith.exact.linearity import linear_operator
-from bayesmith.exact.solve import condition_estimate, normal_operator
+from bayesmith.exact.solve import condition_bound, normal_operator
 from bayesmith.exact.block import domain_zero, variance_parts
 from tests.exact.models import straight_line, two_linear_latents
 from tests.exact.oracle import graph_oracle
@@ -2450,46 +2471,80 @@ def _sigma(graph, at):
     return noise_std_at(graph, at)
 
 
-def test_a_one_parameter_block_is_perfectly_conditioned():
-    """M is 1x1, so lambda_max == lambda_min and kappa is exactly 1.
+def test_the_bound_is_lambda_max_times_the_loosest_prior_variance():
+    """The bound's definition, checked against a dense eigendecomposition.
 
-    Not a trivial assertion: an implementation that floored lambda_min at the
-    prior's curvature unconditionally, instead of only when the measurement
-    falls below it, would report kappa = ||A^T N^-1 A|| * prior_std**2 here --
-    a number in the hundreds.
+    lambda_max comes from the oracle's precision matrix -- which is built by
+    probing g on a basis and never differentiates anything -- so this is the
+    matrix-free power iteration against an independent route, not against
+    itself.
+    """
+    with jax.enable_x64(True):
+        graph = two_linear_latents()
+        block = linear_operator(graph, ("a", "b"), at={})
+        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        bound = float(condition_bound(block, noise_std=sigma, iterations=80))
+        oracle = graph_oracle(graph, ("a", "b"), at={})
+    largest = float(np.linalg.eigvalsh(oracle.precision)[-1])
+    loosest_variance = float(np.max(oracle.prior_std**2))
+    assert bound == pytest.approx(largest * loosest_variance, rel=1e-3)
+
+
+@pytest.mark.parametrize("loosened", [1.0, 1e2, 1e4])
+def test_the_bound_is_never_below_the_true_condition_number(loosened):
+    """The whole point: it may refuse a good solve, never accept a bad one.
+
+    Swept across four orders of magnitude of prior width, because the bound is
+    tight at one end (the prior alone holds a direction, so lambda_min IS the
+    prior curvature) and loose at the other. Both must stay on the safe side.
+    """
+    import dataclasses
+
+    with jax.enable_x64(True):
+        graph = two_linear_latents()
+        block = linear_operator(graph, ("a", "b"), at={})
+        widened = dataclasses.replace(
+            block,
+            prior_std={**block.prior_std, "b": block.prior_std["b"] * loosened},
+        )
+        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        bound = float(condition_bound(widened, noise_std=sigma, iterations=80))
+        oracle = graph_oracle(graph, ("a", "b"), at={})
+    precision = oracle.precision.copy()
+    # Rebuild the dense precision with b's widened prior, so the comparison is
+    # against the system the bound was actually computed for.
+    precision[1, 1] += 1.0 / (oracle.prior_std[1] * loosened) ** 2 - 1.0 / oracle.prior_std[1] ** 2
+    true_kappa = float(np.linalg.cond(precision))
+    assert bound >= true_kappa * (1.0 - 1e-6), (bound, true_kappa)
+
+
+def test_the_bound_is_loose_when_the_data_constrains_every_direction():
+    """Stated rather than hidden: this is the price of a one-sided guarantee.
+
+    A one-parameter block has a true kappa of exactly 1 -- M is 1x1 -- and the
+    bound reports lambda_max times the prior variance, which is hundreds. That
+    is not a defect; it is what an upper bound derived from the prior must
+    say when the data, not the prior, is what sets lambda_min. CG on such a
+    block converges in one step, so the residual absorbs the slack.
     """
     with jax.enable_x64(True):
         graph = straight_line()
         block = linear_operator(graph, ("w",), at={})
-        kappa = condition_estimate(
-            block, noise_std=_sigma(graph, {"w": jnp.asarray(0.0)}), iterations=40
-        )
-    assert float(kappa) == pytest.approx(1.0, rel=1e-6)
+        sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
+        bound = float(condition_bound(block, noise_std=sigma, iterations=40))
+        oracle = graph_oracle(graph, ("w",), at={})
+    assert float(np.linalg.cond(oracle.precision)) == pytest.approx(1.0, rel=1e-9)
+    assert bound > 100.0
+    assert bound == pytest.approx(
+        float(oracle.precision[0, 0]) * float(oracle.prior_std[0] ** 2), rel=1e-3
+    )
 
 
-def test_condition_estimate_matches_a_dense_eigenvalue_computation():
-    with jax.enable_x64(True):
-        graph = two_linear_latents()
-        block = linear_operator(graph, ("a", "b"), at={})
-        kappa = float(
-            condition_estimate(
-                block,
-                noise_std=_sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)}),
-                iterations=80,
-            )
-        )
-        oracle = graph_oracle(graph, ("a", "b"), at={})
-    eigenvalues = np.linalg.eigvalsh(oracle.precision)
-    assert kappa == pytest.approx(eigenvalues[-1] / eigenvalues[0], rel=1e-3)
+def test_the_bound_grows_in_proportion_to_the_loosest_prior_variance():
+    """It is linear in max(prior_variance) by construction -- verify it is.
 
-
-def test_kappa_grows_with_a_looser_prior():
-    """lambda_min is the prior's curvature once the data stops binding.
-
-    Widening one prior by 1e4 must raise kappa, and by roughly its square --
-    lambda_min goes as 1/prior_std**2. That relation IS the reason the guard
-    is stated as an error bound rather than a residual bound, and a kappa
-    that ignored the prior would be flat across this pair.
+    A bound that ignored the prior would be flat across this pair, and a bound
+    that took the TIGHTEST prior would move the wrong way.
     """
     import dataclasses
 
@@ -2497,16 +2552,13 @@ def test_kappa_grows_with_a_looser_prior():
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
         sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        tight = float(condition_estimate(block, noise_std=sigma, iterations=80))
-        loosened = dataclasses.replace(
-            block, prior_std={**block.prior_std, "b": jnp.asarray(7.0e4)}
+        tight = float(condition_bound(block, noise_std=sigma, iterations=80))
+        widened = dataclasses.replace(
+            block, prior_std={**block.prior_std, "b": block.prior_std["b"] * 100.0}
         )
-        loose = float(condition_estimate(loosened, noise_std=sigma, iterations=80))
-    assert loose > tight
-    # b's prior widened by 1e4, so its share of lambda_min falls by 1e8. The
-    # data still bounds lambda_min from below once the prior stops binding, so
-    # this is a lower bound rather than an equality.
-    assert loose > 1e3 * tight
+        loose = float(condition_bound(widened, noise_std=sigma, iterations=80))
+    # b's prior variance grows by 1e4 and it was already the loosest (7 vs 5).
+    assert loose == pytest.approx(1e4 * tight, rel=1e-2)
 
 
 def test_the_normal_operator_is_symmetric():
@@ -2569,7 +2621,7 @@ def test_the_normal_operator_reproduces_the_dense_precision_matrix():
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'bayesmith.exact.solve'`。
 
-- [ ] **Step 4: 实现（本任务只写到 `condition_estimate`）**
+- [ ] **Step 4: 实现（本任务只写到 `condition_bound`）**
 
 ```python
 # src/bayesmith/exact/solve.py
@@ -2609,11 +2661,13 @@ from bayesmith.exact.block import (
     largest_variance,
     variance_parts,
 )
-from bayesmith.exact.conditioning import extreme_eigenvalues, tree_norm
+from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
 
-#: Power-iteration steps per end of the spectrum. Both ends typically settle
-#: within three; this leaves margin at a fixed cost of ``2 * POWER_ITERATIONS``
-#: operator applications per guarded solve.
+#: Power-iteration steps for the top of the spectrum. The estimate typically
+#: settles within three; this leaves margin at a fixed cost of
+#: ``POWER_ITERATIONS`` operator applications per guarded solve. Only the top
+#: is measured -- see :func:`_condition_bound` for where the bottom comes from
+#: and why it is not measured.
 POWER_ITERATIONS: int = 12
 
 
@@ -2639,65 +2693,93 @@ def normal_operator(
     return normal
 
 
-def _condition_number(
+def _condition_bound(
     block: LinearBlock,
     weight: dict[str, Any],
     prior_variance: dict[str, Any],
     key: jax.Array,
     iterations: int,
 ) -> jax.Array:
-    """Estimated ``kappa`` of ``A^T N^-1 A + S^-1``.
+    """Upper bound on ``kappa`` of ``A^T N^-1 A + S^-1``.
 
-    For a group this is the JOINT condition number, and it is the number a
-    per-block guard cannot produce: two latents the data barely distinguishes
-    give a well-conditioned operator each and a badly conditioned one together.
+    ``lambda_max`` is measured. ``lambda_min`` is **not**: it is bounded from
+    below by the prior's own curvature, because ``A^T N^-1 A`` is positive
+    semi-definite and therefore
+
+        lambda_min(A^T N^-1 A + S^-1)  >=  lambda_min(S^-1)  =  1 / max(S)
+
+    so the quotient is an upper bound rather than an estimate. That is the
+    direction a safety guard needs -- an overestimate of kappa can only make
+    the guard refuse a solve that was fine, while an underestimate makes it
+    accept one that was not.
+
+    Measuring ``lambda_min`` instead, by a second power iteration on
+    ``lambda_max * I - M``, is what rheplicant does and what this plan
+    originally specified. It was measured to fail *in principle* on a graded
+    spectrum -- the shifted operator's leading eigenvalues all crowd against
+    ``lambda_max`` with vanishing gaps -- and to fail one-sidedly in the
+    dangerous direction. See :mod:`bayesmith.exact.conditioning`'s module
+    docstring for the numbers.
+
+    **The bound is tight exactly where it matters.** For a block the data does
+    not fully identify, some direction is held by the prior alone and
+    ``lambda_min`` IS the prior's curvature. It is loose in the opposite
+    regime -- data far tighter than the prior in every direction -- where the
+    guard may refuse a solve that was in fact accurate. That regime is also
+    where CG converges in a handful of iterations and the residual is small
+    enough to absorb the slack, which is why the trade is worth taking.
+
+    For a group this is the JOINT bound, and it is the number a per-block
+    guard cannot produce: two latents the data barely distinguishes give a
+    well-conditioned operator each and a badly conditioned one together.
     """
-    largest, smallest = extreme_eigenvalues(
+    largest = largest_eigenvalue(
         normal_operator(block, weight, prior_variance),
         domain_zero(block),
         key,
         iterations,
     )
-    # A^T N^-1 A is positive semi-definite, so lambda_min can never fall below
-    # the prior's own curvature however rank-deficient the data is. The floor
-    # is a lower bound on the truth, so it only ever raises an underestimate --
-    # it does not overwrite a correct measurement.
-    floor = 1.0 / largest_variance(prior_variance)
-    return largest / jnp.maximum(smallest, floor)
+    return largest * largest_variance(prior_variance)
 
 
-def condition_estimate(
+def condition_bound(
     block: LinearBlock,
     *,
     noise_std: dict[str, Any],
     iterations: int = POWER_ITERATIONS,
     key: jax.Array | None = None,
 ) -> jax.Array:
-    """Condition number of the normal operator this block would be solved with.
+    """An upper bound on the conditioning of the system this block is solved with.
 
     Use it to pick ``tol``: for a target relative accuracy ``a``, ask for
-    roughly ``tol = a / kappa``.
+    roughly ``tol = a / condition_bound(...)``.
 
-    A large ``kappa`` is not a defect, it is the design: for a block the data
-    does not fully identify, ``lambda_min`` is exactly ``1/prior_std**2``
-    while ``lambda_max`` is set by the data, so ``kappa`` grows with how much
-    better the data constrains one direction than the prior constrains
-    another.
+    A large bound is not a defect, it is the design: for a block the data does
+    not fully identify, ``lambda_min`` is exactly ``1/prior_std**2`` while
+    ``lambda_max`` is set by the data, so it grows with how much better the
+    data constrains one direction than the prior constrains another.
 
-    Costs ``2 * iterations`` applications of the normal operator -- each the
-    same JVP-plus-VJP a CG iteration costs -- and forms no matrix.
+    Costs ``iterations`` applications of the normal operator -- each the same
+    JVP-plus-VJP a CG iteration costs -- and forms no matrix.
 
     Args:
         block: from :func:`bayesmith.exact.linearity.linear_operator`.
         noise_std: ``{observed: sigma}``, as
             :func:`bayesmith.exact.gaussian.noise_std_at` returns. A decided
-            sigma, not a rule for producing one: a kappa is the conditioning
-            of one particular normal operator.
-        iterations: power-iteration steps per end of the spectrum.
-        key: PRNG key for the starting vectors. Fixed by default, so the
-            estimate is reproducible.
+            sigma, not a rule for producing one: a conditioning number belongs
+            to one particular normal operator.
+        iterations: power-iteration steps for ``lambda_max``.
+        key: PRNG key for the starting vector. Fixed by default, so the bound
+            is reproducible.
+
+    Returns:
+        ``lambda_max * max(prior_variance)``, an upper bound on ``kappa`` --
+        up to the accuracy of the ``lambda_max`` estimate, which converges
+        geometrically and always from BELOW, so it can only make the bound
+        smaller. ``test_largest_eigenvalue_approaches_the_truth_from_below``
+        in ``tests/exact/test_conditioning.py`` pins that direction.
     """
-    return _condition_number(
+    return _condition_bound(
         block,
         _weights(noise_std),
         variance_parts(block),
@@ -2712,12 +2794,12 @@ def condition_estimate(
 .venv/bin/python -m pytest tests/exact/test_solve.py -v
 ```
 
-Expected: 5 passed。
+Expected: 9 passed（参数化的那条算三例）。
 
 - [ ] **Step 6: 变异测试**
 
-1. 把 `_condition_number` 的 `floor` 改成 `1.0 / jnp.min(...)`（用最紧的先验），重跑。
-   Expected: `test_condition_estimate_matches_a_dense_eigenvalue_computation` 或 `test_kappa_grows_with_a_looser_prior` **变红**。还原。
+1. 把 `_condition_bound` 的 `largest_variance` 换成"最紧的先验方差"（`jnp.min` 而非 `jnp.max`），重跑。
+   Expected: `test_the_bound_grows_in_proportion_to_the_loosest_prior_variance` 与 `test_the_bound_is_never_below_the_true_condition_number[10000.0]` **都变红**。第二条尤其重要——取最紧的先验会让这个"界"掉到真 κ 之下，也就是**失去它唯一的保证**。还原。
 2. 把 `normal_operator` 里的 `+ p / v`（先验曲率项）删掉，重跑。
    Expected: `test_the_normal_operator_reproduces_the_dense_precision_matrix` **变红**。还原。
 3. 把 `half_chi2` 的求和改成只对 `sorted(pushed)[0]` 一个观测节点求和，重跑。
@@ -2882,7 +2964,7 @@ Expected: FAIL — `ImportError: cannot import name 'wiener_solve'`。
 
 - [ ] **Step 4: 实现**
 
-在 `src/bayesmith/exact/solve.py` 顶部的导入里加 `import equinox as eqx`，并在 `condition_estimate` 之后追加：
+在 `src/bayesmith/exact/solve.py` 顶部的导入里加 `import equinox as eqx`，并在 `condition_bound` 之后追加：
 
 ```python
 def _split_like(key: jax.Array, template: Any) -> Any:
@@ -2983,7 +3065,7 @@ def _conjugate_solve(
         # back a draw whose posterior scatter there is orders of magnitude too
         # small. Guarding on the residual certifies precisely nothing in the
         # one regime these solvers exist to serve.
-        kappa = _condition_number(
+        kappa = _condition_bound(
             block, weight, prior_variance, jax.random.key(0), POWER_ITERATIONS
         )
         error_bound = residual * kappa
@@ -3008,7 +3090,7 @@ def _conjugate_solve(
             "the usual signature of a block the data does not identify. Run the "
             "solve inside `with jax.enable_x64(True):`, or strengthen the prior "
             "(prior_std bounds the conditioning: kappa ~ ||A^T N^-1 A|| * "
-            "prior_std**2). condition_estimate() reports the number.",
+            "prior_std**2). condition_bound() reports the number.",
         )
         solution = eqx.error_if(
             solution,
@@ -3019,7 +3101,7 @@ def _conjugate_solve(
             "it. The residual alone looks converged; it is not, along the "
             "directions the prior dominates. Pass tol ~ require_convergence/kappa "
             "with a maxiter to match, or strengthen the prior. "
-            "condition_estimate() reports kappa.",
+            "condition_bound() reports kappa.",
         )
     return solution, residual
 
@@ -3057,10 +3139,10 @@ def wiener_solve(
             looking exactly like a converged one.
 
             The bound is ``kappa * relative_residual``, with ``kappa`` from
-            :func:`condition_estimate`. That costs ``2 * POWER_ITERATIONS``
+            :func:`condition_bound`. That costs ``POWER_ITERATIONS``
             extra operator applications, which on a well-conditioned block
             roughly DOUBLES the solve. In a Gibbs sweep, call
-            :func:`condition_estimate` once outside the loop, choose ``tol``
+            :func:`condition_bound` once outside the loop, choose ``tol``
             from it, and pass ``require_convergence=None`` inside. What you
             must NOT do is leave ``tol`` at its default and the guard off --
             that is the combination that returns a silently over-confident
@@ -3069,7 +3151,7 @@ def wiener_solve(
     Returns:
         ``(x_hat, relative_residual)``, the residual being
         ``||M x_hat - b|| / ||b||``. Note this is the residual, not the error;
-        multiply by :func:`condition_estimate` for the error bound.
+        multiply by :func:`condition_bound` for the error bound.
 
     Note:
         **Where S comes from.** Each latent's own ``dist_fn`` is this
@@ -3120,7 +3202,7 @@ def test_the_guard_bounds_the_error_not_the_residual():
         loosened = dataclasses.replace(
             block, prior_std={**block.prior_std, "b": jnp.asarray(1e4)}
         )
-        kappa = float(condition_estimate(loosened, noise_std=sigma, iterations=80))
+        kappa = float(condition_bound(loosened, noise_std=sigma, iterations=80))
     assert kappa > 1e6
 ```
 
@@ -3158,7 +3240,7 @@ def test_gcr_draws_have_the_oracle_mean_and_covariance():
     """The draw is exact, so its first two moments are the oracle's.
 
     require_convergence=None inside the vmap on purpose: the guard costs
-    2 * POWER_ITERATIONS operator applications PER DRAW, and tol is set from
+    POWER_ITERATIONS operator applications PER DRAW, and tol is set from
     the block's kappa instead -- which is the bargain wiener_solve's docstring
     recommends and this test is the demonstration of.
     """
@@ -4203,7 +4285,7 @@ from bayesmith.exact.gls import (
     sigma_from_graph,
 )
 from bayesmith.exact.linearity import check_linearity, linear_operator
-from bayesmith.exact.solve import condition_estimate, gcr_sample, wiener_solve
+from bayesmith.exact.solve import condition_bound, gcr_sample, wiener_solve
 
 __all__ = [
     "LinearBlock",
@@ -4215,7 +4297,7 @@ __all__ = [
     "noise_std_at",
     "wiener_solve",
     "gcr_sample",
-    "condition_estimate",
+    "condition_bound",
     "iterative_gls",
     "GLSResult",
     "sigma_from_graph",
@@ -4252,7 +4334,7 @@ from bayesmith.errors import (
     "check_linearity",
     "wiener_solve",
     "gcr_sample",
-    "condition_estimate",
+    "condition_bound",
     "iterative_gls",
     "sigma_from_graph",
     "noise_std_at",
@@ -4279,7 +4361,7 @@ from bayesmith.errors import (
     "check_linearity": ("bayesmith.exact.linearity", "check_linearity"),
     "wiener_solve": ("bayesmith.exact.solve", "wiener_solve"),
     "gcr_sample": ("bayesmith.exact.solve", "gcr_sample"),
-    "condition_estimate": ("bayesmith.exact.solve", "condition_estimate"),
+    "condition_bound": ("bayesmith.exact.solve", "condition_bound"),
     "iterative_gls": ("bayesmith.exact.gls", "iterative_gls"),
     "sigma_from_graph": ("bayesmith.exact.gls", "sigma_from_graph"),
     "noise_std_at": ("bayesmith.exact.gaussian", "noise_std_at"),
@@ -4311,7 +4393,7 @@ def test_every_exact_name_resolves_and_is_the_same_object_as_its_module_s():
         "check_linearity": linearity.check_linearity,
         "wiener_solve": solve.wiener_solve,
         "gcr_sample": solve.gcr_sample,
-        "condition_estimate": solve.condition_estimate,
+        "condition_bound": solve.condition_bound,
         "iterative_gls": gls.iterative_gls,
         "sigma_from_graph": gls.sigma_from_graph,
         "noise_std_at": gaussian.noise_std_at,
@@ -4455,7 +4537,7 @@ from bayesmith.exact.gaussian import check_gaussian, noise_std_at
 from bayesmith.exact.gls import iterative_gls, sigma_from_graph
 from bayesmith.exact.linearity import check_linearity
 from bayesmith.exact.block import unchecked_operator
-from bayesmith.exact.solve import condition_estimate, wiener_solve
+from bayesmith.exact.solve import condition_bound, wiener_solve
 from bayesmith import evaluate, observe, sample, trace
 import numpyro.distributions as dist
 from tests.exact.models import (
@@ -4541,7 +4623,7 @@ def test_the_convergence_guard_flips_at_require_convergence_over_kappa():
         graph = two_linear_latents()
         block = unchecked_operator(graph, ("a", "b"), at={})
         sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        kappa = float(condition_estimate(block, noise_std=sigma, iterations=80))
+        kappa = float(condition_bound(block, noise_std=sigma, iterations=80))
 
         # CG on a 2-parameter system reaches machine precision in 2 steps, so
         # maxiter -- not tol -- is what sets the residual here. Measure the
@@ -4587,7 +4669,7 @@ def test_the_unreachable_branch_names_precision_rather_than_tolerance():
     starved = dataclasses.replace(
         block, prior_std={**block.prior_std, "b": jnp.asarray(1e4, dtype=jnp.float32)}
     )
-    kappa = float(condition_estimate(starved, noise_std=sigma, iterations=80))
+    kappa = float(condition_bound(starved, noise_std=sigma, iterations=80))
     epsilon = float(jnp.finfo(jnp.float32).eps)
     assert kappa * epsilon > 1e-3, "fixture no longer reaches the unreachable branch"
     with pytest.raises(Exception, match="enable_x64"):
@@ -4641,7 +4723,7 @@ import pytest
 
 from bayesmith.exact.gaussian import noise_std_at
 from bayesmith.exact.linearity import linear_operator
-from bayesmith.exact.solve import condition_estimate, wiener_solve
+from bayesmith.exact.solve import condition_bound, wiener_solve
 from tests.exact.models import (
     collinear_pair,
     many_observations,
@@ -4733,11 +4815,11 @@ def test_two_exactly_collinear_parents_are_solved_jointly_and_kappa_says_so():
         block = linear_operator(graph, ("a", "b"), at={})
         sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
-        kappa = float(condition_estimate(block, noise_std=sigma, iterations=80))
+        kappa = float(condition_bound(block, noise_std=sigma, iterations=80))
         oracle = graph_oracle(graph, ("a", "b"), at={})
         single = linear_operator(graph, ("a",), at={"b": jnp.asarray(0.0)})
         single_kappa = float(
-            condition_estimate(single, noise_std=sigma, iterations=80)
+            condition_bound(single, noise_std=sigma, iterations=80)
         )
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
     assert kappa > 100.0
