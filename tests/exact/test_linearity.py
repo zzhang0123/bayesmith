@@ -7,7 +7,7 @@ import numpyro.distributions as dist
 import pytest
 
 from bayesmith import sample, trace
-from bayesmith.errors import GraphError, StructureError
+from bayesmith.errors import GraphError, NotGaussian, StructureError
 from bayesmith.exact.block import unchecked_operator
 from bayesmith.exact.linearity import (
     DEFAULT_SCALES,
@@ -26,6 +26,7 @@ from tests.exact.models import (
     faint_alone,
     improper_outside_prior,
     nan_at_negative_probes,
+    non_gaussian_observed_node,
     overflowing_outside_latent,
     quadratic_claim,
     roundoff_stress,
@@ -33,6 +34,8 @@ from tests.exact.models import (
     tunable_curvature,
     two_linear_latents,
     two_observations,
+    two_unusable_observed_scales,
+    unusable_observed_scale,
 )
 
 
@@ -515,3 +518,95 @@ def test_a_true_claim_with_real_roundoff_passes_at_any_offset_ratio(big, sigma):
     refused.
     """
     assert check_linearity(roundoff_stress(big=big, sigma=sigma), ["w"])
+
+
+@pytest.mark.parametrize("kind", ["zero", "one_zero", "negative", "nan"])
+def test_an_unusable_observed_scale_is_blamed_on_the_node_not_the_latent(kind):
+    """The scale expression is at fault, so the message must name the node.
+
+    `mu = w * X` is exactly affine in this fixture, so every word of "latent
+    'w' is declared linear, but the prediction is not affine in it" is
+    wrong -- it sends the modeller to rewrite the one part of the model that
+    is correct. Measured before the guard, for kind in {zero, one_zero, nan}:
+    that is exactly the message they got, because departure/sigma goes inf or
+    NaN and the finiteness branch reads an unreadable column as curvature.
+
+    `kind="negative"` is the case that did not even mis-attribute: it PASSED.
+    The weighted column takes `abs(sigma)`, so it cannot tell -0.5 from +0.5,
+    while `check_gaussian` refuses a non-positive scale by name. A guard
+    written only against non-finite values leaves that hole open, which is
+    why the negative arm is parametrised separately rather than folded in.
+    """
+    graph = unusable_observed_scale(kind=kind)
+    with pytest.raises(StructureError) as excinfo:
+        check_linearity(graph, ["w"])
+    message = str(excinfo.value)
+    assert "'d'" in message, "the message must name the observed node at fault"
+    assert "not affine" not in message, (
+        "the model IS affine; blaming linear_in is the mis-attribution this "
+        "guard exists to prevent"
+    )
+
+
+def test_a_usable_scale_of_the_same_shape_still_passes():
+    """The other side. Without it, a guard that refused every array-valued
+    sigma would pass all four arms above and break every real model.
+    """
+    graph = unusable_observed_scale(kind="one_zero")
+    honest = eqx.tree_at(
+        lambda g: g.nodes[3].dist_fn,
+        graph,
+        replace=lambda m: dist.Normal(m, jnp.full(5, 0.4)),
+    )
+    assert check_linearity(honest, ["w"])
+
+
+def test_a_non_gaussian_observed_node_raises_not_gaussian_not_structure_error():
+    """Pins a contract change that arrived silently, and the class of error.
+
+    `check_linearity` used to read only each observed node's LOCATION, so a
+    Student-t likelihood over an affine mean checked fine. Adding the
+    sigma-weighted criterion made it call `noise_std_at`, which reaches
+    `gaussian_parts` and raises `NotGaussian`. Nothing recorded that, and no
+    fixture exercised it.
+
+    WHICH error it is, is load-bearing rather than cosmetic. P3b's dispatcher
+    catches `NotGaussian` and routes the block to NUTS -- an ordinary
+    non-conjugate model, not a broken one -- while `StructureError` means a
+    declaration was checked and found false and must never be swallowed. If
+    this raise ever changes class, an ordinary Student-t likelihood starts
+    looking like a broken model.
+    """
+    graph = non_gaussian_observed_node()
+    with pytest.raises(NotGaussian) as excinfo:
+        check_linearity(graph, ["w"])
+    assert "'d'" in str(excinfo.value)
+    assert not isinstance(excinfo.value, StructureError), (
+        "NotGaussian and StructureError must stay siblings: a dispatcher "
+        "doing `except NotGaussian` must not also swallow a broken model"
+    )
+
+
+def test_which_node_an_unusable_scale_names_does_not_depend_on_declaration_order():
+    """`noise_std_at` returns declaration order, so the guard's `sorted` bears weight.
+
+    With a single broken node the ordering is unobservable and the `sorted`
+    could be deleted with nothing going red -- the shape P3a Task 9 named:
+    a dict straight out of a JAX transform is already key-sorted, so sorting
+    it again is provably a no-op, while a dict built by comprehension carries
+    declaration order and sorting it is a guard. `noise_std_at` builds its
+    result by comprehension over `graph.observed`, so it is the second kind.
+
+    Here `z_first` is declared first and `a_second` sorts first. This pins the
+    STABILITY of the message, not its correctness: either node is a fair thing
+    to name and both are genuinely broken. The defect would be the name
+    changing because somebody reordered their `observe()` calls.
+    """
+    graph = two_unusable_observed_scales()
+    assert graph.observed == ("z_first", "a_second"), (
+        "fixture must declare the nodes in reverse-sorted order, or this "
+        "test cannot distinguish the two orderings"
+    )
+    with pytest.raises(StructureError) as excinfo:
+        check_linearity(graph, ["w"])
+    assert "'a_second'" in str(excinfo.value)

@@ -234,12 +234,10 @@ def affinity_errors(
     a localised defect by the magnitudes of the correct entries.
 
     Note:
-        ``sigma`` is divided by, not validated here. A scale that is zero or
-        non-finite makes the weighted column non-finite, which is a refusal
-        -- correct as a verdict, but attributed to the ``linear_in``
-        declaration rather than to the node whose scale is unusable.
-        :func:`~bayesmith.exact.gaussian.check_gaussian` names that node
-        properly, and runs when the block is built.
+        ``sigma`` is divided by, not validated here -- :func:`check_linearity`
+        clears it first with :func:`_refuse_unusable_scale`, which names the
+        offending node. Called directly with a zero, negative or non-finite
+        scale, this function still refuses, but reports it as curvature.
     """
     baseline, tangent = jax.linearize(g, zero)
     if not all(bool(jnp.all(jnp.isfinite(leaf))) for leaf in jax.tree.leaves(baseline)):
@@ -390,6 +388,63 @@ def _refuse_affinity(
     )
 
 
+def _refuse_unusable_scale(sigma: dict[str, jax.Array]) -> None:
+    """Refuse a noise scale the sigma-weighted criterion cannot be stated in.
+
+    :func:`affinity_errors` measures departure from affinity in units of
+    sigma, so a scale that is zero, negative or non-finite makes that column
+    unreadable. Without this guard the refusal still happens -- the
+    finiteness branch catches inf and NaN -- but it is reported as "latent
+    'w' is declared linear, but the prediction is not affine in it", which is
+    wrong in every word when the model IS affine and the node's scale
+    expression is what is broken. It sends the modeller to rewrite the one
+    part of the model that is correct.
+
+    Measured before this guard, on an exactly affine ``mu = w * X``: a scale
+    of zero, a single zero entry among honest ones, and a scale of NaN all
+    produced exactly that message.
+
+    A NEGATIVE scale was worse than mis-attributed -- it **passed silently**.
+    The weighted column divides by ``abs(sigma)`` and so cannot tell -0.5
+    from +0.5, while
+    :func:`~bayesmith.exact.gaussian.check_gaussian` refuses a non-positive
+    scale by name. A guard written only against non-finite values would leave
+    that hole open, so the positivity half is load-bearing on its own.
+
+    This is the mis-attribution class :func:`affinity_errors`'s non-finite
+    BASELINE branch and its ``at_description`` argument already exist to
+    prevent; the pattern is followed rather than reinvented.
+
+    Deliberately mirrors ``check_gaussian``'s wording instead of calling it.
+    That function answers a different question -- whether a node's own
+    ``log_prob`` matches the loc and scale read off it -- and runs when the
+    block is built, which is after this. What the two share is the sentence a
+    user needs, not the check.
+    """
+    # `sigma` comes from `noise_std_at`, a plain dict comprehension over
+    # `graph.observed`, so it carries DECLARATION order rather than JAX's
+    # sorted-pytree order. This `sorted` is therefore load-bearing: without
+    # it, which node gets named when two are broken depends on declaration
+    # order (P3a Task 9's criterion for telling a documenting `sorted` from a
+    # guarding one).
+    for name in sorted(sigma):
+        scale = jnp.asarray(sigma[name])
+        if bool(jnp.all(jnp.isfinite(scale) & (scale > 0))):
+            continue
+        raise StructureError(
+            f"observed node {name!r} has a scale that is not strictly "
+            f"positive and finite (min {float(jnp.min(scale)):g}), so the "
+            "departure from affinity cannot be measured in units of it. "
+            "**This is a fault in that node's scale expression, not in any "
+            "linear_in declaration** -- the linearity check stops here rather "
+            "than reporting an unreadable column as curvature and blaming a "
+            "latent whose model may well be affine. A conjugate solve weights "
+            "by 1/scale**2, so a zero or negative sigma is an infinite or "
+            "negative weight rather than a tight constraint. Add a floor to "
+            "the expression that produces it."
+        )
+
+
 def check_linearity(
     graph: Graph,
     names: Iterable[str],
@@ -509,13 +564,15 @@ def check_linearity(
                 for position, member in enumerate(ordered)
             }
 
+        sigma = noise_std_at(graph, {**point, **zero})
+        _refuse_unusable_scale(sigma)
         errors, failed, used_rtol, columns = affinity_errors(
             g,
             zero,
             probe_at,
             scales,
             rtol,
-            sigma=noise_std_at(graph, {**point, **zero}),
+            sigma=sigma,
             at_description=where,
         )
         collected[point_index] = errors

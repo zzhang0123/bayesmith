@@ -885,3 +885,116 @@ def roundoff_stress(*, big, sigma, n=6):
         observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
 
     return trace(model)
+
+
+def unusable_observed_scale(*, kind="zero", n=5, w_true=2.0):
+    """An entirely affine model whose observed node produces an unusable sigma.
+
+    `affinity_errors` divides each element's departure by that node's sigma,
+    so a scale that is zero, negative or non-finite makes the weighted column
+    unreadable -- and the failure surfaces as "latent 'w' is declared linear,
+    but the prediction is not affine in it". **`mu = w * X` is exactly
+    affine.** The fault is the scale expression on `d`, and blaming the
+    modeller's `linear_in` sends them to rewrite the one part of the model
+    that is correct.
+
+    That is the same mis-attribution class `affinity_errors`'s non-finite
+    BASELINE branch and its `at_description` argument were added to prevent
+    (see `test_a_non_finite_baseline_is_attributed_to_the_outside_latent_not_the_member`),
+    so the repair follows the pattern already in the file.
+
+    ``kind``:
+        ``"zero"``      -- sigma is 0 everywhere: 1/sigma**2 is an infinite weight.
+        ``"one_zero"``  -- a single zero entry among honest ones. The elementwise
+                           case: a per-leaf check that reduced before testing
+                           would see four good entries and miss it.
+        ``"negative"``  -- sigma is negative. **This one passed silently before
+                           the guard**, because the weighted column takes
+                           ``abs(sigma)`` and so cannot tell -0.5 from +0.5,
+                           while `check_gaussian` refuses it by name. A guard
+                           that only rejected non-finite values would leave
+                           this hole open, which is why it is its own case.
+        ``"nan"``       -- sigma is NaN.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = w_true * x
+    scales = {
+        "zero": jnp.zeros(n),
+        "one_zero": jnp.asarray([0.4] * (n // 2) + [0.0] + [0.4] * (n - n // 2 - 1)),
+        "negative": jnp.full(n, -0.5),
+        "nan": jnp.full(n, jnp.nan),
+    }
+    scale = scales[kind]
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 3.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: dist.Normal(m, scale), mu, obs=data)
+
+    return trace(model)
+
+
+def non_gaussian_observed_node(*, n=5, w_true=2.0, sigma=0.5):
+    """Affine in `w`, but `d` is a Student-t -- so there IS no sigma to read.
+
+    Pins a contract change that arrived silently. Before `affinity_errors`
+    took a sigma argument, `check_linearity` read only each observed node's
+    LOCATION and so was indifferent to the noise family; a Student-t
+    likelihood over an affine mean checked fine. Now `check_linearity` calls
+    `noise_std_at`, which reaches `gaussian_parts`, which raises
+    `NotGaussian` -- so the entry point refuses this graph outright.
+
+    That is defensible: the weighted criterion is stated in units of sigma,
+    and a Student-t has no sigma to state it in. But it was undocumented and
+    untested, and the distinction matters downstream -- P3b's dispatcher
+    treats `NotGaussian` as a CLASSIFICATION outcome (route the block to
+    NUTS) and `StructureError` as a FAULT, so which one comes out of here
+    decides whether an ordinary non-conjugate model looks broken.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = w_true * x
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 3.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: dist.StudentT(4.0, m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def two_unusable_observed_scales(*, n=5, m=4, w_true=2.0):
+    """TWO observed nodes with unusable scales, declared in reverse-sorted order.
+
+    Sibling of `two_observations_reverse_sorted_names`, and here for the same
+    reason: `noise_std_at` returns a plain dict built by comprehension over
+    `graph.observed`, so it carries DECLARATION order, and any `sorted()`
+    applied to it is load-bearing rather than decorative (P3a Task 9's
+    criterion for telling the two apart).
+
+    With only one bad node the ordering is unobservable, so
+    `_refuse_unusable_scale`'s `sorted` could be deleted with nothing going
+    red. Here `z_first` is declared first and `a_second` sorts first, so which
+    node the message names distinguishes the two orderings.
+
+    What this pins is the STABILITY of the message, not its correctness:
+    either node is a legitimate thing to name, and both are genuinely broken.
+    What would be a defect is the name changing because someone reordered
+    their `observe()` calls.
+    """
+    x1 = jnp.linspace(1.0, 2.0, n)
+    x2 = jnp.linspace(1.0, 3.0, m)
+
+    def model():
+        a = const("X1", x1)
+        b = const("X2", x2)
+        w = sample("w", lambda: dist.Normal(0.0, 3.0))
+        m1 = det("mu1", lambda w_, x_: w_ * x_, w, a, linear_in=("w",))
+        m2 = det("mu2", lambda w_, x_: w_ * x_, w, b, linear_in=("w",))
+        observe("z_first", lambda u: dist.Normal(u, jnp.zeros(n)), m1,
+                obs=w_true * x1)
+        observe("a_second", lambda u: dist.Normal(u, jnp.zeros(m)), m2,
+                obs=w_true * x2)
+
+    return trace(model)
