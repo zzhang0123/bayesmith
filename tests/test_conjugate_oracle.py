@@ -5,6 +5,21 @@ Normal-normal conjugacy: x ~ N(0, tau^2), d_i ~ N(x, sigma^2), i = 1..N gives
     var_post  = 1 / (1/tau^2 + N/sigma^2)
     mean_post = var_post * sum(d) / sigma^2
 
+TAU is deliberately smaller than SIGMA: the prior precision 1/tau^2 = 4.0 is
+16x the per-observation precision 1/sigma^2 = 0.25, so the prior supplies
+about 94% of the posterior precision at n=1, dropping to about 44% at n=20
+and 7% at n=200. That gradient is what makes a silently-dropped prior term
+observable at all: deleting it pulls the posterior mean toward the raw data
+mean by an offset set by the prior, while NUTS keeps sampling the true
+(correct) posterior regardless -- and because the posterior also concentrates
+sharply as n grows, that fixed-looking offset shows up as an enormous
+z-score at every n this file sweeps, not only at the small-n end where the
+prior's precision share is largest. (An earlier version of these constants,
+TAU=2.0 and SIGMA=0.5, had the ratio backwards: the likelihood so dominated
+even at n=1 that dropping the prior term entirely still landed inside this
+test's tolerances -- an oracle that cannot fail this way is not fit to be
+the package's acceptance gate.)
+
 Everything upstream of this file is self-consistent by construction; this is
 where the package first has to be *right*.
 """
@@ -19,8 +34,8 @@ from numpyro.diagnostics import effective_sample_size
 from bayesmith.bridge.numpyro_bridge import nuts
 from bayesmith.graph.trace import observe, sample, trace
 
-TAU = 2.0
-SIGMA = 0.5
+TAU = 0.5
+SIGMA = 2.0
 
 
 def _graph(data):
