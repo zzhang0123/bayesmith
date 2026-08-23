@@ -244,6 +244,102 @@ def radiometer(*, n=10, weight=3.0, kappa=0.05, floor=1e-3, seed=6):
     return trace(model)
 
 
+def one_sided_sigma(*, n=8, kappa=0.2, floor=1e-2, seed=12):
+    """``sigma = kappa * max(mu, 0) + floor`` -- constant for every mu <= 0.
+
+    A one-sided probe that happens to go negative reads sigma as constant and
+    lets `depends_on_prediction=False` through. Two-sided does not.
+    """
+    x = jnp.linspace(1.0, 3.0, n)
+    data = 2.0 * x + floor * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe(
+            "d",
+            lambda m: dist.Normal(m, kappa * jnp.maximum(m, 0.0) + floor),
+            mu,
+            obs=data,
+        )
+
+    return trace(model)
+
+
+def plated_radiometer(*, n=6, tau=3.0, kappa=0.06, floor=2e-3, seed=13):
+    """A plated latent whose sigma tracks its OWN prediction, elementwise.
+
+    Structurally the shape Task 7 found unexercised for `gcr_sample`: one
+    domain LEAF with several elements, rather than several scalar members.
+    `radiometer`'s ``w`` is a scalar; ``z`` here is a plate of ``n``, and
+    ``sigma_i = kappa|z_i| + floor`` depends on that SAME element -- so
+    `iterative_gls`'s reweighting loop and `check_prediction_dependence`'s
+    probe run on an array leaf instead of a dict of scalars. No Deterministic
+    node sits between ``z`` and ``d``, matching `plated_latent`'s pattern.
+    """
+    key = jax.random.key(seed)
+    truth = tau * jax.random.normal(key, (n,))
+    data = truth + (kappa * jnp.abs(truth) + floor) * jax.random.normal(
+        jax.random.fold_in(key, 1), (n,)
+    )
+
+    def model():
+        obs = plate("obs", n)
+        z = sample("z", lambda: dist.Normal(0.0, tau), plate=obs)
+        observe(
+            "d",
+            lambda z_: dist.Normal(z_, kappa * jnp.abs(z_) + floor),
+            z,
+            plate=obs,
+            depends_on_prediction=True,
+            obs=data,
+        )
+
+    return trace(model)
+
+
+def radiometer_group(
+    *, n=9, m=6, a_true=1.5, b_true=-2.0, kappa=0.04, floor=2e-3, s2=0.25, seed=14
+):
+    """Two latents solved JOINTLY; one observed node's sigma tracks its
+    prediction, the other's does not.
+
+    Structurally the shape `check_prediction_dependence` and the reweighting
+    loop have never been run against: MORE than one domain leaf (``a``,
+    ``b``) and MORE than one codomain leaf (``d1`` prediction-dependent,
+    ``d2`` constant) at once -- `radiometer` is scalar/single-leaf/
+    single-observed on all three axes gls.py's own dict/pytree code is
+    generic over.
+    """
+    x1 = jnp.linspace(1.0, 4.0, n)
+    x2 = jnp.linspace(-1.5, 1.5, m)
+    truth1 = a_true * x1 + b_true
+    k1, k2 = jax.random.split(jax.random.key(seed))
+    data1 = truth1 + (kappa * jnp.abs(truth1) + floor) * jax.random.normal(k1, (n,))
+    data2 = b_true * x2 + s2 * jax.random.normal(k2, (m,))
+
+    def model():
+        xs1 = const("X1", x1)
+        xs2 = const("X2", x2)
+        a = sample("a", lambda: dist.Normal(0.0, 4.0))
+        b = sample("b", lambda: dist.Normal(0.0, 6.0))
+        mu1 = det(
+            "mu1", lambda a_, b_, x_: a_ * x_ + b_, a, b, xs1, linear_in=("a", "b")
+        )
+        mu2 = det("mu2", lambda b_, x_: b_ * x_, b, xs2, linear_in=("b",))
+        observe(
+            "d1",
+            lambda u: dist.Normal(u, kappa * jnp.abs(u) + floor),
+            mu1,
+            depends_on_prediction=True,
+            obs=data1,
+        )
+        observe("d2", lambda u: dist.Normal(u, s2), mu2, obs=data2)
+
+    return trace(model)
+
+
 def indirect_ancestor(*, n=6, sigma=0.5, seed=8):
     """`tau` reaches `x`'s prior through a deterministic node, not directly.
 
