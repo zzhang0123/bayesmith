@@ -3095,6 +3095,27 @@ def unconstrained_latent(*, n=5, sigma=0.5, seed=11):
 追加到 `tests/exact/test_solve.py`（并在文件顶部补 `from bayesmith.exact.solve import wiener_solve`，以及 `from tests.exact.models import plated_latent, two_observations, unconstrained_latent`、`from tests.exact.oracle import flat_domain`）：
 
 ```python
+def _assert_orderings_agree(oracle, block):
+    """The two sides flatten the domain independently; nothing ties them together.
+
+    `flat_domain` walks `block.names`, per MEMBER; the oracle records `order`
+    per ELEMENT. A caller who passed a differently-ordered tuple to one side
+    would get a same-length, silently transposed comparison, which is why this
+    is asserted rather than trusted -- but it has to be compared at the same
+    granularity. An earlier version of this check compared the per-element name
+    list directly against `block.names`, so for a plated member it read
+    `['z'] * 6 == ('z',)`: False for a block that is perfectly well ordered. It
+    passed only where every member happened to be scalar -- the one place it
+    could not fail. Measured while verifying Task 6's acceptance gate.
+    """
+    per_member = list(dict.fromkeys(name for name, _ in oracle.order))
+    assert per_member == list(block.names), (per_member, block.names)
+    # And the flat lengths must agree, which is what the comparison actually
+    # depends on -- the name check alone would pass for a member whose shape
+    # the two sides disagreed about.
+    assert len(oracle.order) == oracle.mean.size
+
+
 def test_wiener_solve_matches_the_dense_oracle():
     """R1 vs R2 -- the acceptance gate of this whole plan.
 
@@ -3107,12 +3128,7 @@ def test_wiener_solve_matches_the_dense_oracle():
         sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         got, residual = wiener_solve(block, noise_std=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("a", "b"), at={})
-    # The two sides flatten the domain independently -- `flat_domain` walks
-    # `block.names`, the oracle walks the `names` it was handed. Nothing ties
-    # them together, so a caller who passed a differently-ordered tuple to one
-    # side would get a same-length, silently transposed comparison. Assert the
-    # agreement rather than relying on both call sites staying in step.
-    assert [name for name, _ in oracle.order] == list(block.names)
+    _assert_orderings_agree(oracle, block)
     assert float(residual) < 1e-10
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
 
@@ -3125,6 +3141,7 @@ def test_wiener_solve_matches_the_oracle_across_two_observed_nodes():
         sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
         got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("w",), at={})
+    _assert_orderings_agree(oracle, block)
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
 
 
@@ -3136,6 +3153,7 @@ def test_wiener_solve_matches_the_oracle_for_a_plated_block():
         sigma = _sigma(graph, {"z": jnp.zeros(6)})
         got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("z",), at={})
+    _assert_orderings_agree(oracle, block)
     assert got["z"].shape == (6,)
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
 
