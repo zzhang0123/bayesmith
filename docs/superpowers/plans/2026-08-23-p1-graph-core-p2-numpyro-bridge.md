@@ -41,6 +41,8 @@ uv venv --python 3.12
 uv pip install -e . --group dev
 ```
 
+> 实施时踩到并已确认：`src/bayesmith/` 此刻还是空目录，而 hatchling 对空包目录会产出一个**不含任何包文件**的 wheel，于是 `import bayesmith` 报 `ModuleNotFoundError`，`.pth` 也不会写出。写完 Step 2–4 的源文件后**再跑一次同一条 `uv pip install -e . --group dev`** 即可（命令完全相同，只是要在源文件存在之后执行）。
+
 - [ ] **Step 2: 写 errors.py**
 
 ```python
