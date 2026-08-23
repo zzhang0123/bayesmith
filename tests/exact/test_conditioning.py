@@ -1,15 +1,11 @@
-# tests/exact/test_conditioning.py
-"""Spectral diagnostics: known spectra, and the float32 overflow they must survive."""
+"""Spectral diagnostics: a known spectrum, and the float32 overflow it survives."""
 
 import jax
 import jax.numpy as jnp
 import pytest
 
-from bayesmith.exact.conditioning import (
-    extreme_eigenvalues,
-    largest_eigenvalue,
-    tree_norm,
-)
+from bayesmith.errors import GraphError
+from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
 
 
 def _diagonal(diag):
@@ -35,6 +31,19 @@ def test_tree_norm_survives_a_leaf_whose_square_overflows_float32():
     assert float(tree_norm({"x": big})) == pytest.approx(5e19, rel=1e-5)
 
 
+def test_tree_norm_survives_a_leaf_small_enough_to_underflow_when_squared():
+    """The other end of the same rescale, and the naive route fails here too.
+
+    Entries at 1e-30 square to 1e-60, which is zero in float32 -- so the naive
+    implementation returns exactly 0.0 for a vector that is emphatically not
+    zero. Both ends matter: a normal operator's domain spans whatever units
+    the model's latents happen to be in.
+    """
+    small = jnp.array([3e-30, 4e-30], dtype=jnp.float32)
+    assert float(jnp.sqrt(jnp.sum(small**2))) == 0.0
+    assert float(tree_norm({"x": small})) == pytest.approx(5e-30, rel=1e-5)
+
+
 def test_tree_norm_of_an_all_zero_pytree_is_zero():
     assert float(tree_norm({"x": jnp.zeros(4)})) == 0.0
 
@@ -47,52 +56,58 @@ def test_largest_eigenvalue_finds_the_top_of_a_known_spectrum():
     assert float(got) == pytest.approx(100.0, rel=1e-4)
 
 
-def test_extreme_eigenvalues_finds_both_ends_of_a_known_spectrum():
-    diag = jnp.array([1.0, 1.0, 1.0, 100.0])
-    largest, smallest = extreme_eigenvalues(
-        _diagonal(diag), {"x": jnp.zeros(4)}, jax.random.key(0), 20
-    )
-    assert float(largest) == pytest.approx(100.0, rel=1e-4)
-    assert float(smallest) == pytest.approx(1.0, rel=1e-3)
+def test_largest_eigenvalue_approaches_the_truth_from_below():
+    """Power iteration underestimates, and the guard depends on knowing it does.
+
+    `condition_bound` divides lambda_max by a prior-derived LOWER bound on
+    lambda_min to get an UPPER bound on kappa. That bound is only as good as
+    lambda_max, which must therefore never overshoot. Checked at several
+    iteration counts on a near-degenerate top of spectrum, where convergence
+    is slowest and an overshoot would show up first.
+    """
+    diag = jnp.array([1.0, 99.9, 100.0])
+    for iterations in (1, 3, 10, 40):
+        got = float(
+            largest_eigenvalue(
+                _diagonal(diag), {"x": jnp.zeros(3)}, jax.random.key(4), iterations
+            )
+        )
+        assert got <= 100.0 * (1.0 + 1e-5), (iterations, got)
+    assert got == pytest.approx(100.0, rel=1e-3)
 
 
-@pytest.mark.parametrize("extremes_in", ["a", "b"])
-def test_extreme_eigenvalues_spans_several_pytree_leaves(extremes_in):
+@pytest.mark.parametrize("top_in", ["a", "b"])
+def test_largest_eigenvalue_spans_several_pytree_leaves(top_in):
     """The spectrum must be the JOINT one, not any single leaf's.
 
-    Both power iterations are exercised, and the parametrisation is what makes
-    that true. Whichever leaf holds an extreme reproduces it when restricted
-    to that leaf -- unavoidable -- so no single spectrum can catch a
-    single-leaf implementation of both iterations. Measured, on the joint
-    spectrum {2, 10, 20, 100}:
-
-        spectrum              iter1 a  iter1 b  iter2 a  iter2 b
-        a=[10,20] b=[2,100]   caught   missed   caught   missed
-        a=[2,100] b=[10,20]   missed   caught   missed   caught
-
-    Their union is complete, which is why this runs as two cases and not one.
-    An earlier single-case version of this test used a=[2,10] b=[20,100] and
-    silently missed the iter2-first-leaf bug entirely -- found by mutation testing,
-    which is the only thing that finds a guard that does not guard.
-
-    200 iterations, not 40: the shifted operator's top two eigenvalues are 98
-    and 90, a ratio of 0.918, so 40 steps leave ~3% error on a target of 2.0
-    and the test passes or fails on the luck of the starting vector. Measured
-    across 30 keys: at 40 iterations the worst is 229% relative error; at 200
-    all 30 are float32-exact.
+    Parametrised because whichever leaf holds the top reproduces it when
+    restricted to that leaf -- unavoidable -- so one case cannot catch a
+    single-leaf implementation. With the top in "b", restricting to the first
+    leaf reports 20 instead of 100; with it in "a", restricting to the last
+    leaf does. Their union is complete. An earlier single-case version of this
+    idea silently missed one of the two, found by mutation testing, which is
+    the only thing that finds a guard that does not guard.
     """
-    extremes = jnp.array([2.0, 100.0])
-    middle = jnp.array([10.0, 20.0])
-    diagonals = (
-        {"a": extremes, "b": middle}
-        if extremes_in == "a"
-        else {"a": middle, "b": extremes}
-    )
+    top = jnp.array([2.0, 100.0])
+    rest = jnp.array([10.0, 20.0])
+    diagonals = {"a": top, "b": rest} if top_in == "a" else {"a": rest, "b": top}
 
     def operator(parts):
         return {name: diagonals[name] * parts[name] for name in diagonals}
 
     template = {"a": jnp.zeros(2), "b": jnp.zeros(2)}
-    largest, smallest = extreme_eigenvalues(operator, template, jax.random.key(1), 200)
-    assert float(largest) == pytest.approx(100.0, rel=1e-2)
-    assert float(smallest) == pytest.approx(2.0, rel=1e-2)
+    got = largest_eigenvalue(operator, template, jax.random.key(1), 60)
+    assert float(got) == pytest.approx(100.0, rel=1e-3)
+
+
+def test_largest_eigenvalue_refuses_fewer_than_one_iteration():
+    """iterations=0 (or negative) would otherwise return the start vector's own
+    norm untouched by the operator -- a number with no relationship to it at all.
+
+    Not in the plan's Step 2 block: added per the code-quality review's second
+    finding, which asked for this guard and a test pinning it (see mutation 6).
+    """
+    with pytest.raises(GraphError, match="iterations"):
+        largest_eigenvalue(
+            _diagonal(jnp.array([1.0, 2.0])), {"x": jnp.zeros(2)}, jax.random.key(0), 0
+        )

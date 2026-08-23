@@ -10,6 +10,23 @@ knows nothing about :mod:`bayesmith.exact.block`'s blocks and nothing about
 graphs. That keeps the numerics separable from the model machinery and the
 dependency pointing one way.
 
+**Only the top of the spectrum is measured here.** rheplicant's
+``extreme_eigenvalues`` finds ``lambda_min`` by a second power iteration on
+``lambda_max * I - M``; that is deliberately not ported, because it was
+measured to fail in principle on a graded spectrum -- the shifted operator's
+leading eigenvalues all crowd against ``lambda_max`` with vanishing gaps, so
+the iteration cannot separate them however long it runs (2000 steps still
+left a factor of 700 on a 50-point geometric spectrum at kappa=1e7). Worse,
+the bias is one-sided in the dangerous direction: ``lambda_min`` comes back
+too large, so kappa comes back too small, so a convergence guard built on it
+stays silent exactly when it should fire.
+
+``lambda_min`` is instead bounded from below by the prior's own curvature:
+``A^T N^-1 A`` is positive semi-definite, so
+``lambda_min(A^T N^-1 A + S^-1) >= 1 / max(prior_variance)``. See
+:func:`bayesmith.exact.solve.condition_bound`, which turns that into an
+UPPER bound on kappa -- the direction a safety guard needs.
+
 Ported from ``rheplicant.inference.conditioning``.
 """
 
@@ -21,6 +38,8 @@ from typing import Any
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+
+from bayesmith.errors import GraphError
 
 
 def tree_norm(parts: Any) -> jax.Array:
@@ -45,6 +64,13 @@ def _scaled(parts: Any, factor: jax.Array) -> Any:
 
 def _random_like(template: Any, key: jax.Array) -> Any:
     leaves, treedef = jax.tree.flatten(template)
+    for leaf in leaves:
+        if not eqx.is_array(leaf):
+            raise GraphError(
+                "largest_eigenvalue's template must be a pytree of arrays "
+                "giving the operator's domain (shapes and dtypes); found a "
+                f"{type(leaf).__name__} leaf ({leaf!r}) instead"
+            )
     keys = jax.random.split(key, len(leaves))
     return jax.tree.unflatten(
         treedef,
@@ -72,7 +98,16 @@ def largest_eigenvalue(
         template: a pytree of the operator's domain, for shapes and dtypes.
         key: PRNG key for the starting vector.
         iterations: number of steps.
+
+    Raises:
+        GraphError: if ``iterations < 1``, or if ``template`` contains a
+            leaf that is not an array.
     """
+    if iterations < 1:
+        raise GraphError(
+            "largest_eigenvalue needs at least one iteration to say "
+            f"anything about the operator; got iterations={iterations}"
+        )
     vector = _random_like(template, key)
     largest = tree_norm(vector)
     vector = _scaled(vector, largest)
@@ -81,35 +116,3 @@ def largest_eigenvalue(
         largest = tree_norm(image)
         vector = _scaled(image, jnp.where(largest > 0, largest, 1.0))
     return largest
-
-
-def extreme_eigenvalues(
-    operator: Callable[[Any], Any],
-    template: Any,
-    key: jax.Array,
-    iterations: int,
-) -> tuple[jax.Array, jax.Array]:
-    """``(λ_max, λ_min)`` of a symmetric positive-definite operator.
-
-    ``λ_min`` comes from a second power iteration on ``λ_max I - M``, whose top
-    eigenvalue is ``λ_max - λ_min``. Measuring it beats bounding it: a caller
-    who assumed the worst about ``λ_min`` would call every well-conditioned
-    operator ill-conditioned by the whole dynamic range of the problem.
-
-    The difference is taken between two numbers of size ``λ_max``, so it is
-    cancellation-prone precisely when ``λ_min`` is tiny. Callers holding an
-    independent lower bound on ``λ_min`` -- a prior's curvature, say -- should
-    floor the result with it; that is both rigorous and the scale at which the
-    cancellation bites. :func:`bayesmith.exact.solve.condition_estimate` does
-    exactly that.
-    """
-    largest = largest_eigenvalue(operator, template, key, iterations)
-    spread = largest_eigenvalue(
-        lambda parts: jax.tree.map(
-            lambda leaf, image: largest * leaf - image, parts, operator(parts)
-        ),
-        template,
-        jax.random.fold_in(key, 1),
-        iterations,
-    )
-    return largest, largest - spread
