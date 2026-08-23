@@ -93,7 +93,9 @@ Task 1 (B1 判决对比表)  →  Task 2 (B1 修复)  ─┐
 
 ## Task 1：B1 修复前的判决对比表（**纯测量，不改产品代码**）
 
-spec §1.4 的「实施前必测」。加权版本可能让今天通过的合法 fixture 变红——`cubic_tail`（`curvature=1e-6`）就是设计成「曲率真实但可忽略」的。**先量，再改。**
+spec §1.4 的「实施前必测」。加权版本可能让今天通过的合法 fixture 变红。**先量，再改。**
+
+> **已完成**（提交 `f18536c`），结果见 `docs/superpowers/plans/2026-08-23-p3b-task1-verdicts.md`。它推翻了本节初稿的两个说法：套件跑在 **float32** 而非 float64；`cubic_tail` 在默认参数下**不是**「曲率可忽略」而是一个真实失败。四处更正见 Task 2 开头。
 
 **Files:**
 - Create: `/tmp/p3b_task1_verdicts.py`（脚本，不进仓库）
@@ -212,6 +214,49 @@ flipped verdict is a decision rather than a surprise."
 ---
 
 ## Task 2：B1 修复——`affinity_errors` 逐元素 + `1/sigma` 加权
+
+> ## Task 1 实测带来的四处更正——**写 Task 2 之前必读**
+>
+> 结果表：`docs/superpowers/plans/2026-08-23-p3b-task1-verdicts.md`（提交 `f18536c`）。
+>
+> **(1) 套件跑在 float32，不是 float64。** `tests/exact/test_linearity.py` 里没有任何
+> `enable_x64`，整个仓库也没有 `conftest.py`——所以 B1 守卫每天实际工作的 `rtol` 是
+> **1.19e-3**，不是 2.22e-12。本计划此前默认 x64 是工作区间，**那是错的**。修复必须在
+> **两种 dtype 下都验证**，且以 float32 为主。实测有四个 fixture **只因 dtype 就翻转判决**。
+>
+> **(2) `1e-300` 在 float32 下下溢，把诚实模型判成失败。** 实测
+> `jnp.maximum(jnp.float32(0.0), 1e-300) == 0.0`，于是块动不了的那个陪域元素给出
+> `0/0 = nan`，而 `not finite` 分支把 NaN 读成**失败**。`two_observations` 的
+> `x2 = linspace(-1, 1, 5)` 第三项恰好是 `0.0`——**一个诚实的 fixture 会因为协变量网格里
+> 有个零而被拒绝**。改用 `jnp.finfo(dtype).tiny`（实测 `0/tiny == 0.0`）。
+>
+> **(3) σ 加权判据必须由同一个逐元素舍入地板把关，并且要有自己的有限性检查。** 不加地板时
+> 它测的是**动态范围而不是曲率**：在**恰好仿射**的模型上（`mu=(w+big)*X`），加权列在
+> float32 下 offset/noise=1e2 处已达 2.44e-02，float64 下 1e17 处达 2.50e+01。加了地板后
+> 这些全部变成 `0.000e+00`。
+>
+> **实测记分板（48 个 fixture 行，判错的个数）**：
+>
+> | 判据 | float32 判错 | float64 判错 |
+> |---|---|---|
+> | 全局（已发布） | 3 | 3 |
+> | 逐元素（本计划初稿） | 12 | 1 |
+> | σ 加权（本计划初稿） | 12 | 4 |
+> | **σ 加权 + 逐元素地板** | **1** | **0** |
+>
+> 唯一漏掉的是 `tunable_curvature(1e-9)`，其偏离本就在 float32 舍入之下——**当前守卫同样漏掉它**。
+>
+> **(4) `cubic_tail` 在默认参数下不是「曲率真实但可忽略」。** 本计划开头那句话是错的：
+> `prior_std=1.0` 时它是一个**真实的失败**，当前守卫已经拒绝它（scale 1e3 处 0.841）。
+> 只有 `prior_std=1e-4` 才是可忽略的那一档，**而它在 float64 下会被当前已发布的守卫拒绝**
+> ——`test_the_probe_magnitude_is_read_off_the_declared_prior` 断言它通过，那条测试的绿色
+> 因此依赖于套件跑在 float32 上，而这件事没有写在任何地方。**Task 5 的分类表要记下这一条是
+> dtype 相关的。**
+>
+> **`WEIGHTED_RTOL = 1e-3` 已验证**，但**只在加了地板之后**：float64 下窗口
+> `(4.87e-08, 2.12e-02]`，比最差的诚实 fixture 低 **2.05e+04 倍**，比最小的假声明高
+> **2.12e+01 倍**，比每一个**具名**的假声明高 ≥ **4.9e+07 倍**。**不加地板时这个窗口是空的**
+> （最差诚实 1.28e+04 > 最小假声明 1.17e-02），即 1e-3 这个数字在没有地板时毫无意义。
 
 **Files:**
 - Modify: `src/bayesmith/exact/linearity.py`（`affinity_errors`、`_refuse_affinity`、`check_linearity`）
@@ -421,42 +466,60 @@ def affinity_errors(
         probe = probe_at(index, scale)
         actual = g(probe)
         predicted = jax.tree.map(lambda b, t: b + t, baseline, tangent(probe))
-        worst_relative = 0.0
-        worst_weighted = 0.0
+        worst = 0.0
         bad = False
-        for key in sorted(jax.tree.leaves(baseline, is_leaf=lambda x: False) or baseline):
+        # `baseline` comes out of `jax.linearize`, and JAX's dict pytree sorts
+        # keys unconditionally on flatten -- so it is ALREADY sorted and a
+        # `sorted()` here would be a provable no-op (P3a Task 9). Iterating it
+        # directly says that, instead of implying a guarantee this loop makes.
+        for key in baseline:
             variation = jnp.abs(actual[key] - baseline[key])
             departure = jnp.abs(actual[key] - predicted[key])
-            # Per ELEMENT: a bright entry no longer sets a faint one's scale.
-            relative = departure / jnp.maximum(variation, 1e-300)
+            # PER ELEMENT: a bright entry no longer sets a faint one's scale.
+            # `finfo(dtype).tiny`, NOT 1e-300 -- measured, 1e-300 underflows to
+            # 0.0 in float32, so an element the block cannot move gives 0/0 =
+            # NaN and the `not finite` branch below reads that as a FAILURE.
+            # `two_observations`'s covariate grid contains an exact zero, so
+            # that alone refuses an honest model.
+            relative = departure / jnp.maximum(variation, jnp.finfo(dtype).tiny)
+            # A departure below the arithmetic's own noise floor is not
+            # curvature. Per element for the same reason as above: a global
+            # floor let one bright component disable the check everywhere.
             floor = 1e4 * epsilon * jnp.maximum(
                 jnp.abs(actual[key]), jnp.abs(baseline[key])
             )
+            # In units of the noise the likelihood divides by -- and gated by
+            # the SAME floor. Ungated it measures DYNAMIC RANGE, not
+            # curvature: measured on exactly-affine `mu = (w + big) * X`, the
+            # weighted column reaches 2.44e-02 at an offset/noise ratio of
+            # 1e2 in float32 and 2.50e+01 at 1e17 in float64. Gated, every one
+            # of those is exactly 0.000e+00.
             weighted = departure / jnp.abs(sigma[key])
-            worst_relative = max(worst_relative, float(jnp.max(relative)))
-            worst_weighted = max(worst_weighted, float(jnp.max(weighted)))
+            above_floor = departure > floor
+            worst = max(worst, float(jnp.max(relative)), float(jnp.max(weighted)))
             # NaN must count as a FAILURE: `nan > rtol` is False, so a naive
             # comparison reads an unusable probe as evidence of linearity.
+            # Both criteria get their own check -- one can be NaN while the
+            # other is finite.
             finite = bool(jnp.all(jnp.isfinite(relative) & jnp.isfinite(weighted)))
-            over_relative = bool(jnp.any((relative > rtol) & (departure > floor)))
-            over_weighted = bool(jnp.any(weighted > WEIGHTED_RTOL))
+            over_relative = bool(jnp.any((relative > rtol) & above_floor))
+            over_weighted = bool(jnp.any((weighted > WEIGHTED_RTOL) & above_floor))
             bad = bad or (not finite) or over_relative or over_weighted
-        errors[scale] = max(worst_relative, worst_weighted)
+        errors[scale] = worst
         verdicts[scale] = bad
 
     failed = sorted(scale for scale, is_bad in verdicts.items() if is_bad)
     return errors, failed, rtol
 ```
 
-> **`for key in sorted(...)` 的写法**：`baseline` 是 `{obs_name: array}` 的普通 dict——但它是 `jax.linearize` 的产物，所以**已经按键排序**（P3a Task 9 实测）。`sorted()` 对它是**可证的 no-op**，写它只是文档。上面那行故意写成直接迭代 `baseline` 的键，实现时用 `for key in baseline:` 即可，并在注释里说明为什么不需要 `sorted`。
+**调用点**：`check_linearity` 在循环里加 `sigma = noise_std_at(graph, {**point, **zero})` 并传 `sigma=sigma`。`_refuse_affinity` 的消息要**同时报出两个判据与各自的阈值**，否则用户看到一个数字而不知道是哪一条触发的。
 
-**调用点跟着改**：`check_linearity` 在循环里已经有 `point` 与 `zero`，加一行
+- [ ] **Step 4b: 两种 dtype 都要验证**
 
-```python
-sigma = noise_std_at(graph, {**point, **zero})
-```
+Run: `.venv/bin/python -m pytest tests/exact/ -q`（float32，套件的真实区间）
+Then 用 Task 1 的脚本在**两种 dtype** 下重跑记分板，确认 `σ 加权 + 逐元素地板` 这一列是 f32 判错 1 个、f64 判错 0 个。
 
-并传 `sigma=sigma`。`_refuse_affinity` 的消息要同时报出两个判据与各自的阈值——否则用户看到一个数字而不知道是哪一条触发的。
+**若某个诚实 fixture 在 float32 下变红，第一个假设不是「阈值要放松」，而是地板没有生效**——Task 1 实测的四种组合里，只有「加权 + 地板」这一种把诚实 fixture 全部保住。
 
 - [ ] **Step 5: 跑全套**
 
