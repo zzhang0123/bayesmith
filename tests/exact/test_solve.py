@@ -26,6 +26,27 @@ def _sigma(graph, at):
     return noise_std_at(graph, at)
 
 
+def _assert_orderings_agree(oracle, block):
+    """The two sides flatten the domain independently; nothing ties them together.
+
+    `flat_domain` walks `block.names`, per member; the oracle records
+    `order` per ELEMENT. A caller who passed a differently-ordered tuple to
+    one side would get a same-length, silently transposed comparison, which
+    is why this is asserted rather than trusted -- but the comparison has to
+    be made at the same granularity. An earlier version of this check
+    compared the per-element name list directly against `block.names` and so
+    read `['z'] * 6 == ('z',)` for a plated member: False for a block that is
+    perfectly well ordered. It passed only where every member happened to be
+    scalar, which is the one place it could not fail.
+    """
+    per_member = list(dict.fromkeys(name for name, _ in oracle.order))
+    assert per_member == list(block.names), (per_member, block.names)
+    # And the flat lengths must agree, which is what the comparison below
+    # actually depends on -- the name check alone would pass for a member
+    # whose shape the two sides disagreed about.
+    assert len(oracle.order) == oracle.mean.size
+
+
 def test_the_bound_is_lambda_max_times_the_loosest_prior_variance():
     """The bound's definition, checked against a dense eigendecomposition.
 
@@ -270,12 +291,10 @@ def test_wiener_solve_matches_the_dense_oracle():
         sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         got, residual = wiener_solve(block, noise_std=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("a", "b"), at={})
-    # The two sides flatten the domain independently -- `flat_domain` walks
-    # `block.names`, the oracle walks the `names` it was handed. Nothing ties
-    # them together, so a caller who passed a differently-ordered tuple to one
-    # side would get a same-length, silently transposed comparison. Assert the
-    # agreement rather than relying on both call sites staying in step.
-    assert [name for name, _ in oracle.order] == list(block.names)
+    # Assert the ordering agreement rather than relying on both call sites
+    # staying in step -- see _assert_orderings_agree's own docstring for why
+    # the naive per-element comparison this once was is wrong in general.
+    _assert_orderings_agree(oracle, block)
     assert float(residual) < 1e-10
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
 
@@ -288,6 +307,7 @@ def test_wiener_solve_matches_the_oracle_across_two_observed_nodes():
         sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
         got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("w",), at={})
+    _assert_orderings_agree(oracle, block)
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
 
 
@@ -300,6 +320,7 @@ def test_wiener_solve_matches_the_oracle_for_a_plated_block():
         got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("z",), at={})
     assert got["z"].shape == (6,)
+    _assert_orderings_agree(oracle, block)
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
 
 
@@ -461,3 +482,40 @@ def test_the_precision_floor_alone_makes_the_guard_unreachable():
     sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
     with pytest.raises(Exception, match="no tol or maxiter will help"):
         wiener_solve(block, noise_std=sigma, tol=1e-14, require_convergence=1e-3)
+
+
+def test_a_non_finite_residual_gets_its_own_message():
+    """NaN/Inf is not a convergence problem, and the other two messages both
+    give advice a non-finite residual cannot act on -- tightening `tol` or
+    raising `maxiter` does nothing when the right-hand side was already
+    non-finite before CG started.
+
+    `b`'s prior_std forced to exactly 0.0 (via dataclasses.replace, same
+    fixture-mutation pattern as the `loosened` block elsewhere in this file)
+    makes S^-1 = 1/0**2 at that entry, so `rhs`'s `b` leaf is `0.0/0.0 = NaN`
+    (`b`'s prior_mean is itself 0.0 on `two_linear_latents`) -- one of the
+    causes named in the guard's own message. This cannot be reached through
+    `linear_operator` on an ordinary graph: `check_gaussian` refuses a
+    non-positive sigma at block-build time (see `gaussian.py`), so a real
+    model can never hand `wiener_solve` a block like this one -- it has to
+    be built the same way the `loosened` block above is, by mutating an
+    already-checked block after the fact.
+
+    Measured directly: with the guard OFF (`require_convergence=None`), the
+    returned residual is exactly `nan` (`jnp.isfinite` is False), confirming
+    the fixture reaches the regime this test claims before checking what the
+    guard does with it.
+    """
+    with jax.enable_x64(True):
+        graph = two_linear_latents()
+        block = linear_operator(graph, ("a", "b"), at={})
+        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        broken = dataclasses.replace(
+            block, prior_std={**block.prior_std, "b": jnp.asarray(0.0)}
+        )
+        _, residual = wiener_solve(
+            broken, noise_std=sigma, tol=1e-14, require_convergence=None
+        )
+        assert not bool(jnp.isfinite(residual)), float(residual)
+        with pytest.raises(Exception, match="non-finite residual"):
+            wiener_solve(broken, noise_std=sigma, tol=1e-14)

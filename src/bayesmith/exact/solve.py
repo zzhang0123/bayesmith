@@ -294,8 +294,15 @@ def _conjugate_solve(
         bound = _condition_bound(
             block, weight, prior_variance, jax.random.key(0), POWER_ITERATIONS
         )
+        # Named so the two branches below can each exclude it: a NaN or Inf
+        # residual gets its OWN message further down, and neither of the
+        # "unreachable" / "did not converge" messages below is advice a
+        # non-finite residual can act on -- tightening tol or raising maxiter
+        # does nothing to an operator or right-hand side that was already
+        # non-finite before CG started.
+        non_finite = ~jnp.isfinite(residual)
         error_bound = residual * bound
-        bad = jnp.logical_or(~jnp.isfinite(residual), error_bound > require_convergence)
+        bad = jnp.logical_or(non_finite, error_bound > require_convergence)
 
         # Below kappa*eps no tolerance can help: the arithmetic itself cannot
         # represent the answer that accurately. Worth its own message, because
@@ -320,7 +327,20 @@ def _conjugate_solve(
 
         solution = eqx.error_if(
             solution,
-            jnp.logical_and(bad, unreachable),
+            non_finite,
+            "wiener_solve/gcr_sample produced a non-finite residual. That is not "
+            "a convergence problem and no tol or maxiter affects it: the normal "
+            "operator or the right-hand side is already non-finite before CG "
+            "starts. The usual causes are a sigma of zero somewhere in "
+            "noise_std, a prior_std of zero, or a prediction that already "
+            "overflowed at the point the block was built. check_gaussian "
+            "refuses a non-positive sigma at block-build time, so a non-finite "
+            "residual here points at the prediction or the arithmetic, not at "
+            "the declaration.",
+        )
+        solution = eqx.error_if(
+            solution,
+            jnp.logical_and(jnp.logical_and(bad, unreachable), ~non_finite),
             "wiener_solve/gcr_sample cannot reach require_convergence at this "
             "precision, and no tol or maxiter will help -- either the condition "
             "bound times the machine epsilon already exceeds the target, or the "
@@ -336,7 +356,7 @@ def _conjugate_solve(
         )
         solution = eqx.error_if(
             solution,
-            jnp.logical_and(bad, ~unreachable),
+            jnp.logical_and(jnp.logical_and(bad, ~unreachable), ~non_finite),
             "wiener_solve/gcr_sample did not converge: the relative residual "
             "times the condition bound -- the bound on the RELATIVE ERROR, which "
             "is what require_convergence limits -- exceeds it, and the residual "
