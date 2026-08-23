@@ -178,6 +178,26 @@ def radiometer(*, n=10, weight=3.0, kappa=0.05, floor=1e-3, seed=6):
     return trace(model)
 
 
+def indirect_ancestor(*, n=6, sigma=0.5, seed=8):
+    """`tau` reaches `x`'s prior through a deterministic node, not directly.
+
+    A direct-parent ancestry check passes this and is wrong: x's parents are
+    ("width",), and `width` is a function of `tau`.
+    """
+    x_grid = jnp.linspace(1.0, 2.0, n)
+    data = 1.0 * x_grid + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x_grid)
+        tau = sample("tau", lambda: dist.Normal(2.0, 0.5))
+        width = det("width", lambda t: jnp.abs(t) + 0.1, tau)
+        x = sample("x", lambda w: dist.Normal(0.0, w), width)
+        mu = det("mu", lambda x_, g_: x_ * g_, x, xs, linear_in=("x",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
 def shared_ancestor(*, n=6, sigma=0.5, seed=7):
     """``tau`` is a latent AND an ancestor of the latent ``x``.
 
