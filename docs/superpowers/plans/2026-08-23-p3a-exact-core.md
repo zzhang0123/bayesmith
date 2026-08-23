@@ -74,6 +74,31 @@ PY
 3. 成本**减半**：一次幂迭代而非两次。
 4. 语义从"估计"变成"**界**"：守卫的失效方向从"可能静默过关"变成"最多虚报"。虚报只在数据把每个方向都约束得远好于先验时出现，而那恰是 CG 本来就轻松收敛、残差极小从而把松弛吸收掉的区域。
 
+## 实测更正 2：守卫的"无解"判据不充分，会给出做不到的补救（2026-08-23，Task 5 派发前实测）
+
+Task 5 的四条断言实测时顺带量了守卫在**两种精度**下的实际行为，发现默认设置在 float32 下对一个**两参数玩具模型**就虚报：
+
+| 精度 | 模型 | 残差 | κ 上界 | `residual × bound` | 判决（阈值 1e-3） |
+|---|---|---|---|---|---|
+| float32 | `two_linear_latents` | 1.73e-7 | 5792 | **1.003e-3** | **虚报** |
+| float32 | `two_observations` | 6.96e-8 | 5729 | 3.99e-4 | 通过 |
+| float64 | `two_linear_latents` | 2.95e-16 | 5793 | 1.71e-12 | 通过 |
+
+**而且它给的建议无法执行。** 守卫有两条分支：`bound × eps > require_convergence` 走"这是精度问题，开 x64"，否则走"收紧 `tol`、加 `maxiter`"。这里 `5793 × 1.19e-7 = 6.9e-4 < 1e-3`，所以走后者——**而残差 1.73e-7 已经贴在 float32 的地板上**（`eps = 1.19e-7`，比值 1.45），收紧 `tol` 毫无作用。
+
+与 Task 4 的 Important 是同一个形状：**守卫开火但把用户指向一个做不到的动作**。那里是归因错，这里是补救措施错。
+
+**根因**：rheplicant 的 `κ·eps > require_convergence` 是"无 `tol` 可救"的**充分**条件，不是**必要**条件。必要判据是**残差是否已到达该精度下的地板**：`residual ≲ 10·eps` 就意味着 CG 已无事可做。
+
+**决定**：`unreachable` 改为两者取或——
+
+    at_precision_floor = residual <= PRECISION_FLOOR * eps      # PRECISION_FLOOR = 10.0
+    unreachable = (bound * eps > require_convergence) | at_precision_floor
+
+并把局部变量从 `kappa` 改名为 `bound`（它是上界不是估计，名字要照实说），消息里同时报出这个界，并说明它可能比真实 κ 松 `λ_min × max(先验方差)` 倍——那正好是"数据把最弱方向约束得比先验好多少倍"。实测该因子在 `two_linear_latents` 上是 3676。
+
+**这个缺陷只有把守卫真正跑起来、在两种精度下量 `residual × bound` 才会出现。** 计划里 Task 6 的测试全跑在 x64 下，那里有九个数量级的余量。
+
 ## 一条排版约定
 
 计划里每个 python 代码块的**首行路径注释**（`# src/bayesmith/exact/conditioning.py`）是给读计划的人看的**元信息**，**不是文件内容**——文件的首行应当是它自己的 docstring。Task 1 首次实现时把它抄进了源文件，之后剥离；后续每个文件都适用这条。
@@ -2849,6 +2874,13 @@ from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
 #: and why it is not measured.
 POWER_ITERATIONS: int = 12
 
+#: Multiple of the working precision's epsilon below which a relative residual
+#: counts as "CG has done all it can here". Measured: a converged float32 solve
+#: on this package's own toy models lands at 1.4-1.5 times eps, so 10 leaves
+#: room without admitting a genuinely unconverged solve, whose residual is
+#: orders of magnitude larger.
+PRECISION_FLOOR: float = 10.0
+
 
 def _weights(noise_std: dict[str, Any]) -> dict[str, jax.Array]:
     return {name: 1.0 / jnp.asarray(std) ** 2 for name, std in noise_std.items()}
@@ -3244,10 +3276,10 @@ def _conjugate_solve(
         # back a draw whose posterior scatter there is orders of magnitude too
         # small. Guarding on the residual certifies precisely nothing in the
         # one regime these solvers exist to serve.
-        kappa = _condition_bound(
+        bound = _condition_bound(
             block, weight, prior_variance, jax.random.key(0), POWER_ITERATIONS
         )
-        error_bound = residual * kappa
+        error_bound = residual * bound
         bad = jnp.logical_or(~jnp.isfinite(residual), error_bound > require_convergence)
 
         # Below kappa*eps no tolerance can help: the arithmetic itself cannot
@@ -3258,29 +3290,46 @@ def _conjugate_solve(
         epsilon = float(
             jnp.finfo(jnp.result_type(*jax.tree.leaves(block.offset))).eps
         )
-        unreachable = kappa * epsilon > require_convergence
+        # Two independent reasons no tol or maxiter can help, and rheplicant
+        # carries only the first. The second was measured: at float32,
+        # `two_linear_latents` -- a TWO-parameter toy -- lands at
+        # residual=1.73e-7 against eps=1.19e-7, i.e. CG has already reached the
+        # floor, while bound*eps = 6.9e-4 stays under a 1e-3 target. Without
+        # the second test the caller is told to tighten tol, which cannot move
+        # a residual that is already at the precision floor. A guard whose
+        # remedy is impossible is the same defect as one that misattributes.
+        at_precision_floor = residual <= PRECISION_FLOOR * epsilon
+        unreachable = jnp.logical_or(
+            bound * epsilon > require_convergence, at_precision_floor
+        )
 
         solution = eqx.error_if(
             solution,
             jnp.logical_and(bad, unreachable),
             "wiener_solve/gcr_sample cannot reach require_convergence at this "
-            "precision: the normal operator's condition number times the machine "
-            "epsilon already exceeds it, so no tol or maxiter will help. This is "
-            "the usual signature of a block the data does not identify. Run the "
-            "solve inside `with jax.enable_x64(True):`, or strengthen the prior "
-            "(prior_std bounds the conditioning: kappa ~ ||A^T N^-1 A|| * "
-            "prior_std**2). condition_bound() reports the number.",
+            "precision, and no tol or maxiter will help -- either the condition "
+            "bound times the machine epsilon already exceeds the target, or the "
+            "relative residual is already at the precision floor, meaning CG has "
+            "done everything this dtype allows. Run the solve inside "
+            "`with jax.enable_x64(True):`, or strengthen the prior. Note that "
+            "condition_bound() reports an UPPER bound: it exceeds the true "
+            "conditioning by lambda_min * max(prior_variance), which is how much "
+            "better the data constrains the weakest direction than the prior "
+            "does -- measured at 3676x on this package's own two-parameter toy. "
+            "So a refusal here may be the bound being conservative rather than "
+            "the answer being inaccurate; x64 settles it either way.",
         )
         solution = eqx.error_if(
             solution,
             jnp.logical_and(bad, ~unreachable),
             "wiener_solve/gcr_sample did not converge: the relative residual "
-            "times the normal operator's condition number -- the bound on the "
-            "RELATIVE ERROR, which is what require_convergence limits -- exceeds "
-            "it. The residual alone looks converged; it is not, along the "
-            "directions the prior dominates. Pass tol ~ require_convergence/kappa "
-            "with a maxiter to match, or strengthen the prior. "
-            "condition_bound() reports kappa.",
+            "times the condition bound -- the bound on the RELATIVE ERROR, which "
+            "is what require_convergence limits -- exceeds it, and the residual "
+            "is not yet at the precision floor, so there is room to improve it. "
+            "The residual alone looks converged; it is not, along the directions "
+            "the prior dominates. Pass tol ~ require_convergence/bound with a "
+            "maxiter to match, or strengthen the prior. condition_bound() "
+            "reports the bound.",
         )
     return solution, residual
 
