@@ -90,7 +90,13 @@ dist.log_prob(y)  ==  -0.5*((y-loc)/scale)**2 - log(scale) - 0.5*log(2*pi)
 | `ConvergenceError` | 一个迭代过程在**非 jit** 路径上未达到要求的精度（`iterative_gls` 的 `converged=False` 被要求为硬失败时） | `BayesmithError, RuntimeError` |
 | `NotGaussian` | **这个节点的分布不是对角高斯**——纯描述，不含指责。P3b 的分类器捕获它，把该块落到 NUTS | `BayesmithError, TypeError` |
 
-**`NotGaussian` 与 `StructureError` 必须是兄弟而非父子，且基类不同**（`TypeError` vs `ValueError`）。P3b 要 `except NotGaussian` 只捕获前者：探针守卫抛出的 `StructureError` 意味着**节点自称高斯而它自己的密度不是**，那绝不能被静默降级成 NUTS。若 `NotGaussian` 继承自 `StructureError`，一个 `except` 就会同时吞掉两者，而这正是本节开头那条界线要防的事。这条区分是承重的，P3b 要有测试钉住。
+**承重的规则只有一条：`NotGaussian` 与 `StructureError` 谁都不能是对方的子类。** P3b 要 `except NotGaussian` 只捕获前者——探针守卫抛出的 `StructureError` 意味着**节点自称高斯而它自己的密度不是**，那绝不能被静默降级成 NUTS。只要其一继承另一，一个 `except` 就会同时吞掉两者。
+
+> **实测更正（Task 0 代码审查，2026-08-23）**：本节初稿把"基类不同"也写成了这条安全性的一部分，那是**错的**。`except` 按抛出对象的 MRO 匹配，而不按共同祖先——这两个类今天已经共享 `BayesmithError`，彼此仍不互相捕获；把 `NotGaussian` 的基类改成 `ValueError`（与 `StructureError` 相同、但仍非父子）后，`except NotGaussian` 依然放行 `StructureError`。
+>
+> 基类不同（`TypeError` vs `ValueError`）买到的是**另一件、更窄但真实**的东西：**泛型**处理器能分辨二者，一个包在建模调用外面的 `except ValueError` 会看见"模型坏了"这一种而看不见"本来就不共轭"那一种。
+
+这条区分是承重的，P3b 与 Task 0 都要有**行为**测试钉住——`assert not issubclass(...)` 只是把 class 语句重述一遍，不算数。
 
 **"图不合格"不是错误**，是分派结果——落到 NUTS，理由写进 plan。`StructureError` 只在**声明与事实矛盾**时抛，这是两件不同的事：前者是"你没说"，后者是"你说错了"。
 

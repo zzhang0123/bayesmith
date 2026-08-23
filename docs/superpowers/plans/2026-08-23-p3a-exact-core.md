@@ -66,7 +66,7 @@ PY
 - Modify: `src/bayesmith/errors.py`
 - Test: `tests/test_errors.py`
 
-- [ ] **Step 1: 追加两个类**
+- [ ] **Step 1: 追加三个类**
 
 在 `src/bayesmith/errors.py` 末尾追加：
 
@@ -106,55 +106,72 @@ class NotGaussian(BayesmithError, TypeError):
     perfectly good non-Gaussian nodes. P3b's classifier catches this and
     routes the block to NUTS.
 
-    **A sibling of** :class:`StructureError`, never a subclass, and derived
-    from a different builtin on purpose. A dispatcher writing
-    ``except NotGaussian`` must NOT also swallow a :class:`StructureError`:
-    that one means a node's *type* says Normal while its own ``log_prob``
-    says otherwise, and silently downgrading that to NUTS would hide a broken
-    model behind an ordinary-looking fallback. Were this class a subclass --
-    or were both ``ValueError`` -- one ``except`` would catch both.
+    **A sibling of** :class:`StructureError`, and never a subclass of it in
+    either direction. A dispatcher writing ``except NotGaussian`` must NOT
+    also swallow a :class:`StructureError`: that one means a node's *type*
+    says Normal while its own ``log_prob`` says otherwise, and silently
+    downgrading it to NUTS would hide a broken model behind an
+    ordinary-looking fallback.
+
+    A subclass relationship, in either direction, is the ONE thing that would
+    break this -- and it is worth being precise about which, because two
+    classes that merely *share* a base are unaffected. ``except`` matches on
+    the raised exception's MRO, not on a common ancestor: these two already
+    share :class:`BayesmithError`, and neither catches the other. Measured,
+    because an earlier draft of this docstring claimed otherwise.
+
+    The differing builtin bases -- ``TypeError`` here against
+    :class:`StructureError`'s ``ValueError`` -- therefore buy something
+    narrower, and something real: a *generic* handler can tell the two apart,
+    so an ``except ValueError`` around a modelling call sees the broken-model
+    case and not the ordinary not-conjugate one.
     """
 ```
 
 - [ ] **Step 2: 扩展 stdlib-only 测试**
 
-`tests/test_errors.py` 里已有 `test_errors_module_imports_no_heavy_dependency`。在同一文件追加：
+`tests/test_errors.py` 里已有 `test_errors_module_imports_no_heavy_dependency`。**扩展它**，把三个新名字的存在性检查折进同一个子进程——导入模块这一件事同时证明两件事，另开一个子进程只会把前一半再证一遍：
 
 ```python
-def test_the_new_error_names_exist_in_the_stdlib_only_module():
-    """The two P3 classes live in errors.py, which may not import jax/numpy.
+def test_errors_module_imports_no_heavy_dependency():
+    """errors.py is on every import path, so it must stay stdlib-only.
 
-    This is the only assertion Task 0 makes, and deliberately so: an
-    `assert issubclass(StructureError, ValueError)` is true because the class
-    statement says so, not because anything works -- P1's first review finding
-    was exactly that tautology. What StructureError *does* is pinned where it
-    is actually raised: tests/exact/test_gaussian.py (a lying dist_fn) and
-    tests/exact/test_linearity.py (a false linear_in claim).
+    The name check for P3's three classes rides along in this same
+    subprocess rather than getting one of its own: importing the module is
+    what proves both, so a second spawn would only re-prove the first half.
     """
     import subprocess
     import sys
 
     code = (
-        "import bayesmith.errors as e;"
-        "assert e.StructureError and e.ConvergenceError and e.NotGaussian;"
-        "import sys;"
-        "heavy = [m for m in ('jax', 'numpy', 'numpyro') if m in sys.modules];"
-        "assert not heavy, heavy"
+        "import bayesmith.errors as e, sys; "
+        "assert e.StructureError and e.ConvergenceError and e.NotGaussian; "
+        "print(sorted({'jax', 'numpy', 'numpyro'} & set(sys.modules)))"
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"
+```
 
+再追加这一条。它是 Task 0 唯一的**行为**测试——`assert not issubclass(...)` 不算数，那只是把 class 语句重述一遍，正是 P1 第一条审查发现的重言式：
 
+```python
 def test_catching_not_gaussian_does_not_also_catch_structure_error():
     """The sibling relationship is load-bearing, so it is tested by behaviour.
 
     P3b's classifier writes `except NotGaussian` to mean "this block has no
-    exact structure, route it to NUTS". A StructureError means something
-    else entirely -- a node whose type says Normal while its own log_prob
-    disagrees -- and must escape that clause. If NotGaussian were made a
-    subclass of StructureError, or both were given the same builtin base,
-    this test goes red; `assert not issubclass(...)` would not, because it
-    restates the class statement instead of exercising it.
+    exact structure, route it to NUTS". A StructureError means something else
+    entirely -- a node whose type says Normal while its own log_prob
+    disagrees -- and must escape that clause.
+
+    The two halves cover the two directions a hierarchy could collapse in,
+    and each catches exactly one: half (a) goes red if StructureError is made
+    a subclass of NotGaussian, half (b) if NotGaussian is made a subclass of
+    StructureError. Giving the two the same builtin base changes nothing here
+    and this test stays green -- correctly so, because `except` matches on
+    the MRO and not on a shared ancestor.
     """
     from bayesmith.errors import NotGaussian, StructureError
 
@@ -183,7 +200,7 @@ def test_catching_not_gaussian_does_not_also_catch_structure_error():
 .venv/bin/python -m pytest tests/test_errors.py -v
 ```
 
-Expected: 全部 PASS（原有的 + 1 条新的）。
+Expected: 全部 PASS（原有 3 条，其中一条被扩展，加新增 1 条 = 4 条）。
 
 - [ ] **Step 4: 变异测试**
 
@@ -193,6 +210,12 @@ Expected: `test_the_new_error_names_exist_in_the_stdlib_only_module` **变红**�
 
 再把 `class NotGaussian(BayesmithError, TypeError):` 临时改成 `class NotGaussian(StructureError):`，重跑。
 Expected: `test_catching_not_gaussian_does_not_also_catch_structure_error` **变红**。还原。
+
+把 `NotGaussian` 改名为 `NotGaussianXYZ`（仅类名），重跑。
+Expected: `test_errors_module_imports_no_heavy_dependency` **变红**——这条证明折进去的名字检查确实还在鉴别。还原。
+
+**最后一条是用来验证 docstring 本身的**：把 `class NotGaussian(BayesmithError, TypeError):` 改成 `class NotGaussian(BayesmithError, ValueError):`（与 `StructureError` 同基类，但仍非父子），重跑。
+Expected: `test_catching_not_gaussian_does_not_also_catch_structure_error` **保持绿**。若它变红，说明修正后的 docstring 也是错的。还原。
 
 - [ ] **Step 5: 提交**
 
