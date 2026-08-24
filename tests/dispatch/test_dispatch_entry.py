@@ -927,13 +927,50 @@ def test_the_convergence_guard_is_off_by_default_but_reachable():
     Re-measured on this tree, ``two_linear_latents`` flips between accepted
     at 8e-04 and refused at 7e-04, which is what this now asserts.
 
-    **What that costs is the old rationale, not the guard.** Neither fixture
-    still demonstrates "the same-target guard fires on rounding":
-    ``two_linear_latents`` sits at 7.089e-04 against 1e-03 with margin, and
-    ``straight_line`` reaches an EXACT zero residual, which passes any bound.
-    Whether the default should still be off is therefore a live question
-    again rather than a settled one, and it is flagged rather than quietly
-    re-argued here.
+    **The old rationale is gone; a stronger one replaces it, measured.**
+    Neither fixture still demonstrates "the same-target guard fires on
+    rounding": ``two_linear_latents`` sits at 7.089e-04 against 1e-03 with
+    margin, and ``straight_line`` reaches an EXACT zero residual, which passes
+    any bound. So the default was re-examined rather than assumed.
+
+    Measured on this tree by turning the defaults on at ``CONVERGENCE_TARGET``
+    and running the whole suite:
+
+    ==================  ========
+    guarded             refused
+    ==================  ========
+    ``sample`` only     51
+    ``estimate`` only   7
+    both                56
+    ==================  ========
+
+    The refusals are dominated by the bound's own conservatism, which
+    :func:`~bayesmith.exact.solve.condition_bound` documents: where the data
+    constrains every direction the bound runs far over the true kappa --
+    3676x on ``two_linear_latents`` at its declared prior widths. The single
+    ``test_the_derived_tol_delivers_its_target_at_every_extreme`` casualty is
+    ``straight_line`` at ``prior_std=1000, sigma=0.01``, i.e. exactly that
+    regime; and that test's whole subject is that the derived tol DOES deliver
+    its target, so the guard is refusing a solve the suite separately
+    certifies as accurate.
+
+    Of ``estimate``'s seven, one is this file's own signature check, three
+    expect a DIFFERENT error at low ``maxiter`` and collide rather than
+    disagree, and one is the documented false refusal above.
+
+    So: off stays, on better evidence than before. What shipped ON would be a
+    guard refusing accurate answers, which is the mirror of the upstream
+    finding that a guard shipped ON was promising a bound it did not deliver;
+    both end at the same place, a promise made per call rather than by
+    default.
+
+    **A live inconsistency this measurement surfaced, deliberately not fixed
+    here.** ``wiener_solve``, ``gcr_sample`` and ``iterative_gls`` all default
+    ``require_convergence=1e-3`` -- ON -- while ``plan.estimate`` and
+    ``plan.sample``, their only callers in this package, pass ``None`` and
+    turn it off. The dispatch layer overrides the exact layer's safe default
+    on every call. Given the numbers above the dispatch default is the right
+    one, which makes the exact layer's the one worth revisiting.
     """
     import equinox as eqx
 
