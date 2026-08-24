@@ -81,44 +81,109 @@ to be symmetric about the centre still moves the two probes by different
 amounts.
 """
 
-DEPENDENCE_PATTERNS: tuple[str, ...] = ("uniform", "alternating")
+DEPENDENCE_PATTERNS: tuple[str, ...] = ("uniform", "random")
 """Directions the magnitudes are applied along.
 
 ``uniform`` is the original single ray -- every member displaced by the same
-signed multiple. ``alternating`` flips the sign with each member's position
-in the SORTED names, which is what makes a sigma depending on a CONTRAST
-visible: on the uniform ray the contrast is exactly constant, so the original
-probe measured bitwise 0.0 and the dispatcher read "sigma does not move".
+signed multiple of its own prior width. ``random`` displaces each member
+INDEPENDENTLY, by its own prior width times its own standard normal draw,
+with per-member sub-keys folded in by position in the SORTED names exactly as
+:func:`~bayesmith.exact.linearity.check_linearity` does.
 
-Two deterministic patterns rather than one random direction: a random
-direction would almost surely work, but it makes a yes/no guard's verdict
-key-dependent, and ``alternating`` is the direction that provably separates
-the two-member contrast case. Cost goes from 2 to 4 ``sigma_of`` calls,
-negligible beside the CG solves this guard protects.
+**Why a random direction and not more deterministic ones.** What this probe
+measures is whether sigma moves off the level set of whatever it depends on.
+A pattern is a direction ``v``; a sigma depending on a linear functional
+``f`` is constant along ``v`` exactly when ``f(v) == 0``. So each fixed
+pattern is blind to an entire hyperplane of functionals, and a family of ``k``
+fixed patterns is blind to every functional orthogonal to all ``k`` of them --
+a subspace of dimension ``members - k``, which GROWS with the block. A random
+``v`` is orthogonal to any fixed non-zero ``f`` with probability zero, so one
+random direction detects ANY non-zero linear functional with probability 1
+and, unlike any fixed family, does not degrade as the block grows.
 
-**A one-member block gets nothing from this** -- ``alternating`` and
-``uniform`` build bitwise identical probes when there is no second member to
-flip, measured on ``radiometer()`` -- so the added cost buys detection only
-from two members up, and both entries are needed from two up: sigma on a SUM
-of two equal-width members is exactly constant along ``alternating``, the
-mirror image of the bug this pattern fixes. Each entry has a named test that
-dies without it (``..._contrast_...`` and ``..._sum_...`` in
-``tests/exact/test_gls.py``); dropping ``uniform`` was measured to leave the
-whole suite green before the second of those existed.
+**What the previous deterministic pair actually covered.** ``uniform`` plus
+``alternating`` (sign flipped by parity of position) separates only pairwise
+contrasts between positions of DIFFERING PARITY, and the sum. Measured, three
+members, sigma tracking ``a - c`` -- positions 0 and 2, same parity, so the
+same sign under both patterns -- the probe read **bitwise 0.0** and the
+dispatcher read "sigma does not move": the original defect one member up,
+and the common case rather than an edge case, since the dispatcher this
+guard feeds puts every qualified latent into ONE block. Widening the
+deterministic family does not fix the shape: the binary counter (pattern
+``k`` signs position ``p`` by bit ``k`` of ``p``) was proposed here as
+closing it "in general" and **that claim is false** -- measured, at four
+members ``uniform``, counter bit 0 and counter bit 1 all have dot product
+exactly 0.0 with ``a - b - c + d``, the third Hadamard row. ``1 +
+ceil(log2(members))`` patterns cannot span ``members`` directions.
+``test_sigma_depending_on_a_functional_no_sign_pattern_reaches_is_detected``
+is that measurement.
 
-**Where this still cannot see, measured rather than assumed.** Two patterns
-separate every contrast of TWO members and no more. On three members with
-sigma depending on ``a - c`` -- positions 0 and 2 of the sorted names, so the
-same sign under ``alternating`` and under ``uniform`` alike -- the probe
-reads bitwise 0.0, exactly the failure this fix repairs one member up. The
-deterministic family that closes it in general is the binary counter: pattern
-``k`` gives position ``p`` the sign ``(-1)`` to the power of bit ``k`` of
-``p``, so any two distinct positions differ in some bit and get opposite
-signs in that pattern. ``alternating`` IS bit 0 of that family, and the whole
-family is ``ceil(log2(members))`` patterns beside ``uniform`` -- 2 patterns
-at three members, where this has 1. Not built here: this fix is scoped to the
-measured two-member defect, and a guard whose cost grows with block size is a
-decision for the dispatcher work, not a silent widening of this one.
+**``uniform`` stays, as the deterministic anchor, and it earns its place
+twice.**
+
+*It restores the two-sidedness ``random`` destroys, and that is a DETECTION
+argument, not a cosmetic one.* :data:`DEPENDENCE_PROBES`' two unequal SIGNED
+magnitudes exist so a sigma clipped on one side cannot read constant. A
+random direction multiplies each magnitude by its own draw, so both probes
+land on the clipped side whenever the draws have the wrong signs. Measured on
+``one_sided_sigma`` with ``DEPENDENCE_PATTERNS = ("random",)`` over 400 keys:
+**105 of them -- 26% -- read bitwise 0.0**. One key in four would let
+``depends_on_prediction=False`` through on a genuinely prediction-dependent
+node. With ``uniform`` present the minimum over 64 keys is exactly the
+anchor's own key-free 6.000000e+01.
+``test_a_clipped_sigma_is_detected_at_every_key_because_of_the_anchor`` is
+that sweep.
+
+*It puts a key-free FLOOR under the most common real dependence.* A
+radiometer's sigma tracks its own prediction, i.e. a pure SUM, and on a sum
+of equal-width members ``uniform`` reads exactly ``expm1(factor * members)``
+-- 6.389 at two members, 19.086 at three, with no key involved. ``random``
+reads whatever ``sum(z_i)`` happened to be: measured over 200 keys,
+**1.34e-01 to 4.42e+01 at two members and 1.56e-02 to 1.43e+02 at three**,
+three to four decades of spread, with the low end FALLING as the block widens
+because the draws cancel. Detection is not in doubt there, but the number
+this function RETURNS is what a dispatcher thresholds.
+``test_sigma_depending_on_a_sum_of_two_members_is_still_detected`` pins that
+floor.
+
+Both tests die if this entry is dropped; before either existed, dropping
+``uniform`` left the whole suite green.
+
+**``alternating`` was dropped**, measured rather than assumed. Re-added as a
+third pattern and swept over every fixture this package's suite runs this
+guard on (13 rows: constant, radiometer, clipped, plated, grouped, and the
+two-, three- and four-member functionals), **not one verdict moves** -- every
+row keeps its detected / not-detected status. It does move some of the
+NUMBERS, both by being the maximum itself (``contrast_sigma_pair`` 3.639 ->
+6.389) and by re-indexing the random sub-keys (``radiometer`` 2.500e+03 ->
+3.711e+03), but a movement detector is judged on its verdicts and none of
+them changed. Against that it would take the guard from 4 ``sigma_of`` probes
+to 6, to re-cover a subspace ``random`` already covers with probability 1.
+
+**Cost**: 4 ``sigma_of`` probes plus the baseline. Unchanged from the
+two-deterministic-pattern version, and 2 more than the single-ray original --
+negligible beside the CG solves this guard protects. A one-member block still
+gets nothing extra from ``random``: one member has only one direction, so its
+random probe is the uniform ray at a random magnitude.
+
+**Where this still cannot see, measured rather than assumed.** The remaining
+gap is MAGNITUDE, not direction. The probe displaces by O(1) prior width from
+the prior centre, so a sigma that is exactly flat there and hinges further
+out reads bitwise constant however the direction is chosen. Measured on
+``sigma = base + max(a - b - offset, 0)``, two equal-width members: offset 0
+reads 5.115e+00, offset 1 reads 1.782e+00, and **offset 3 and offset 10 both
+read 0.000000e+00**. That is a property of :data:`DEPENDENCE_PROBES`, which
+no pattern can repair -- only a larger magnitude would, at the cost of
+probing where the posterior will never go.
+
+**Detection at width, swept.** 246 functionals over blocks of 2, 3, 4, 5, 6
+and 8 members -- every pairwise contrast, the sum, and 30 random integer
+functionals per width -- **all 246 detected**, smallest movement 1.585e-01
+against a 1e-3 threshold. Including the deliberately adversarial Walsh
+functional at each width, the one every binary-counter pattern is orthogonal
+to: at 4 members ``(+,-,-,+)`` reads 1.138e+01 and at 8 members
+``(+,-,-,+,+,-,-,+)`` reads 5.128e+00, where the whole counter family reads
+exactly 0.0.
 """
 
 
@@ -167,6 +232,7 @@ def _dependence_probe(
     centre: dict[str, Any],
     factor: float,
     pattern: str,
+    key: jax.Array,
 ) -> dict[str, Any]:
     """One displacement of the whole block, in units of each prior width.
 
@@ -175,16 +241,30 @@ def _dependence_probe(
     ways must get the same probes, or the guard's verdict depends on how the
     member list was typed. Matches
     :func:`~bayesmith.exact.linearity.check_linearity`'s ``ordered =
-    sorted(names)``. This dict is a plain comprehension rather than the output
-    of a JAX transform, so nothing downstream re-sorts it and the ``sorted``
-    is load-bearing.
+    sorted(names)``, and the ``random`` pattern makes the ordering doubly
+    load-bearing -- it is what each member's sub-key is folded in by. This
+    dict is a plain comprehension rather than the output of a JAX transform,
+    so nothing downstream re-sorts it.
+
+    The ``random`` draw is **per element**, not per member, so a sigma
+    depending on a contrast between two entries of the SAME array leaf -- a
+    plate -- moves it too. Per member, every element of a leaf would share a
+    displacement and that whole class would read constant.
     """
     ordered = sorted(block.names)
+
+    def direction(position: int, name: str) -> jax.Array | float:
+        if pattern == "uniform":
+            return 1.0
+        return jax.random.normal(
+            jax.random.fold_in(key, position),
+            block.shape[name],
+            dtype=block.dtype[name],
+        )
+
     return {
         name: centre[name]
-        + factor
-        * block.prior_std[name]
-        * (-1.0 if (pattern == "alternating" and position % 2) else 1.0)
+        + factor * block.prior_std[name] * direction(position, name)
         for position, name in enumerate(ordered)
     }
 
@@ -195,6 +275,7 @@ def check_prediction_dependence(
     *,
     declared: bool,
     rtol: float = 1e-8,
+    key: jax.Array | None = None,
 ) -> float:
     """Measure how much sigma moves with the block, and check the declaration.
 
@@ -219,6 +300,17 @@ def check_prediction_dependence(
             dispatcher choosing between two methods that must agree at a
             threshold, so there is no boundary-validation-style requirement
             that both sides produce the same answer there.
+        key: PRNG key for the ``random`` entry of
+            :data:`DEPENDENCE_PATTERNS`. Fixed by default, so a yes/no guard
+            has a reproducible verdict -- exactly
+            :func:`~bayesmith.exact.linearity.check_linearity`'s contract,
+            and per-member sub-keys are folded in by position in the SORTED
+            names there too, so permuting ``block.names`` probes the same
+            points. Pass one to take a second, independent opinion: a random
+            direction detects any non-zero linear functional with probability
+            1, so two keys that disagree about whether sigma moves is
+            evidence the movement is at the edge of ``rtol``, not evidence
+            one of them is wrong.
 
     Returns:
         The largest relative movement observed.
@@ -230,11 +322,36 @@ def check_prediction_dependence(
             caller can report "the declaration is conservative; the
             reweighting loop could be skipped".
     """
+    key = jax.random.key(0) if key is None else key
     centre = domain_centre(block)
     baseline = sigma_of(centre)
     movement = 0.0
-    for factor, pattern in itertools.product(DEPENDENCE_PROBES, DEPENDENCE_PATTERNS):
-        moved = sigma_of(_dependence_probe(block, centre, factor, pattern))
+    probes = itertools.product(DEPENDENCE_PROBES, DEPENDENCE_PATTERNS)
+    for index, (factor, pattern) in enumerate(probes):
+        # Each probe gets its OWN root key, so the two random probes travel
+        # two INDEPENDENT directions rather than two magnitudes along one --
+        # `check_linearity`'s `fold_in(key, index)` then `fold_in(root,
+        # position)`, for the same reason it does it.
+        #
+        # **A mutation the suite does not kill**, recorded rather than
+        # papered over: replacing `index` with a constant (both random
+        # probes sharing one direction) leaves every test green. It is NOT a
+        # no-op -- measured, the returned movement changes by up to 36x
+        # (`contrast_sigma_pair` 3.639e+00 -> 1.022e-01, `quad a-b-c+d`
+        # 1.138e+01 -> 8.851e-01) -- but no VERDICT moves, and the diagnosis
+        # is (a) no fixture reaches the region. One random direction already
+        # detects every non-zero LINEAR functional with probability 1, so a
+        # second buys margin, not detection; a fixture that separated them
+        # would need sigma to return to its centre value at both magnitudes
+        # along the first direction, i.e. a root placed at the probe points,
+        # which is exactly the fixture-crafting this suite refuses. Kept
+        # because it costs nothing and generalises: a third entry in
+        # DEPENDENCE_PROBES gets a third independent direction for free.
+        moved = sigma_of(
+            _dependence_probe(
+                block, centre, factor, pattern, jax.random.fold_in(key, index)
+            )
+        )
         for observed, value in moved.items():
             scale = max(float(jnp.max(jnp.abs(baseline[observed]))), 1e-300)
             movement = max(

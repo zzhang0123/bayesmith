@@ -327,6 +327,16 @@ def one_sided_sigma(*, n=8, kappa=0.2, floor=1e-2, seed=12):
 
     A one-sided probe that happens to go negative reads sigma as constant and
     lets `depends_on_prediction=False` through. Two-sided does not.
+
+    Since the probe gained a RANDOM direction, this fixture also carries the
+    measurement that keeps ``uniform`` in
+    :data:`~bayesmith.exact.gls.DEPENDENCE_PATTERNS`: a random direction
+    multiplies each signed magnitude by its own draw, so both probes land on
+    the clipped half-space whenever the draws have the wrong signs. Measured
+    with ``DEPENDENCE_PATTERNS = ("random",)`` over 400 keys, **105 of them
+    (26%) read bitwise 0.0**. The deterministic anchor removes that failure
+    mode by construction -- see
+    `test_a_clipped_sigma_is_detected_at_every_key_because_of_the_anchor`.
     """
     x = jnp.linspace(1.0, 3.0, n)
     data = 2.0 * x + floor * jax.random.normal(jax.random.key(seed), (n,))
@@ -1044,7 +1054,14 @@ def contrast_sigma_pair(*, n=200, a_true=1.0, b_true=-0.5, base=0.3, seed=24):
     `check_prediction_dependence`'s own ``rtol`` guard on a ``declared=False``
     node. In float32, the suite's default, delta below ~1e-7 is not even
     representable in the probe and every one of those reads bitwise 0.0.
-    The FIXED probe reads 6.389-6.463 across that entire sweep.
+
+    **Under the shipped probe** (``uniform`` plus a per-member ``random``
+    direction) the same invariance holds and the reading is 3.639157: swept n,
+    base, seed and the true contrast exactly as above, every cell reads
+    3.639156-3.639157, the spread being float32 rounding alone. The 6.389
+    this paragraph used to quote was the ``alternating`` pattern's reading,
+    and ``alternating`` is no longer shipped -- it separated only positions of
+    differing parity, which does not survive a third member.
     """
     x = jnp.linspace(0.5, 2.0, n)
     truth = (a_true + b_true) * x
@@ -1072,16 +1089,17 @@ def sum_sigma_pair(*, n=200, a_true=1.0, b_true=-0.5, base=0.3, seed=25):
 
     Here the mean determines ``a - b`` and sigma determines ``a + b``, so the
     direction sigma moves along is the LOCKSTEP one -- exactly the ray the
-    original probe travelled, and exactly the ray `alternating` holds
-    constant.
+    original probe travelled.
 
     Exists to make the ``uniform`` entry of
-    :data:`~bayesmith.exact.gls.DEPENDENCE_PATTERNS` load-bearing. Measured
-    without it (``DEPENDENCE_PATTERNS = ("alternating",)``): movement is
-    bitwise 0.0 here, while the whole rest of the suite stays green -- the
-    same silent-wrong-answer shape as the contrast bug, one sign flip away.
-    With both patterns it reads 6.389 (``exp(2) - 1``), from the uniform
-    probe alone.
+    :data:`~bayesmith.exact.gls.DEPENDENCE_PATTERNS` load-bearing, and what
+    it pins is the SIZE of the reading rather than the detection. ``uniform``
+    reads ``exp(2) - 1 = 6.389`` here with no key involved; the ``random``
+    entry detects the sum too but reads whatever ``z_a + z_b`` happened to be
+    -- 8.399e-01 at the default key, and 1.342e-01 to 4.419e+01 swept over
+    200 keys. A dispatcher thresholds the number, so the most common real
+    dependence there is (a radiometer's sigma tracking its own prediction)
+    gets a guaranteed floor rather than a distribution.
 
     This fixture is NOT a regression test for the contrast defect: it passes
     on the pre-fix lockstep probe too, by construction. It guards the fix
@@ -1103,6 +1121,116 @@ def sum_sigma_pair(*, n=200, a_true=1.0, b_true=-0.5, base=0.3, seed=25):
             "d",
             lambda m, a_, b_: dist.Normal(m, base * jnp.exp(a_ + b_)),
             mu, a, b, obs=data,
+        )
+
+    return trace(model)
+
+
+def sigma_functional_block(
+    *, weights, n=200, base=0.3, seed=26, mean_weights=None
+):
+    """``sigma = base * exp(sum_i w_i theta_i)`` on a block of ``len(weights)``.
+
+    The generalisation of `contrast_sigma_pair` and `sum_sigma_pair` to any
+    number of members and any linear functional. Members are named ``a``,
+    ``b``, ``c``, ... in order, so a member's POSITION IN THE SORTED NAMES is
+    its index into ``weights`` -- which is the coordinate
+    `~bayesmith.exact.gls.DEPENDENCE_PATTERNS`' deterministic signs are keyed
+    to, so a probe pattern is exactly a sign vector to dot ``weights`` with.
+    A pattern whose sign vector is ORTHOGONAL to ``weights`` leaves sigma
+    bitwise constant and the guard reads "sigma does not move".
+
+    All priors are ``Normal(0, 1)`` -- **equal widths are what makes the
+    deterministic blind spots exact** rather than merely small, exactly as
+    `contrast_sigma_pair` documents: a uniform ray only stays inside the
+    level set of ``a - c`` when the two members are displaced by equal
+    amounts. Unequal widths would turn every zero below into a small number
+    whose size is set by the width ratio, which is a weaker fixture.
+
+    Args:
+        weights: the functional sigma depends on, one entry per member.
+            ``(0.0,) * k`` gives a genuinely CONSTANT sigma on a k-member
+            block -- the two-sided arm, where the guard must read no
+            movement.
+        mean_weights: the functional the MEAN depends on. Defaults to all
+            ones, so the mean sees only the sum and every other direction is
+            determined by sigma alone -- `contrast_sigma_pair`'s shape.
+
+    Nothing here is crafted to have a root at any probe point: the movement
+    each pattern measures is ``|exp(factor * (signs . weights)) - 1|``, which
+    is zero exactly when the pattern's sign vector is orthogonal to
+    ``weights`` and nonzero otherwise.
+    """
+    names = tuple(chr(ord("a") + index) for index in range(len(weights)))
+    # The observed node is "y", not the "d" every other fixture here uses:
+    # at four members the fourth is named "d" and the graph refuses the
+    # duplicate. Members past "l" would collide with "mu" only if the naming
+    # scheme changed; four is as wide as anything here goes.
+    assert len(weights) <= 12, "member names would start colliding with the graph's own"
+    mean_weights = (1.0,) * len(weights) if mean_weights is None else mean_weights
+    x = jnp.linspace(0.5, 2.0, n)
+    truth = sum(mean_weights) * x
+    noise = base * jnp.exp(sum(weights))
+    data = truth + noise * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        members = [sample(name, lambda: dist.Normal(0.0, 1.0)) for name in names]
+        mu = det(
+            "mu",
+            lambda *args: sum(w * t for w, t in zip(mean_weights, args[:-1])) * args[-1],
+            *members,
+            xs,
+            linear_in=names,
+        )
+        observe(
+            "y",
+            lambda m, *thetas: dist.Normal(
+                m, base * jnp.exp(sum(w * t for w, t in zip(weights, thetas)))
+            ),
+            mu,
+            *members,
+            obs=data,
+        )
+
+    return trace(model)
+
+
+def element_contrast_sigma_plate(*, n=6, tau=3.0, base=0.3, seed=27):
+    """sigma depends on a contrast between two ELEMENTS of one plated latent.
+
+    The same defect shape as `contrast_sigma_pair`, one structural level
+    down: there the level set was spanned by two MEMBERS of the block, here
+    by two entries of a single array leaf. Every probe direction that
+    displaces a leaf uniformly -- which is every per-member direction, random
+    or not -- stays inside it, so the guard reads bitwise 0.0 and the
+    dispatcher reads "sigma does not move". Measured: a per-member scalar
+    draw reads **0.000000e+00**; the shipped per-element draw reads
+    **1.730645e+01**.
+
+    The observed node is deliberately NOT plated, unlike `plated_radiometer`.
+    A ``plate=`` observed node is applied under ``jax.vmap``, so its
+    ``dist_fn`` sees a SCALAR element and ``z_[0] - z_[1]`` raises
+    ``IndexError: array is 0-dimensional`` -- the plate abstraction forbids
+    cross-element dependence outright, which is exactly why this fixture has
+    to reach for the whole array instead. Its latent is still plated, so the
+    domain is one leaf of ``n`` elements, which is the dimension being
+    probed.
+    """
+    key = jax.random.key(seed)
+    truth = tau * jax.random.normal(key, (n,))
+    data = truth + base * jax.random.normal(jax.random.fold_in(key, 1), (n,))
+
+    def model():
+        obs = plate("obs", n)
+        z = sample("z", lambda: dist.Normal(0.0, tau), plate=obs)
+        observe(
+            "d",
+            lambda z_: dist.Normal(
+                z_, base * jnp.exp(z_[0] - z_[1]) * jnp.ones_like(z_)
+            ),
+            z,
+            obs=data,
         )
 
     return trace(model)
