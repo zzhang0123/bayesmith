@@ -829,7 +829,7 @@ spec §1.2。`gibbs_fn` 在 trace 下运行，而 `check_gaussian` 用 `bool(jnp
 - Modify: `src/bayesmith/exact/block.py`（`_env_before`、`unchecked_operator`）
 - Test: `tests/exact/test_block.py`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```python
 # tests/exact/test_block.py  （追加）
@@ -892,13 +892,13 @@ def test_probe_gaussian_false_also_silences_the_per_member_probe():
     assert bool(jnp.all(jnp.isfinite(jax.jit(build)(jnp.asarray(2.0)))))
 ```
 
-- [ ] **Step 2: 跑测试**
+- [x] **Step 2: 跑测试**
 
 Run: `.venv/bin/python -m pytest tests/exact/test_block.py -k "probe_gaussian or refuses_to_trace" -v`
 
 Expected: 第一条 PASS（今天就该抛），后两条 **FAIL**（`TypeError: unexpected keyword argument 'probe_gaussian'`）。
 
-- [ ] **Step 3: 加关键字**
+- [x] **Step 3: 加关键字**
 
 ```python
 # src/bayesmith/exact/block.py
@@ -966,13 +966,13 @@ def unchecked_operator(
     # ... rest unchanged
 ```
 
-- [ ] **Step 4: 跑全套**
+- [x] **Step 4: 跑全套**
 
 Run: `.venv/bin/python -m pytest tests/exact/ -q`
 
 Expected: 全绿，三条新测试 PASS。**其余两个 `_env_before` 调用方（`linearity.py:295`、`tests/exact/oracle.py:111`）不传该关键字，拿到默认 `True`，行为逐位不变**——有意为之，它们都在具体值上跑。
 
-- [ ] **Step 5: 变异测试**
+- [x] **Step 5: 变异测试**
 
 | 变异 | 必须变红 |
 |---|---|
@@ -981,7 +981,7 @@ Expected: 全绿，三条新测试 PASS。**其余两个 `_env_before` 调用方
 | 默认值改成 `False` | `test_unchecked_operator_refuses_to_trace_with_the_gaussian_probe_live`。~~以及 `test_gaussian.py` 里依赖默认探测的测试~~ —— **后半句是假的，已实测**：`test_gaussian.py` 对 `unchecked_operator` / `_env_before` / `linear_operator` **零引用**，十二条测试全部直接在手搭的 `env` 上调 `check_gaussian`，默认值根本不在它们的调用路径上 |
 | **`_env_before` 的逐成员探针整段删掉** | `test_the_per_member_probe_catches_a_member_whose_log_prob_lies`（提交 `4fa9e94`）。**这条是补上的**：直到那次提交之前，删掉它整套仍 581 绿。jit 下每个 `check_gaussian` 都抛，所以 trace 那条测试由先跑的那个调用点满足（就是 `_env_before`）；真正非高斯的成员由下一行 `gaussian_parts` 抓。逐成员探针唯一独有的职责，是**类型读起来是 Normal 而 `log_prob` 不是**的成员——而 `LyingNormal` 此前只出现在观测节点上 |
 
-- [ ] **Step 6: AST 比对 + 提交**
+- [x] **Step 6: AST 比对 + 提交**
 
 暂存 `src/bayesmith/exact/block.py`、`tests/exact/test_block.py`，提交信息：
 
@@ -1016,7 +1016,7 @@ spec §三。**这是 P3b 的核心算法**，也是三个静默错误答案里�
 - Create: `tests/dispatch/test_classify.py`
 - Modify: `tests/exact/models.py`（新增 `orphaned_child_latent`、`student_t_likelihood`、`lying_observed_node`）
 
-- [ ] **Step 1: 加三个 fixture**
+- [x] **Step 1: 加三个 fixture**
 
 ```python
 # tests/exact/models.py  （追加）
@@ -1100,7 +1100,7 @@ def lying_observed_node(*, n=6, sigma=0.5, w_true=1.5, seed=27):
     return trace(model)
 ```
 
-- [ ] **Step 2: 写失败的测试（分类表）**
+- [x] **Step 2: 写失败的测试（分类表）**
 
 ```python
 # tests/dispatch/test_classify.py
@@ -1187,12 +1187,12 @@ def test_a_lying_observed_node_raises_rather_than_falling_back_to_nuts():
         partition(lying_observed_node())
 ```
 
-- [ ] **Step 3: 跑测试确认它红**
+- [x] **Step 3: 跑测试确认它红**
 
 Run: `.venv/bin/python -m pytest tests/dispatch/test_classify.py -v`
 Expected: 全部 **FAIL**，`ModuleNotFoundError: No module named 'bayesmith.dispatch'`。
 
-- [ ] **Step 4: 写 `classify.py`**
+- [x] **Step 4: 写 `classify.py`**
 
 ```python
 # src/bayesmith/dispatch/classify.py
@@ -1372,12 +1372,12 @@ def partition(graph: Graph, *, key: jax.Array | None = None) -> Classification:
 
 **`at` 与 `at_points`（spec §3.6）**：块是真子集时用块外隐变量的**先验均值**建 `at`；`at_points` 只从**高斯**块外隐变量的先验抽，其余用先验均值，退化写进 `reason`。**绝不传 `at_points=[at]`**。
 
-- [ ] **Step 5: 跑测试**
+- [x] **Step 5: 跑测试**
 
 Run: `.venv/bin/python -m pytest tests/dispatch/test_classify.py -v`
 Expected: 全部 PASS。**任何一行不符，先按纪律 4 诊断**——这张表的每一行都是算出来的，不符意味着实现与算出来的判据有出入，而不是表错了。
 
-- [ ] **Step 6: 变异测试**
+- [x] **Step 6: 变异测试**
 
 | 变异 | 必须变红 |
 |---|---|
@@ -1389,12 +1389,12 @@ Expected: 全部 PASS。**任何一行不符，先按纪律 4 诊断**——这�
 | `except NotGaussian` 改成 `except (NotGaussian, StructureError)` | `test_a_lying_observed_node_raises_rather_than_falling_back_to_nuts` |
 | `check_linearity` 的 `StructureError` 不捕获 | `bilinear_pair` / `quadratic_claim` / `cubic_tail` 三行 |
 
-- [ ] **Step 7: 子判据检查**
+- [x] **Step 7: 子判据检查**
 
 - **结构维度**：观测节点数 {1, 2}（`radiometer_group` 是 2）；plate {无, 有}；块大小 {0, 1, 2}——**≥3 今天没有，补一个 `tau → x → y` 的三隐变量链**，它同时检验弹出规则是跑一遍还是跑到不动点；观测节点声明序 {排序, 逆序}——**补 `two_observations_reverse_sorted_names` 一行**。
 - **点 vs 区域**：`SIGMA_RTOL` 两侧各要一个 fixture，且报告 `radiometer` 的 `sigma_movement`（实测 2.50e+03）与 `two_linear_latents` 的（0.0）之间没有 fixture 落在 `1e-8` 附近——**如实写明这是覆盖两端而非边界验证**，与 `check_prediction_dependence` 自己的 docstring 一致。
 
-- [ ] **Step 8: AST 比对 + 提交**
+- [x] **Step 8: AST 比对 + 提交**
 
 提交信息：
 
@@ -1436,7 +1436,7 @@ spec §六。**这是这个包最重要的用户体验**：模型在被拟合之
 - Create: `src/bayesmith/dispatch/plan.py`
 - Test: `tests/dispatch/test_plan.py`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```python
 # tests/dispatch/test_plan.py
@@ -1476,12 +1476,12 @@ def test_the_plan_names_the_execution_it_will_use():
     assert "no chain" in str(compile_graph(two_linear_latents()))
 ```
 
-- [ ] **Step 2: 跑，确认红**
+- [x] **Step 2: 跑，确认红**
 
 Run: `.venv/bin/python -m pytest tests/dispatch/test_plan.py -v`
 Expected: `ImportError` / `ModuleNotFoundError`。
 
-- [ ] **Step 3: 写 `plan.py`**
+- [x] **Step 3: 写 `plan.py`**
 
 ```python
 # src/bayesmith/dispatch/plan.py
@@ -1523,7 +1523,7 @@ class InferencePlan(eqx.Module):
 
 **κ 是区间时**（spec §4.2：块外隐变量影响 κ）打印 `kappa in [lo, hi]`，且 `tol` 用 **`hi`** 导出——用 `lo` 会给出一个太松的 `tol`，方向恰是让 CG 早停、后验变窄而守卫沉默的那一侧。
 
-- [ ] **Step 3b: 再加一条——κ 随块外隐变量漂移时必须打印区间**
+- [x] **Step 3b: 再加一条——κ 随块外隐变量漂移时必须打印区间**
 
 ```python
 def test_a_kappa_that_moves_with_an_outside_latent_is_printed_as_an_interval():
@@ -1554,11 +1554,11 @@ def test_a_kappa_that_moves_with_an_outside_latent_is_printed_as_an_interval():
     assert tol == pytest.approx(1e-3 / hi, rel=1e-6)
 ```
 
-- [ ] **Step 4-5: 实现到测试通过，跑全套**
+- [x] **Step 4-5: 实现到测试通过，跑全套**
 
 Run: `.venv/bin/python -m pytest tests/dispatch/ tests/exact/ -q`
 
-- [ ] **Step 6: 变异测试**
+- [x] **Step 6: 变异测试**
 
 | 变异 | 必须变红 |
 |---|---|
@@ -1567,7 +1567,7 @@ Run: `.venv/bin/python -m pytest tests/dispatch/ tests/exact/ -q`
 | `reason` 不打印成员名 | `test_a_refused_block_prints_why_not_just_that_it_was_refused` |
 | 全精确图也打印 `HMCGibbs` | `test_the_plan_names_the_execution_it_will_use` |
 
-- [ ] **Step 7: AST 比对 + 提交**（`feat: InferencePlan, printable`）
+- [x] **Step 7: AST 比对 + 提交**（`feat: InferencePlan, printable`）
 
 ---
 
@@ -1579,7 +1579,7 @@ spec §5.1、§5.4。**符号在这里最容易写反，而 P3 spec 与 P3b 初�
 - Create: `src/bayesmith/exact/correct.py`
 - Test: `tests/exact/test_correct.py`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```python
 # tests/exact/test_correct.py
@@ -1664,9 +1664,9 @@ def test_khat_is_none_rather_than_an_exception_when_the_private_entry_is_gone():
         assert khat(jnp.zeros(100)) is None
 ```
 
-- [ ] **Step 2: 跑，确认红**
+- [x] **Step 2: 跑，确认红**
 
-- [ ] **Step 3: 写 `correct.py`**
+- [x] **Step 3: 写 `correct.py`**
 
 ```python
 # src/bayesmith/exact/correct.py
@@ -1749,9 +1749,9 @@ def unreliable(khat_value, n):
     return khat_value >= min(1.0 - 1.0 / np.log10(max(n, 11)), 0.7)
 ```
 
-- [ ] **Step 4-5: 实现到测试通过，跑全套**
+- [x] **Step 4-5: 实现到测试通过，跑全套**
 
-- [ ] **Step 6: 变异测试**
+- [x] **Step 6: 变异测试**
 
 | 变异 | 必须变红 |
 |---|---|
@@ -1761,7 +1761,7 @@ def unreliable(khat_value, n):
 | `unreliable` 的阈值写死 `0.7` | **需要一个 N < 1e4 且 k̂ 落在两阈值之间的参数化**——补一条 |
 | `khat` 的 `except` 去掉 | `test_khat_is_none_rather_than_an_exception_when_the_private_entry_is_gone` |
 
-- [ ] **Step 7: 子判据 + AST 比对 + 提交**（`feat: importance weights, Kish ESS and PSIS k-hat`）
+- [x] **Step 7: 子判据 + AST 比对 + 提交**（`feat: importance weights, Kish ESS and PSIS k-hat`）
 
 **结构维度**：`log_weight` 在「块成员数」「叶内元素数」两维上都走 `jax.tree.map` 与求和——两维都要取到两个值，否则单成员标量 fixture 会让一个只处理首个叶子的实现全绿（P3a Task 7 的原样重演）。
 
@@ -1776,7 +1776,7 @@ spec §四、§5.3。**§5.3 是整份 spec 里最大的一处更正**，实现�
 - Modify: `tests/exact/models.py`（新增 `steep_radiometer`、`mixed_radiometer`）
 - Test: `tests/exact/test_gibbs.py`
 
-- [ ] **Step 1: 加两个 fixture**
+- [x] **Step 1: 加两个 fixture**
 
 ```python
 # tests/exact/models.py  （追加）
@@ -1845,7 +1845,7 @@ def mixed_radiometer(*, n=8, kappa=0.4, floor=1e-2, w_true=1.5, beam_true=0.3, s
     return trace(model)
 ```
 
-- [ ] **Step 2: 写失败的测试**
+- [x] **Step 2: 写失败的测试**
 
 ```python
 # tests/exact/test_gibbs.py
@@ -1959,9 +1959,9 @@ def test_gibbs_fn_is_called_by_keyword_and_returns_exactly_the_block():
     assert set(out) == {"w"}
 ```
 
-- [ ] **Step 3: 跑，确认红**
+- [x] **Step 3: 跑，确认红**
 
-- [ ] **Step 4: 写 `gibbs.py`**
+- [x] **Step 4: 写 `gibbs.py`**
 
 ```python
 # src/bayesmith/exact/gibbs.py
@@ -2062,7 +2062,7 @@ def _mh_step(graph, block, current, at, sigma, key, tol, maxiter, names):
 
 `assemble(plan, ...)` 用 `HMCGibbs(NUTS(to_numpyro(graph)), gibbs_fn=..., gibbs_sites=[...])` 装配，并**拒绝 `chain_method="vectorized"`**（§二实测：`HMCGibbs.init` 无条件 `random.split`，vectorized 下递批量 key，在 `gibbs_fn` 被调用之前就抛 `ValueError`）。
 
-- [ ] **Step 4b: 再加两条测试——σ 依赖块外隐变量，以及 vectorized 多链**
+- [x] **Step 4b: 再加两条测试——σ 依赖块外隐变量，以及 vectorized 多链**
 
 ```python
 def test_noise_std_is_rebuilt_when_sigma_depends_on_a_latent_outside_the_block():
@@ -2111,7 +2111,7 @@ def test_vectorized_chains_are_refused_with_a_reason():
 
 新 fixture `outside_sigma_latent()`：`lognoise ~ N(-1, 1)`、`w ~ N(0, 3)`、`mu = w*X`（`linear_in=("w",)`）、`d ~ N(mu, exp(lognoise))`。`lognoise` 因判据 3 落 NUTS（`mu` 不声明对它线性，且它根本不在 `mu` 的路径上——它进的是 `d` 的 scale），块是 `{w}`。
 
-- [ ] **Step 5-6: 实现到通过、跑全套、变异测试**
+- [x] **Step 5-6: 实现到通过、跑全套、变异测试**
 
 | 变异 | 必须变红 |
 |---|---|
@@ -2124,7 +2124,7 @@ def test_vectorized_chains_are_refused_with_a_reason():
 | `sigma_rebuild=True` 被接受但忽略 | `test_noise_std_is_rebuilt_when_sigma_depends_on_a_latent_outside_the_block` |
 | 不拒绝 `chain_method="vectorized"` | `test_vectorized_chains_are_refused_with_a_reason` |
 
-- [ ] **Step 7: AST 比对 + 提交**
+- [x] **Step 7: AST 比对 + 提交**
 
 ---
 
@@ -2135,7 +2135,7 @@ def test_vectorized_chains_are_refused_with_a_reason():
 - Modify: `src/bayesmith/__init__.py`
 - Test: `tests/dispatch/test_dispatch_entry.py`、`tests/test_public_api.py`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```python
 def test_a_fully_exact_graph_samples_without_a_chain():
@@ -2200,11 +2200,11 @@ def test_compile_is_the_function_not_the_subpackage():
     assert callable(bayesmith.compile)
 ```
 
-- [ ] **Step 2-4: 实现，跑通**
+- [x] **Step 2-4: 实现，跑通**
 
 `compile(graph)` 进 `_LAZY_ATTRS`（指向 `bayesmith.dispatch.plan`），`dispatch` 进 `_LAZY_SUBMODULES`。`Posterior` / `Estimate` 按 spec §6.3 定义。**`sample()` 在 SNIS 路径上必须检查 Kish ESS/N 是否塌缩并按 §6.4 回退**，而不是对一个大块返回 `unreliable=True`。
 
-- [ ] **Step 5-6: 变异测试 + 提交**
+- [x] **Step 5-6: 变异测试 + 提交**
 
 | 变异 | 必须变红 |
 |---|---|
@@ -2221,7 +2221,7 @@ spec §7.2。**每一条的功效都已实测**，参数写进参数化。
 
 **Files:** `tests/dispatch/test_acceptance.py`、`tests/exact/test_correct.py`（补）
 
-- [ ] **Step 1: (b) MH 不变性——在 `steep_radiometer` 上，不标 `slow`**
+- [x] **Step 1: (b) MH 不变性——在 `steep_radiometer` 上，不标 `slow`**
 
 ```python
 @pytest.mark.parametrize("draws, seed", [(2000, 0), (2000, 1)])
@@ -2245,13 +2245,13 @@ def test_dropping_the_reverse_density_term_moves_the_moments(draws, seed):
     assert abs(biased_mean - correct_mean) / correct_sd > 0.15
 ```
 
-- [ ] **Step 2: (c) SNIS —— 预言机换成求积，另加 ESS 守卫**
+- [x] **Step 2: (c) SNIS —— 预言机换成求积，另加 ESS 守卫**
 
 `radiometer` 是标量、`radiometer_group` 是二维，都能精确积到 ~1e-10。**不要用长跑 NUTS**——P3a 的记录说那是自洽检查。
 
 外加 `test_a_non_converged_gls_sigma_shows_up_as_ess_not_as_bias`：**矩对 σ̂ 的冻结点是瞎的**（用不同 σ̂ 的 SNIS 仍是合法重要性采样，矩照样收敛，只有 ESS 掉），所以这一条断言 Kish ESS/N 掉一个钉死的倍数而加权均值仍对。
 
-- [ ] **Step 3: (d) CG 容差——三点，不是两点**
+- [x] **Step 3: (d) CG 容差——三点，不是两点**
 
 ```python
 @pytest.mark.parametrize("tol", [1e-1, 1e-6, 1e-12])
@@ -2273,11 +2273,11 @@ def test_weighted_moments_agree_at_tight_tolerances_and_move_at_a_loose_one(tol)
     """
 ```
 
-- [ ] **Step 4: (e) 复合 vs 纯 NUTS —— 拆两条**
+- [x] **Step 4: (e) 复合 vs 纯 NUTS —— 拆两条**
 
 条件矩走 Task 8 的预言机对比（`hmc_sites` 固定、确定性）；边缘矩**只在先实测过外参数确实混合的 fixture 上**比较，`ESS` 与容差一起写进 docstring。
 
-- [ ] **Step 5: (f) ESS/秒 —— 不做数值断言**
+- [x] **Step 5: (f) ESS/秒 —— 不做数值断言**
 
 ```python
 @pytest.mark.benchmark
@@ -2302,15 +2302,15 @@ def test_report_ess_per_second_without_asserting_a_threshold():
     """
 ```
 
-- [ ] **Step 6: §7.3 边界验证——只剩两个真阈值**
+- [x] **Step 6: §7.3 边界验证——只剩两个真阈值**
 
 `condition_bound` 导出的 `tol`（守卫开/关）与 Kish ESS/N 的塌缩阈值（SNIS/回退）。**初稿列的另两个是范畴错误**：k̂=0.7 两侧是同一个计算；「MH 接受率｜反向密度在场/缺席」实测两侧 0.950 vs 0.955——**它们一致，而这正是 bug**。
 
-- [ ] **Step 7: 极端参数**
+- [x] **Step 7: 极端参数**
 
 块大小 1 与 1e4（**受 §5.2 的 SNIS 维度上限约束**——n≈500 时 Kish ESS 已经是 1.00，所以 1e4 的块只在非 SNIS 路径上有意义）、观测节点数 1 与 5、κ 从 1 到 1e10、σ 跨六量级、完全共线的父节点、零观测的隐变量。
 
-- [ ] **Step 8: 全套 + `ruff check` + 覆盖率 + 提交**
+- [x] **Step 8: 全套 + `ruff check` + 覆盖率 + 提交**
 
 Run: `.venv/bin/python -m pytest -q && .venv/bin/python -m pytest -m "not slow" -q && ruff check`
 
@@ -2320,26 +2320,26 @@ Run: `.venv/bin/python -m pytest -q && .venv/bin/python -m pytest -m "not slow" 
 
 ## 验收（本计划完成的判据）
 
-- [ ] `.venv/bin/python -m pytest -q` 全绿，且 `-m "not slow"` 也全绿
-- [ ] **Task 1 的判决对比表已提交**，任何翻转都具名解释
-- [ ] `test_a_bright_component_does_not_mask_a_false_claim_on_a_faint_one` 通过（B1）
-- [ ] `test_sigma_depending_on_a_contrast_of_two_members_is_detected` 通过（B2）
-- [ ] `tests/dispatch/test_classify.py` 的分类表全绿，含 `orphaned_child_latent`、`student_t_likelihood`、`shared_ancestor` 三行
-- [ ] `test_a_lying_observed_node_raises_rather_than_falling_back_to_nuts` 通过
-- [ ] `test_gibbs_fn_survives_a_trace_and_the_probe_still_bites` 通过（两侧）
-- [ ] MH 修正的守卫通过，且**未标 `slow`** —— 实际名为
+- [x] `.venv/bin/python -m pytest -q` 全绿，且 `-m "not slow"` 也全绿
+- [x] **Task 1 的判决对比表已提交**，任何翻转都具名解释
+- [x] `test_a_bright_component_does_not_mask_a_false_claim_on_a_faint_one` 通过（B1）
+- [x] `test_sigma_depending_on_a_contrast_of_two_members_is_detected` 通过（B2）
+- [x] `tests/dispatch/test_classify.py` 的分类表全绿，含 `orphaned_child_latent`、`student_t_likelihood`、`shared_ancestor` 三行
+- [x] `test_a_lying_observed_node_raises_rather_than_falling_back_to_nuts` 通过
+- [x] `test_gibbs_fn_survives_a_trace_and_the_probe_still_bites` 通过（两侧）
+- [x] MH 修正的守卫通过，且**未标 `slow`** —— 实际名为
       `test_the_frozen_sigma_proposal_is_wrong_and_the_accept_step_is_what_fixes_it`
       （`tests/dispatch/test_acceptance.py`，提交 `6960268`）。**改名是实测的结果**：
       「丢掉反向密度项」这条变异**不会移动矩**——实测 `log w(x')` 在 20000 次抽取里
       中位数 −14.39、最大 −8.204，从不 ≥0，于是接受率塌到 0/20000，核变成恒等映射，
       而恒等映射**完美通过任何不变性断言**。杀死它的是接受率带，所以那一条断言排在最前。
-- [ ] `test_log_weight_equals_log_p_minus_log_q_against_a_dense_gaussian` 通过
-- [ ] `InferencePlan.__str__` 打印 κ（或区间）与 `tol`，且拒绝理由点名成员
-- [ ] `test_importing_bayesmith_still_does_not_import_numpyro` 与 `test_compile_is_the_function_not_the_subpackage` 都通过
-- [ ] 每个任务的变异测试都做过，每条都指名了一条**变红的具体测试**
-- [ ] 每个任务的 AST 规格比对都跑过，每处实质差异都具名说明
-- [ ] `ruff check` 干净
-- [ ] 新文件覆盖率 ≥ 80%
+- [x] `test_log_weight_equals_log_p_minus_log_q_against_a_dense_gaussian` 通过
+- [x] `InferencePlan.__str__` 打印 κ（或区间）与 `tol`，且拒绝理由点名成员
+- [x] `test_importing_bayesmith_still_does_not_import_numpyro` 与 `test_compile_is_the_function_not_the_subpackage` 都通过
+- [x] 每个任务的变异测试都做过，每条都指名了一条**变红的具体测试**
+- [ ] 每个任务的 AST 规格比对都跑过，每处实质差异都具名说明 —— **只勾一半，故意留空**。「具名说明」这一半做到了，而且是超额做到的：七条提交里六条带「计划指定的 N 处没有活过实测」整段散文。但**机械的 AST 比对本身没有留下任何证据**，而且对多数任务不可能做——计划里的代码块是带 `...` 的片段，`ast.parse` 比不了，实施者做的是散文比对。下一轮要么改判据（改成「逐处具名说明」），要么把计划的代码块写成可解析的完整文件。
+- [x] `ruff check` 干净
+- [x] 新文件覆盖率 ≥ 80%
 
 ## 执行结果（2026-08-24 完成）
 
