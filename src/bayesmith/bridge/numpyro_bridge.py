@@ -8,7 +8,7 @@ always also qualifies for NUTS.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import jax
@@ -62,9 +62,21 @@ def nuts(
     num_warmup: int = 1000,
     num_samples: int = 2000,
     num_chains: int = 1,
+    chain_method: str = "sequential",
     progress_bar: bool = False,
+    nuts_options: Mapping[str, Any] | None = None,
 ) -> dict[str, jax.Array]:
     """Sample the posterior of ``graph`` with NUTS.
+
+    ``chain_method`` and ``nuts_options`` are here because
+    :meth:`~bayesmith.dispatch.plan.InferencePlan.sample` promises them on
+    every path, and two of its five shapes -- the graph with no exact block,
+    and the SNIS collapse -- run through this function. Until they existed
+    those two shapes silently ignored both keywords while the mixed shape,
+    which reaches ``HMCGibbs`` through
+    :func:`~bayesmith.exact.gibbs.assemble`, honoured them. The names and the
+    defaults are ``assemble``'s, so the two spellings of "run a chain" take
+    the same words.
 
     Args:
         graph: the model.
@@ -72,16 +84,24 @@ def nuts(
         num_warmup: adaptation draws, discarded.
         num_samples: retained draws per chain.
         num_chains: independent chains.
+        chain_method: how ``num_chains`` are run -- ``"sequential"``,
+            ``"parallel"`` or ``"vectorized"``. All three are numpyro's own
+            and all three are legal here; ``assemble`` refuses
+            ``"vectorized"`` for a Gibbs sweep, but that refusal is about
+            ``HMCGibbs.init`` and does not apply to a bare kernel.
         progress_bar: whether NumPyro prints progress.
+        nuts_options: keywords for the ``NUTS`` kernel itself
+            (``target_accept_prob``, ``max_tree_depth``, ``dense_mass``, ...).
 
     Returns:
         A mapping from latent node name to its draws.
     """
     mcmc = MCMC(
-        NUTS(to_numpyro(graph)),
+        NUTS(to_numpyro(graph), **dict(nuts_options or {})),
         num_warmup=num_warmup,
         num_samples=num_samples,
         num_chains=num_chains,
+        chain_method=chain_method,
         progress_bar=progress_bar,
     )
     mcmc.run(key)

@@ -37,30 +37,48 @@ from tests.exact.models import radiometer_group, tunable_curvature, two_linear_l
 # check_linearity's rtol threshold (affine vs. not)
 # --------------------------------------------------------------------------
 
-# **Measured correction to the plan's own draft values.** The plan text this
-# file implements proposed accepting departure in {0.0, 1e-8, 1e-6}. Run
-# directly: departure=1e-6 is REFUSED, not accepted -- at DEFAULT_SCALES's
-# top probe (1e3 * prior_std), the quadratic term's relative contribution is
-# ~departure * 1e3, which at 1e-6 already sits ~1.4x past
-# rtol=1e4*eps(float32)~1.19e-3. Bisecting: accepted up to departure=5e-7,
-# refused from departure=7e-7. 1e-7 replaces 1e-6 below, comfortably (~7x
-# margin) inside the accept side rather than just past the threshold; this
-# is exactly the "diagnose by computing what the assertion actually reports,
-# not by intuition" move `boundary-validation.md`'s own five disciplines
-# call for.
+# **Measured correction, twice over.** The plan text this file implements
+# proposed accepting departure in {0.0, 1e-8, 1e-6}; departure=1e-6 was
+# measured REFUSED, so the accept side became {0.0, 1e-8, 1e-7} against a
+# bisected threshold of ~7e-7.
+#
+# Splitting the roundoff floor (WEIGHTED_FLOOR_FACTOR, 1e2, separate from the
+# relative column's 1e4) moved that threshold three decades, to between 1e-9
+# and 1e-8, and 1e-8/1e-7 became refusals. They are refusals in the RIGHT
+# direction: `tunable_curvature`'s `departure` dials in real curvature by
+# construction -- Task 1's table calls departure=1e-9 "the smallest false" and
+# float64 refuses every nonzero value down to 1e-12. The old accept side was
+# asserting that float32 stays blind to a departure float64 convicts on, which
+# is the defect the split repairs, not a property worth pinning.
+#
+# Re-bisected at float32: accepted at 1e-9, refused from 1e-8. The accept side
+# below is {0.0, 1e-10, 1e-9} -- the closest value one decade inside -- and the
+# refuse side is unchanged, its tightest value 1e-6 sitting two decades outside.
+# `test_the_weighted_criterion_binds_at_float32_and_sigma_is_what_moves_it`
+# holds the band between them.
 
 
-@pytest.mark.parametrize("departure", [0.0, 1e-8, 1e-7])
+@pytest.mark.parametrize("departure", [0.0, 1e-10, 1e-9])
 def test_check_linearity_accepts_below_its_rtol(departure):
     """The quiet side of the threshold: a departure this small is roundoff.
 
-    REGION, not point: check_linearity's affinity probe never reads sigma,
-    n or the data -- only the deterministic node `mu` and each member's own
-    prior_std, which `tunable_curvature`'s `w**2 / prior_std` term is built
-    to cancel out of `departure`'s effect by design (see its docstring). So
-    this separation is independent of `tunable_curvature`'s other keyword
-    defaults; it depends only on `DEFAULT_SCALES` (the probe magnitudes) and
-    the working dtype's `rtol`, both fixed here.
+    REGION, not point, on the axes that should not matter: independent of
+    `tunable_curvature`'s other keyword defaults, depending only on
+    `DEFAULT_SCALES` (the probe magnitudes) and the working dtype. `n` and the
+    data never enter -- only the deterministic node `mu` and each member's own
+    prior_std, which `tunable_curvature`'s `w**2 / prior_std` term is built to
+    cancel out of `departure`'s effect by design (see its docstring).
+
+    **`sigma` does not enter HERE, and that is now a measured claim about
+    these three values rather than about the criterion.** Swept over sigma in
+    {1e-20, 1e-10, 1e-3, 0.5, 1e3, 1e10, 1e20}, all three accept at every
+    value. It is not true one decade up: at departure=1e-8 the verdict is
+    REFUSE for sigma <= 0.5 and accept for sigma >= 1e3, because the weighted
+    criterion asks how many noise widths the departure is worth and a wider
+    sigma buys the same departure fewer of them. That band is pinned
+    separately below; the older reading -- that the floor makes the weighted
+    column read 0.0 however small sigma is -- described a criterion that was
+    inert at float32 and is no longer true.
     """
     graph = tunable_curvature(departure=departure)
     check_linearity(graph, ("w",), at={}, at_points=[{}])
@@ -68,9 +86,40 @@ def test_check_linearity_accepts_below_its_rtol(departure):
 
 @pytest.mark.parametrize("departure", [1e-6, 1e-2, 1.0, 10.0])
 def test_check_linearity_refuses_above_its_rtol(departure):
-    """REGION: same independence from sigma/n/seed as the accept side above."""
+    """REGION: refused at every sigma in the sweep above, unlike the 1e-8 band."""
     graph = tunable_curvature(departure=departure)
     with pytest.raises(StructureError, match="affine"):
+        check_linearity(graph, ("w",), at={}, at_points=[{}])
+
+
+@pytest.mark.parametrize(
+    "sigma, refused",
+    [(1e-20, True), (1e-3, True), (0.5, True), (1e3, False), (1e20, False)],
+)
+def test_the_weighted_criterion_binds_at_float32_and_sigma_is_what_moves_it(
+    sigma, refused
+):
+    """The band the two tests above bracket, and the regression guard for B1.
+
+    At departure=1e-8 the relative column is quiet at every sigma, so whatever
+    verdict comes back is the sigma-weighted column's alone. Sharing the
+    relative column's 1e4 floor made that column dead at float32 for any model
+    with more signal than noise -- the window `departure > WEIGHTED_RTOL*sigma`
+    AND `departure > 1e4*eps*|mu|` is empty unless SNR < 1e-7/eps, which is
+    0.84 in float32 and 4.5e8 in float64. Every row here would read `accept`
+    under that floor, so this test is what would go red if the two floors were
+    merged again.
+
+    Both directions are asserted because only the pair says the criterion is
+    measuring noise widths rather than simply refusing more: a wider sigma
+    makes the same departure worth fewer of them, and at 1e3 and above the
+    model is genuinely indistinguishable from affine at this precision.
+    """
+    graph = tunable_curvature(departure=1e-8, sigma=sigma)
+    if refused:
+        with pytest.raises(StructureError, match="affine"):
+            check_linearity(graph, ("w",), at={}, at_points=[{}])
+    else:
         check_linearity(graph, ("w",), at={}, at_points=[{}])
 
 

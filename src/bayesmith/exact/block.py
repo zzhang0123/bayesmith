@@ -267,7 +267,11 @@ def _refuse_missing_observed(graph: Graph) -> None:
 
 
 def _env_before(
-    graph: Graph, names: tuple[str, ...], at: dict[str, Any]
+    graph: Graph,
+    names: tuple[str, ...],
+    at: dict[str, Any],
+    *,
+    probe_gaussian: bool = True,
 ) -> tuple[
     dict[str, Any], dict[str, tuple[tuple[int, ...], Any, jax.Array, jax.Array]]
 ]:
@@ -287,13 +291,20 @@ def _env_before(
     Repeats ``evaluate``'s isinstance ladder rather than calling it, for the
     reason above. ``test_env_before_agrees_with_evaluate_on_every_node`` pins
     the two together so the duplication cannot drift.
+
+    Args:
+        probe_gaussian: run :func:`~bayesmith.exact.gaussian.check_gaussian`
+            on every block member. See :func:`unchecked_operator`, whose
+            keyword this is -- disabling it here is one of the two call sites
+            that keyword has to reach.
     """
     members = set(names)
     env: dict[str, Any] = {}
     domain: dict[str, tuple[tuple[int, ...], Any, jax.Array, jax.Array]] = {}
     for node in graph.nodes:
         if node.name in members:
-            check_gaussian(graph, node, env)
+            if probe_gaussian:
+                check_gaussian(graph, node, env)
             loc, scale = gaussian_parts(graph, node, env)
             shape = node_shape(graph, node, env)
             mean = jnp.broadcast_to(loc, shape)
@@ -338,7 +349,11 @@ def isolate(
 
 
 def unchecked_operator(
-    graph: Graph, names: Iterable[str], at: dict[str, Any] | None = None
+    graph: Graph,
+    names: Iterable[str],
+    at: dict[str, Any] | None = None,
+    *,
+    probe_gaussian: bool = True,
 ) -> LinearBlock:
     """Export ``A``, ``A^T``, the offset, the data and the prior -- **unchecked**.
 
@@ -353,6 +368,27 @@ def unchecked_operator(
             *given* them, so this fixes where it is built -- which is what
             makes a Gibbs sweep possible: rebuild here every sweep at the
             current values.
+        probe_gaussian: run :func:`~bayesmith.exact.gaussian.check_gaussian`
+            on every block member and every observed node. Default ``True``,
+            which is what every P3a call site already gets.
+
+            **Pass ``False`` only inside a traced Gibbs sweep, and only after
+            the same check has run once at compile time.** The probe evaluates
+            ``log_prob`` at concrete offsets and raises on a mismatch, so it
+            does ``bool(jnp.all(...))`` -- a ``TracerBoolConversionError``
+            under ``jit``, not a slow path. There are TWO call sites (per
+            member in ``_env_before``, per observed node here) and disabling
+            only one still dies.
+
+            What each of this module's three entry points checks:
+
+            ==================================  ==========  ===========
+            entry point                         linearity   gaussianity
+            ==================================  ==========  ===========
+            ``linear_operator``                 yes         yes
+            ``unchecked_operator``              no          yes
+            ``unchecked_operator(..., False)``  no          no
+            ==================================  ==========  ===========
 
     Raises:
         GraphError: if ``names`` is empty, repeats a latent, or names
@@ -374,15 +410,22 @@ def unchecked_operator(
         that checks first, and is what callers should reach for. This one is
         for inside a Gibbs sweep, where the check has been hoisted out of the
         loop deliberately.
+
+        Trace-safety here is a claim about THIS library's code, not about the
+        graph it is handed. A ``Deterministic`` whose ``fn`` does
+        ``float(x) > 0`` raises ``ConcretizationTypeError`` under ``jit`` no
+        matter what this keyword says -- and a dispatcher runs arbitrary user
+        ``fn`` under trace.
     """
     names = _validated_names(graph, names)
     at = _validated_at(graph, names, at)
     _refuse_internal_ancestry(graph, names)
     _refuse_missing_observed(graph)
 
-    env, domain = _env_before(graph, names, at)
-    for observed in graph.observed:
-        check_gaussian(graph, graph.node(observed), env)
+    env, domain = _env_before(graph, names, at, probe_gaussian=probe_gaussian)
+    if probe_gaussian:
+        for observed in graph.observed:
+            check_gaussian(graph, graph.node(observed), env)
 
     g = isolate(graph, names, at)
     zero = {n: jnp.zeros(domain[n][0], dtype=domain[n][1]) for n in names}

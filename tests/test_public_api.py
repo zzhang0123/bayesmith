@@ -76,6 +76,35 @@ def test_every_exact_name_resolves_and_is_the_same_object_as_its_module_s():
         assert name in bayesmith.__all__
 
 
+def test_the_dispatch_exports_are_the_objects_their_own_module_defines():
+    """The same identity pin as above, for the two names ``dispatch/`` owns.
+
+    ``Posterior`` and ``Estimate`` are lazy attributes like every name in the
+    test above, but they are not ``exact`` names, so that test's map does not
+    and should not reach them -- and until this one existed nothing did.
+    Measured directly: swapping the two entries in ``_LAZY_ATTRS`` so
+    ``bayesmith.Posterior`` resolves to ``execute.Estimate`` and vice versa
+    left all seven tests in this file green, ``test_every_exported_name_
+    resolves`` included, because both names still resolve to *something*.
+
+    Checked against ``bayesmith.dispatch.execute`` rather than
+    ``bayesmith.dispatch.plan``: ``plan`` re-exports both, so a map pointed
+    there would be satisfied by the re-export and blind to which object it
+    re-exports. ``execute`` is the owning module -- what ``_LAZY_ATTRS``'
+    own comment says every entry points at.
+    """
+    import bayesmith
+    from bayesmith.dispatch import execute
+
+    expected = {
+        "Posterior": execute.Posterior,
+        "Estimate": execute.Estimate,
+    }
+    for name, target in expected.items():
+        assert getattr(bayesmith, name) is target, name
+        assert name in bayesmith.__all__
+
+
 def test_the_exact_subpackage_s_own_all_reexports_the_right_object():
     """``bayesmith.exact.__all__`` is a SEPARATE contract from the top-level one.
 
@@ -147,3 +176,44 @@ def test_importing_bayesmith_still_does_not_import_numpyro():
         [sys.executable, "-c", code], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_compile_is_the_function_not_the_subpackage():
+    """``dispatch/``, not ``compile/`` -- and this is the test that would have
+    caught the collision the first draft of the spec proposed.
+
+    Measured directly, by building the mutant: the whole of ``dispatch/`` copied
+    to ``compile/`` with ``_LAZY_ATTRS`` and ``_LAZY_SUBMODULES`` following it.
+    The collision is real and it is **order-dependent**, which is worse than
+    unconditional:
+
+    * ``import bayesmith.compile.classify`` (or the ``from ... import`` form
+      the spec's first draft used) before anything reads the attribute leaves
+      ``bayesmith.compile`` a MODULE -- ``callable`` False. The import machinery
+      does ``setattr(parent, "compile", module)`` on first load.
+    * Reading ``bayesmith.compile`` FIRST leaves it a function even afterwards,
+      because resolving the lazy attribute already put ``bayesmith.compile``
+      into ``sys.modules`` and re-caches the function over it; the later import
+      finds the parent loaded and never repeats the ``setattr``.
+
+    So the same assertion passes or fails on the order two unrelated test files
+    happen to run in -- alone versus in the suite, and under xdist on which
+    worker got which file.
+
+    The first assertion is the witness at today's layout; the three after it
+    are what actually go red the moment a ``compile`` subpackage exists,
+    because the poisoning import above can only name the package that exists
+    NOW. A rename would take the whole suite's imports with it, and then the
+    witness alone would silently stop witnessing anything.
+    """
+    import importlib.util
+    import pathlib
+
+    import bayesmith
+    import bayesmith.dispatch.classify  # the poisoning import
+
+    assert callable(bayesmith.compile)
+    assert "compile" not in bayesmith._LAZY_SUBMODULES
+    root = pathlib.Path(bayesmith.__file__).parent
+    assert not (root / "compile").exists()
+    assert importlib.util.find_spec("bayesmith.compile") is None

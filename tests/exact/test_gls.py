@@ -1,11 +1,14 @@
 """Finding the covariance a prediction-dependent sigma implies."""
 
+import math
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from bayesmith.errors import GraphError, StructureError
+from bayesmith.exact.block import unchecked_operator
 from bayesmith.exact.gls import (
     check_prediction_dependence,
     iterative_gls,
@@ -13,7 +16,16 @@ from bayesmith.exact.gls import (
 )
 from bayesmith.exact.linearity import linear_operator
 from bayesmith.exact.solve import wiener_solve
-from tests.exact.models import radiometer, straight_line
+from tests.exact.models import (
+    contrast_sigma_pair,
+    element_contrast_sigma_plate,
+    one_sided_sigma,
+    radiometer,
+    sigma_functional_block,
+    straight_line,
+    sum_sigma_pair,
+    two_linear_latents,
+)
 from tests.exact.oracle import flat_domain, graph_oracle
 
 KAPPA = 0.05
@@ -243,8 +255,6 @@ def test_a_capped_run_reports_converged_false_rather_than_pretending():
 
 
 def test_a_one_sided_probe_would_miss_a_clipped_sigma():
-    from tests.exact.models import one_sided_sigma
-
     with jax.enable_x64(True):
         graph = one_sided_sigma()
         block = linear_operator(graph, ("w",), at={})
@@ -448,3 +458,356 @@ def test_iterative_gls_refuses_min_reweights_above_max():
                 min_reweights=5,
                 max_reweights=2,
             )
+
+
+def test_sigma_depending_on_a_contrast_of_two_members_is_detected():
+    """The probe must not travel one ray through the block's domain.
+
+    Measured with the lockstep probe `centre + factor * prior_std`: movement
+    came back exactly 0.0 -- not small, BITWISE zero -- because both members
+    were displaced by the same signed multiple of equal prior widths, so
+    `a - b` never changed and sigma is constant along that ray.
+
+    No function here was crafted to have a root at the probe points. The ray
+    simply never leaves the level set, which is why "try another magnitude"
+    does not help: every magnitude is on the same ray.
+    """
+    graph = contrast_sigma_pair()
+    block = unchecked_operator(graph, ["a", "b"])
+    movement = check_prediction_dependence(
+        block, sigma_from_graph(graph, {}), declared=True
+    )
+    assert movement > 1e-3, (
+        f"sigma moves with a - b, but the probe measured {movement:.3e}"
+    )
+
+
+def test_a_genuinely_constant_sigma_still_measures_no_movement():
+    """The two-sided half: richer probe directions must not invent movement.
+
+    Without this, a 'fix' that reported a large movement unconditionally
+    would pass the test above and route every model through the correction
+    machinery it does not need.
+    """
+    graph = two_linear_latents()
+    block = unchecked_operator(graph, ["a", "b"])
+    movement = check_prediction_dependence(
+        block, sigma_from_graph(graph, {}), declared=True
+    )
+    assert movement == pytest.approx(0.0, abs=1e-12)
+
+
+def test_the_measured_movement_does_not_depend_on_the_member_order():
+    """`_dependence_probe` sorts, so the same block described two ways agrees.
+
+    The ``random`` pattern folds each member's sub-key in by its POSITION,
+    so the positions have to come from somewhere stable. `block.names` is
+    whatever order the caller passed -- `unchecked_operator` stores it
+    verbatim -- so building the probe from it makes a yes/no guard's verdict
+    depend on how the member list was typed. Measured with
+    `sorted(block.names)` swapped for `block.names`: ``["a", "b"]`` reads
+    3.639e+00 and ``["b", "a"]`` reads 7.844e-01 -- same block, same graph,
+    two different numbers for a dispatcher to read. (Under the deterministic
+    ``alternating`` pattern this fix replaced, the same mutation read
+    6.389e+00 against 1.718e+00; the sorting is load-bearing for either
+    reason, which is why this test outlived the pattern it was written for.)
+
+    **The declaration order in the GRAPH is NOT the axis here**, unlike
+    `two_observations_reverse_sorted_names` and `two_unusable_observed_scales`
+    (whose dicts are built by comprehension over `graph.observed`). Nothing
+    in this path consults it: `unchecked_operator` takes `names` from the
+    caller and `_validated_names` returns `tuple(names)` unchanged, so a
+    fixture that merely declared `b` before `a` would leave this mutation a
+    no-op. Reversing the CALLER's list is what makes it visible -- measured
+    both ways.
+    """
+    graph = contrast_sigma_pair()
+    seam = sigma_from_graph(graph, {})
+    declared = check_prediction_dependence(
+        unchecked_operator(graph, ["a", "b"]), seam, declared=True
+    )
+    reversed_ = check_prediction_dependence(
+        unchecked_operator(graph, ["b", "a"]), seam, declared=True
+    )
+    assert declared == pytest.approx(reversed_, rel=1e-12, abs=0.0)
+    assert declared > 1e-3
+
+
+def test_sigma_depending_on_a_sum_of_two_members_is_still_detected():
+    """`uniform`'s own guard, and what it pins is a FLOOR, not a detection.
+
+    Found by mutation rather than predicted, twice over.
+
+    **First** (before the random directions existed): dropping ``uniform``
+    from `DEPENDENCE_PATTERNS` left the ENTIRE suite green at 270 tests --
+    every other prediction-dependent-sigma fixture here is either a
+    ONE-member block, where the patterns build bitwise identical probes, or
+    `radiometer_group`, whose sigma tracks ``mu = a*x_i + b`` elementwise so
+    any displacement moves it. `sum_sigma_pair` was the missing region: sigma
+    moves along the LOCKSTEP ray, which the then-second pattern held exactly
+    constant.
+
+    **Second** (after them): ``DEPENDENCE_PATTERNS = ("random",)`` ALSO left
+    the whole suite green, this test included -- a random direction detects
+    a sum with probability 1, so `assert movement > 1e-3` cannot separate
+    them. That is a fixture-does-not-reach-the-region failure of the
+    assertion, not of the fixture, and this is the assertion that fixes it.
+
+    What ``uniform`` actually buys is the SIZE of the returned number, which
+    is what a dispatcher thresholds. On a sum of equal-width members it reads
+    exactly ``expm1(factor * members)`` with no key involved -- 6.389 here.
+    ``random`` alone reads whatever ``sum(z_i)`` was: measured over 200 keys,
+    **1.342e-01 to 4.419e+01** on this fixture (8.399e-01 at the default
+    key, 7.6x below the anchor), and **1.565e-02 to 1.429e+02** on the
+    three-member sum, the low end falling as the block widens and the draws
+    cancel. So the assertion is a FLOOR at the anchor's key-free value: it
+    passes on any probe set containing ``uniform`` and fails on any that
+    drops it.
+    """
+    graph = sum_sigma_pair()
+    block = unchecked_operator(graph, ["a", "b"])
+    movement = check_prediction_dependence(
+        block, sigma_from_graph(graph, {}), declared=True
+    )
+    # `>=` rather than `approx`: a random probe that happened to exceed the
+    # anchor would be a better measurement, not a regression, and must not
+    # turn this red.
+    assert movement >= math.expm1(2.0) * (1.0 - 1e-6), (
+        f"the uniform anchor guarantees {math.expm1(2.0):.6f} on a sum of two "
+        f"equal-width members, but the probe measured {movement:.3e}"
+    )
+
+
+TRIPLE = ["a", "b", "c"]
+QUAD = ["a", "b", "c", "d"]
+
+
+def test_sigma_depending_on_a_contrast_of_two_same_parity_members_is_detected():
+    """Three members, and the deterministic pair does not reach them.
+
+    ``alternating`` flips sign with a member's POSITION, so it separates two
+    positions only when their positions have DIFFERING PARITY. On three
+    members with sigma tracking ``a - c`` -- sorted positions 0 and 2, the
+    same sign under ``alternating`` and under ``uniform`` alike -- the
+    contrast is constant along both rays and the probe reads bitwise 0.0.
+    Same silent wrong answer as the two-member defect, one member up:
+    whole-graph-one-block, so the dispatcher takes the iid-draws-no-chain
+    row and there is no r-hat, no k-hat, no ESS to notice with.
+
+    Measured on the two deterministic patterns, all four three-member rows
+    (`sigma_functional_block`, float32):
+
+    ==========================  =================
+    sigma depends on            movement measured
+    ==========================  =================
+    ``a - b`` (positions 0,1)   6.389057e+00
+    ``b - c`` (positions 1,2)   1.718282e+00
+    ``a - c`` (positions 0,2)   **0.000000e+00**
+    ``a + b + c`` (sum)         1.908554e+01
+    ==========================  =================
+
+    **This is the common case, not an edge case**: the dispatcher this guard
+    feeds puts every qualified latent into ONE block, so three-or-more is the
+    norm and two is the exception.
+    """
+    graph = sigma_functional_block(weights=(1.0, 0.0, -1.0))
+    block = unchecked_operator(graph, TRIPLE)
+    movement = check_prediction_dependence(
+        block, sigma_from_graph(graph, {}), declared=True
+    )
+    assert movement > 1e-3, (
+        f"sigma moves with a - c, but the probe measured {movement:.3e}"
+    )
+
+
+def test_sigma_depending_on_a_functional_no_sign_pattern_reaches_is_detected():
+    """Four members, and NO deterministic sign pattern family reaches it.
+
+    A probe pattern is a sign vector; sigma here is ``exp(f . theta)``, so
+    what a pattern measures is ``|exp(factor * (signs . f)) - 1|`` and a
+    pattern blind to ``f`` is exactly one whose sign vector is ORTHOGONAL to
+    it. On ``f = a - b - c + d`` -- the third Hadamard row -- measured dot
+    products against every deterministic pattern proposed for this guard:
+
+    ==================================  =====
+    pattern                             dot
+    ==================================  =====
+    ``uniform``   ``(+,+,+,+)``         0.0
+    ``alternating`` = counter bit 0     0.0
+    counter bit 1 ``(+,+,-,-)``         0.0
+    ==================================  =====
+
+    So this fixture read bitwise 0.0 on the shipped pair AND would read
+    bitwise 0.0 on the binary-counter family the previous docstring named as
+    "the deterministic family that closes it in general" -- **that claim is
+    false, and this test is the measurement that refutes it**. The counter
+    separates PAIRS of positions; it spans only ``1 + ceil(log2 members)``
+    of the block's ``members`` directions, and any functional orthogonal to
+    all of them is invisible to every member of the family. Four members is
+    the smallest block where the counter has fewer patterns than dimensions,
+    so it is the smallest block where such a functional exists at all.
+
+    A random direction has no such subspace to miss: it is orthogonal to a
+    fixed non-zero ``f`` with probability zero.
+    """
+    graph = sigma_functional_block(weights=(1.0, -1.0, -1.0, 1.0))
+    block = unchecked_operator(graph, QUAD)
+    movement = check_prediction_dependence(
+        block, sigma_from_graph(graph, {}), declared=True
+    )
+    assert movement > 1e-3, (
+        f"sigma moves with a - b - c + d, but the probe measured {movement:.3e}"
+    )
+
+
+def test_a_genuinely_constant_sigma_on_a_wide_block_still_measures_no_movement():
+    """The two-sided arm, at the width where the random directions live.
+
+    `test_a_genuinely_constant_sigma_still_measures_no_movement` above pins
+    this on two members. Random probe directions are drawn per member, so a
+    plumbing error that leaked a draw into the measured number would show up
+    as block width grows while the two-member case stayed clean. Same
+    fixture family as the two detection tests above, with the functional set
+    to zero: sigma is ``base * exp(0)``, a constant, at every probe point.
+
+    Without this arm, a "fix" that reported a large movement unconditionally
+    would pass both detection tests and route every model through the
+    correction machinery it does not need.
+    """
+    graph = sigma_functional_block(weights=(0.0, 0.0, 0.0, 0.0))
+    block = unchecked_operator(graph, QUAD)
+    movement = check_prediction_dependence(
+        block, sigma_from_graph(graph, {}), declared=True
+    )
+    assert movement == pytest.approx(0.0, abs=0.0)
+
+
+def test_the_dependence_probe_is_reproducible_and_steerable():
+    """Default key: same number twice. Explicit key: a different probe.
+
+    A yes/no guard whose verdict changes run to run is not a guard, so the
+    default has to be a fixed key -- `check_linearity`'s contract, and the
+    reason the random directions are drawn from ``jax.random.key(0)`` rather
+    than from entropy. The second half is what stops the ``key`` argument
+    from being decorative: a caller who wants a second opinion must get a
+    genuinely different probe, and one that still detects.
+    """
+    graph = sigma_functional_block(weights=(1.0, 0.0, -1.0))
+    seam = sigma_from_graph(graph, {})
+    once = check_prediction_dependence(
+        unchecked_operator(graph, TRIPLE), seam, declared=True
+    )
+    twice = check_prediction_dependence(
+        unchecked_operator(graph, TRIPLE), seam, declared=True
+    )
+    assert once == twice
+    other = check_prediction_dependence(
+        unchecked_operator(graph, TRIPLE),
+        seam,
+        declared=True,
+        key=jax.random.key(17),
+    )
+    assert other != once
+    assert other > 1e-3
+
+
+def test_the_measured_movement_ignores_member_order_at_three_members():
+    """The `sorted` is load-bearing for the RANDOM directions too.
+
+    Sub-keys are folded in by position in the SORTED names, exactly as
+    `check_linearity` does, so the same block described two ways draws the
+    same displacement for the same member. `block.names` is the CALLER's
+    order -- `_validated_names` returns ``tuple(names)`` unchanged and
+    `unchecked_operator` stores it verbatim -- so permuting the caller's
+    list, not the graph's declaration order, is what exercises this;
+    reversing a declaration would leave the mutation a no-op.
+
+    Three members rather than two: with two, a reversal maps position 0 to
+    position 1 and back, and a probe that folded in by the CALLER's position
+    would still be caught -- but a bug that indexed the sub-keys by a
+    stable-but-wrong key (say the same sub-key for every member) survives a
+    two-member reversal in some layouts. Three members with a rotation
+    exercises a permutation that is not an involution.
+    """
+    graph = sigma_functional_block(weights=(1.0, 0.0, -1.0))
+    seam = sigma_from_graph(graph, {})
+    declared = check_prediction_dependence(
+        unchecked_operator(graph, TRIPLE), seam, declared=True
+    )
+    rotated = check_prediction_dependence(
+        unchecked_operator(graph, ["c", "a", "b"]), seam, declared=True
+    )
+    reversed_ = check_prediction_dependence(
+        unchecked_operator(graph, ["c", "b", "a"]), seam, declared=True
+    )
+    assert declared == pytest.approx(rotated, rel=1e-12, abs=0.0)
+    assert declared == pytest.approx(reversed_, rel=1e-12, abs=0.0)
+    assert declared > 1e-3
+
+
+def test_sigma_depending_on_a_contrast_between_plate_elements_is_detected():
+    """The block's dimension is its ELEMENT count, not its member count.
+
+    `check_linearity` draws its probe per element and this guard now matches
+    it, which is what puts a plate's interior inside the probed space. A
+    per-MEMBER scalar draw would displace every entry of a leaf by the same
+    amount, so the whole class of "sigma depends on a contrast between two
+    entries of one array" stays on its level set -- the `contrast_sigma_pair`
+    defect one structural level down, and equally silent: measured **bitwise
+    0.0** per member against **1.730645e+01** per element.
+
+    `plated_radiometer` does NOT reach this region and is not redundant with
+    it: its ``sigma_i = kappa|z_i| + floor`` depends on the element it scales,
+    so a uniform displacement already moves it. Only a dependence that is
+    CONSTANT along the leaf's diagonal separates the two draws.
+    """
+    graph = element_contrast_sigma_plate()
+    block = unchecked_operator(graph, ["z"])
+    movement = check_prediction_dependence(
+        block, sigma_from_graph(graph, {}), declared=True
+    )
+    assert movement > 1e-3, (
+        f"sigma moves with z[0] - z[1], but the probe measured {movement:.3e}"
+    )
+
+
+ANCHOR_KEYS = 64
+
+
+def test_a_clipped_sigma_is_detected_at_every_key_because_of_the_anchor():
+    """`uniform` is load-bearing for DETECTION, not only for the number.
+
+    `one_sided_sigma`'s ``sigma = kappa * max(mu, 0) + floor`` is exactly
+    constant on the whole half-space ``mu <= 0``, so a probe set that lands
+    entirely inside it reads bitwise 0.0 -- which is what
+    :data:`~bayesmith.exact.gls.DEPENDENCE_PROBES`' two unequal SIGNED
+    magnitudes exist to prevent. A random direction throws that guarantee
+    away: it multiplies each magnitude by its own draw, so both probes land
+    on the clipped side whenever the two draws have the wrong signs.
+
+    Measured, ``DEPENDENCE_PATTERNS = ("random",)`` over 400 keys on this
+    fixture: **105 of them -- 26% -- read bitwise 0.0**, i.e. one key in four
+    would have let ``depends_on_prediction=False`` through on a genuinely
+    prediction-dependent node. `test_a_one_sided_probe_would_miss_a_clipped_
+    sigma` does not catch that; it runs at the default key, which happens to
+    be one of the 74% that work.
+
+    With ``uniform`` in the set the failure mode is gone by construction, and
+    this is the measurement: over 64 keys the movement's MINIMUM is
+    6.000000e+01 -- the anchor's own key-free reading, ``kappa * max`` at
+    ``+1`` prior width over the floor -- and never once the random probes'
+    contribution. That is what "deterministic anchor" buys.
+    """
+    graph = one_sided_sigma()
+    block = unchecked_operator(graph, ["w"])
+    seam = sigma_from_graph(graph, {})
+    movements = [
+        check_prediction_dependence(
+            block, seam, declared=True, key=jax.random.key(seed)
+        )
+        for seed in range(ANCHOR_KEYS)
+    ]
+    assert min(movements) >= 60.0 * (1.0 - 1e-6), (
+        "the uniform anchor guarantees 60.0 on this clipped sigma at every "
+        f"key, but some key measured {min(movements):.3e}"
+    )
