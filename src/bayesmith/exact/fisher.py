@@ -127,13 +127,61 @@ def dense_operator(block: LinearBlock) -> jax.Array:
     return jax.jacfwd(flat_forward)(jnp.zeros(size, dtype=_domain_dtype(block)))
 
 
+def _log_sigma_curvature(
+    block: LinearBlock,
+    sigma_of: Any,
+    centre: dict[str, Any],
+    spans: Any,
+) -> jax.Array:
+    """``(dlog sigma/dx)^T (dlog sigma/dx)`` over the observed samples.
+
+    The information carried by the VARIANCE rather than the mean. Flattened
+    the same way :func:`dense_operator` flattens ``A`` -- observed nodes in
+    sorted name order, latents in the block's own order -- because the two are
+    added together and a different row order would be a silent transpose.
+    """
+
+    def log_sigma(flat: jax.Array) -> jax.Array:
+        sigma = sigma_of(_unravel(flat, block, spans))
+        return jnp.concatenate(
+            [
+                jnp.reshape(jnp.log(jnp.asarray(sigma[name])), (-1,))
+                for name in sorted(sigma)
+            ]
+        )
+
+    flat_centre = jnp.concatenate(
+        [jnp.reshape(jnp.asarray(centre[name]), (-1,)) for name in block.names]
+    )
+    jac = jax.jacfwd(log_sigma)(flat_centre)
+    return jac.T @ jac
+
+
 def fisher_information(
     block: LinearBlock,
     *,
     noise_std: dict[str, Any],
     include_prior: bool = True,
+    depends_on_prediction: bool = True,
+    sigma_of: Any = None,
+    centre: dict[str, Any] | None = None,
 ) -> FlatMatrix:
-    """``J^T N^-1 J``, optionally plus the declared priors' curvature.
+    """``J^T N^-1 J``, plus the variance's own information and the priors'.
+
+    **When sigma depends on the prediction, ``J^T N^-1 J`` is not the Fisher
+    matrix.** For ``d ~ N(mu(x), Sigma(x))`` the information has a second term
+    from the covariance's own parameter dependence::
+
+        F = J^T Sigma^-1 J  +  1/2 tr(Sigma^-1 dSigma Sigma^-1 dSigma)
+
+    which for a diagonal Sigma is ``2 (dlog sigma/dx)^T (dlog sigma/dx)``.
+    Under a radiometer it is a clean factor: ``F = (1 + 2 f^2) J^T N^-1 J``.
+
+    Omitting it is the forgiving-looking error, which is why it survives
+    review: a factor above 1 dropped from ``F`` makes ``F^-1`` -- the error
+    bar -- too WIDE, by ``sqrt(1 + 2 f^2)``. That is 0.25% at ``f = 0.05`` but
+    22% at ``f = 0.5`` and 73% at ``f = 1``, and a forecast that is too
+    conservative reads as safe.
 
     Args:
         block: from :func:`bayesmith.exact.linearity.linear_operator`.
@@ -144,7 +192,30 @@ def fisher_information(
             because that is the quantity every other exit in this package
             targets and a forecast that silently answered a different question
             would agree with none of them.
+        depends_on_prediction: the node's own claim, and it governs only
+            whether ``sigma_of`` is REQUIRED -- not whether the term is added.
+            **Check it first** with
+            :func:`~bayesmith.exact.gls.check_prediction_dependence`; this
+            function cannot, having been handed a decided dict. It defaults
+            ``True``, the safe side: a caller who has not thought about it is
+            stopped rather than handed a matrix quietly missing a term.
+        sigma_of: the ``{name: x} -> {observed: sigma}`` seam, from
+            :func:`~bayesmith.exact.gls.sigma_from_graph` -- the same one
+            :func:`~bayesmith.exact.gls.iterative_gls` iterates. The decided
+            ``noise_std`` cannot supply this: a dict has no derivative.
+            Passing it for a genuinely constant sigma is harmless and costs
+            one ``jacfwd``, because the term is then exactly ``0.0``.
+        centre: the domain point ``noise_std`` was read at, i.e. the point the
+            curvature is taken at. Checked against ``sigma_of(centre)`` rather
+            than trusted, because the two are redundant by construction and an
+            unchecked redundancy is how a covariance ends up weighted at one
+            point and curved at another.
+
+    Raises:
+        ValueError: if ``depends_on_prediction`` is True and no rule is given.
+        ValueError: if ``noise_std`` is not what ``sigma_of(centre)`` produces.
     """
+    spans, _ = _spans(block)
     design = dense_operator(block)
     # Same 1/sigma**2 weighting as solve.py::_weights, over a flat
     # concatenation instead of a per-observed dict -- solve.py::_weights is
@@ -157,6 +228,31 @@ def fisher_information(
         ]
     )
     values = design.T @ (weight[:, None] * design)
+    if depends_on_prediction and (sigma_of is None or centre is None):
+        raise ValueError(
+            "fisher_information() was told the noise depends on the prediction "
+            "but given no rule to differentiate: J^T N^-1 J is then missing the "
+            "variance's own information, 2 (dlog sigma/dx)^T (dlog sigma/dx), "
+            "and the error bar it implies is too WIDE rather than too narrow, "
+            "which reads as safe. Pass sigma_of=sigma_from_graph(graph, at) "
+            "and centre= the point noise_std was read at; or, if the sigma "
+            "really is constant, pass depends_on_prediction=False. "
+            "check_prediction_dependence() settles which, and this function "
+            "cannot -- a decided noise_std dict has no derivative."
+        )
+    if sigma_of is not None and centre is not None:
+        implied = sigma_of(centre)
+        for name in sorted(noise_std):
+            if not np.allclose(
+                np.asarray(noise_std[name]), np.asarray(implied[name]), rtol=1e-6
+            ):
+                raise ValueError(
+                    f"noise_std[{name!r}] is not what sigma_of produces at "
+                    "centre, so the weighting and the curvature would be taken "
+                    "at different points. Pass the centre noise_std was "
+                    "actually read at."
+                )
+        values = values + 2.0 * _log_sigma_curvature(block, sigma_of, centre, spans)
     if include_prior:
         curvature = jnp.concatenate(
             [
@@ -165,7 +261,6 @@ def fisher_information(
             ]
         )
         values = values + jnp.diag(curvature)
-    spans, _ = _spans(block)
     return FlatMatrix(
         values=values,
         names=block.names,

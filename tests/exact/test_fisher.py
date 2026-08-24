@@ -39,7 +39,7 @@ def test_fisher_with_the_prior_is_the_posterior_precision():
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
         sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        fisher = fisher_information(block, noise_std=sigma)
+        fisher = fisher_information(block, noise_std=sigma, depends_on_prediction=False)
         oracle = graph_oracle(graph, ("a", "b"), at={})
     assert fisher.kind == "posterior_precision"
     assert np.allclose(np.asarray(fisher.values), oracle.precision, rtol=1e-8)
@@ -51,7 +51,12 @@ def test_fisher_without_the_prior_is_the_likelihood_alone_and_says_so():
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
         sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        fisher = fisher_information(block, noise_std=sigma, include_prior=False)
+        fisher = fisher_information(
+            block,
+            noise_std=sigma,
+            include_prior=False,
+            depends_on_prediction=False,
+        )
         oracle = graph_oracle(graph, ("a", "b"), at={})
     assert fisher.kind == "fisher"
     expected = oracle.precision - np.diag(1.0 / oracle.prior_std**2)
@@ -63,7 +68,9 @@ def test_parameter_covariance_matches_the_oracle():
         graph = two_observations()
         block = linear_operator(graph, ("w",), at={})
         sigma = noise_std_at(graph, {"w": jnp.asarray(0.0)})
-        covariance = parameter_covariance(fisher_information(block, noise_std=sigma))
+        covariance = parameter_covariance(
+            fisher_information(block, noise_std=sigma, depends_on_prediction=False)
+        )
         oracle = graph_oracle(graph, ("w",), at={})
     assert covariance.kind == "covariance"
     assert np.allclose(np.asarray(covariance.values), oracle.covariance, rtol=1e-8)
@@ -75,7 +82,7 @@ def test_a_flat_matrix_block_is_addressable_by_latent_name():
         graph = plated_latent(n=6)
         block = linear_operator(graph, ("z",), at={})
         sigma = noise_std_at(graph, {"z": jnp.zeros(6)})
-        fisher = fisher_information(block, noise_std=sigma)
+        fisher = fisher_information(block, noise_std=sigma, depends_on_prediction=False)
     assert fisher.names == ("z",)
     assert fisher.spans == ((0, 6),)
     assert fisher.block("z").shape == (6, 6)
@@ -253,7 +260,7 @@ def test_fisher_information_matches_the_oracle_when_sorted_order_reverses_declar
         graph = two_observations_reverse_sorted_names()
         block = linear_operator(graph, ("w",), at={})
         sigma = noise_std_at(graph, {"w": jnp.asarray(0.0)})
-        fisher = fisher_information(block, noise_std=sigma)
+        fisher = fisher_information(block, noise_std=sigma, depends_on_prediction=False)
         oracle = graph_oracle(graph, ("w",), at={})
     assert fisher.kind == "posterior_precision"
     assert np.allclose(np.asarray(fisher.values), oracle.precision, rtol=1e-8)
@@ -285,7 +292,7 @@ def test_fisher_information_matches_the_oracle_with_heterogeneous_member_sizes()
         graph = plated_and_scalar_latents(n=4)
         block = linear_operator(graph, ("z", "w"), at={})
         sigma = noise_std_at(graph, {"z": jnp.zeros(4), "w": jnp.asarray(0.0)})
-        fisher = fisher_information(block, noise_std=sigma)
+        fisher = fisher_information(block, noise_std=sigma, depends_on_prediction=False)
         oracle = graph_oracle(graph, ("z", "w"), at={})
     assert fisher.spans == ((0, 4), (4, 5))
     assert fisher.block("z").shape == (4, 4)
@@ -310,7 +317,7 @@ def test_std_refuses_a_precision():
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
         sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        fisher = fisher_information(block, noise_std=sigma)
+        fisher = fisher_information(block, noise_std=sigma, depends_on_prediction=False)
         with pytest.raises(ValueError, match="not an error bar"):
             fisher.std()
         assert parameter_covariance(fisher).std()["a"].shape == (1,)
@@ -329,7 +336,9 @@ def test_parameter_covariance_refuses_a_covariance():
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
         sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        covariance = parameter_covariance(fisher_information(block, noise_std=sigma))
+        covariance = parameter_covariance(
+            fisher_information(block, noise_std=sigma, depends_on_prediction=False)
+        )
     with pytest.raises(ValueError, match="was handed a covariance"):
         parameter_covariance(covariance)
 
@@ -523,3 +532,134 @@ def test_a_precision_that_is_not_finite_is_refused_rather_than_inverted(bad):
     else:
         assert bool(np.all(np.isfinite(loose)))
         assert float(loose[1, 1]) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 4.1: the (1 + 2 f^2) term the covariance's own parameter dependence carries.
+# ---------------------------------------------------------------------------
+
+
+def _radiometer_pieces(kappa: float, floor: float = 1e-9):
+    """``(block, sigma_of, centre, noise_std)`` for a prediction-dependent model."""
+    from bayesmith.exact.gls import sigma_from_graph
+    from tests.exact.models import radiometer
+
+    graph = radiometer(kappa=kappa, floor=floor)
+    block = linear_operator(graph, ("w",), at={})
+    centre = {"w": jnp.asarray(3.0)}
+    sigma_of = sigma_from_graph(graph, {})
+    return block, sigma_of, centre, sigma_of(centre)
+
+
+@pytest.mark.parametrize("kappa", [0.05, 0.5, 1.0])
+def test_the_variance_term_supplies_exactly_one_plus_two_f_squared(kappa):
+    """The whole point of the term, against its closed form.
+
+    For ``d ~ N(mu(x), Sigma(x))`` the information carries
+    ``1/2 tr(Sigma^-1 dSigma Sigma^-1 dSigma)``, which for a diagonal Sigma is
+    ``2 (dlog sigma/dx)^T (dlog sigma/dx)``. Under ``sigma = kappa |mu|`` that
+    collapses to a clean factor on the first term, so this asserts the factor
+    rather than the matrix -- a number that would have to be reproduced by
+    accident.
+    """
+    with jax.enable_x64(True):
+        block, sigma_of, centre, noise_std = _radiometer_pieces(kappa)
+        first = fisher_information(
+            block,
+            noise_std=noise_std,
+            include_prior=False,
+            depends_on_prediction=False,
+        )
+        both = fisher_information(
+            block,
+            noise_std=noise_std,
+            include_prior=False,
+            sigma_of=sigma_of,
+            centre=centre,
+        )
+    ratio = float(both.values[0, 0]) / float(first.values[0, 0])
+    assert ratio == pytest.approx(1.0 + 2.0 * kappa**2, rel=1e-6)
+
+
+def test_claiming_prediction_dependence_without_the_rule_is_refused():
+    """The default is the safe side, and it cannot be satisfied by silence.
+
+    A decided ``noise_std`` dict cannot be differentiated -- the rule that
+    produced it is what carries ``dlog sigma/dx`` -- so the only alternative
+    to refusing is returning a matrix that is quietly missing a term. The
+    message has to name both exits: supply the rule, or declare the sigma
+    constant and mean it.
+    """
+    with jax.enable_x64(True):
+        block, _, _, noise_std = _radiometer_pieces(0.5)
+        with pytest.raises(ValueError) as caught:
+            fisher_information(block, noise_std=noise_std, include_prior=False)
+    message = str(caught.value)
+    assert "sigma_of" in message and "depends_on_prediction" in message
+    assert "check_prediction_dependence" in message
+
+
+def test_a_sigma_that_does_not_come_from_the_point_it_is_paired_with_is_refused():
+    """``noise_std`` and ``centre`` must describe the same place.
+
+    They are redundant by construction -- ``noise_std == sigma_of(centre)`` --
+    and redundancy that is never compared is how a covariance gets weighted at
+    one point and curved at another. ``exact/correct.py`` records the same
+    hazard as UNVERIFIABLE there, because a ``LinearBlock`` does not remember
+    the ``at`` it was built with. Here it is verifiable, so it is verified.
+    """
+    with jax.enable_x64(True):
+        block, sigma_of, centre, noise_std = _radiometer_pieces(0.5)
+        elsewhere = sigma_of({"w": jnp.asarray(7.0)})
+        with pytest.raises(ValueError, match="centre"):
+            fisher_information(
+                block,
+                noise_std=elsewhere,
+                include_prior=False,
+                sigma_of=sigma_of,
+                centre=centre,
+            )
+        # the matching pair is accepted, so the guard is not refusing everything
+        assert (
+            fisher_information(
+                block,
+                noise_std=noise_std,
+                include_prior=False,
+                sigma_of=sigma_of,
+                centre=centre,
+            )
+            is not None
+        )
+
+
+def test_a_constant_sigma_rule_contributes_exactly_zero():
+    """Supplying the rule for a genuinely constant sigma changes nothing.
+
+    Measured, not assumed: this is what lets ``sigma_of`` be passed
+    unconditionally, and it is why ``depends_on_prediction`` governs only
+    whether the rule is REQUIRED rather than whether the term is added. A
+    flag that also gated the arithmetic would give two ways to spell one
+    answer and a contradiction to adjudicate when they disagreed.
+    """
+    from bayesmith.exact.gls import sigma_from_graph
+    from tests.exact.models import straight_line
+
+    with jax.enable_x64(True):
+        graph = straight_line()
+        block = linear_operator(graph, ("w",), at={})
+        sigma_of = sigma_from_graph(graph, {})
+        centre = {"w": jnp.asarray(2.5)}
+        without = fisher_information(
+            block,
+            noise_std=sigma_of(centre),
+            include_prior=False,
+            depends_on_prediction=False,
+        )
+        with_rule = fisher_information(
+            block,
+            noise_std=sigma_of(centre),
+            include_prior=False,
+            sigma_of=sigma_of,
+            centre=centre,
+        )
+    assert float(with_rule.values[0, 0]) == float(without.values[0, 0])
