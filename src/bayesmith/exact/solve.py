@@ -404,7 +404,7 @@ def wiener_solve(
     noise_std: dict[str, Any],
     tol: float = 1e-6,
     maxiter: int | None = None,
-    require_convergence: float | None = 1e-3,
+    require_convergence: float | None = None,
 ) -> tuple[dict[str, jax.Array], jax.Array]:
     """Posterior mean of a linear-Gaussian block -- the Wiener filter, by CG.
 
@@ -425,20 +425,44 @@ def wiener_solve(
             the same as accuracy. See the note below.
         maxiter: CG iteration cap. ``None`` lets JAX choose.
         require_convergence: raise unless the relative ERROR can be bounded by
-            this. ``None`` disables the guard and returns whatever CG
-            produced. On by default because jax's ``cg`` reports no
-            convergence status, so an unconverged solve otherwise comes back
-            looking exactly like a converged one.
+            this. ``None`` -- the default -- returns whatever CG produced.
+
+            **Off by default, measured**, for the reason
+            ``test_the_convergence_guard_is_off_by_default_but_reachable`` in
+            ``tests/exact/test_solve.py`` records: at the defaults this
+            function actually ships (float32, ``tol=1e-6``), guarding at
+            ``1e-3`` refuses 6 of the 22 linear-Gaussian fixtures in
+            ``tests/exact/models.py``, and all six refusals are FALSE -- the
+            oracle-checked relative error of every one is between 0 and
+            3.7e-07 against the 1e-3 the guard promises. The cause is
+            :func:`condition_bound`'s own conservatism, which its docstring
+            documents; it is an UPPER bound, and on a prediction-dependent
+            sigma it runs to 1e10 while the solve is accurate to 1e-07.
+
+            This mirrors the dispatch layer, whose defaults were settled the
+            same way -- see
+            ``test_the_convergence_guard_is_off_by_default_but_reachable`` in
+            ``tests/dispatch/test_dispatch_entry.py``. The two layers agree
+            rather than differ, and they agree because the same measurement
+            was run on each.
 
             The bound is ``kappa * relative_residual``, with ``kappa`` from
             :func:`condition_bound`. That costs ``POWER_ITERATIONS``
             extra operator applications, which on a well-conditioned block
             roughly DOUBLES the solve. In a Gibbs sweep, call
             :func:`condition_bound` once outside the loop, choose ``tol``
-            from it, and pass ``require_convergence=None`` inside. What you
-            must NOT do is leave ``tol`` at its default and the guard off --
-            that is the combination that returns a silently over-confident
-            posterior.
+            from it, and pass ``require_convergence=None`` inside.
+
+            **What replaces the guard now that it is off.** Leaving ``tol``
+            at its default and the guard off is the combination that returns
+            a silently over-confident posterior, and it is now the DEFAULT
+            combination -- so the obligation moved to the caller rather than
+            disappearing. Call :func:`condition_bound` and multiply it by the
+            returned residual to get the error bound yourself; that is the
+            same number the guard computed, minus the decision to refuse on
+            it. The measurement above is why the decision is yours: on a
+            prediction-dependent sigma the bound is right about being an
+            upper bound and wrong about being actionable.
 
     Returns:
         ``(x_hat, relative_residual)``, the residual being
@@ -469,7 +493,7 @@ def gcr_sample(
     key: jax.Array,
     tol: float = 1e-6,
     maxiter: int | None = None,
-    require_convergence: float | None = 1e-3,
+    require_convergence: float | None = None,
 ) -> tuple[dict[str, jax.Array], jax.Array]:
     """Draw an EXACT posterior sample of a linear-Gaussian block.
 

@@ -21,6 +21,7 @@ from bayesmith.exact.solve import (
 from tests.exact.models import (
     plated_latent,
     prior_held_direction,
+    radiometer_group,
     straight_line,
     two_linear_latents,
     two_observations,
@@ -519,7 +520,7 @@ def test_the_guard_points_at_enable_x64_in_float32():
         block, prior_std={**block.prior_std, "b": jnp.asarray(1e4)}
     )
     with pytest.raises(Exception, match="enable_x64"):
-        wiener_solve(loosened, noise_std=sigma)
+        wiener_solve(loosened, noise_std=sigma, require_convergence=1e-3)
 
 
 def test_the_precision_floor_alone_makes_the_guard_unreachable():
@@ -664,7 +665,128 @@ def test_a_non_finite_residual_gets_its_own_message():
         )
         assert not bool(jnp.isfinite(residual)), float(residual)
         with pytest.raises(Exception, match="non-finite residual"):
-            wiener_solve(broken, noise_std=sigma, tol=1e-14)
+            wiener_solve(broken, noise_std=sigma, tol=1e-14, require_convergence=1e-3)
+
+
+def test_the_convergence_guard_is_off_by_default_but_reachable():
+    """Measured. The exact layer's default was ON; this records why it is not.
+
+    Both halves are asserted, so this is not "the guard is absent" but "the
+    guard is a keyword, the keyword works, and the default is off".
+
+    **The inconsistency this settles.** ``wiener_solve``, ``gcr_sample`` and
+    ``iterative_gls`` shipped ``require_convergence=1e-3`` -- ON -- while
+    ``plan.sample`` and ``plan.estimate``, their only callers inside this
+    package, passed ``None``. The dispatch side was settled by measurement
+    first (see ``test_the_convergence_guard_is_off_by_default_but_reachable``
+    in ``tests/dispatch/test_dispatch_entry.py``); this is the other half.
+
+    **Caller census, on this tree.** 64 call sites reach the three functions.
+    Inside ``src/`` there are 9 and **not one took the ON default**: five pass
+    an explicit ``None`` (``gibbs.py`` x4, ``classify.py`` x1) and four thread
+    a caller-supplied value (``execute.py`` x3, ``gls.py`` x1). So the ON
+    default was never exercised by any production path in this package -- only
+    by tests, and by external callers of what is public top-level API
+    (``bayesmith.wiener_solve`` and friends).
+
+    **What ON bought: nothing.** Flipping all three defaults to ``None`` and
+    running ``tests/exact`` + ``tests/dispatch`` (584 tests, green before):
+    582 unchanged, 2 failed. Both were tests OF the guard --
+    ``test_the_guard_points_at_enable_x64_in_float32`` and
+    ``test_a_non_finite_residual_gets_its_own_message`` -- which assert that
+    it fires, and which now ask for it explicitly. Not one accuracy assertion
+    depended on it.
+
+    **Why it could not fail where the suite looks.** Of the 24 test call
+    sites that took the default, every one that is not a guard test passes
+    ``tol=1e-14`` inside ``with jax.enable_x64(True):``. Instrumented across
+    those sites, the worst ``residual * condition_bound`` seen was 1.428e-07
+    -- 7,003x BELOW the 1e-3 target -- and six sites reached an exact zero
+    residual. The guard was 3 to 12 orders of magnitude from firing
+    everywhere the suite exercised it.
+
+    **What ON cost, at the defaults the function actually ships.** The suite
+    never called these functions with their own defaults. Solving all 22
+    linear-Gaussian fixtures in ``tests/exact/models.py`` as
+    ``wiener_solve(block, noise_std=sigma)`` -- float32, ``tol=1e-6``,
+    ``require_convergence=1e-3``:
+
+    ====================  ========
+    at pure defaults      fixtures
+    ====================  ========
+    accepted                    16
+    REFUSED                      6
+    of those, FALSE              6
+    ====================  ========
+
+    All six refusals are false: every one's oracle-checked relative error
+    lies between 0 and 3.7e-07 against the 1e-3 the guard promises. All six
+    are prediction-dependent-sigma blocks (``radiometer``, ``radiometer_group``,
+    ``steep_radiometer``, ``plated_radiometer``, ``one_sided_sigma``,
+    ``hinged_sigma_beyond_the_probe``), where :func:`condition_bound` -- an
+    UPPER bound, as its own docstring says -- runs to 1e6..1e10 while the
+    solve is accurate to 1e-07.
+
+    ``radiometer_group``, asserted below, is the one this test uses. At the
+    defaults: residual 1.545e-07, condition bound 6.538e+08, so
+    ``error_bound`` = 1.010e+02 -- 1.010e+05 times the 1e-3 target, refused
+    down the ``enable_x64`` branch since ``bound * eps`` = 7.794e+01 also
+    clears it. Its true relative error against the dense oracle is 3.680e-07.
+    The guard refused an answer **2,718 times better than the bound it
+    promises**.
+
+    **Why this fixture and not ``radiometer``, whose margin is larger.**
+    ``radiometer`` is falsely refused harder (margin 1.08e+06, true error
+    8.046e-08) but its domain is a single scalar, so CG solves it exactly in
+    one step and its accuracy assertion cannot fail -- mutating the default
+    ``tol`` to 1e-1 or ``maxiter`` to 1 leaves the error at 8.046e-08.
+    ``radiometer_group`` has a two-dimensional domain, so the same mutation
+    starves it to a true error of 9.429e-01 and the assertion below goes red.
+    An un-failable assertion would have recorded this measurement without
+    being able to defend it.
+
+    **So: off, and the two layers agree rather than differ.** They agree
+    because the same measurement was run on each and gave the same verdict,
+    not because one copied the other. What shipped ON was a guard whose only
+    reachable effect on a default-accepting caller was to refuse accurate
+    answers at a 27% rate; what it protected, measurably, was nothing.
+    """
+    import inspect
+
+    from bayesmith.exact.gls import iterative_gls
+
+    for fn in (wiener_solve, gcr_sample, iterative_gls):
+        parameter = inspect.signature(fn).parameters["require_convergence"]
+        assert parameter.default is None, fn.__name__
+
+    graph = radiometer_group()
+    block = linear_operator(graph, ("a", "b"), at={})
+    sigma = _sigma(graph, {"a": jnp.zeros(()), "b": jnp.zeros(())})
+
+    # Off by default: the solve this fixture gets is returned, not refused...
+    got, residual = wiener_solve(block, noise_std=sigma)
+
+    # ...and it is ACCURATE, which is what makes the refusal below a false
+    # one rather than a caught error. Checked against the dense oracle, which
+    # shares no code with the solve. This assertion is the one that can fail:
+    # starving CG (maxiter=1) moves this error to 9.4e-01.
+    oracle = graph_oracle(graph, ("a", "b"), at={})
+    _assert_orderings_agree(oracle, block)
+    flat = flat_domain(got, block.names)
+    true_error = float(np.linalg.norm(flat - oracle.mean) / np.linalg.norm(oracle.mean))
+    assert true_error < 1e-5, true_error
+
+    # ...but the keyword still works, so this is a default and not a removal.
+    # The bound it is judged against is enormous compared to that true error,
+    # which is the whole finding: assert the GAP, not just the raising.
+    bound = float(condition_bound(block, noise_std=sigma))
+    assert float(residual) * bound > 1e-3, (float(residual), bound)
+    # The refusal is FALSE by a wide margin, and that ratio -- not the mere
+    # raising -- is the finding. Measured 2,718x on this fixture; asserted at
+    # 1e+03 so ordinary drift cannot flip it but a real change must.
+    assert 1e-3 / true_error > 1e3, true_error
+    with pytest.raises(Exception, match="enable_x64"):
+        wiener_solve(block, noise_std=sigma, require_convergence=1e-3)
 
 
 @pytest.mark.slow
