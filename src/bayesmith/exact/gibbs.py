@@ -224,8 +224,10 @@ def gibbs_factory(
         # the latents, which is also what `_validated_at` will accept.
         at = {k: v for k, v in hmc_sites.items() if k in graph.latents}
         block = unchecked_operator(graph, names, at=at, probe_gaussian=False)
-        sigma = frozen if frozen is not None else _sigma_at(
-            graph, block, at, method, tol, maxiter
+        sigma = (
+            frozen
+            if frozen is not None
+            else _sigma_at(graph, block, at, method, tol, maxiter)
         )
         if method == "gcr":
             draw, _ = gcr_sample(

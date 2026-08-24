@@ -355,8 +355,7 @@ def _sigma_needs_rebuild(graph: Graph, names: tuple[str, ...]) -> bool:
     members = set(names)
     latents = set(graph.latents)
     return any(
-        (_ancestors(graph, observed) & latents) - members
-        for observed in graph.observed
+        (_ancestors(graph, observed) & latents) - members for observed in graph.observed
     )
 
 

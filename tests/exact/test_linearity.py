@@ -722,7 +722,7 @@ def test_an_honest_cancelling_sum_pins_the_weighted_floor_from_below():
 
 
 def test_a_departure_the_floor_declined_to_judge_is_not_reported_as_zero():
-    """"Not measured" and "measured zero" are different facts, and must read so.
+    """ "Not measured" and "measured zero" are different facts, and must read so.
 
     `roundoff_stress(big=1e6, sigma=1e-2)` is exactly affine and its
     departure is worth 12.5 noise widths at float32. The floor is right not

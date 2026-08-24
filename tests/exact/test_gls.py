@@ -577,6 +577,7 @@ def test_sigma_depending_on_a_sum_of_two_members_is_still_detected():
         f"equal-width members, but the probe measured {movement:.3e}"
     )
 
+
 TRIPLE = ["a", "b", "c"]
 QUAD = ["a", "b", "c", "d"]
 

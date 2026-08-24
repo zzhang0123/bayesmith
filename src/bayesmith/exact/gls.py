@@ -263,8 +263,7 @@ def _dependence_probe(
         )
 
     return {
-        name: centre[name]
-        + factor * block.prior_std[name] * direction(position, name)
+        name: centre[name] + factor * block.prior_std[name] * direction(position, name)
         for position, name in enumerate(ordered)
     }
 

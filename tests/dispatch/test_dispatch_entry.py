@@ -179,8 +179,14 @@ def every_coordinate_ess(samples):
 
 @pytest.mark.parametrize(
     "build",
-    [straight_line, two_linear_latents, three_member_constant_sigma, plated_latent,
-     plated_and_scalar_latents, two_observations],
+    [
+        straight_line,
+        two_linear_latents,
+        three_member_constant_sigma,
+        plated_latent,
+        plated_and_scalar_latents,
+        two_observations,
+    ],
 )
 @pytest.mark.parametrize("num_samples,seed", [(200, 0), (500, 3)])
 def test_a_fully_exact_graph_samples_without_a_chain(build, num_samples, seed):
@@ -204,9 +210,7 @@ def test_a_fully_exact_graph_samples_without_a_chain(build, num_samples, seed):
     tests in this file stayed green.
     """
     graph = build()
-    post = compile_graph(graph).sample(
-        jax.random.key(seed), num_samples=num_samples
-    )
+    post = compile_graph(graph).sample(jax.random.key(seed), num_samples=num_samples)
     assert isinstance(post, Posterior)
     assert post.method == "gcr"
     assert post.log_weights is None
@@ -221,8 +225,14 @@ def test_a_fully_exact_graph_samples_without_a_chain(build, num_samples, seed):
 
 
 @pytest.mark.parametrize(
-    "build", [straight_line, two_linear_latents, plated_latent,
-              plated_and_scalar_latents, two_observations]
+    "build",
+    [
+        straight_line,
+        two_linear_latents,
+        plated_latent,
+        plated_and_scalar_latents,
+        two_observations,
+    ],
 )
 @pytest.mark.parametrize("num_samples,seed", [(2000, 0), (2000, 5)])
 def test_the_iid_path_really_is_iid(build, num_samples, seed):
@@ -242,8 +252,7 @@ def test_the_iid_path_really_is_iid(build, num_samples, seed):
     satisfied by a degenerate sample -- a constant array reads ``nan`` on
     both, and a chain reads a positive ``r``.
     """
-    post = compile_graph(build()).sample(jax.random.key(seed),
-                                         num_samples=num_samples)
+    post = compile_graph(build()).sample(jax.random.key(seed), num_samples=num_samples)
     per_coordinate = every_coordinate_ess(post.samples)
     assert np.all(np.isfinite(per_coordinate))
     assert 0.75 <= float(np.mean(per_coordinate)) / num_samples <= 1.25
@@ -255,8 +264,14 @@ def test_the_iid_path_really_is_iid(build, num_samples, seed):
 
 
 @pytest.mark.parametrize(
-    "build", [straight_line, two_linear_latents, three_member_constant_sigma,
-              plated_latent, plated_and_scalar_latents]
+    "build",
+    [
+        straight_line,
+        two_linear_latents,
+        three_member_constant_sigma,
+        plated_latent,
+        plated_and_scalar_latents,
+    ],
 )
 def test_the_iid_draws_reproduce_the_dense_posterior(build):
     """The draws are of the right distribution, not merely of the right shape.
@@ -290,9 +305,13 @@ def test_the_iid_draws_reproduce_the_dense_posterior(build):
 
 @pytest.mark.parametrize(
     "build,kwargs,clears_floor",
-    [(radiometer, {}, True), (radiometer_group, {}, True),
-     (steep_radiometer, {}, True), (plated_radiometer, HEALTHY, True),
-     (three_member_moving_sigma, {}, False)],
+    [
+        (radiometer, {}, True),
+        (radiometer_group, {}, True),
+        (steep_radiometer, {}, True),
+        (plated_radiometer, HEALTHY, True),
+        (three_member_moving_sigma, {}, False),
+    ],
 )
 @pytest.mark.parametrize("num_samples,seed", [(600, 0), (1200, 4)])
 def test_a_moving_sigma_returns_weights_and_the_kish_ess_of_them(
@@ -321,8 +340,7 @@ def test_a_moving_sigma_returns_weights_and_the_kish_ess_of_them(
     would have arrived as ``method="nuts"`` with no weights to check.
     """
     graph = build(**kwargs)
-    post = compile_graph(graph).sample(jax.random.key(seed),
-                                       num_samples=num_samples)
+    post = compile_graph(graph).sample(jax.random.key(seed), num_samples=num_samples)
     assert post.method == "gcr+snis"
     assert post.log_weights is not None
     assert post.log_weights.shape == (num_samples,)
@@ -353,8 +371,7 @@ def test_the_weights_recover_the_posterior_the_gls_fixed_point_misses(
     happens to carry is common to them and cancels.
     """
     graph = steep_radiometer()
-    post = compile_graph(graph).sample(jax.random.key(seed),
-                                       num_samples=num_samples)
+    post = compile_graph(graph).sample(jax.random.key(seed), num_samples=num_samples)
     draws = np.asarray(post.samples["w"])
     weights = np.asarray(jax.nn.softmax(post.log_weights))
     truth, spread = quadrature(graph, "w", -4.0, 9.0)
@@ -415,9 +432,7 @@ def test_a_collapsed_snis_is_annotated_rather_than_replaced(num_samples, seed):
 
 
 @pytest.mark.parametrize("num_samples,seed", [(400, 0), (800, 2)])
-def test_the_nuts_fallback_on_a_collapse_is_reachable_by_keyword(
-    num_samples, seed
-):
+def test_the_nuts_fallback_on_a_collapse_is_reachable_by_keyword(num_samples, seed):
     """The replacement is still there, opted INTO rather than out of.
 
     It is not a bad estimator everywhere -- :data:`SNIS_ESS_FLOOR`'s own
@@ -445,9 +460,7 @@ def test_the_nuts_fallback_on_a_collapse_is_reachable_by_keyword(
     assert fell.ess > 0.0
 
 
-@pytest.mark.parametrize(
-    "floor,collapsed", [(0.99, True), (0.01, False)]
-)
+@pytest.mark.parametrize("floor,collapsed", [(0.99, True), (0.01, False)])
 @pytest.mark.parametrize("nuts_on_collapse", [False, True])
 def test_the_floor_is_what_decides_and_it_is_two_sided_on_one_fixture(
     floor, collapsed, nuts_on_collapse
@@ -466,7 +479,10 @@ def test_the_floor_is_what_decides_and_it_is_two_sided_on_one_fixture(
     keyword rather than to the ESS would fail.
     """
     post = compile_graph(plated_radiometer(**HEALTHY)).sample(
-        jax.random.key(0), num_samples=400, num_warmup=400, ess_floor=floor,
+        jax.random.key(0),
+        num_samples=400,
+        num_warmup=400,
+        ess_floor=floor,
         nuts_on_collapse=nuts_on_collapse,
     )
     expect = "nuts" if (collapsed and nuts_on_collapse) else "gcr+snis"
@@ -491,8 +507,7 @@ def test_the_collapse_floor_is_read_off_the_kish_ess_and_not_off_khat(seed):
     A fallback wired to ``unreliable`` instead of to the ESS sends this graph
     to NUTS and reports the reason as a collapse that did not happen.
     """
-    post = compile_graph(radiometer()).sample(jax.random.key(seed),
-                                              num_samples=1200)
+    post = compile_graph(radiometer()).sample(jax.random.key(seed), num_samples=1200)
     assert post.method == "gcr+snis"
     assert post.ess / 1200 > 0.99
     assert post.unreliable is True
@@ -616,8 +631,11 @@ def test_the_sweep_returns_both_halves_of_a_mixed_graph_correctly(seed):
     oracle = graph_oracle(graph, plan.exact.latents, at={"z": jnp.asarray(0.6)})
     want = dict(zip([n for n, _ in oracle.order], oracle.mean, strict=True))
     want_sd = dict(
-        zip([n for n, _ in oracle.order], np.sqrt(np.diag(oracle.covariance)),
-            strict=True)
+        zip(
+            [n for n, _ in oracle.order],
+            np.sqrt(np.diag(oracle.covariance)),
+            strict=True,
+        )
     )
     drawn_w = np.asarray(post.samples["w"])
     assert abs(drawn_w.mean() - want["w"]) < 4 * want_sd["w"] / np.sqrt(per_site["w"])
@@ -651,7 +669,9 @@ def test_a_graph_with_no_exact_structure_says_nuts_and_says_why():
     [
         pytest.param(bilinear_pair, {}, {}, id="no_exact_block"),
         pytest.param(
-            plated_radiometer, COLLAPSED, {"nuts_on_collapse": True},
+            plated_radiometer,
+            COLLAPSED,
+            {"nuts_on_collapse": True},
             id="snis_collapse",
         ),
     ],
@@ -788,8 +808,14 @@ def test_the_reduction_takes_the_worst_coordinate_within_one_site():
 
 
 @pytest.mark.parametrize(
-    "build", [straight_line, two_linear_latents, three_member_constant_sigma,
-              plated_latent, two_observations]
+    "build",
+    [
+        straight_line,
+        two_linear_latents,
+        three_member_constant_sigma,
+        plated_latent,
+        two_observations,
+    ],
 )
 def test_estimate_solves_a_constant_sigma_graph_in_one_pass(build):
     """A constant sigma has no fixed point to find, so there is nothing to loop.
@@ -810,8 +836,9 @@ def test_estimate_solves_a_constant_sigma_graph_in_one_pass(build):
     assert int(got.iterations) == 1
     oracle = graph_oracle(graph, plan.exact.latents)
     values = flat_domain(got.values, plan.exact.latents)
-    assert np.allclose(values, oracle.mean,
-                       atol=2e-3 * max(1.0, float(np.abs(oracle.mean).max())))
+    assert np.allclose(
+        values, oracle.mean, atol=2e-3 * max(1.0, float(np.abs(oracle.mean).max()))
+    )
 
 
 @pytest.mark.parametrize(
@@ -835,8 +862,7 @@ def test_estimate_returns_a_covariance_that_is_a_fixed_point(build):
     assert int(got.iterations) > 1
     recomputed = noise_std_at(graph, dict(got.values))
     for name, sigma in got.noise_std.items():
-        assert np.allclose(np.asarray(sigma), np.asarray(recomputed[name]),
-                           rtol=2e-3)
+        assert np.allclose(np.asarray(sigma), np.asarray(recomputed[name]), rtol=2e-3)
 
 
 @pytest.mark.parametrize("build", [radiometer, steep_radiometer])
@@ -858,8 +884,7 @@ def test_estimate_raises_convergence_error_rather_than_returning_a_number(
     """
     plan = compile_graph(build())
     with pytest.raises(ConvergenceError) as caught:
-        plan.estimate(min_reweights=1, max_reweights=max_reweights,
-                      reweight_tol=1e-14)
+        plan.estimate(min_reweights=1, max_reweights=max_reweights, reweight_tol=1e-14)
     assert "reweight_tol" in str(caught.value)
     assert str(max_reweights) in str(caught.value)
 
@@ -929,8 +954,7 @@ def test_the_printed_plan_does_not_claim_a_guard_the_run_leaves_off():
 
 @pytest.mark.parametrize(
     "build,kwargs",
-    [(two_linear_latents, {}), (steep_radiometer, {}),
-     (plated_radiometer, HEALTHY)],
+    [(two_linear_latents, {}), (steep_radiometer, {}), (plated_radiometer, HEALTHY)],
 )
 def test_the_same_key_gives_the_same_posterior(build, kwargs):
     """Nothing in the entry point reads a global RNG."""

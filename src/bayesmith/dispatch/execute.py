@@ -243,8 +243,15 @@ def run_sample(
     if plan.sampled is not None:
         return _swept(plan, draw_key, tol, maxiter, chain)
     return _whole_graph(
-        plan, draw_key, fallback_key, tol, maxiter, require_convergence,
-        ess_floor, nuts_on_collapse, chain,
+        plan,
+        draw_key,
+        fallback_key,
+        tol,
+        maxiter,
+        require_convergence,
+        ess_floor,
+        nuts_on_collapse,
+        chain,
     )
 
 
@@ -300,9 +307,7 @@ def run_estimate(
     )
 
 
-def _latents_only(
-    samples: Mapping[str, Any], graph: Graph
-) -> dict[str, jax.Array]:
+def _latents_only(samples: Mapping[str, Any], graph: Graph) -> dict[str, jax.Array]:
     """``get_samples()`` minus the Deterministic sites numpyro adds to it."""
     return {name: samples[name] for name in graph.latents}
 
@@ -414,7 +419,12 @@ def _whole_graph(
         sigma = sigma_from_graph(graph, at)(domain_centre(block))
         draws = _iid_draws(block, sigma, draw_key, count, **settings)
         return Posterior(
-            draws, None, float(count), None, False, "gcr",
+            draws,
+            None,
+            float(count),
+            None,
+            False,
+            "gcr",
             f"exact block {list(names)}: sigma does not move with the block, so "
             "every draw is an independent posterior sample -- no chain, no "
             "warmup, and ESS is num_samples exactly",
@@ -457,8 +467,13 @@ def _whole_graph(
     # ratio says. The two live in one boolean because a caller checking
     # "may I use these weights" has one question, not two.
     return Posterior(
-        draws, weights, ess, measured,
-        collapsed or unreliable(measured, count), "gcr+snis", reason,
+        draws,
+        weights,
+        ess,
+        measured,
+        collapsed or unreliable(measured, count),
+        "gcr+snis",
+        reason,
     )
 
 

@@ -1002,10 +1002,8 @@ def two_unusable_observed_scales(*, n=5, m=4, w_true=2.0):
         w = sample("w", lambda: dist.Normal(0.0, 3.0))
         m1 = det("mu1", lambda w_, x_: w_ * x_, w, a, linear_in=("w",))
         m2 = det("mu2", lambda w_, x_: w_ * x_, w, b, linear_in=("w",))
-        observe("z_first", lambda u: dist.Normal(u, jnp.zeros(n)), m1,
-                obs=w_true * x1)
-        observe("a_second", lambda u: dist.Normal(u, jnp.zeros(m)), m2,
-                obs=w_true * x2)
+        observe("z_first", lambda u: dist.Normal(u, jnp.zeros(n)), m1, obs=w_true * x1)
+        observe("a_second", lambda u: dist.Normal(u, jnp.zeros(m)), m2, obs=w_true * x2)
 
     return trace(model)
 
@@ -1078,7 +1076,10 @@ def contrast_sigma_pair(*, n=200, a_true=1.0, b_true=-0.5, base=0.3, seed=24):
         observe(
             "d",
             lambda m, a_, b_: dist.Normal(m, base * jnp.exp(a_ - b_)),
-            mu, a, b, obs=data,
+            mu,
+            a,
+            b,
+            obs=data,
         )
 
     return trace(model)
@@ -1120,15 +1121,16 @@ def sum_sigma_pair(*, n=200, a_true=1.0, b_true=-0.5, base=0.3, seed=25):
         observe(
             "d",
             lambda m, a_, b_: dist.Normal(m, base * jnp.exp(a_ + b_)),
-            mu, a, b, obs=data,
+            mu,
+            a,
+            b,
+            obs=data,
         )
 
     return trace(model)
 
 
-def sigma_functional_block(
-    *, weights, n=200, base=0.3, seed=26, mean_weights=None
-):
+def sigma_functional_block(*, weights, n=200, base=0.3, seed=26, mean_weights=None):
     """``sigma = base * exp(sum_i w_i theta_i)`` on a block of ``len(weights)``.
 
     The generalisation of `contrast_sigma_pair` and `sum_sigma_pair` to any
@@ -1178,7 +1180,9 @@ def sigma_functional_block(
         members = [sample(name, lambda: dist.Normal(0.0, 1.0)) for name in names]
         mu = det(
             "mu",
-            lambda *args: sum(w * t for w, t in zip(mean_weights, args[:-1])) * args[-1],
+            lambda *args: (
+                sum(w * t for w, t in zip(mean_weights, args[:-1])) * args[-1]
+            ),
             *members,
             xs,
             linear_in=names,

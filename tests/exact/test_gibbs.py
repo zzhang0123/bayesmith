@@ -230,13 +230,9 @@ def test_gibbs_fn_freezes_sigma_where_it_says_it_does(draws, key_seed):
         # with it. 0.8 is `prior_mean`; the factory's documented choice is the
         # block's prior mean given `at`.
         declared = graph_oracle(graph, ["w"], sigma_at={"w": jnp.asarray(0.8)})
-        assert got == pytest.approx(
-            float(np.sqrt(declared.covariance[0, 0])), rel=3e-2
-        )
+        assert got == pytest.approx(float(np.sqrt(declared.covariance[0, 0])), rel=3e-2)
         for wrong_point in (0.0, 3.0):
-            wrong = graph_oracle(
-                graph, ["w"], sigma_at={"w": jnp.asarray(wrong_point)}
-            )
+            wrong = graph_oracle(graph, ["w"], sigma_at={"w": jnp.asarray(wrong_point)})
             assert got != pytest.approx(
                 float(np.sqrt(wrong.covariance[0, 0])), rel=3e-2
             )

@@ -91,9 +91,7 @@ def three_member_moving_sigma():
         # column of A is exactly zero and the answer is its prior mean, which
         # the exact path already handles -- see
         # test_a_latent_the_data_never_reaches_comes_back_at_its_prior_mean.
-        pytest.param(
-            unconstrained_latent, ("u", "w"), (), "gcr", id="unconstrained"
-        ),
+        pytest.param(unconstrained_latent, ("u", "w"), (), "gcr", id="unconstrained"),
         # The ancestor rule ejects tau in all three, and criterion 2 of the
         # first draft would have inverted every one of them.
         pytest.param(indirect_ancestor, ("x",), ("tau",), "gcr", id="indirect"),
@@ -101,9 +99,7 @@ def three_member_moving_sigma():
         pytest.param(shared_ancestor, ("x",), ("tau",), "gcr", id="shared"),
         # Three latents in a CHAIN: tau is an ancestor of x and of y, x is an
         # ancestor of y. Ejection has to remove both, not stop at the first.
-        pytest.param(
-            three_latent_chain, ("y",), ("tau", "x"), "gcr", id="chain3"
-        ),
+        pytest.param(three_latent_chain, ("y",), ("tau", "x"), "gcr", id="chain3"),
         # `w` is affine and Gaussian, but `v`'s density depends on it and `v`
         # is disqualified -- so `w` must leave too, or p(v|w) is dropped.
         pytest.param(orphaned_child_latent, (), ("v", "w"), "nuts", id="orphaned"),
@@ -182,7 +178,7 @@ def test_partition_matches_the_hand_derived_answer(build, exact, nuts, method):
 
 
 def test_a_refused_block_names_its_members_in_the_reason():
-    """"Everything went to NUTS" is useless without saying which claim failed.
+    """ "Everything went to NUTS" is useless without saying which claim failed.
 
     A user one `linear_in` declaration away from an exact solve has to be able
     to see that from the plan, or the whole-block-falls-together policy is

@@ -191,8 +191,14 @@ LINK_STD: float = 0.3
 
 
 def located_ancestor(
-    *, n=12, w_true=1.9, tau_loc=1.3, tau_std=0.8, sigma=0.35,
-    link_std=LINK_STD, seed=34,
+    *,
+    n=12,
+    w_true=1.9,
+    tau_loc=1.3,
+    tau_std=0.8,
+    sigma=0.35,
+    link_std=LINK_STD,
+    seed=34,
 ):
     """A mixed graph that is JOINTLY GAUSSIAN, so both marginals are known.
 
@@ -301,9 +307,9 @@ def test_the_frozen_sigma_proposal_is_wrong_and_the_accept_step_is_what_fixes_it
         step = gibbs_factory(graph, ("w",), tol=1e-10, method="gcr+mh")
         start = jnp.asarray(quantile_sample(axis, density, draws))
         out = jax.vmap(
-            lambda one, now: step(
-                rng_key=one, gibbs_sites={"w": now}, hmc_sites={}
-            )["w"]
+            lambda one, now: step(rng_key=one, gibbs_sites={"w": now}, hmc_sites={})[
+                "w"
+            ]
         )(keys, start)
 
         # The acceptance band comes FIRST because the identity kernel it kills
@@ -368,7 +374,9 @@ def _multi_step(weights, seed, count, tol=1e-8):
         )
     )(
         jax.random.split(jax.random.key(seed), count),
-        start["a"], start["b"], start["c"],
+        start["a"],
+        start["b"],
+        start["c"],
     )
     moved = np.stack(
         [np.asarray(out[name]) != np.asarray(start[name]) for name in MULTI]
@@ -427,9 +435,7 @@ def test_the_metropolis_accept_is_one_decision_for_the_whole_block(
 
 
 @pytest.mark.parametrize("seed", [0, 6])
-def test_a_three_member_block_reproduces_the_dense_posterior_and_its_cross_terms(
-    seed
-):
+def test_a_three_member_block_reproduces_the_dense_posterior_and_its_cross_terms(seed):
     """Width 3 against dense linear algebra, covariance included.
 
     Task 8 declined to extend the invariance guard past one member on the
@@ -628,9 +634,7 @@ def test_weighted_moments_agree_at_tight_tolerances_and_move_at_a_loose_one(
             )
         )(jax.random.split(jax.random.key(seed), count))
         log_weights = jax.vmap(
-            lambda x: log_weight(
-                graph, block, x, at=at, noise_std=sigma, mu=solution
-            )
+            lambda x: log_weight(graph, block, x, at=at, noise_std=sigma, mu=solution)
         )(draws)
         ess = float(self_normalise(log_weights)[1]) / count
 
@@ -655,8 +659,12 @@ def _dense_at(oracle, graph, sigma):
     order = sorted(graph.observed)
     flat = np.concatenate([np.asarray(sigma[name]).ravel() for name in order])
     return analytic_posterior(
-        oracle.design, oracle.offset, oracle.data, flat,
-        oracle.prior_mean, oracle.prior_std,
+        oracle.design,
+        oracle.offset,
+        oracle.data,
+        flat,
+        oracle.prior_mean,
+        oracle.prior_std,
     )
 
 
@@ -700,7 +708,7 @@ def test_the_swept_block_reproduces_its_conditional_at_a_held_hmc_site(tau):
 
 @pytest.mark.parametrize("seed", [0, 3])
 def test_the_composite_and_pure_nuts_marginals_agree_where_the_outside_latent_mixes(
-    seed
+    seed,
 ):
     """The marginal half of (e), on a fixture whose outside latent was MEASURED
     to mix before the comparison was written.
@@ -729,11 +737,12 @@ def test_the_composite_and_pure_nuts_marginals_agree_where_the_outside_latent_mi
     truth = quadrature_pair(graph, ("w", "tau"), ((1.0, 3.0), (-3.0, 6.0)))
     plan = compile_graph(graph)
     assert plan.exact.latents == ("w",) and plan.sampled.latents == ("tau",)
-    composite = plan.sample(
-        jax.random.key(seed), num_samples=draws, num_warmup=800
-    )
+    composite = plan.sample(jax.random.key(seed), num_samples=draws, num_warmup=800)
     pure = nuts_draws(
-        graph, jax.random.key(seed), num_samples=draws, num_warmup=800,
+        graph,
+        jax.random.key(seed),
+        num_samples=draws,
+        num_warmup=800,
         progress_bar=False,
     )
     assert chain_ess({"tau": composite.samples["tau"]}) > 0.2 * draws
@@ -774,8 +783,11 @@ def test_report_ess_per_second_without_asserting_a_threshold(capsys):
     """
     draws, warmup = 600, 300
     rows = []
-    for build, kwargs in ((straight_line, {}), (radiometer, {}),
-                          (located_ancestor, {})):
+    for build, kwargs in (
+        (straight_line, {}),
+        (radiometer, {}),
+        (located_ancestor, {}),
+    ):
         graph = build(**kwargs)
         plan = compile_graph(graph)
         inside = plan.exact.latents
@@ -786,15 +798,25 @@ def test_report_ess_per_second_without_asserting_a_threshold(capsys):
                 plan.sample, key, num_samples=draws, num_warmup=warmup
             )
             chain, nuts_seconds = _timed(
-                nuts_draws, graph, key, num_samples=draws, num_warmup=warmup,
+                nuts_draws,
+                graph,
+                key,
+                num_samples=draws,
+                num_warmup=warmup,
                 progress_bar=False,
             )
             rows.append(
-                (build.__name__, seed, post.method, exact_seconds, nuts_seconds,
-                 _rate(post.samples, inside, exact_seconds),
-                 _rate(chain, inside, nuts_seconds),
-                 _rate(post.samples, outside, exact_seconds),
-                 _rate(chain, outside, nuts_seconds))
+                (
+                    build.__name__,
+                    seed,
+                    post.method,
+                    exact_seconds,
+                    nuts_seconds,
+                    _rate(post.samples, inside, exact_seconds),
+                    _rate(chain, inside, nuts_seconds),
+                    _rate(post.samples, outside, exact_seconds),
+                    _rate(chain, outside, nuts_seconds),
+                )
             )
     with capsys.disabled():
         print(f"\nESS/second, {draws} draws + {warmup} warmup, float32")
@@ -803,8 +825,11 @@ def test_report_ess_per_second_without_asserting_a_threshold(capsys):
                 f"  {name:18s} seed={seed} {method:9s} "
                 f"exact {te:5.2f}s nuts {tn:5.2f}s  "
                 f"in-block {ie:9.1f} vs {inuts:9.1f} ({ie / inuts:5.2f}x)"
-                + ("" if math.isnan(oe) else
-                   f"  outside {oe:8.1f} vs {onuts:8.1f} ({oe / onuts:5.2f}x)")
+                + (
+                    ""
+                    if math.isnan(oe)
+                    else f"  outside {oe:8.1f} vs {onuts:8.1f} ({oe / onuts:5.2f}x)"
+                )
             )
     for row in rows:
         assert row[3] > 0.0 and row[4] > 0.0
@@ -1060,11 +1085,17 @@ def test_the_collapse_floor_flips_the_dispatch_at_the_measured_kish_ratio(seed):
     assert "ESS/N this floor reads FALLS" in above.reason
 
     replaced = compile_graph(graph).sample(
-        key, num_samples=draws, num_warmup=600, ess_floor=ratio * 1.3,
+        key,
+        num_samples=draws,
+        num_warmup=600,
+        ess_floor=ratio * 1.3,
         nuts_on_collapse=True,
     )
     kept = compile_graph(graph).sample(
-        key, num_samples=draws, num_warmup=600, ess_floor=ratio * 0.7,
+        key,
+        num_samples=draws,
+        num_warmup=600,
+        ess_floor=ratio * 0.7,
         nuts_on_collapse=True,
     )
     assert replaced.method == "nuts"
@@ -1078,7 +1109,11 @@ def test_the_collapse_floor_flips_the_dispatch_at_the_measured_kish_ratio(seed):
     mean, spread = weighted_moments(measured.samples["z"], measured.log_weights)
     for index in range(6):
         reference, width, _, _ = quadrature(
-            graph, "z", -12.0, 12.0, 4001,
+            graph,
+            "z",
+            -12.0,
+            12.0,
+            4001,
             place=lambda value, i=index: {"z": base.at[i].set(value)},
         )
         assert abs(float(mean[index]) - reference) / width < 0.35

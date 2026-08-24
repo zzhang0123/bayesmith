@@ -143,9 +143,7 @@ def test_log_weight_equals_log_p_minus_log_q_against_a_dense_gaussian():
         draws = jnp.asarray([0.4, 1.1, 2.7])
 
         got = jax.vmap(
-            lambda x: log_weight(
-                graph, block, {"w": x}, at={}, noise_std=sigma, mu=mu
-            )
+            lambda x: log_weight(graph, block, {"w": x}, at={}, noise_std=sigma, mu=mu)
         )(draws)
 
         precision = oracle.precision[0, 0]
@@ -219,10 +217,9 @@ def test_the_documented_constant_makes_the_weight_the_log_evidence():
             for offset in offsets
         ]
 
-    marginal_covariance = (
-        oracle.design @ np.diag(oracle.prior_std**2) @ oracle.design.T
-        + np.diag(oracle.sigma**2)
-    )
+    marginal_covariance = oracle.design @ np.diag(
+        oracle.prior_std**2
+    ) @ oracle.design.T + np.diag(oracle.sigma**2)
     evidence = float(
         multivariate_normal.logpdf(
             oracle.data,
@@ -515,9 +512,7 @@ def _snis_at(graph, names, sigma, key, count, tol=1e-8):
     """
     at = {}
     block = unchecked_operator(graph, names, at)
-    mu, _ = wiener_solve(
-        block, noise_std=sigma, tol=tol, require_convergence=None
-    )
+    mu, _ = wiener_solve(block, noise_std=sigma, tol=tol, require_convergence=None)
     draws, _ = jax.vmap(
         lambda one: gcr_sample(
             block, noise_std=sigma, key=one, tol=tol, require_convergence=None
@@ -527,9 +522,11 @@ def _snis_at(graph, names, sigma, key, count, tol=1e-8):
         lambda x: log_weight(graph, block, x, at=at, noise_std=sigma, mu=mu)
     )(draws)
     weights, ess = self_normalise(log_weights)
-    return np.asarray(draws[names[0]], dtype=float), np.asarray(
-        weights, dtype=float
-    ), float(ess)
+    return (
+        np.asarray(draws[names[0]], dtype=float),
+        np.asarray(weights, dtype=float),
+        float(ess),
+    )
 
 
 @pytest.mark.parametrize("count, seed", [(2000, 0), (2000, 4), (2000, 7)])
