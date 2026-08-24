@@ -1,5 +1,7 @@
 """Checking the linear_in claim -- at several scales and at several at-points."""
 
+import warnings
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -11,6 +13,7 @@ from bayesmith.errors import GraphError, NotGaussian, StructureError
 from bayesmith.exact.block import unchecked_operator
 from bayesmith.exact.linearity import (
     DEFAULT_SCALES,
+    Unresolved,
     affinity_errors,
     check_linearity,
     linear_operator,
@@ -22,8 +25,10 @@ from tests.exact.models import (
     bright_and_faint_channels,
     bright_and_faint_observations,
     bright_and_faint_pair,
+    cancelling_sum,
     cubic_tail,
     faint_alone,
+    high_snr_curvature,
     improper_outside_prior,
     nan_at_negative_probes,
     non_gaussian_observed_node,
@@ -499,7 +504,9 @@ def test_a_covariate_grid_containing_an_exact_zero_is_not_a_failure():
     assert check_linearity(two_observations(), ["w"])
 
 
-@pytest.mark.parametrize("big, sigma", [(1e0, 1e-2), (1e6, 1e-2), (1e15, 1e-2)])
+@pytest.mark.parametrize(
+    "big, sigma", [(1e0, 1e-2), (1e3, 1e-2), (1e6, 1e-2), (1e15, 1e-2)]
+)
 def test_a_true_claim_with_real_roundoff_passes_at_any_offset_ratio(big, sigma):
     """The lower bound on the sigma-weighted criterion, and the only one.
 
@@ -516,8 +523,23 @@ def test_a_true_claim_with_real_roundoff_passes_at_any_offset_ratio(big, sigma):
     test the floor on the weighted criterion can be deleted and the suite
     stays green, while every wide-dynamic-range model this package targets is
     refused.
+
+    `big=1e3` is the cell that pins `WEIGHTED_FLOOR_FACTOR` from below at the
+    bottom of its range: it carries the largest arithmetic noise of any
+    honest fixture in this file, 1.28 eps of the prediction's own magnitude,
+    and is REFUSED the moment the factor drops to 1e0. The other three cells
+    are all quiet there, so without this one a factor of 1e0 -- which refuses
+    an exactly affine model with no cancellation at all -- passes the suite.
     """
-    assert check_linearity(roundoff_stress(big=big, sigma=sigma), ["w"])
+    with warnings.catch_warnings():
+        # Three of the four cells warn: the departure is real -- worth 2.4e-2,
+        # 1.0e+00 and 1.2e+01 in the column that carries it -- and float32
+        # cannot separate it from roundoff. `big=1e15` does not, because its
+        # departure is bitwise 0: the probe is lost in the offset entirely. That is this fixture's whole point, and the warning is
+        # asserted directly by
+        # `test_a_column_the_floor_declined_to_judge_is_warned_about_by_name`.
+        warnings.simplefilter("ignore", UserWarning)
+        assert check_linearity(roundoff_stress(big=big, sigma=sigma), ["w"])
 
 
 @pytest.mark.parametrize("kind", ["zero", "one_zero", "negative", "nan"])
@@ -610,3 +632,181 @@ def test_which_node_an_unusable_scale_names_does_not_depend_on_declaration_order
     with pytest.raises(StructureError) as excinfo:
         check_linearity(graph, ["w"])
     assert "'a_second'" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "amplitude, sigma", [(3e-4, 2e-3), (3e-4, 2e-5), (1e-3, 2e-5), (1e-3, 2e-6)]
+)
+def test_a_curvature_only_the_sigma_weighted_criterion_can_see_is_refused(
+    amplitude, sigma
+):
+    """The sigma-weighted criterion has to actually BIND at a realistic SNR.
+
+    Every other test of that criterion in this file reaches it through a
+    fixture whose departure is also enormous in relative terms, so all of
+    them stay green with the weighted half switched off entirely. This one
+    cannot: `high_snr_curvature`'s relative departure is 6.03e+03 eps -- under
+    `rtol = 1e4 eps` in float32 -- at every probe, and `cos` keeps it from
+    growing at the widest one, so `rtol` sees nothing anywhere and only the
+    sigma-weighted column can refuse.
+
+    **Measured, and the reason `WEIGHTED_FLOOR_FACTOR` exists as its own
+    constant.** With both columns gated at the relative column's `1e4 eps`,
+    the weighted criterion's detection window is non-empty only below an SNR
+    of `WEIGHTED_RTOL / (1e4 eps)` = 0.84 in float32, so all four cells here
+    -- SNR 5e2 to 5e5 -- reported `0.00e+00` at every probe and PASSED,
+    `compile()` chose `gcr`, and 4000 draws came back 802 posterior standard
+    deviations from grid quadrature with `unreliable=False`. All four already
+    read REFUSE in float64 before any fix, which is what identified the dtype
+    rather than the model as the variable.
+
+    Four cells rather than one because the failure is a WINDOW in SNR, not a
+    point: they span two amplitudes and three noise widths so a factor that
+    happens to catch one edge does not pass by luck.
+    """
+    graph = high_snr_curvature(amplitude=amplitude, sigma=sigma)
+    with pytest.raises(StructureError, match="not affine"):
+        check_linearity(graph, ["w"])
+
+
+def test_the_high_snr_curvature_is_refused_at_float64_too():
+    """The same claim, at the other dtype -- `boundary-validation.md`'s rule.
+
+    A floor factor tuned at one dtype and never checked at the other is the
+    exact mistake that rule exists to prevent. float64's epsilon is 1.9e+09
+    times smaller, so the window this fixture lives in moves by nine orders
+    of magnitude; the verdict must not.
+
+    The graph is built INSIDE the `enable_x64` block on purpose: `const` and
+    `observe` call `jnp.asarray` at `trace()` time, so a fixture constructed
+    outside it carries float32 arrays into the wider check and measures
+    nothing.
+    """
+    with jax.enable_x64(True):
+        graph = high_snr_curvature()
+        with pytest.raises(StructureError, match="not affine"):
+            check_linearity(graph, ["w"])
+
+
+def test_an_honest_cancelling_sum_pins_the_weighted_floor_from_below():
+    """The other side of the same threshold, and the one nothing else reaches.
+
+    `roundoff_stress` bounds the weighted roundoff floor at about 1 eps
+    because its prediction is two operations deep. Real predictions are not:
+    a near-cancelling sum -- a visibility against a monopole, a contrast
+    channel -- carries relative roundoff of order `cancel * eps` with a
+    `linear_in` claim that is exactly true.
+
+    Measured, float32, max `departure / (eps |mu|)`: 2.19 at `cancel=1`, 54.8
+    at 1e2, 3.50e+03 at 1e4. Verdicts on THIS fixture across candidate floor
+    factors: refused at 1e0 and 1e1, accepted from 1e2 up. So this test is
+    what goes red if the factor is lowered chasing more sensitivity, and
+    `test_a_curvature_only_the_sigma_weighted_criterion_can_see_is_refused`
+    is what goes red if it is raised. Between them the factor is pinned to
+    within a decade on each side.
+
+    The measured trade at float32, one decade of detection per decade of
+    tolerance: factor 1e1 catches a false amplitude down to 1e-5 but refuses
+    an honest cancellation of 3e1; 1e2 catches 3e-5 and tolerates 1e2; 1e3
+    catches 3e-4 -- only 3x below the tightest counterexample above -- and
+    tolerates 1e3. 1e2 spends the margin on detection because a missed false
+    claim is silent and a false refusal merely routes the block to NUTS.
+    """
+    with warnings.catch_warnings():
+        # The RELATIVE column is unresolved here and says so (worst 1.30e+34):
+        # a cancelling sum has a near-zero `variation` at the smallest probe,
+        # which is precisely what `RELATIVE_FLOOR_FACTOR`'s four decades are
+        # for. This test is about the verdict, not that message.
+        warnings.simplefilter("ignore", UserWarning)
+        assert check_linearity(cancelling_sum(cancel=1e2), ["w"])
+
+
+def test_a_departure_the_floor_declined_to_judge_is_not_reported_as_zero():
+    """"Not measured" and "measured zero" are different facts, and must read so.
+
+    `roundoff_stress(big=1e6, sigma=1e-2)` is exactly affine and its
+    departure is worth 12.5 noise widths at float32. The floor is right not
+    to convict on it -- that is what
+    `test_a_true_claim_with_real_roundoff_passes_at_any_offset_ratio` pins --
+    but the returned departure was `0.0`, so `InferencePlan._execution`
+    printed `linear_in ok, 3 scales x 3 at-points (max 0.00e+00)` for a check
+    that had judged nothing at all at that probe.
+
+    The value comes back as an `Unresolved`: still a float, so every consumer
+    that maxes or stores it is unchanged, but formatting as
+    `unresolved:1.25e+01` so the one consumer that prints it cannot state the
+    opposite of what happened.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        errors = check_linearity(roundoff_stress(big=1e6, sigma=1e-2), ["w"])
+    values = [value for row in errors.values() for value in row.values()]
+    unresolved = [value for value in values if isinstance(value, Unresolved)]
+    assert unresolved, f"nothing marked unresolved: {values}"
+    assert max(unresolved) > 1.0
+    assert "unresolved" in f"{max(unresolved):.2e}"
+    assert float(max(unresolved)) > 0.0  # and NOT the 0.0 it used to report
+
+
+def test_a_bitwise_affine_model_reports_a_real_zero_and_says_nothing():
+    """The marker must not be universal, or it says nothing when it appears.
+
+    `straight_line`'s primal and its linearization evaluate the same
+    expression in the same order, so every departure is identically 0.0 --
+    positive evidence of affinity, not an absence of evidence. Reporting THAT
+    as unresolved, or warning about it, would make both signals worthless:
+    every honest fixture in this file would carry them.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        errors = check_linearity(straight_line(), ["w"])
+    values = [value for row in errors.values() for value in row.values()]
+    assert values and all(value == 0.0 for value in values)
+    assert not any(isinstance(value, Unresolved) for value in values)
+
+
+def test_a_column_the_floor_declined_to_judge_is_warned_about_by_name():
+    """Accepting on an unevaluable column is a fact the caller has to be told.
+
+    Mirrors `_conjugate_solve`'s "unreachable at this precision" branch: the
+    remedy is a dtype, so the message names `jax.enable_x64(True)` rather
+    than leaving the caller to tighten an rtol that cannot move.
+
+    It WARNS rather than raising, and that is measured rather than tasteful.
+    Counting an unresolved column as a refusal reds `roundoff_stress` at 5 of
+    Task 1's 10 recorded offset/noise ratios and at 3 of the 4 cells
+    `test_a_true_claim_with_real_roundoff_passes_at_any_offset_ratio`
+    parametrizes -- every one of them an exactly TRUE `linear_in` claim -- so
+    a refusal here would reject the wide-dynamic-range models this package
+    exists to serve, at the dtype it ships in.
+    """
+    with pytest.warns(UserWarning, match="enable_x64") as caught:
+        check_linearity(roundoff_stress(big=1e6, sigma=1e-2), ["w"])
+    # Once per call, not once per probe: nine probes carry the same fact and
+    # `warnings`' per-location dedup cannot collapse them, the numbers differ.
+    assert len(caught) == 1
+    assert "unresolved" in str(caught[0].message)
+
+
+def test_the_unresolved_marker_survives_the_reduction_over_criteria():
+    """`_worse` combines the two columns, and must not launder one of them.
+
+    Tested on the reduction directly rather than through a graph, because the
+    case where it MATTERS cannot be reached by any realistic fixture and a
+    fixture built to reach it would be a knob, not a model. Measured: a
+    reported value is either judged -- and then bounded by its own threshold,
+    `rtol = 1.19e-03` or `WEIGHTED_RTOL = 1e-03` -- or unresolved, and then
+    above it. So a plain float can only outrank an `Unresolved` inside the
+    window between the two thresholds, which is 1.19x wide at float32. Two
+    literals is the honest way to cover a 1.19x window.
+
+    The direction matters: an unresolved column contaminating the combined
+    number is the conservative error, and reporting a clean maximum that hid
+    one is the defect this whole marker exists to stop.
+    """
+    from bayesmith.exact.linearity import _worse
+
+    assert "unresolved" in f"{_worse(1.0, Unresolved(0.5)):.2e}"
+    assert "unresolved" in f"{_worse(Unresolved(0.5), 1.0):.2e}"
+    assert float(_worse(1.0, Unresolved(0.5))) == 1.0  # still the WORSE of the two
+    assert "unresolved" not in f"{_worse(1.0, 0.5):.2e}"

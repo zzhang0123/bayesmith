@@ -23,6 +23,7 @@ unsafe.
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
@@ -75,6 +76,80 @@ DEFAULT_AT_POINTS: int = 3
 #: where that is pinned.
 WEIGHTED_RTOL: float = 1e-3
 
+#: Roundoff floor for the **relative** column, as a multiple of the dtype's
+#: epsilon times the magnitudes being differenced. Large on purpose: the
+#: relative measure divides by ``variation``, which VANISHES at the smallest
+#: probe while roundoff does not, so the ratio explodes there on a perfectly
+#: linear block. Four decades of headroom is what keeps it quiet.
+RELATIVE_FLOOR_FACTOR: float = 1e4
+
+#: Roundoff floor for the **sigma-weighted** column. A separate constant
+#: because the argument above is about the relative measure's own denominator
+#: and does not carry over: this column divides by ``sigma``, which does not
+#: vanish with the probe, so it needs only enough headroom to clear the
+#: arithmetic's real noise.
+#:
+#: **Sharing the relative column's 1e4 made this criterion dead at float32.**
+#: The window in which it can fire is non-empty only where
+#: ``factor * eps * |mu| < WEIGHTED_RTOL * |sigma|``, i.e. below a
+#: signal-to-noise ratio of ``WEIGHTED_RTOL / (factor * eps)`` -- which at 1e4
+#: is **0.84** in float32. Every model with more signal than noise had the
+#: sigma-weighted half of its check silently switched off, and
+#: ``check_linearity`` degraded to the relative criterion alone while the plan
+#: printed ``linear_in`` with a departure of 0.00e+00. Measured: four
+#: ``mu = X (w + A (cos w - 1))`` graphs at SNR 5e2 to 5e5 were dispatched to
+#: an exact GCR solve whose posterior sat 802 sigma from grid quadrature.
+#:
+#: Pinned by measurement at 1e2, over Task 1's fixture rows plus a sweep of
+#: exactly affine models whose prediction is a near-cancelling sum:
+#:
+#: * From BELOW, by honest models. The worst arithmetic noise any honest
+#:   fixture carries is 1.28 eps (``roundoff_stress(big=1e3)``), so 1e2 sits
+#:   78x above it. That fixture is only two operations deep, though, and an
+#:   exactly affine sum whose rows cancel by a factor C carries ~C eps
+#:   instead -- ``cancelling_sum`` in ``tests/exact/models.py``. Measured in
+#:   float32, the largest cancellation still ACCEPTED is C=1e1 at factor 1e1,
+#:   C=1e2 at 1e2, C=1e3 at 1e3 and C>=1e4 at 1e4.
+#: * From ABOVE, by false claims. Measured on ``high_snr_curvature``, the
+#:   smallest curvature amplitude still REFUSED is 1e-5 at factor 1e1, 3e-5
+#:   at 1e2 and 3e-4 at 1e3. The four counterexamples sit at A=3e-4 and
+#:   A=1e-3, so 1e3 would catch the family with no margin at all while 1e2
+#:   catches an amplitude 10x below its tightest member.
+#:
+#: One decade of detection per decade of cancellation tolerance, and 1e2
+#: spends the margin on detection: a missed false claim is silent and
+#: catastrophic, a false refusal merely routes the block to NUTS.
+#:
+#: float64 does not care: the weighted column misclassifies 0 of the 47
+#: recorded rows at every factor from 1e0 to 1e4. This constant is a float32
+#: decision.
+WEIGHTED_FLOOR_FACTOR: float = 1e2
+
+
+class Unresolved(float):
+    """A departure the roundoff floor DECLINED TO JUDGE, not one measured as 0.
+
+    A float, so every consumer that maxes, compares or stores these numbers
+    keeps working unchanged -- and a different string, so the one consumer
+    that PRINTS it cannot report "not measured" as "measured zero". Formats
+    as ``unresolved:1.25e+01`` under the caller's own format spec.
+
+    The distinction is not pedantic. ``roundoff_stress(big=1e6, sigma=1e-2)``
+    is exactly affine and its departure is worth 12.5 noise widths at
+    float32; the floor is right to refuse to convict on it, and reporting
+    ``0.00e+00`` beside that verdict states the opposite of what happened.
+    A reader who sees ``unresolved:1.25e+01`` knows to re-run under
+    ``jax.enable_x64(True)``, where the same probe reads 2.33e-08.
+    """
+
+    __slots__ = ()
+
+    def __format__(self, spec: str) -> str:
+        return f"unresolved:{float(self):{spec}}"
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"Unresolved({float(self)!r})"
+
 
 def _worse(current: float, value: float) -> float:
     """``max`` that PROPAGATES NaN.
@@ -87,10 +162,19 @@ def _worse(current: float, value: float) -> float:
     """
     if math.isnan(current) or math.isnan(value):
         return math.nan
-    return max(current, value)
+    worst = max(current, value)
+    if isinstance(current, Unresolved) or isinstance(value, Unresolved):
+        # One column declining to judge is not cancelled by the other column
+        # having judged cleanly, so the marker survives the reduction. Without
+        # this the flag would be dropped whenever the plain float happened to
+        # be the larger of the two, which is a coin flip.
+        return Unresolved(worst)
+    return worst
 
 
-def _reported(values: jax.Array, kept: jax.Array) -> float:
+def _reported(
+    values: jax.Array, kept: jax.Array, departure: jax.Array, threshold: float
+) -> float:
     """The worst of ``values`` among the elements the roundoff floor kept.
 
     That is the number the criterion actually judged, so it is the number the
@@ -101,10 +185,27 @@ def _reported(values: jax.Array, kept: jax.Array) -> float:
     NaN survives the mask: ``nan > floor`` is False, so an unusable element
     would otherwise be masked out and the column would report ``0.0`` for a
     probe that is a failure precisely because it is unusable.
+
+    **A masked element with a real departure is reported, not zeroed.** The
+    mask has two very different populations in it. An element whose departure
+    is exactly 0.0 is bitwise-affine and a reported 0.0 says so truthfully.
+    An element whose departure is non-zero, sits under the floor, and would
+    have BREACHED ``threshold`` had it been judged is a question the
+    arithmetic could not answer -- and reporting 0.0 for it states that the
+    model was measured and found exactly affine, which is the opposite of
+    what happened. Those come back as :class:`Unresolved`, whose value is the
+    departure that was actually seen and whose *string* says it was not
+    judged. Measured: without this, ``roundoff_stress(big=1e6, sigma=1e-2)``
+    reports ``0.00e+00`` at float32 while carrying a departure worth 12.5
+    noise widths that the floor -- correctly -- refused to convict on.
     """
     if not bool(jnp.all(jnp.isfinite(values))):
         return math.nan
-    return float(jnp.max(jnp.where(kept, values, 0.0)))
+    judged = float(jnp.max(jnp.where(kept, values, 0.0)))
+    declined = (departure > 0) & ~kept & (values > threshold)
+    if not bool(jnp.any(declined)):
+        return judged
+    return Unresolved(max(judged, float(jnp.max(jnp.where(declined, values, 0.0)))))
 
 
 def _leaf_departures(
@@ -126,10 +227,17 @@ def _leaf_departures(
 
     Returns:
         ``(relative, sigma_weighted, refused)``. The first two are the worst
-        values among the elements clearing the roundoff floor -- the numbers
-        the criteria actually judged, and so the numbers a refusal quotes --
-        or NaN if the column was unusable anywhere. ``refused`` is True if
-        either criterion fails at any element.
+        values among the elements clearing that column's OWN roundoff floor
+        -- the numbers the criteria actually judged, and so the numbers a
+        refusal quotes -- or NaN if the column was unusable anywhere, or an
+        :class:`Unresolved` when the floor masked a real departure that would
+        otherwise have breached the threshold. ``refused`` is True if either
+        criterion fails at any element.
+
+    The two floors are DIFFERENT constants and that is the point:
+    :data:`RELATIVE_FLOOR_FACTOR` is set by how badly the relative measure
+    misbehaves at a vanishing probe, :data:`WEIGHTED_FLOOR_FACTOR` by the
+    arithmetic's real noise, and the second is four decades smaller.
     """
     # Measure against the VARIATION, not the total: a large constant offset
     # would otherwise hide a completely nonlinear response. The divisor is
@@ -140,6 +248,7 @@ def _leaf_departures(
     # contains an exact zero, so that alone refused an entirely honest model.
     variation = jnp.abs(actual - baseline)
     departure = jnp.abs(actual - predicted)
+    magnitude = jnp.maximum(jnp.abs(actual), jnp.abs(baseline))
     relative = departure / jnp.maximum(variation, tiny)
     # A departure smaller than the arithmetic's OWN noise floor is not
     # evidence of curvature; without this the relative measure explodes at
@@ -147,28 +256,30 @@ def _leaf_departures(
     # rejects perfectly linear blocks. The floor is set by the magnitudes
     # actually being differenced AT THIS PROBE -- not by a constant, which
     # would exempt every model whose prediction is small in its own units.
-    above_floor = departure > 1e4 * epsilon * jnp.maximum(
-        jnp.abs(actual), jnp.abs(baseline)
-    )
-    # In the units the likelihood divides by -- and gated by the SAME floor.
-    # Ungated it measures DYNAMIC RANGE rather than curvature: measured on the
-    # exactly affine `mu = (w + big) X`, it reaches 2.44e-02 at an
+    above_relative = departure > RELATIVE_FLOOR_FACTOR * epsilon * magnitude
+    # In the units the likelihood divides by -- and gated by a floor of its
+    # OWN. Ungated it measures DYNAMIC RANGE rather than curvature: measured
+    # on the exactly affine `mu = (w + big) X`, it reaches 2.44e-02 at an
     # offset-to-noise ratio of 1e2 in float32 and 2.50e+01 at 1e17 in float64,
-    # with no curvature anywhere. Gated, every one of those is exactly 0.0.
+    # with no curvature anywhere. Gated at the RELATIVE column's 1e4 it
+    # measured nothing at all: that floor exceeds `WEIGHTED_RTOL * sigma`
+    # above an SNR of 0.84 in float32, so this criterion could not fire on any
+    # model with more signal than noise. See WEIGHTED_FLOOR_FACTOR.
+    above_weighted = departure > WEIGHTED_FLOOR_FACTOR * epsilon * magnitude
     weighted = departure / jnp.abs(sigma)
     # NaN must count as a FAILURE: `nan > rtol` is False, so a naive
     # comparison reads an unusable probe as evidence of linearity. Each
     # criterion is judged on its OWN finiteness -- sharing one check would let
     # a 0/0 in the relative column condemn a perfectly readable weighted one.
     refused = (
-        bool(jnp.any((relative > rtol) & above_floor))
-        or bool(jnp.any((weighted > WEIGHTED_RTOL) & above_floor))
+        bool(jnp.any((relative > rtol) & above_relative))
+        or bool(jnp.any((weighted > WEIGHTED_RTOL) & above_weighted))
         or not bool(jnp.all(jnp.isfinite(relative)))
         or not bool(jnp.all(jnp.isfinite(weighted)))
     )
     return (
-        _reported(relative, above_floor),
-        _reported(weighted, above_floor),
+        _reported(relative, above_relative, departure, rtol),
+        _reported(weighted, above_weighted, departure, WEIGHTED_RTOL),
         refused,
     )
 
@@ -382,9 +493,56 @@ def _refuse_affinity(
         f"relative departure against rtol={used_rtol:.2e}, and the departure "
         f"in units of the noise sigma against weighted_rtol="
         f"{WEIGHTED_RTOL:.2e}. Worst per probe (relative | sigma-weighted): "
-        f"{detail}. Either drop the linear_in declaration, or re-parameterize "
+        f"{detail}. An `unresolved:` entry there is a departure the roundoff "
+        "floor declined to judge, not one measured as zero -- it is not what "
+        "refused this claim, and `with jax.enable_x64(True):` is what settles "
+        "it. Either drop the linear_in declaration, or re-parameterize "
         "so the model really is affine there. For a group that is only "
         "pairwise affine, split it into separate blocks and alternate."
+    )
+
+
+def _warn_unresolved(
+    names: tuple[str, ...], where: str, columns: dict[float, tuple[float, float]]
+) -> None:
+    """Say, by name, that a column was not evaluable at this precision.
+
+    Mirrors ``_conjugate_solve``'s "unreachable at this precision" branch in
+    :mod:`bayesmith.exact.solve`: the remedy is a dtype, not a tolerance, so
+    the message says so rather than leaving the caller to tighten something
+    that cannot move. What it does NOT do is raise, and that is a measured
+    decision rather than a soft one.
+
+    Raising here -- or counting an unresolved column as a refusal -- reds
+    ``roundoff_stress`` at 5 of Task 1's 10 recorded offset/noise ratios and
+    3 of the 4 that ``test_a_true_claim_with_real_roundoff_passes_at_any_-
+    offset_ratio`` parametrizes, at float32, which is the dtype this package
+    ships in. Those models are exactly affine and their ``linear_in`` claims
+    are TRUE; the arithmetic simply cannot certify them in units of sigma at
+    that dtype. Refusing every wide-dynamic-range model -- a foreground in K
+    beside a signal in mK -- is a worse answer than accepting them with the
+    limitation stated. So: accepted, and stated.
+
+    Once per :func:`check_linearity` call, not once per probe: the same fact
+    repeated nine times is noise, and ``warnings``' default per-location
+    dedup does not collapse them because the numbers differ.
+    """
+    worst = max(
+        (float(value) for pair in columns.values() for value in pair),
+        default=0.0,
+    )
+    warnings.warn(
+        f"check_linearity accepted {list(names)} with the check only partly "
+        f"evaluated at {where}: at this dtype some departures fall under the "
+        "per-element roundoff floor while still exceeding the tolerance they "
+        f"would have been judged against (worst {worst:.2e}). That is a "
+        "statement about the arithmetic, not about the model -- no rtol and "
+        "no extra probe reaches it, only precision does. Run the check inside "
+        "`with jax.enable_x64(True):` to settle it, building the graph inside "
+        "the block so `const` and `observe` are traced at the wider dtype. "
+        "The returned departures for those probes are reported as "
+        "`unresolved:` rather than as a measured zero.",
+        stacklevel=3,
     )
 
 
@@ -492,11 +650,18 @@ def check_linearity(
     Returns:
         ``{at_point_index: {scale: departure}}``, where each departure is the
         worse of the two criteria at that scale, over the elements clearing
-        the roundoff floor -- useful for reporting how linear a block is, not
-        only whether it passes. The two are on different scales (one relative,
-        one in units of sigma), so the number says how far from affine the
-        block is, not which criterion it came from; the refusal message
-        separates them.
+        that criterion's roundoff floor -- useful for reporting how linear a
+        block is, not only whether it passes. The two are on different scales
+        (one relative, one in units of sigma), so the number says how far from
+        affine the block is, not which criterion it came from; the refusal
+        message separates them.
+
+        A departure may come back as an :class:`Unresolved`, which is a float
+        that FORMATS as ``unresolved:1.25e+01``. It means the floor masked a
+        real departure that would otherwise have breached its threshold, so
+        the number is what was seen and not what was judged. A caller that
+        prints these must not present one as a measured zero; see
+        :func:`_warn_unresolved`, which also fires once per call.
 
     Raises:
         GraphError: propagated from :func:`~bayesmith.exact.block._validated_names`
@@ -539,6 +704,9 @@ def check_linearity(
 
     ordered = sorted(names)
     collected: dict[int, dict[float, float]] = {}
+    # The FIRST at-point that could not be fully evaluated, warned about once
+    # after the loop -- see `_warn_unresolved`.
+    unresolved: tuple[str, dict[float, tuple[float, float]]] | None = None
     for point_index, point in enumerate(at_points):
         _, domain = _env_before(graph, names, point)
         g = isolate(graph, names, point)
@@ -578,6 +746,12 @@ def check_linearity(
         collected[point_index] = errors
         if failed:
             _refuse_affinity(names, where, columns, failed, used_rtol)
+        if unresolved is None and any(
+            isinstance(value, Unresolved) for pair in columns.values() for value in pair
+        ):
+            unresolved = (where, columns)
+    if unresolved is not None:
+        _warn_unresolved(names, unresolved[0], unresolved[1])
     return collected
 
 

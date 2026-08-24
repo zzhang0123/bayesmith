@@ -1543,3 +1543,99 @@ def steep_radiometer(
         )
 
     return trace(model)
+
+
+def high_snr_curvature(*, n=12, amplitude=1e-3, sigma=2e-6, w_true=1.0):
+    """``mu = X (w + A (cos w - 1))`` -- curvature only the SIGMA units can see.
+
+    The counterexample that pinned :data:`~bayesmith.exact.linearity.
+    WEIGHTED_FLOOR_FACTOR`. ``linear_in=("w",)`` is FALSE: the second term is
+    ``-A w**2 / 2 + O(w**4)``. But ``A`` is small enough that at the prior
+    width the RELATIVE departure stays under ``rtol = 1e4 eps`` in float32,
+    so only the sigma-weighted criterion can refuse it -- and that criterion
+    was switched off at every signal-to-noise ratio above 0.84 while both
+    columns shared the relative column's ``1e4 eps`` floor.
+
+    Measured at the defaults, float32: the departure is 6.03e+03 eps of the
+    prediction's own magnitude, worth 8.10e+02 noise widths. Under the shared
+    floor the whole check reported ``0.00e+00`` at every probe, `compile()`
+    chose ``gcr``, and 4000 iid draws came back at 0.99954033 against grid
+    quadrature's 1.00000000 +/- 5.733e-07 -- **802 posterior standard
+    deviations wrong, with `unreliable=False`.**
+
+    Four cells were reproduced, spanning SNR 5e2 to 5e5 and two amplitudes:
+    ``(A, sigma)`` in ``{(3e-4, 2e-3), (3e-4, 2e-5), (1e-3, 2e-5),
+    (1e-3, 2e-6)}``. All four read ``nuts`` in float64 before any fix and
+    ``gcr`` in float32, which is what identified the dtype as the variable.
+
+    ``cos`` rather than a bare ``w**2`` so the curvature is bounded: at the
+    widest probe (1e3 prior widths) ``cos w - 1`` stays in ``[-2, 0]`` and the
+    departure does NOT grow with the probe, which is what keeps the relative
+    criterion blind there. A quadratic would be caught by ``rtol`` at the
+    widest probe and would not isolate the sigma-weighted half at all.
+
+    ``X`` spans 0.8 to 1.2 -- deliberately narrow and away from zero, so no
+    element is exempted by a vanishing covariate and every one of the twelve
+    carries the same lie. No ``seed``: the data are noiseless at ``w_true``,
+    because what is under test is the linearity check, not an inference.
+    """
+    x = jnp.linspace(0.8, 1.2, n)
+    data = x * (w_true + amplitude * (jnp.cos(w_true) - 1.0))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        mu = det(
+            "mu",
+            lambda w_, x_: x_ * (w_ + amplitude * (jnp.cos(w_) - 1.0)),
+            w,
+            xs,
+            linear_in=("w",),
+        )
+        observe("d", lambda u: dist.Normal(u, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def cancelling_sum(*, cancel, n=16, big=1e3, sigma=1e-2, m=4, seed=32):
+    """``mu_j = sum_k A_jk (w + big)`` where the row sums CANCEL by ``cancel``.
+
+    The lower bound on :data:`~bayesmith.exact.linearity.
+    WEIGHTED_FLOOR_FACTOR`, and the only fixture that supplies one at a
+    magnitude ``roundoff_stress`` cannot reach. ``linear_in=("w",)`` is
+    exactly TRUE: the map is a fixed matrix applied to ``w`` plus a constant.
+
+    ``roundoff_stress`` bounds the floor at about 1 eps, because its
+    prediction is two operations deep. A prediction that is a near-cancelling
+    sum -- an interferometric visibility against a monopole, a contrast
+    channel, any difference of large numbers -- carries relative roundoff of
+    order ``cancel * eps`` instead, and that is the honest model a floor set
+    too low refuses. Each row of ``A`` is shifted to sum to
+    ``sum|A_j| / cancel``, so ``cancel`` IS the ratio of the terms' magnitude
+    to the result's.
+
+    Measured, float32, max ``departure / (eps |mu|)`` over the whole probe
+    grid: 2.19 at ``cancel=1``, 54.8 at 1e2, 3.50e+03 at 1e4, 4.15e+05 at
+    1e6. Verdicts at ``cancel=1e2`` are REFUSE for a weighted floor factor of
+    1e0 or 1e1 and pass at 1e2 -- which is what pins the shipped 1e2 from
+    below. float64 accepts every cell at every factor tried, so this fixture
+    only says anything at the dtype the suite runs.
+    """
+    a = jax.random.normal(jax.random.key(seed), (m, n))
+    a = a - jnp.mean(a, axis=1, keepdims=True)
+    a = a + (jnp.sum(jnp.abs(a), axis=1, keepdims=True) / cancel) / n
+    data = jnp.sum(a * (1.0 + big), axis=1)
+
+    def model():
+        matrix = const("A", a)
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        mu = det(
+            "mu",
+            lambda w_, a_: jnp.sum(a_ * (w_ + big), axis=1),
+            w,
+            matrix,
+            linear_in=("w",),
+        )
+        observe("d", lambda u: dist.Normal(u, sigma), mu, obs=data)
+
+    return trace(model)
