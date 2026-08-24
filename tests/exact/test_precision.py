@@ -244,3 +244,107 @@ def test_diagonal_from_wraps_a_decided_sigma_dict():
             np.asarray(made["d"].apply(residual)),
             np.asarray(residual / jnp.linspace(0.5, 1.5, 4) ** 2),
         )
+
+
+class TestTheMotivatingPhysicsIsActuallyExpressible:
+    """1/f drift, as a measurement rather than as a claim in a docstring.
+
+    ``precision.py`` says circulant is the right model for the physics that
+    motivated B9 -- 1/f gain drift and atmospheric correlation, both
+    stationary. That was asserted, not shown, and an unmeasured claim in a
+    docstring is what this project treats as a defect. So it is shown here on
+    the EXISTING api: no constructor is added, because nothing can yet declare
+    a correlated noise on a graph node, and building a constructor ahead of
+    the caller that would use it is the mistake of shipping machinery with no
+    reader.
+
+    The construction inverts the obvious approach, and that is the point. A
+    circulant's eigenvalues ARE its power spectrum, so noise specified the way
+    instruments specify it -- a knee frequency and a slope -- is declared by
+    writing the SPECTRUM and taking one inverse FFT. Writing an autocovariance
+    down directly and hoping it comes out positive definite is the harder
+    route, not the easier one.
+    """
+
+    @staticmethod
+    def _flicker(size: int, alpha: float, knee: float):
+        """``S(f) = 1 + (knee/f)**alpha`` -- white noise plus a 1/f^alpha tail.
+
+        Returns NUMPY arrays; the caller converts inside its own x64 context.
+        Returning a jax array from here would build it outside that context,
+        where float64 is unavailable, and the kernel would arrive as float32 --
+        surfacing not as a dtype complaint but as the recovered spectrum
+        missing its target at the eighth digit. That trap has now been hit
+        twice in this work; the rule is that ``jax.enable_x64`` governs the
+        OPERATION, never an array that already exists.
+        """
+        freq = np.abs(np.fft.fftfreq(size, d=1.0))
+        spectrum = 1.0 + (knee / np.maximum(freq, 1.0 / size)) ** alpha
+        return spectrum, np.real(np.fft.ifft(spectrum))
+
+    @pytest.mark.parametrize(
+        ("size", "alpha", "knee"),
+        [(64, 1.0, 0.05), (256, 1.0, 0.05), (256, 2.0, 0.05), (256, 2.0, 0.005)],
+    )
+    def test_a_flicker_spectrum_gives_a_valid_covariance(self, size, alpha, knee):
+        """Positive definite, and its spectrum comes back out unchanged.
+
+        The second half is what makes "declare it by its spectrum" a workflow
+        rather than a coincidence: the eigenvalues must BE the PSD that was
+        asked for, not merely resemble it.
+        """
+        spectrum, kernel = self._flicker(size, alpha, knee)
+        with jax.enable_x64(True):
+            precision = CirculantPrecision(first_column=jnp.asarray(kernel))
+            eigenvalues = np.asarray(precision.eigenvalues)
+        assert eigenvalues.min() > 0.0
+        assert np.allclose(eigenvalues, spectrum, rtol=1e-10, atol=1e-12)
+
+    def test_the_kernel_really_is_correlated_and_decays(self):
+        """ANTI-VACUITY: a flat spectrum would pass everything above.
+
+        ``1 + (knee/f)**alpha`` degenerates to white noise as its 1/f term
+        vanishes, and white noise is the DIAGONAL case -- every other
+        assertion in this class would still hold while testing nothing the
+        diagonal tests do not already cover. Measured: neutralising that term
+        in the fixture turns this red and nothing else.
+        """
+        _, values = self._flicker(256, alpha=2.0, knee=0.05)
+        assert abs(values[1]) > 0.05 * abs(values[0]), "no correlation at lag 1"
+        near = float(np.mean(np.abs(values[1:9])))
+        far = float(np.mean(np.abs(values[100:129])))
+        assert near > 5.0 * far, (near, far)
+
+    def test_flicker_noise_does_not_strain_the_fisher_condition_ceiling(self):
+        """A worry that measurement did NOT bear out, recorded so it is not
+        raised again.
+
+        1/f has a large dynamic range between DC and Nyquist, so the natural
+        fear is that a realistic flicker model gives an ill-conditioned ``N``,
+        that ``F = J^T N^-1 J`` squares it, and that
+        ``fisher.parameter_covariance`` then refuses on its own ceiling of
+        ``1/sqrt(eps) = 6.71e+07``.
+
+        Measured, it does not come close at instrument-plausible parameters.
+        The worst of the cases here is n=256, alpha=2, knee=0.05:
+        ``kappa(N) = 1.6e+02``, so ``kappa(F)`` of order ``2.7e+04`` -- three
+        orders inside the ceiling. The dynamic range stays bounded because the
+        white floor of the ``1 +`` term sets ``lambda_min``, and the 1/f tail
+        is cut off at the lowest resolvable frequency ``1/n`` rather than
+        running to zero.
+
+        This asserts the HEADROOM rather than the exact number, so it fails if
+        a future kernel quietly loses its white floor -- which is the change
+        that would make the fear real.
+        """
+        ceiling = 1.0 / math.sqrt(float(np.finfo(np.float64).eps))
+        worst = 0.0
+        for size, alpha, knee in ((64, 1.0, 0.05), (256, 2.0, 0.05), (256, 2.0, 0.005)):
+            _, kernel = self._flicker(size, alpha, knee)
+            with jax.enable_x64(True):
+                eigenvalues = np.asarray(
+                    CirculantPrecision(first_column=jnp.asarray(kernel)).eigenvalues
+                )
+            worst = max(worst, float(eigenvalues.max() / eigenvalues.min()))
+        assert worst < 1.0e3, worst
+        assert worst**2 < ceiling / 1.0e3, (worst**2, ceiling)
