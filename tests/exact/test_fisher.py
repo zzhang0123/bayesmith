@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from bayesmith.exact.fisher import (
+    FlatMatrix,
     dense_operator,
     fisher_information,
     parameter_covariance,
@@ -331,3 +332,194 @@ def test_parameter_covariance_refuses_a_covariance():
         covariance = parameter_covariance(fisher_information(block, noise_std=sigma))
     with pytest.raises(ValueError, match="was handed a covariance"):
         parameter_covariance(covariance)
+
+
+# ---------------------------------------------------------------------------
+# B2: the Cramer-Rao bound is only as good as the arithmetic that formed it.
+# ---------------------------------------------------------------------------
+
+
+def _precision(kappa: float, dtype, size: int = 4):
+    """A ``FlatMatrix`` whose condition number is exactly ``kappa``.
+
+    Built by construction rather than by finding a model that happens to be
+    ill-conditioned: the gate is a statement about the matrix, and a fixture
+    that reached a chosen kappa through a graph would be testing the graph.
+    """
+    values = jnp.asarray(
+        np.diag(np.geomspace(1.0, 1.0 / kappa, size)).astype(
+            np.float64 if dtype is jnp.float64 else np.float32
+        ),
+        dtype=dtype,
+    )
+    return FlatMatrix(
+        values=values,
+        names=("w",),
+        spans=((0, size),),
+        kind="fisher",
+    )
+
+
+def test_a_precision_past_the_arithmetic_half_life_is_refused():
+    """The gate, in the dtype every caller here already uses."""
+    with jax.enable_x64(True):
+        past = _precision(1e10, jnp.float64)
+        with pytest.raises(ValueError, match="condition"):
+            parameter_covariance(past)
+
+
+def test_a_precision_inside_the_ceiling_still_inverts():
+    """The gate must not be a blanket refusal of anything interesting.
+
+    ``1e6`` is genuinely ill-conditioned and genuinely fine in float64 --
+    measured, the inverse is accurate to 1.08e-12 there -- so refusing it
+    would be the conservative-bound mistake this project has already paid
+    for once upstream.
+    """
+    with jax.enable_x64(True):
+        found = parameter_covariance(_precision(1e6, jnp.float64))
+        assert found.kind == "covariance"
+        assert np.all(np.isfinite(np.asarray(found.values)))
+
+
+def test_the_ceiling_follows_the_dtype_rather_than_being_hard_wired():
+    """The whole design, in one comparison: ONE rule, read against the
+    arithmetic actually in use.
+
+    ``kappa = 1e5`` sits between the two ceilings -- above float32's
+    ``1/sqrt(eps) = 2.90e3``, below float64's ``6.71e7``. The same matrix is
+    therefore refused in float32 and accepted in float64, which is what makes
+    this a statement about digits spent rather than a magic number. A
+    hard-wired float64 ceiling would let the float32 case through silently,
+    and that case is the defect: measured on a design with ``kappa(J) = 1e3``
+    (so ``kappa(F) = 1e6``), float32 gets the covariance wrong by 2.4%.
+    """
+    with jax.enable_x64(True):
+        assert parameter_covariance(_precision(1e5, jnp.float64)) is not None
+    # Outside the context, so float32 is the arithmetic and stays it.
+    with pytest.raises(ValueError, match="condition"):
+        parameter_covariance(_precision(1e5, jnp.float32))
+
+
+def test_the_refusal_says_which_arithmetic_and_where_to_widen_it():
+    """A refusal a reader can act on names the fix, and names it correctly.
+
+    The fix is NOT to widen the inverse. ``F = J^T N^-1 J`` squares the
+    condition number, so the digits are gone when F is FORMED; the context
+    has to be open around the graph. See
+    ``test_widening_only_the_inverse_does_not_recover_the_bound``.
+    """
+    with pytest.raises(ValueError) as caught:
+        parameter_covariance(_precision(1e5, jnp.float32))
+    message = str(caught.value)
+    assert "float32" in message
+    assert "enable_x64" in message
+    assert "1e+05" in message or "1.0e+05" in message.replace("1e+05", "1.0e+05")
+
+
+def test_max_condition_none_disables_the_gate():
+    """An escape hatch, because the gate is a default rather than a law.
+
+    A caller who has already decided the number is untrustworthy -- a
+    forecast sweep that expects some cells to be degenerate, say -- should
+    not have to route around the function.
+    """
+    with jax.enable_x64(True):
+        found = parameter_covariance(_precision(1e14, jnp.float64), max_condition=None)
+    assert found.kind == "covariance"
+
+
+def test_jitter_is_measured_after_it_is_applied():
+    """Jitter is the remedy for exactly this, so the gate must see the cure.
+
+    Measuring the raw matrix would refuse a caller who had already fixed the
+    problem in the only way this function offers.
+    """
+    with jax.enable_x64(True):
+        bad = _precision(1e12, jnp.float64)
+        with pytest.raises(ValueError, match="condition"):
+            parameter_covariance(bad)
+        found = parameter_covariance(bad, jitter=1e-3)
+    assert found.kind == "covariance"
+
+
+def test_widening_only_the_inverse_does_not_recover_the_bound():
+    """Why the refusal points at the graph and not at the ``inv``.
+
+    The migration spec's B2 asked for the decomposition to be wrapped in
+    ``with jax.enable_x64(True):``. Measured, that is a no-op in two separate
+    ways, and this pins both so the "fix" cannot be reintroduced as an
+    improvement:
+
+    1. ``jnp.linalg.inv`` of a float32 array inside the context returns
+       float32. The context governs what is TRACED under it, not arrays that
+       already exist.
+    2. Even forcing the upcast does not help, because ``F = J^T N^-1 J`` has
+       already squared the condition number in float32. Measured on
+       ``kappa(J) = 1e3``: all-float32 is 2.41e-02 wrong, upcast-at-the-
+       inverse is 2.45e-02 wrong -- indistinguishable -- and all-float64 is
+       1.08e-12. A guard that wrapped the inverse would have reported the
+       defect fixed while the error bar stayed 2.4% wrong.
+    """
+    size = 4
+    rng = np.random.default_rng(0)
+    left, _ = np.linalg.qr(rng.normal(size=(40, size)))
+    right, _ = np.linalg.qr(rng.normal(size=(size, size)))
+    design = (left * np.geomspace(1.0, 1e-3, size)) @ right.T
+    reference = np.linalg.inv(design.T @ design)
+
+    single = jnp.asarray(design, dtype=jnp.float32)
+    formed = single.T @ single
+    assert formed.dtype == jnp.float32
+
+    with jax.enable_x64(True):
+        # (1) the context alone does not widen an existing array
+        assert jnp.linalg.inv(formed).dtype == jnp.float32
+        # (2) forcing it does not recover the digits either
+        widened = jnp.linalg.inv(jnp.asarray(np.asarray(formed), dtype=jnp.float64))
+        honest = jnp.linalg.inv(jnp.asarray(design).T @ jnp.asarray(design))
+
+    def worst(matrix):
+        got = np.asarray(matrix, dtype=float)
+        return float(np.max(np.abs(got - reference) / np.abs(reference)))
+
+    assert worst(widened) > 1e-2, worst(widened)
+    assert worst(honest) < 1e-9, worst(honest)
+    assert worst(widened) > 1e6 * worst(honest)
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf])
+def test_a_precision_that_is_not_finite_is_refused_rather_than_inverted(bad):
+    """The ``not measured <= ceiling`` spelling, which ``>`` would not give.
+
+    ``jnp.linalg.cond`` returns NaN for a matrix carrying either a NaN or an
+    inf, and NaN fails every comparison -- so ``measured > ceiling`` is False
+    and a diverged fit's precision would sail through the gate and come back
+    as a covariance full of NaN, labelled ``kind="covariance"`` like any
+    other. Written as a comment first; the comment survived mutation and this
+    is what convicts it.
+    """
+    size = 4
+    with jax.enable_x64(True):
+        diagonal = np.ones(size)
+        diagonal[1] = bad
+        matrix = FlatMatrix(
+            values=jnp.asarray(np.diag(diagonal)),
+            names=("w",),
+            spans=((0, size),),
+            kind="fisher",
+        )
+        with pytest.raises(ValueError, match="condition"):
+            parameter_covariance(matrix)
+        # ...and what returns without the gate, which is NOT the same story
+        # for the two: a NaN propagates into the covariance, while an inf
+        # inverts to a clean 0.0 and comes back looking like a parameter
+        # measured with certainty. The second is the more dangerous of the
+        # two and the one a finiteness check on the OUTPUT would miss, which
+        # is why the gate reads the condition rather than the result.
+        loose = np.asarray(parameter_covariance(matrix, max_condition=None).values)
+    if np.isnan(bad):
+        assert not bool(np.all(np.isfinite(loose)))
+    else:
+        assert bool(np.all(np.isfinite(loose)))
+        assert float(loose[1, 1]) == 0.0

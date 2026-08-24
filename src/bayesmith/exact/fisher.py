@@ -23,7 +23,8 @@ Ported from ``rheplicant.inference.uncertainty``; ``propagate_covariance`` and
 
 from __future__ import annotations
 
-from typing import Any
+import math
+from typing import Any, Literal
 
 import equinox as eqx
 import jax
@@ -173,13 +174,62 @@ def fisher_information(
     )
 
 
-def parameter_covariance(fisher: FlatMatrix, jitter: float = 0.0) -> FlatMatrix:
+def condition_ceiling(dtype: Any) -> float:
+    """``1 / sqrt(eps)`` -- where an inverse has spent half its digits.
+
+    Inverting a matrix of condition ``kappa`` costs about ``log10(kappa)`` of
+    the ``log10(1 / eps)`` decimal digits the arithmetic carries, so this is
+    the point at which half are gone. float32: 2.90e+03. float64: 6.71e+07.
+
+    **Read from the dtype in hand rather than hard-wired**, because that is
+    the entire content of the defect this gates. ``F = J^T N^-1 J`` SQUARES
+    the design's condition number, so an ordinary model lands here easily:
+    measured on ``kappa(J) = 1e3``, float32 returns a covariance 2.4% wrong
+    while float64 returns one 1.08e-12 wrong. One rule, two answers, because
+    the digits available differ -- a fixed ceiling would either wave the
+    float32 case through or refuse the float64 case that is fine.
+    """
+    return 1.0 / math.sqrt(float(jnp.finfo(dtype).eps))
+
+
+def parameter_covariance(
+    fisher: FlatMatrix,
+    jitter: float = 0.0,
+    *,
+    max_condition: float | None | Literal["auto"] = "auto",
+) -> FlatMatrix:
     """Invert a precision. ``jitter`` adds ``jitter * I`` first.
+
+    Args:
+        fisher: the precision to invert.
+        jitter: added to the diagonal before inverting, and before the
+            condition is measured -- jitter is the one remedy this function
+            offers for ill-conditioning, so measuring the matrix it was
+            already applied to is the only reading that does not refuse a
+            caller who has fixed the problem.
+        max_condition: the ceiling. ``"auto"`` derives it from the values'
+            own dtype via :func:`condition_ceiling`; a float sets it
+            explicitly; ``None`` removes it, for a caller who has already
+            decided a degenerate cell is expected and wants the number
+            anyway. The three spellings each mean the obvious thing, which
+            is why this does not follow ``iterative_gls``'s ``None``-is-off
+            convention alone: both "derive it" and "no ceiling" are wanted
+            here and one token cannot say both.
 
     Raises:
         ValueError: if handed a covariance -- inverting one gives a precision,
             which is a legitimate operation but not what this function's name
             promises, and the ``kind`` field would then be a lie.
+        ValueError: if the condition number exceeds the ceiling. This is a
+            Cramer-Rao bound; returning one that is silently wrong is worse
+            than returning none, and the arithmetic that formed the matrix is
+            what decides. **The remedy named in that message is to widen the
+            arithmetic around building the GRAPH, not around this inverse**:
+            the digits are already gone by the time ``F`` exists, and
+            ``jax.enable_x64`` does not widen an array that was traced
+            outside it. ``tests/exact/test_fisher.py::
+            test_widening_only_the_inverse_does_not_recover_the_bound``
+            measures both halves of that.
     """
     if fisher.kind == "covariance":
         raise ValueError(
@@ -190,6 +240,32 @@ def parameter_covariance(fisher: FlatMatrix, jitter: float = 0.0) -> FlatMatrix:
     values = fisher.values + jitter * jnp.eye(
         fisher.values.shape[0], dtype=fisher.values.dtype
     )
+    ceiling = (
+        condition_ceiling(values.dtype) if max_condition == "auto" else max_condition
+    )
+    if ceiling is not None:
+        measured = float(jnp.linalg.cond(values))
+        if not measured <= ceiling:  # `not <=` so a NaN condition is refused too
+            name = jnp.dtype(values.dtype).name
+            raise ValueError(
+                f"condition number {measured:.1e} exceeds the {name} ceiling "
+                f"{ceiling:.1e}, so inverting this precision spends more than "
+                f"half the digits {name} carries and the Cramer-Rao bound it "
+                "produces would be wrong without saying so. F = J^T N^-1 J "
+                "SQUARES the design's condition number, so this is reached by "
+                "ordinary models rather than pathological ones."
+                + (
+                    " This is float32: build the graph inside `with "
+                    "jax.enable_x64(True):` -- around the CONSTRUCTION, not "
+                    "around this call, because an array traced outside that "
+                    "context stays float32 and widening only the inverse "
+                    "recovers nothing (measured: 2.45e-02 relative error "
+                    "against 2.41e-02 for doing nothing)."
+                    if name == "float32"
+                    else " Add `jitter=` if the degeneracy is expected, or "
+                    "pass `max_condition=None` to take the number as it is."
+                )
+            )
     return FlatMatrix(
         values=jnp.linalg.inv(values),
         names=fisher.names,
