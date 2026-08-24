@@ -1736,3 +1736,34 @@ def plated_student_t_latent(*, n=5, sigma=0.45, w_true=1.7, spread=0.9, seed=34)
         observe("d", lambda m: dist.Normal(m, sigma), mu, plate=obs, obs=data)
 
     return trace(model)
+
+
+def lying_block_member(*, n=6, sigma=0.5, w_true=1.4, seed=35):
+    """The LYING density is on a block MEMBER, not on an observed node.
+
+    Every other use of `LyingNormal` in this module and in
+    `tests/exact/test_gaussian.py` puts it on an `observe()` node, so
+    `unchecked_operator`'s per-observed-node probe was the only one any
+    fixture could reach. `_env_before`'s per-MEMBER probe -- the second call
+    site `probe_gaussian` has to switch off, and the whole reason that keyword
+    is threaded through two functions -- had no fixture at all.
+
+    Measured before this existed: deleting `check_gaussian` from
+    `_env_before` entirely left the suite at 581 passed. It only LOOKED
+    covered, because under `jax.jit` every `check_gaussian` raises whatever it
+    is handed, so the trace-safety test is equally satisfied by whichever call
+    site happens to run first -- and `_env_before`'s runs first. A genuinely
+    non-Gaussian member is caught one line later by `gaussian_parts`, so the
+    member probe's only unique contribution is exactly this: a member whose
+    TYPE reads Gaussian while its own `log_prob` does not.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = w_true * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: LyingNormal(0.0, 2.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)

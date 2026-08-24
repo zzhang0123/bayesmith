@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import pytest
 
 from bayesmith import evaluate
-from bayesmith.errors import GraphError, NotGaussian
+from bayesmith.errors import GraphError, NotGaussian, StructureError
 from bayesmith.exact.block import (
     _ancestors,
     _env_before,
@@ -16,6 +16,7 @@ from bayesmith.exact.block import (
     variance_parts,
 )
 from tests.exact.models import (
+    lying_block_member,
     plated_latent,
     plated_latent_through_deterministic,
     shared_ancestor,
@@ -315,3 +316,42 @@ def test_probe_gaussian_false_also_silences_the_per_member_probe():
         return block.offset["d"] * scale
 
     assert bool(jnp.all(jnp.isfinite(jax.jit(build)(jnp.asarray(2.0)))))
+
+
+def test_the_per_member_probe_catches_a_member_whose_log_prob_lies():
+    """`_env_before`'s probe, which no fixture reached until now.
+
+    The keyword `probe_gaussian` exists because there are TWO call sites, and
+    the tests that came with it pin only the `False` direction -- that both
+    fall silent under trace. The `True` direction was covered for the observed
+    node and not for the member, because every `LyingNormal` in this suite sat
+    on an `observe()`.
+
+    That gap was invisible rather than obvious: under `jax.jit` every
+    `check_gaussian` raises whatever it is handed, so
+    `test_unchecked_operator_refuses_to_trace_with_the_gaussian_probe_live` is
+    satisfied by whichever site runs first, and `_env_before`'s runs first. A
+    member that is simply not Gaussian is caught one line later by
+    `gaussian_parts` and raises `NotGaussian`. So the member probe's one
+    unique job is a member whose TYPE reads Normal while its density does not
+    -- and deleting the probe left the suite at 581 passed.
+
+    `StructureError`, not `NotGaussian`: a `log_prob` contradicting the
+    `loc`/`scale` read off the same object is a broken model, and `errors.py`
+    keeps that distinct from "this node is honestly not a diagonal Gaussian",
+    which is an ordinary property that routes to NUTS.
+    """
+    graph = lying_block_member()
+    with pytest.raises(StructureError, match="log_prob"):
+        unchecked_operator(graph, ["w"])
+
+
+def test_that_probe_is_the_member_one_and_not_the_observed_one():
+    """The other half: with the member honest, the same graph shape passes.
+
+    Without this, the test above is satisfied by a probe anywhere in the
+    call -- including the per-observed-node loop, which is already covered.
+    `straight_line` is the same shape with an honest member and an honest
+    observed node, so the pair isolates the member site.
+    """
+    unchecked_operator(straight_line(), ["w"])
