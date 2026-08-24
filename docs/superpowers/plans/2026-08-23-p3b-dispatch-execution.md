@@ -978,7 +978,8 @@ Expected: 全绿，三条新测试 PASS。**其余两个 `_env_before` 调用方
 |---|---|
 | `probe_gaussian` 被接受但忽略（两处照跑 `check_gaussian`） | `test_probe_gaussian_false_makes_the_operator_traceable` |
 | 只关掉 `unchecked_operator` 里那一处，不关 `_env_before` | `test_probe_gaussian_false_also_silences_the_per_member_probe` |
-| 默认值改成 `False` | `test_unchecked_operator_refuses_to_trace_with_the_gaussian_probe_live`，以及 `test_gaussian.py` 里依赖默认探测的测试 |
+| 默认值改成 `False` | `test_unchecked_operator_refuses_to_trace_with_the_gaussian_probe_live`。~~以及 `test_gaussian.py` 里依赖默认探测的测试~~ —— **后半句是假的，已实测**：`test_gaussian.py` 对 `unchecked_operator` / `_env_before` / `linear_operator` **零引用**，十二条测试全部直接在手搭的 `env` 上调 `check_gaussian`，默认值根本不在它们的调用路径上 |
+| **`_env_before` 的逐成员探针整段删掉** | `test_the_per_member_probe_catches_a_member_whose_log_prob_lies`（提交 `4fa9e94`）。**这条是补上的**：直到那次提交之前，删掉它整套仍 581 绿。jit 下每个 `check_gaussian` 都抛，所以 trace 那条测试由先跑的那个调用点满足（就是 `_env_before`）；真正非高斯的成员由下一行 `gaussian_parts` 抓。逐成员探针唯一独有的职责，是**类型读起来是 Normal 而 `log_prob` 不是**的成员——而 `LyingNormal` 此前只出现在观测节点上 |
 
 - [ ] **Step 6: AST 比对 + 提交**
 
@@ -1382,7 +1383,7 @@ Expected: 全部 PASS。**任何一行不符，先按纪律 4 诊断**——这�
 |---|---|
 | 弹出规则改回「另一个**合格**隐变量」 | `orphaned_child_latent` 那一行 |
 | `_declares_linear_in` 改成「存在某个 det 点了 x 的名字」 | `plated_latent` 与 `unconstrained_latent` 两行（空真） |
-| `_relevant_deterministics` 不在 `Probabilistic` 处停下 | `orphaned_child_latent` 行 |
+| `_relevant_deterministics` 不在 `Probabilistic` 处停下 | ~~`orphaned_child_latent` 行~~ —— **这一行是假的，已实测**：该变异在 `orphaned_child_latent` 上、以及扫过的九个 fixture 上，**一个判决都不改**。经**隐**节点离开的路径使其源头成为另一个隐变量的祖先，弹出规则已经把它移走，两种读法殊途同归。只有**观测**中间节点能分开两者（数据不是隐变量）——`observation_reused_downstream`（提交 `ca66750`）是那个图，加上它变异红一行、去掉它红零行 |
 | 去掉 `matters` 交集（不限定观测节点的祖先） | **今天没有 fixture 能抓**——补一个带「悬空 Deterministic」的图 |
 | 观测节点的高斯检查整段删掉 | `student_t_likelihood` 行 |
 | `except NotGaussian` 改成 `except (NotGaussian, StructureError)` | `test_a_lying_observed_node_raises_rather_than_falling_back_to_nuts` |
@@ -2326,7 +2327,12 @@ Run: `.venv/bin/python -m pytest -q && .venv/bin/python -m pytest -m "not slow" 
 - [ ] `tests/dispatch/test_classify.py` 的分类表全绿，含 `orphaned_child_latent`、`student_t_likelihood`、`shared_ancestor` 三行
 - [ ] `test_a_lying_observed_node_raises_rather_than_falling_back_to_nuts` 通过
 - [ ] `test_gibbs_fn_survives_a_trace_and_the_probe_still_bites` 通过（两侧）
-- [ ] `test_dropping_the_reverse_density_term_moves_the_moments` 通过，且**未标 `slow`**
+- [ ] MH 修正的守卫通过，且**未标 `slow`** —— 实际名为
+      `test_the_frozen_sigma_proposal_is_wrong_and_the_accept_step_is_what_fixes_it`
+      （`tests/dispatch/test_acceptance.py`，提交 `6960268`）。**改名是实测的结果**：
+      「丢掉反向密度项」这条变异**不会移动矩**——实测 `log w(x')` 在 20000 次抽取里
+      中位数 −14.39、最大 −8.204，从不 ≥0，于是接受率塌到 0/20000，核变成恒等映射，
+      而恒等映射**完美通过任何不变性断言**。杀死它的是接受率带，所以那一条断言排在最前。
 - [ ] `test_log_weight_equals_log_p_minus_log_q_against_a_dense_gaussian` 通过
 - [ ] `InferencePlan.__str__` 打印 κ（或区间）与 `tol`，且拒绝理由点名成员
 - [ ] `test_importing_bayesmith_still_does_not_import_numpyro` 与 `test_compile_is_the_function_not_the_subpackage` 都通过
@@ -2334,6 +2340,46 @@ Run: `.venv/bin/python -m pytest -q && .venv/bin/python -m pytest -m "not slow" 
 - [ ] 每个任务的 AST 规格比对都跑过，每处实质差异都具名说明
 - [ ] `ruff check` 干净
 - [ ] 新文件覆盖率 ≥ 80%
+
+## 执行结果（2026-08-24 完成）
+
+Tasks 4–10 全部落地，随后经四路只读审查（规格合规 / 数值正确性 / 测试质量 / 代码质量与分层）
+审了整个 `main..HEAD`，审查发现的 1 条 CRITICAL、5 条 HIGH 与若干 MEDIUM 已在同一轮修掉。
+
+**基线迁移**：278 → **637** 通过；`-m "not slow"` 632 通过、5 条既有 `slow` 被 deselect；
+`ruff check` 干净；五个新模块行覆盖 97–100%。
+
+### 审查改掉的东西（都不在原计划里，都是实测驱动）
+
+| 提交 | 严重度 | 内容 |
+|---|---|---|
+| `73b5d3a` | **CRITICAL** | float32 下 σ 加权判据**根本不运行**（SNR>0.84 即失效），假 `linear_in` 被接受、后验偏 **801σ**，而计划打印 `linear_in ✓ max 0.00e+00`。拆成 `WEIGHTED_FLOOR_FACTOR=1e2` 与 `RELATIVE_FLOOR_FACTOR=1e4`；未判定的列现在返回 `Unresolved` 并具名告警，不再报成「测得零」 |
+| `b3ab244` | HIGH | 裸 `gcr` 不做任何修正，而移动探针够不到拐折的 σ。改为对先验尺度探针与**块自身 Wiener 解**处的 σ 取 max——后者正是后验所在。判决表零变化 |
+| `c0caaa6` | HIGH ×4 | `chain_method`/`nuts_options` 在两条 NUTS 路径上被静默丢弃；`tol` 低于工作精度时不再谎称 guard reachable；SNIS 塌缩改为**标注而非替换**（被丢掉的那个实测更准：1.40σ vs 18.46σ）；`except BayesmithError` 收窄为 `NotGaussian` |
+| `4fa9e94` | MED | 逐成员高斯探针此前可整段删除而套件全绿——`LyingNormal` 只出现在观测节点上 |
+| `15fff84` | — | 本分支造成的 12 个文件格式漂移（豁免只覆盖既有的 9 个） |
+
+### 与 spec §4.2 的一处**已知偏离**，不是缺陷
+
+§4.2 要求「块外隐变量影响 κ 时**在 sweep 内重算** `condition_bound`」。实际落地的是 Task 6
+Step 3 授权的**采样区间**：在每个块外隐变量的 ±1σ/±3σ（外加锚点）处各测一次，`tol` 取区间**上端**。
+理由是安全方向——上端给出更紧的 `tol`，代价是 CG 迭代数而不是精度。**残余风险已具名**：
+两个块外隐变量的**联合**极值点、plate 内的对比方向、以及 ±3σ 之外，都没有被采样到，
+那里 `tol` 会偏松而 sweep 内的守卫是关着的。`kappa_interval` 的 docstring 与提交 `cd50fd2`
+都写着「这是采样区间，不是上界」。**不要把这一条当成新发现的缺陷重新报一遍。**
+
+### 仍然开着的口子（已记录，不要当成没发现）
+
+- `LinearBlock` 不记录自己是在哪个 `at` 上建的，`log_weight` 因此无法校验传进来的 `at`。
+  经 `compile()/sample()` 不可达（每个调用点都在同一个表达式里建 `block` 与 `at`），
+  直接调 `log_weight` 的人才碰得到。
+- `depends_on_prediction` **无人读**（不是「无人查」）：默认值就是 `True`，
+  分派完全由实测 `movement` 决定。仓库里没有 fixture 声明 `False`。
+- 混合计划不说明**每个** NUTS 隐变量为何被弹出——`why_not` 只在块为空时保留。
+- `_ancestors`（跨包）与 `_weights`（跨模块）是私有名被外部读取；
+  `plan._execution()` 在拆分后成了跨模块的私有调用。三处都建议提升为公开名。
+- 分派方法名是裸 `str`，四个文件里比较与查表，只有 `gibbs_factory` 一处校验。
+- `num_chains > 1` 接通但无测试。
 
 ## 明确不在本计划范围内
 

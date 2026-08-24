@@ -1,4 +1,26 @@
-# 交接：bayesmith P3b Tasks 4–10
+# 交接：bayesmith P3b Tasks 4–10 —— **已全部完成（2026-08-24）**
+
+> **这份文档已经完成它的任务，保留作为记录。**
+>
+> Tasks 4–10 全部落地，随后四路只读审查审了整个 `main..HEAD`，发现的 1 条 CRITICAL、
+> 5 条 HIGH 与若干 MEDIUM 已在同一轮修掉。当前 HEAD 起于 `15fff84`：
+> **637 通过**、`-m "not slow"` 632 通过 5 deselect、`ruff check` 干净、新模块覆盖 97–100%。
+>
+> **接手下一阶段前先读**：计划文件 `2026-08-23-p3b-dispatch-execution.md` 末尾的
+> 「执行结果（2026-08-24 完成）」一节——它记着审查改掉了什么、与 spec §4.2 的那处
+> **已知且经过授权的偏离**（`condition_bound` 是采样区间而非 sweep 内重算），
+> 以及仍然开着的六个口子。**那节里已经具名的东西不要再当成新发现报一遍。**
+>
+> 下一阶段是 owner 的 `specs/2026-08-24-rheplicant-migration.md`。它的 §三
+> 「必须在 cross-check 之前修掉的缺陷」要先与本分支的 `2de46d1` / `23e6ccd` /
+> `888cc8b` / `ec7e142` / `73b5d3a` / `b3ab244` / `c0caaa6` 对一遍，别重做。
+>
+> 下面是原文，其中「这一轮用真实代价换来的教训」六条仍然适用，**第 3 条又被验证了两次**：
+> 本轮又有两条变异行在写下时没算功效——Task 4 点名 `test_gaussian.py`（对
+> `unchecked_operator` 零引用），Task 5 点名 `orphaned_child_latent`（该变异改不了任何判决）。
+> 两处都已在计划正文里划掉并写明原因。
+
+---
 
 仓库 `/Users/zzhang/projects/bayesmith`，用 `.venv/bin/python`。
 分支 **`p3b-dispatch-execution`**（不要在 `main` 上做实现）。
