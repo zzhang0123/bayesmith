@@ -38,6 +38,7 @@ from bayesmith.exact.block import (
     variance_parts,
 )
 from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
+from bayesmith.exact.precision import Precision, diagonal_from, quadratic
 
 #: Power-iteration steps for the top of the spectrum. The estimate typically
 #: settles within three; this leaves margin at a fixed cost of
@@ -54,18 +55,36 @@ POWER_ITERATIONS: int = 12
 PRECISION_FLOOR: float = 10.0
 
 
-def _weights(noise_std: dict[str, Any]) -> dict[str, jax.Array]:
-    return {name: 1.0 / jnp.asarray(std) ** 2 for name, std in noise_std.items()}
+def _weights(noise_std: dict[str, Any]) -> dict[str, Precision]:
+    """``{observed: sigma}`` -> ``{observed: N^-1}``.
+
+    Named for what it used to return, because every caller here means "the
+    noise, as the solver consumes it" and renaming would churn call sites for
+    no reader's benefit. What changed is the TYPE: a per-sample weight became
+    a :class:`~bayesmith.exact.precision.Precision`, so the same three uses
+    below -- the quadratic form, ``N^-1 r``, and the whitening draw -- go
+    through an interface a correlated covariance can also satisfy.
+
+    The diagonal path is not special-cased around it: it goes through the
+    same protocol calls, so the degeneracy stays exercised by every solve test
+    in the suite rather than only by ``tests/exact/test_precision.py``.
+    """
+    return diagonal_from(noise_std)
 
 
 def normal_operator(
-    block: LinearBlock, weight: dict[str, Any], prior_variance: dict[str, Any]
+    block: LinearBlock, weight: dict[str, Precision], prior_variance: dict[str, Any]
 ) -> Callable[[dict[str, Any]], dict[str, jax.Array]]:
-    """``x -> (A^T N^-1 A + S^-1) x`` over the block's domain."""
+    """``x -> (A^T N^-1 A + S^-1) x`` over the block's domain.
+
+    Never forms ``N``, which is why a non-diagonal covariance costs nothing
+    structural here: CG only ever needs the quadratic form, and
+    :func:`~bayesmith.exact.precision.quadratic` is it.
+    """
 
     def half_chi2(parts: dict[str, Any]) -> jax.Array:
         pushed = block.forward(parts)
-        return 0.5 * sum(jnp.sum(weight[name] * pushed[name] ** 2) for name in pushed)
+        return 0.5 * sum(quadratic(weight[name], pushed[name]) for name in pushed)
 
     def normal(parts: dict[str, Any]) -> dict[str, jax.Array]:
         curvature = jax.grad(half_chi2)(parts)
@@ -242,7 +261,9 @@ def _conjugate_solve(
     # the two give the same Gaussian.
     rhs = jax.tree.map(
         lambda base, mean, variance: base + mean / variance,
-        pair_with(jax.tree.map(jnp.multiply, weight, residual_data)),
+        pair_with(
+            {name: weight[name].apply(value) for name, value in residual_data.items()}
+        ),
         centre,
         prior_variance,
     )
@@ -276,7 +297,9 @@ def _conjugate_solve(
                 base + from_data + from_prior / jnp.sqrt(variance)
             ),
             rhs,
-            pair_with(jax.tree.map(lambda w, o: jnp.sqrt(w) * o, weight, omega_data)),
+            pair_with(
+                {name: weight[name].whiten(value) for name, value in omega_data.items()}
+            ),
             omega_prior,
             prior_variance,
         )

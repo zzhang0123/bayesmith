@@ -66,6 +66,24 @@ class Precision(Protocol):
         """``log det (2 pi N)`` -- the Gaussian's normalisation, a scalar."""
         ...
 
+    def whiten(self, omega: jax.Array) -> jax.Array:
+        """``N^-1/2 omega`` -- a standard normal draw given this covariance.
+
+        **The interface needs three operations, not the two B9 specifies.**
+        ``gcr_sample`` draws ``omega ~ N(0, I)`` and forms ``sqrt(w) * omega``
+        with ``w = 1/sigma**2``, which is exactly ``N^-1/2 omega``; it cannot
+        be built from :meth:`apply` and :meth:`log_normalizer`. The spec
+        acknowledges the operation for the evidence layer -- "the whitening
+        row becomes ``L^-1 r``" -- without carrying it into the interface that
+        layer would call.
+
+        The defining property, and what the tests assert rather than any
+        particular square root: applying it twice is :meth:`apply`, because
+        ``N^-1/2 N^-1/2 = N^-1``. Any square root satisfying that is a legal
+        implementation, which is why this does not promise a Cholesky.
+        """
+        ...
+
 
 def quadratic(precision: Precision, residual: jax.Array) -> jax.Array:
     """``r^T N^-1 r``.
@@ -104,6 +122,9 @@ class DiagonalPrecision(eqx.Module):
 
     def log_normalizer(self) -> jax.Array:
         return jnp.sum(jnp.log(2.0 * jnp.pi * self.sigma**2))
+
+    def whiten(self, omega: jax.Array) -> jax.Array:
+        return omega / self.sigma
 
 
 class CirculantPrecision(eqx.Module):
@@ -152,6 +173,25 @@ class CirculantPrecision(eqx.Module):
     def log_normalizer(self) -> jax.Array:
         size = self.first_column.shape[0]
         return size * math.log(2.0 * jnp.pi) + jnp.sum(jnp.log(self.eigenvalues))
+
+    def whiten(self, omega: jax.Array) -> jax.Array:
+        spectrum = jnp.fft.fft(omega) / jnp.sqrt(self.eigenvalues)
+        return jnp.real(jnp.fft.ifft(spectrum))
+
+
+def diagonal_from(noise_std: dict[str, Any]) -> dict[str, DiagonalPrecision]:
+    """``{observed: sigma}`` -> ``{observed: Precision}``.
+
+    The bridge from the decided-sigma dict the package passes around today.
+    It exists so the generalisation can land without every caller changing at
+    once, and so the diagonal path keeps going through the SAME code the
+    correlated one does -- a compatibility shim that bypassed the protocol
+    would leave the degeneracy untested where it matters.
+    """
+    return {
+        name: DiagonalPrecision(sigma=jnp.asarray(sigma))
+        for name, sigma in noise_std.items()
+    }
 
 
 def dense(precision: Precision, size: int, dtype: Any = None) -> jax.Array:

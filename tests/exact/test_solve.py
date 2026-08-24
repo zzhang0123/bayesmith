@@ -10,6 +10,7 @@ import pytest
 from bayesmith.exact.block import domain_zero, variance_parts
 from bayesmith.exact.gaussian import noise_std_at
 from bayesmith.exact.linearity import linear_operator
+from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import (
     PRECISION_FLOOR,
     condition_bound,
@@ -177,10 +178,10 @@ def test_the_normal_operator_is_symmetric():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        weight = {
-            o: 1.0 / jnp.asarray(s) ** 2
-            for o, s in _sigma(graph, {"a": 0.0, "b": 0.0}).items()
-        }
+        # Precision objects, not raw 1/sigma**2: `normal_operator` reads the
+        # protocol now, so a hand-built weight dict would be testing a shape
+        # the solver no longer accepts.
+        weight = diagonal_from(_sigma(graph, {"a": 0.0, "b": 0.0}))
         normal = normal_operator(block, weight, variance_parts(block))
         keys = jax.random.split(jax.random.key(3), 2)
         u = {
@@ -206,10 +207,10 @@ def test_the_normal_operator_reproduces_the_dense_precision_matrix():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        weight = {
-            o: 1.0 / jnp.asarray(s) ** 2
-            for o, s in _sigma(graph, {"a": 0.0, "b": 0.0}).items()
-        }
+        # Precision objects, not raw 1/sigma**2: `normal_operator` reads the
+        # protocol now, so a hand-built weight dict would be testing a shape
+        # the solver no longer accepts.
+        weight = diagonal_from(_sigma(graph, {"a": 0.0, "b": 0.0}))
         normal = normal_operator(block, weight, variance_parts(block))
         columns = []
         for name in block.names:
@@ -229,10 +230,7 @@ def test_the_normal_operator_sums_over_every_observed_node():
     with jax.enable_x64(True):
         graph = two_observations()
         block = linear_operator(graph, ("w",), at={})
-        weight = {
-            o: 1.0 / jnp.asarray(s) ** 2
-            for o, s in _sigma(graph, {"w": jnp.asarray(0.0)}).items()
-        }
+        weight = diagonal_from(_sigma(graph, {"w": jnp.asarray(0.0)}))
         normal = normal_operator(block, weight, variance_parts(block))
         applied = float(normal({"w": jnp.asarray(1.0)})["w"])
         oracle = graph_oracle(graph, ("w",), at={})

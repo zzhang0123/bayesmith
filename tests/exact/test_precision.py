@@ -171,3 +171,76 @@ class TestTheContractRefusesWhatItCannotDescribe:
             assert float(quadratic(precision, residual)) == pytest.approx(
                 float(jnp.sum(residual * precision.apply(residual))), rel=1e-15
             )
+
+
+class TestWhiteningIsTheThirdOperationTheInterfaceNeeded:
+    """``N^-1/2``, which ``apply`` and ``log_normalizer`` cannot build.
+
+    ``gcr_sample`` forms ``sqrt(1/sigma**2) * omega`` to turn a standard
+    normal draw into one with covariance ``N^-1``. B9's interface named two
+    operations and that draw is a third -- the spec mentions the operation for
+    the evidence layer ("the whitening row becomes ``L^-1 r``") without
+    carrying it into the interface. Found by reading what solve.py actually
+    does with its weights rather than what the interface said it would need.
+    """
+
+    @pytest.mark.parametrize("size", [4, 8, 15])
+    def test_whitening_twice_is_applying_once(self, size):
+        """The defining property, and deliberately not "it is the Cholesky".
+
+        ``N^-1/2 N^-1/2 = N^-1`` holds for ANY square root, so this is the
+        strongest claim that does not over-specify the implementation. It also
+        cannot be satisfied by an implementation that returned its input.
+        """
+        with jax.enable_x64(True):
+            for precision in (
+                CirculantPrecision(first_column=_kernel(size)),
+                DiagonalPrecision(sigma=jnp.linspace(0.4, 1.3, size)),
+            ):
+                omega = jnp.asarray(np.linspace(-2.0, 3.0, size))
+                twice = precision.whiten(precision.whiten(omega))
+                once = precision.apply(omega)
+                assert np.allclose(
+                    np.asarray(twice), np.asarray(once), rtol=1e-10, atol=1e-12
+                ), type(precision).__name__
+
+    def test_the_diagonal_whitening_is_the_old_sqrt_of_the_weight(self):
+        """``sqrt(w) * omega`` with ``w = 1/sigma**2`` -- solve.py's literal line."""
+        with jax.enable_x64(True):
+            sigma = jnp.linspace(0.3, 1.4, 9)
+            omega = jnp.linspace(-1.0, 1.0, 9)
+            found = DiagonalPrecision(sigma=sigma).whiten(omega)
+            expected = jnp.sqrt(1.0 / sigma**2) * omega
+        assert np.allclose(np.asarray(found), np.asarray(expected), rtol=1e-14)
+
+    def test_the_drawn_covariance_is_the_inverse(self):
+        """What whitening is FOR, measured on draws rather than on algebra.
+
+        ``omega ~ N(0, I)`` whitened must have covariance ``N^-1``. The
+        algebraic identity above would still hold for a square root that was
+        right up to an orthogonal factor and wrong in some other way; this
+        reads the covariance that actually comes out.
+        """
+        size, count = 8, 200_000
+        with jax.enable_x64(True):
+            precision = CirculantPrecision(first_column=_kernel(size))
+            omega = jax.random.normal(jax.random.key(3), (count, size))
+            drawn = jax.vmap(precision.whiten)(omega)
+            empirical = np.cov(np.asarray(drawn), rowvar=False)
+            target = np.asarray(dense(precision, size))
+        assert np.max(np.abs(empirical - target)) < 0.02 * np.max(np.abs(target))
+
+
+def test_diagonal_from_wraps_a_decided_sigma_dict():
+    """The bridge, and that it goes through the protocol rather than around it."""
+    from bayesmith.exact.precision import diagonal_from
+
+    with jax.enable_x64(True):
+        made = diagonal_from({"d": jnp.linspace(0.5, 1.5, 4)})
+        assert set(made) == {"d"}
+        assert isinstance(made["d"], Precision)
+        residual = jnp.ones(4)
+        assert np.allclose(
+            np.asarray(made["d"].apply(residual)),
+            np.asarray(residual / jnp.linspace(0.5, 1.5, 4) ** 2),
+        )

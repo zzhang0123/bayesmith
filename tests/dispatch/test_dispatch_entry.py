@@ -904,23 +904,46 @@ def test_estimate_refuses_a_mixed_graph_and_says_where_to_go(build):
 
 
 def test_the_convergence_guard_is_off_by_default_but_reachable():
-    """Measured, and the reason it is off is measured too.
+    """Measured, and RE-measured after B9 wired the solve to ``Precision``.
 
-    ``tol = CONVERGENCE_TARGET / kappa`` is constructed so that a CG stopping
-    exactly at ``tol`` delivers exactly ``CONVERGENCE_TARGET``, so switching
-    the guard on at that same target makes it fire on rounding:
-    ``two_linear_latents`` -- a two-parameter toy -- lands at residual
-    2.179e-07 against a condition bound of 5792, i.e. 1.262e-03 against a
-    1e-03 target, and is refused, while ``straight_line`` lands at 9.97e-04
-    and is accepted. Both halves are asserted, so this is not "the guard is
-    absent" but "the guard is a keyword and the keyword works".
+    Both halves are asserted, so this is not "the guard is absent" but "the
+    guard is a keyword and the keyword works".
+
+    **The numbers moved, and the justification moved with them.** This test
+    used to record ``two_linear_latents`` landing at residual 2.179e-07
+    against a condition bound of 5792 -- 1.262e-03 against a 1e-03 target,
+    refused -- as evidence that guarding at the SAME target as ``tol`` fires
+    on rounding, which was the stated reason the default is off.
+
+    Wiring the normal operator through
+    :class:`~bayesmith.exact.precision.Precision` re-associated the quadratic
+    form from ``(1/sigma**2) * r**2`` to ``r * (r/sigma**2)``. That is
+    algebraically the same and not bitwise the same, and CG's stopping
+    iteration is a step function of it: the residual fell to 1.224e-07, the
+    bound is unchanged at 5792, and the product is now 7.089e-04 -- BELOW the
+    1e-03 target. The solve got more accurate, so the guard no longer fires
+    there.
+
+    Re-measured on this tree, ``two_linear_latents`` flips between accepted
+    at 8e-04 and refused at 7e-04, which is what this now asserts.
+
+    **What that costs is the old rationale, not the guard.** Neither fixture
+    still demonstrates "the same-target guard fires on rounding":
+    ``two_linear_latents`` sits at 7.089e-04 against 1e-03 with margin, and
+    ``straight_line`` reaches an EXACT zero residual, which passes any bound.
+    Whether the default should still be off is therefore a live question
+    again rather than a settled one, and it is flagged rather than quietly
+    re-argued here.
     """
     import equinox as eqx
 
     plan = compile_graph(two_linear_latents())
     assert plan.estimate().converged is True
+    # Accepted at the target the plan's own tol is built from...
+    assert plan.estimate(require_convergence=8e-4).converged is True
+    # ...and refused just below it, so the keyword is doing something.
     with pytest.raises(eqx.EquinoxRuntimeError):
-        plan.estimate(require_convergence=1e-3)
+        plan.estimate(require_convergence=7e-4)
 
 
 def test_the_printed_plan_does_not_claim_a_guard_the_run_leaves_off():
