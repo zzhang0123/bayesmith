@@ -40,6 +40,7 @@ __all__ = [
     "evaluate",
     "log_joint",
     # inference
+    "compile",
     "to_numpyro",
     "nuts",
     # exact
@@ -90,6 +91,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "Probabilistic": ("bayesmith.graph.nodes", "Probabilistic"),
     "evaluate": ("bayesmith.graph.evaluate", "evaluate"),
     "log_joint": ("bayesmith.graph.evaluate", "log_joint"),
+    "compile": ("bayesmith.dispatch.plan", "compile"),
     "to_numpyro": ("bayesmith.bridge.numpyro_bridge", "to_numpyro"),
     "nuts": ("bayesmith.bridge.numpyro_bridge", "nuts"),
     "linear_operator": ("bayesmith.exact.linearity", "linear_operator"),
@@ -110,7 +112,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
 # `gaussian.py`'s use of `numpyro.distributions`). `errors` is listed too for
 # __dir__'s sake even though the eager import above already binds it as a
 # real attribute, so __getattr__ is never actually consulted for it.
-_LAZY_SUBMODULES = ("graph", "bridge", "exact", "errors")
+_LAZY_SUBMODULES = ("graph", "bridge", "exact", "dispatch", "errors")
 
 
 def __getattr__(name: str) -> Any:
