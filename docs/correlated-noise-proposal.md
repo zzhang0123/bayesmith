@@ -1,7 +1,7 @@
 # Declaring a correlated noise on a graph node
 
 An investigation, not an implementation. Nothing in `src/` was changed. Every
-number below comes from a probe in `probes/`, re-runnable as described in
+number below comes from a probe in `docs/probes/`, re-runnable as described in
 §0.
 
 `exact/precision.py` gave the package an `N^-1` that need not be diagonal, and
@@ -35,12 +35,12 @@ Recommendation: **extract a `Precision` from the node's own distribution**
 
 ```bash
 cd <this worktree>
-for p in probes/probe_*.py; do
+for p in docs/probes/probe_*.py; do
     PYTHONPATH=$PWD/src /Users/zzhang/projects/bayesmith/.venv/bin/python "$p"
 done
 ```
 
-`probes/OUTPUT.txt` is the captured output of exactly that loop. All eight
+`docs/probes/OUTPUT.txt` is the captured output of exactly that loop. All eight
 probes exit 0 and none raises.
 
 | probe | question |
