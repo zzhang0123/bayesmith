@@ -1466,3 +1466,80 @@ def observation_reused_downstream(*, n=6, s1=0.3, s2=0.7, w_true=1.6, seed=31):
         observe("d2", lambda u: dist.Normal(u, s2), mu2, obs=second)
 
     return trace(model)
+
+
+def steep_radiometer(
+    *, n=6, kappa=0.5, floor=1e-2, prior_std=10.0, prior_mean=0.8, w_true=1.5, seed=32
+):
+    """A sigma steep enough that the frozen-sigma corrections are CHEAP to test.
+
+    Not a cosmetic choice. Two separate guards need a fixture where freezing
+    sigma is a VISIBLE approximation, and every other prediction-dependent
+    graph in this module is too gentle to supply one.
+
+    **The freeze point is pinned three ways, and the three are far apart.**
+    Dense-oracle posterior sd of `w` with sigma frozen at
+
+    ==================  ==========  ===================================
+    freeze point        sd          what a mutation freezing there means
+    ==================  ==========  ===================================
+    `w = 0.8`           1.6561e-01  the prior mean -- what the factory declares
+    `w = 0.0`           1.9317e-03  the block's ZERO, `graph_oracle`'s default
+    `w = 3.0`           6.1355e-01  an arbitrary third point
+    ==================  ==========  ===================================
+
+    86x and 3.7x apart. `prior_mean` is **deliberately not 0.0**: at a
+    zero-mean prior the first two rows coincide and a mutation that freezes
+    sigma at the block's zero instead of at its prior mean is invisible --
+    discipline 3's mutation face, and `graph_oracle`'s `sigma_at` really does
+    default to the zero while `_env_before` really does centre members at the
+    prior mean, so the two freeze points both exist in this repository.
+
+    **The MH step's own guard.** With sigma frozen at the GLS fixed point the
+    independence proposal is accepted 0.456-0.477 of the time, and one MH
+    step applied to a quadrature-exact sample of `p(w | d)` leaves it where it
+    was: +0.0 to +1.4 standard errors on the paired mean shift, -0.003 to
+    +0.001 relative on the sd, measured over keys 4/13/99 and over the
+    parameter sweep below. Spec section 5.3's ORIGINAL error -- rebuilding
+    sigma at the current `x`, which makes the proposal adaptive and leaves an
+    uncancelled `log det M` -- shifts that same statistic by **-16.1 to -17.0
+    standard errors at 8000 draws**, narrows the sd by 13.0-17.3%, and does it
+    at an acceptance rate of 0.591-0.614, i.e. one that looks HEALTHIER than
+    the correct chain's. Two sigma is reached at **111-123 draws**. Not slow.
+
+    On `radiometer()` -- kappa=0.05 rather than 0.5 -- the same mutation is
+    -0.0 to -1.2 standard errors at 8000 draws (acceptance 0.980 correct vs
+    0.981 mutated), so two sigma needs O(10^4) draws there and the guard would
+    have to be marked `slow`, which is the fourth sub-criterion firing.
+
+    **Point or region, measured.** Swept one parameter at a time at 2000
+    draws, reporting the draws needed for two sigma on the mutation: the
+    default 116, `prior_mean=-1.7` 119, `w_true=4.0` 120, `prior_std=1.0` 209,
+    `seed=40` 113, `kappa=0.3` 394, `kappa=0.8` 73. So it is a region in
+    `kappa`, `prior_mean`, `prior_std` and `w_true`. It is **not** a region in
+    `n` or `seed`: `n=12` needs 5057 draws and `seed=41` needs 11586, because
+    both happen to make the frozen-sigma proposal already accurate
+    (acceptance 0.856 and 0.787 against the default's 0.477). The mechanism is
+    the same one in both directions -- the mutation is exactly as visible as
+    the proposal is bad -- so the defaults here are chosen at an acceptance
+    rate near 0.5, and the correct step's invariance holds at every cell
+    above.
+    """
+    x = jnp.linspace(1.0, 3.0, n)
+    truth = w_true * x
+    scale = kappa * jnp.abs(truth) + floor
+    data = truth + scale * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(prior_mean, prior_std))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe(
+            "d",
+            lambda u: dist.Normal(u, kappa * jnp.abs(u) + floor),
+            mu,
+            depends_on_prediction=True,
+            obs=data,
+        )
+
+    return trace(model)
