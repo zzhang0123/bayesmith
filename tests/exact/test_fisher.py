@@ -663,3 +663,43 @@ def test_a_constant_sigma_rule_contributes_exactly_zero():
             centre=centre,
         )
     assert float(with_rule.values[0, 0]) == float(without.values[0, 0])
+
+
+def test_the_weighted_design_is_ready_for_a_correlated_precision():
+    """``N^-1 A`` must be right for a covariance that couples samples.
+
+    ``fisher_information`` still converts a decided ``noise_std`` dict into
+    diagonal precisions, because nothing upstream can yet DECLARE a
+    correlated noise on a graph node -- that is the noise layer's own work.
+    What this pins is that the machinery underneath is already correct when
+    one arrives, so the remaining step is a declaration rather than a
+    rewrite.
+
+    It also pins the reason for the ``vmap`` over columns. A diagonal
+    implementation broadcasting ``(n,)`` against ``(n, k)`` would be right by
+    accident; a circulant one FFTs along the LAST axis, so handing it the
+    whole matrix would transform across parameters instead of across samples
+    and be silently wrong. The dense oracle below is what tells the two
+    apart.
+    """
+    import scipy.linalg as sla
+
+    from bayesmith.exact.fisher import _weighted_design
+    from bayesmith.exact.precision import CirculantPrecision
+    from tests.exact.models import straight_line
+
+    with jax.enable_x64(True):
+        graph = straight_line(n=8)
+        block = linear_operator(graph, ("w",), at={})
+        design = dense_operator(block)
+        lag = np.minimum(np.arange(8), 8 - np.arange(8))
+        kernel = jnp.asarray(0.6 * 0.4**lag)
+        found = _weighted_design(
+            block, design, {"d": CirculantPrecision(first_column=kernel)}
+        )
+        dense_cov = sla.circulant(np.asarray(kernel))
+    expected = np.linalg.solve(dense_cov, np.asarray(design))
+    assert np.allclose(np.asarray(found), expected, rtol=1e-9, atol=1e-12)
+    # ...and the correlation is really present, or this proves nothing.
+    off = dense_cov - np.diag(np.diag(dense_cov))
+    assert np.max(np.abs(off)) > 0.1 * np.max(np.abs(np.diag(dense_cov)))

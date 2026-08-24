@@ -32,6 +32,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from bayesmith.exact.block import LinearBlock
+from bayesmith.exact.precision import diagonal_from
 
 
 class FlatMatrix(eqx.Module):
@@ -157,6 +158,39 @@ def _log_sigma_curvature(
     return jac.T @ jac
 
 
+def _weighted_design(
+    block: LinearBlock, design: jax.Array, precision: dict[str, Any]
+) -> jax.Array:
+    """``N^-1 A``, applied column by column through the noise's own operator.
+
+    This used to build ``1 / sigma**2`` inline, with a comment conceding that
+    ``solve.py::_weights`` was "the reference" and that a future change to the
+    weighting "needs to land in both places". Two places is how one of them
+    goes stale, and the operator is now an interface rather than an array, so
+    the second copy can simply go: the same
+    :class:`~bayesmith.exact.precision.Precision` the solver uses is what
+    weights the design here.
+
+    Rows are split per observed node because a precision belongs to ONE node
+    -- a correlated covariance couples samples within a node, never across
+    two independent observations -- and the sizes come from ``block.data``,
+    which :func:`dense_operator` also flattens in ``sorted`` order, so the two
+    cannot disagree about the layout.
+
+    ``vmap`` over columns rather than one call on the matrix: ``apply`` is
+    written for a residual, and a diagonal implementation broadcasting
+    ``(n,)`` against ``(n, k)`` would be right by accident while a circulant
+    one -- which FFTs along the last axis -- would be wrong.
+    """
+    pieces, start = [], 0
+    for name in sorted(precision):
+        size = int(np.prod(block.data[name].shape, dtype=int))
+        rows = jax.lax.dynamic_slice(design, (start, 0), (size, design.shape[1]))
+        pieces.append(jax.vmap(precision[name].apply, in_axes=1, out_axes=1)(rows))
+        start += size
+    return jnp.concatenate(pieces, axis=0)
+
+
 def fisher_information(
     block: LinearBlock,
     *,
@@ -217,17 +251,7 @@ def fisher_information(
     """
     spans, _ = _spans(block)
     design = dense_operator(block)
-    # Same 1/sigma**2 weighting as solve.py::_weights, over a flat
-    # concatenation instead of a per-observed dict -- solve.py::_weights is
-    # the reference, so a future floor or clamp on this weighting needs to
-    # land in both places.
-    weight = jnp.concatenate(
-        [
-            jnp.reshape(1.0 / jnp.asarray(noise_std[name]) ** 2, (-1,))
-            for name in sorted(noise_std)
-        ]
-    )
-    values = design.T @ (weight[:, None] * design)
+    values = design.T @ _weighted_design(block, design, diagonal_from(noise_std))
     if depends_on_prediction and (sigma_of is None or centre is None):
         raise ValueError(
             "fisher_information() was told the noise depends on the prediction "
