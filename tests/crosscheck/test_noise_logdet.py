@@ -188,3 +188,145 @@ def test_the_gap_closes_when_sigma_does_not_depend_on_the_prediction():
         mean = float(jnp.mean(data))
     assert gls == pytest.approx(full, rel=1e-9)
     assert gls == pytest.approx(mean, rel=1e-8)
+
+
+# ---------------------------------------------------------------------------
+# Migration ledger 4.1, the Fisher row.
+# ---------------------------------------------------------------------------
+
+
+class TestTheFisherMatricesAgreeWhereBothPackagesClaimTo:
+    """``F = J^T N^-1 J``, elementwise, on the model both routes can express.
+
+    Note what does NOT need guarding here: a Fisher matrix does not read the
+    data. It is built from the Jacobian and sigma, so the "same fixture"
+    problem that §0.1 warns about -- the same PRNG key giving different draws
+    under x64 -- cannot reach this comparison. What must match is the DESIGN,
+    and that is taken from bayesmith's own graph rather than written out a
+    second time, so the two packages cannot be handed different models by a
+    typo in this file.
+    """
+
+    def test_constant_sigma_gives_the_same_matrix_to_roundoff(self):
+        from rheplicant.inference.noise import HomoscedasticNoise
+        from rheplicant.inference.uncertainty import fisher_information as theirs
+
+        from bayesmith.exact.fisher import fisher_information as ours
+        from bayesmith.exact.gaussian import noise_std_at
+        from bayesmith.exact.linearity import linear_operator
+        from tests.exact.models import straight_line
+        from tests.exact.oracle import graph_oracle
+
+        weight, sigma = 2.5, 0.5
+        with jax.enable_x64(True):
+            graph = straight_line(weight=weight, sigma=sigma)
+            block = linear_operator(graph, ("w",), at={})
+            mine = ours(
+                block,
+                noise_std=noise_std_at(graph, {"w": jnp.asarray(weight)}),
+                include_prior=False,
+            )
+            # The design, read off bayesmith's graph, so the model cannot
+            # differ between the two sides by a re-spelling.
+            design = jnp.asarray(graph_oracle(graph, ("w",), at={}).design)[:, 0]
+            yours = theirs(
+                lambda p: p["w"] * design,
+                {"w": jnp.asarray(weight)},
+                HomoscedasticNoise(sigma=jnp.asarray(sigma)),
+            )
+        assert mine.kind == "fisher" and yours.kind == "fisher"
+        assert np.allclose(
+            np.asarray(mine.values), np.asarray(yours.matrix), rtol=1e-12
+        )
+
+
+class TestTheRadiometerCorrectionIsNotPortedYet:
+    """``(1 + 2 f^2)``: rheplicant has it, bayesmith does not. Measured, not TODO'd.
+
+    For ``d ~ N(mu(theta), Sigma(theta))`` the information carries a second
+    term from the covariance's own parameter dependence,
+    ``1/2 tr(Sigma^-1 dSigma Sigma^-1 dSigma)``, which for a diagonal Sigma is
+    ``2 (dlog sigma/dtheta)^T (dlog sigma/dtheta)``. Under a radiometer it
+    collapses to a clean factor, and rheplicant applies it automatically
+    whenever the noise model reports ``depends_on_prediction``.
+
+    ``bayesmith.exact.fisher.fisher_information`` takes a DECIDED
+    ``noise_std`` dict, so it cannot know the sigma it was handed came from a
+    rule -- and ``LinearBlock`` carries no noise information either, so the
+    function has nothing to detect it with. It returns the first term alone.
+
+    The direction is worth stating because it is the forgiving-looking one:
+    omitting a factor greater than 1 makes ``F`` too SMALL, and the covariance
+    is ``F^-1``, so the error bar comes out too WIDE by ``sqrt(1 + 2 f^2)``.
+    A forecast that is too conservative reads as safe, which is exactly why it
+    survives review -- 0.25% at ``f = 0.05``, but 22% at ``f = 0.5`` and 73%
+    at ``f = 1``.
+
+    **This class asserts the gap, so it goes red the day the gap closes.**
+    That is deliberate: a divergence recorded only in a ledger row is a
+    divergence nobody is measuring, and the ledger's own point is that a port
+    compared once by hand drifts in silence afterwards. When this fails, the
+    correction has landed -- check it against the exact factor below, then
+    move the row out of "not ported".
+    """
+
+    @staticmethod
+    def _pieces(fractional: float):
+        """``(their F, first term, f)`` on one linear model under a radiometer."""
+        from rheplicant.inference.uncertainty import fisher_information as theirs
+
+        noise = _noise(fractional)
+        design = jnp.linspace(1.0, 5.0, 10)
+        params = {"w": jnp.asarray(3.0)}
+
+        def forward(p):
+            return p["w"] * design
+
+        full = float(theirs(forward, params, noise).matrix[0, 0])
+        sigma = np.asarray(noise.std(forward(params)))
+        column = np.asarray(design)[:, None]
+        first = float((column.T @ (column / sigma[:, None] ** 2))[0, 0])
+        return full, first, noise.fractional
+
+    @pytest.mark.parametrize("fractional", [0.05, 0.5, 1.0])
+    def test_rheplicant_applies_exactly_one_plus_two_f_squared(self, fractional):
+        """The factor is exact, not asymptotic -- ten digits at every f."""
+        with jax.enable_x64(True):
+            full, first, f = self._pieces(fractional)
+        assert full / first == pytest.approx(1.0 + 2.0 * f**2, rel=1e-10)
+
+    @pytest.mark.parametrize("fractional", [0.05, 0.5, 1.0])
+    def test_bayesmith_returns_the_first_term_alone(self, fractional):
+        """The half that will go red when the port lands.
+
+        Asserted through bayesmith's own function on its own graph rather
+        than by re-deriving ``J^T N^-1 J`` here, so it reads what the package
+        does rather than what this file thinks it does.
+        """
+        from bayesmith.exact.fisher import fisher_information as ours
+        from bayesmith.exact.gaussian import noise_std_at
+        from bayesmith.exact.linearity import linear_operator
+        from tests.exact.models import radiometer
+        from tests.exact.oracle import graph_oracle
+
+        with jax.enable_x64(True):
+            graph = radiometer(kappa=fractional, floor=1e-9)
+            block = linear_operator(graph, ("w",), at={})
+            sigma = noise_std_at(graph, {"w": jnp.asarray(3.0)})
+            mine = float(ours(block, noise_std=sigma, include_prior=False).values[0, 0])
+            column = np.asarray(graph_oracle(graph, ("w",), at={}).design)
+            weights = np.reshape(np.asarray(sigma["d"]), (-1, 1)) ** -2
+            first = float((column.T @ (weights * column))[0, 0])
+        assert mine == pytest.approx(first, rel=1e-12)
+
+        # The ledger claim itself, across the two packages on the same design
+        # and the same f: rheplicant's answer is bayesmith's times the factor.
+        # The two floors differ in KIND -- bayesmith adds, rheplicant clamps --
+        # so `floor=1e-9` against a sigma of order 1 keeps that difference at
+        # 1e-9 relative and out of the comparison.
+        with jax.enable_x64(True):
+            full, _, f = self._pieces(fractional)
+        assert full / mine == pytest.approx(1.0 + 2.0 * f**2, rel=1e-7), (
+            f"rheplicant {full} against bayesmith {mine}: the factor is "
+            f"{full / mine}, expected {1.0 + 2.0 * f**2}"
+        )
