@@ -256,3 +256,62 @@ def test_ancestry_dedups_a_diamond(monkeypatch):
     # lookups total if -- and only if -- `tau` is expanded once, not once
     # per path that reaches it.
     assert sorted(calls) == sorted(["x", "width", "upper", "lower", "tau"])
+
+
+def test_unchecked_operator_refuses_to_trace_with_the_gaussian_probe_live():
+    """The probe is concrete-valued by construction, so it cannot be traced.
+
+    `check_gaussian` does `bool(jnp.all(...))` and `float(jnp.min(...))` and
+    raises -- its own docstring says it runs outside any trace. This pins the
+    fact rather than leaving a future reader to discover it from a stack
+    trace inside a Gibbs sweep, which is where it would otherwise surface.
+    """
+    graph = two_linear_latents()
+
+    def build(a_value):
+        return unchecked_operator(graph, ["b"], at={"a": a_value}).offset
+
+    with pytest.raises(jax.errors.TracerBoolConversionError):
+        jax.jit(build)(jnp.asarray(0.5))
+
+
+def test_probe_gaussian_false_makes_the_operator_traceable():
+    """The other side, and the whole reason the keyword exists.
+
+    A Gibbs sweep rebuilds the operator at the current `hmc_sites` every
+    sweep, under jit. The Gaussian probe is a statement about the MODEL, not
+    about the sweep, so it is checked once at compile time and disabled here.
+
+    Both halves are asserted because only the pair proves the keyword is
+    connected: a `probe_gaussian` that is accepted and ignored passes this
+    test and fails the one above, and one that is honoured everywhere but
+    inside `_env_before` passes neither.
+    """
+    graph = two_linear_latents()
+
+    def build(a_value):
+        return unchecked_operator(
+            graph, ["b"], at={"a": a_value}, probe_gaussian=False
+        ).offset
+
+    offset = jax.jit(build)(jnp.asarray(0.5))
+    assert all(bool(jnp.all(jnp.isfinite(leaf))) for leaf in jax.tree.leaves(offset))
+
+
+def test_probe_gaussian_false_also_silences_the_per_member_probe():
+    """`_env_before`'s per-MEMBER probe is a second call site, easily missed.
+
+    Gating only `unchecked_operator`'s per-observed-node call leaves
+    `block.py`'s `_env_before` calling `check_gaussian` for every block
+    member, and the trace still dies. A PLATED member is used here so the two
+    call sites cannot be confused by a fixture where the member and the
+    observed node happen to be the same shape -- with a scalar member and a
+    scalar observed node, a partial fix can look complete.
+    """
+    graph = plated_latent_through_deterministic()
+
+    def build(scale):
+        block = unchecked_operator(graph, ["z"], at={}, probe_gaussian=False)
+        return block.offset["d"] * scale
+
+    assert bool(jnp.all(jnp.isfinite(jax.jit(build)(jnp.asarray(2.0)))))
