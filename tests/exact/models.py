@@ -1234,3 +1234,235 @@ def element_contrast_sigma_plate(*, n=6, tau=3.0, base=0.3, seed=27):
         )
 
     return trace(model)
+
+
+def orphaned_child_latent(*, n=6, sigma=0.5, w_true=2.0, seed=25):
+    """`w` is Gaussian and affine, but a DISQUALIFIED latent's density needs it.
+
+    The partition rule's ejection clause originally read "z leaves if it is an
+    ancestor of another QUALIFIED latent". `v` here is Student-t, so it fails
+    criterion 1 and is not qualified -- and `w` therefore stayed in the block
+    while the factor `p(v | w)` was dropped on the floor. `unchecked_operator`
+    reads exactly two things, the block members' own priors and the observed
+    nodes; every other density term in the graph is invisible to it.
+
+    Measured with the qualified-only rule: mean(w) +0.4106 sd 1.7723 against
+    a truth of +1.9759 / 0.4816 and a long-NUTS +2.0004 / 0.4809 -- 3.2 true
+    sd out, width inflated 3.7x.
+
+    `tests/exact/oracle.py::graph_oracle` reproduces the SAME wrong answer,
+    because it reads the same two sources. The dense oracle cannot see this
+    class of defect at all, which is why the guard has to be structural.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    key = jax.random.key(seed)
+    data = w_true * x + sigma * jax.random.normal(key, (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 3.0))
+        sample("v", lambda w_: dist.StudentT(3.0, w_, 0.4), w)
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def student_t_likelihood(*, n=6, sigma=0.5, w_true=1.5, seed=26):
+    """The OBSERVED node is not Gaussian -- criterion 2.
+
+    Every one of the 29 `observe()` calls in this module used `dist.Normal`
+    before this fixture existed, so criterion 2 had no fixture and a
+    classifier that simply never checked observed nodes would have passed the
+    entire table. The latent-side criterion is already covered twice, by
+    `overflowing_outside_latent`'s Cauchy and `improper_outside_prior`'s
+    ImproperUniform.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = w_true * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 3.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: dist.StudentT(4.0, m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def lying_observed_node(*, n=6, sigma=0.5, w_true=1.5, seed=27):
+    """The observed node's TYPE says Normal while its own log_prob does not.
+
+    `LyingNormal` keeps `loc` and `scale` and changes the density, so
+    introspection passes and the probe does not. The classifier must let the
+    resulting StructureError THROUGH -- routing it to NUTS would hide a
+    broken model behind an ordinary-looking fallback, which is precisely the
+    distinction `errors.py` exists to preserve.
+
+    Note this is the same exception TYPE that `check_linearity` raises for a
+    false `linear_in`, and that one MUST be caught. The classifier therefore
+    discriminates by raise SITE, not by exception type.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = w_true * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 3.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: LyingNormal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def dangling_deterministic(*, n=6, sigma=0.55, w_true=2.2, seed=28):
+    """A `Deterministic` child of the latent that NO observed node depends on.
+
+    Criterion 3 quantifies over the `Deterministic` nodes on a path from the
+    latent to an observed node's location. `audit` here is a child of `w`
+    that leads nowhere: it declares no `linear_in` at all, and it is not an
+    ancestor of `d`. Requiring a declaration from it would refuse an
+    entirely honest model for a node the solve never evaluates -- so
+    `_relevant_deterministics` intersects with the observed nodes'
+    ancestors, and this fixture is what makes that intersection load-bearing.
+
+    Before it existed the mutation "drop the `matters` intersection" left the
+    whole suite green: every other fixture's Deterministic nodes are all on
+    a path to an observed node, so the intersection was a no-op on all of
+    them. `audit` is `w**2` rather than something affine so that the fixture
+    is not accidentally harmless in some later, laxer reading of criterion 3.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    data = w_true * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 3.4))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        det("audit", lambda w_: w_**2, w)
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def three_latent_chain(*, n=6, sigma=0.45, y_true=1.9, seed=29):
+    """`tau -> x -> y`: a chain of three latents, each setting the next's width.
+
+    Every existing ancestry fixture (`indirect_ancestor`, `diamond_ancestor`,
+    `shared_ancestor`) has exactly ONE ancestor and ONE descendant, so the
+    ejection rule is only ever asked a single question there. A chain asks it
+    a nested one: `tau` is an ancestor of `x` AND of `y`, `x` is an ancestor
+    of `y`, and `y` is an ancestor of nothing.
+
+    **What it separates, measured.** Eject only the FIRST ancestor found --
+    a `break` in the loop, which is exactly the slip a set comprehension
+    hides -- and this fixture comes out with the block `('x', 'y')`, a pair
+    whose joint distribution is not Gaussian and which
+    `_refuse_internal_ancestry` then refuses from two layers down. On
+    `shared_ancestor`, `indirect_ancestor` and `mixed_radiometer` the same
+    mutation is invisible: each has exactly one latent to eject, so stopping
+    after the first IS stopping after all of them. Measured, all four.
+
+    **What it does NOT separate, also measured.** "Runs once versus runs to a
+    fixed point" turns out to be a distinction without a difference here, for
+    a reason worth writing down rather than rediscovering: `_ancestors` is
+    TRANSITIVE, so `tau` is an ancestor of `y` directly and not only by way
+    of `x`. Re-reading the rule to quantify over the surviving candidates
+    instead of over `graph.latents`, and running a single order-dependent
+    pass in the least favourable order (`y`, then `x`, then `tau`), still
+    ejects `tau` -- because `y` is still there and `tau` still reaches it.
+    Measured: `('y',)` under both readings. The shipped quantifier over
+    `graph.latents`, a set that never shrinks, is preferable anyway for being
+    order-independent by construction rather than by transitivity, but this
+    fixture is not evidence for it.
+
+    Not a block-size-3 fixture either: the block here is `{y}` alone. Block
+    size 3 is reached through `sigma_functional_block(weights=(...,) * 3)`,
+    whose three members have no ancestry between them.
+    """
+    x_grid = jnp.linspace(1.0, 2.0, n)
+    data = y_true * x_grid + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x_grid)
+        tau = sample("tau", lambda: dist.Normal(2.4, 0.6))
+        x = sample("x", lambda t: dist.Normal(0.0, jnp.abs(t) + 0.15), tau)
+        y = sample("y", lambda x_: dist.Normal(0.0, jnp.abs(x_) + 0.35), x)
+        mu = det("mu", lambda y_, g_: y_ * g_, y, xs, linear_in=("y",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def mixed_radiometer(*, n=10, weight=2.6, kappa=0.05, floor=1.3e-3, seed=30):
+    """A prediction-dependent sigma on a block that is a PROPER SUBSET.
+
+    `tau` is a latent ancestor of `w`'s own prior, so the ancestor rule
+    ejects it: the block is `{w}` and `tau` goes to NUTS. Sigma still tracks
+    the prediction, so the block is approximate -- and it is embedded in a
+    Gibbs sweep rather than being the whole graph, which is spec section 5.3's
+    path (B), the independent-proposal Metropolis step.
+
+    Every other prediction-dependent fixture in this module (`radiometer`,
+    `radiometer_group`, `plated_radiometer`, `contrast_sigma_pair`,
+    `sum_sigma_pair`, `sigma_functional_block`) is whole-graph-one-block and
+    therefore routes to path (A), self-normalised importance sampling.
+    Without this fixture the `gcr+mh` arm of the method choice has no test at
+    all and deleting it leaves the suite green.
+    """
+    x = jnp.linspace(1.0, 5.0, n)
+    truth = weight * x
+    data = truth + (kappa * jnp.abs(truth) + floor) * jax.random.normal(
+        jax.random.key(seed), (n,)
+    )
+
+    def model():
+        xs = const("X", x)
+        tau = sample("tau", lambda: dist.Normal(4.2, 0.7))
+        w = sample("w", lambda t: dist.Normal(0.0, jnp.abs(t) + 0.2), tau)
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe(
+            "d",
+            lambda m: dist.Normal(m, kappa * jnp.abs(m) + floor),
+            mu,
+            depends_on_prediction=True,
+            obs=data,
+        )
+
+    return trace(model)
+
+
+def observation_reused_downstream(*, n=6, s1=0.3, s2=0.7, w_true=1.6, seed=31):
+    """A `Deterministic` whose only parent is an OBSERVED node.
+
+    `d1` is data, so `mu2 = tanh(d1) / 2` is a CONSTANT with respect to every
+    latent -- `evaluate` puts the observed value into the environment, so
+    `isolate` never moves it. Criterion 3 must therefore not ask `mu2` for a
+    `linear_in` declaration on `w`'s behalf: `w` does not reach `d2`'s
+    location at all, and `d2` contributes a constant offset and nothing else.
+
+    This is the one fixture in this module where a Probabilistic node is the
+    PARENT of a Deterministic one, and it is what makes
+    `bayesmith.dispatch.classify._relevant_deterministics`' "stop at every
+    Probabilistic node" clause load-bearing. Measured: a forward walk that
+    continues THROUGH Probabilistic nodes reaches `mu2` from `w` by
+    `mu1 -> d1`, finds `linear_in=()`, and disqualifies an entirely honest
+    `w`. On every other fixture in this module that mutation is a verdict
+    no-op, because the only paths that leave a latent through a Probabilistic
+    node leave it through a LATENT one -- and the ancestor rule ejects the
+    latent for that anyway, reaching the same verdict by another route.
+    """
+    x = jnp.linspace(1.0, 2.0, n)
+    k1, k2 = jax.random.split(jax.random.key(seed))
+    first = w_true * x + s1 * jax.random.normal(k1, (n,))
+    second = jnp.tanh(first) / 2.0 + s2 * jax.random.normal(k2, (n,))
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 2.8))
+        mu1 = det("mu1", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        obs1 = observe("d1", lambda u: dist.Normal(u, s1), mu1, obs=first)
+        mu2 = det("mu2", lambda r: jnp.tanh(r) / 2.0, obs1)
+        observe("d2", lambda u: dist.Normal(u, s2), mu2, obs=second)
+
+    return trace(model)
