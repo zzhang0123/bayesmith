@@ -1,0 +1,330 @@
+########## probes/probe_1_what_the_chain_does.py
+n = 8, kernel = [2.0, 0.7, 0.3, 0.1, 0.05, 0.1, 0.3, 0.7]
+circulant eigenvalues = [4.25, 2.7985, 1.45, 1.1015, 1.05, 1.1015, 1.45, 2.7985]
+
+[normal]
+    log_joint                    OK       -10.631340
+    numpyro log_density          OK       -10.631340
+    gaussian_parts(d)            OK       ((8,), (8,))
+    check_gaussian(d)            OK       {-3.0: 0.0, -1.0: 0.0, 0.0: 0.0, 0.5: 0.0, 2.0: 0.0}
+    noise_std_at                 OK       {'d': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+    unchecked_operator({w})      OK       offset shape (8,)
+    linear_operator({w})         OK       offset shape (8,)
+
+[mvn]
+    log_joint                    OK       -12.422781
+    numpyro log_density          OK       -12.422781
+    gaussian_parts(d)            REFUSED  NotGaussian: node 'd' returns MultivariateNormal; the exact linear-Gaussian path needs a diagonal Normal (a N
+    check_gaussian(d)            REFUSED  NotGaussian: node 'd' returns MultivariateNormal; the exact linear-Gaussian path needs a diagonal Normal (a N
+    noise_std_at                 REFUSED  NotGaussian: node 'd' returns MultivariateNormal; the exact linear-Gaussian path needs a diagonal Normal (a N
+    unchecked_operator({w})      REFUSED  NotGaussian: node 'd' returns MultivariateNormal; the exact linear-Gaussian path needs a diagonal Normal (a N
+    linear_operator({w})         REFUSED  NotGaussian: node 'd' returns MultivariateNormal; the exact linear-Gaussian path needs a diagonal Normal (a N
+
+[circulant]
+    log_joint                    OK       -12.422780
+    numpyro log_density          OK       -12.422780
+    gaussian_parts(d)            REFUSED  NotGaussian: node 'd' returns CirculantNormal; the exact linear-Gaussian path needs a diagonal Normal (a Norm
+    check_gaussian(d)            REFUSED  NotGaussian: node 'd' returns CirculantNormal; the exact linear-Gaussian path needs a diagonal Normal (a Norm
+    noise_std_at                 REFUSED  NotGaussian: node 'd' returns CirculantNormal; the exact linear-Gaussian path needs a diagonal Normal (a Norm
+    unchecked_operator({w})      REFUSED  NotGaussian: node 'd' returns CirculantNormal; the exact linear-Gaussian path needs a diagonal Normal (a Norm
+    linear_operator({w})         REFUSED  NotGaussian: node 'd' returns CirculantNormal; the exact linear-Gaussian path needs a diagonal Normal (a Norm
+
+NUTS on [mvn]: w = -0.067691 +/- 0.706668  (n=400)
+NUTS on [circulant]: w = -0.090067 +/- 0.689941  (n=400)
+
+########## probes/probe_2_extraction_and_the_guard.py
+==============================================================================
+(a) CirculantNormal.log_prob  vs  precision.log_density(CirculantPrecision)
+==============================================================================
+  trial 0: numpyro -11.480869570711   precision -11.480869570711   rel 1.547e-16
+  trial 1: numpyro -14.987315414961   precision -14.987315414961   rel 0.000e+00
+  trial 2: numpyro -12.920838543944   precision -12.920838543944   rel 0.000e+00
+  trial 3: numpyro -11.866034132539   precision -11.866034132539   rel 0.000e+00
+  trial 4: numpyro -11.977445795099   precision -11.977445795099   rel 0.000e+00
+  WORST relative disagreement over 5 draws: 1.547e-16
+
+  extraction surface on the distribution object:
+    .covariance_row  -> [2.0, 0.7, 0.3, 0.1, 0.05, 0.1, 0.3, 0.7]
+    .covariance_rfft -> [4.25, 2.798528, 1.45, 1.101472, 1.05]
+    .loc             -> shape (8,)
+    CirculantPrecision.eigenvalues -> [4.25, 2.798528, 1.45, 1.101472, 1.05, 1.101472, 1.45, 2.798528]
+    rfft(kernel).real              -> [4.25, 2.798528, 1.45, 1.101472, 1.05]
+    event_shape (8,), batch_shape (), log_prob shape ()
+
+==============================================================================
+(b) what check_gaussian's ELEMENTWISE comparison computes for this node
+==============================================================================
+  sqrt(diag N) = [1.414214, 1.414214, 1.414214, 1.414214, 1.414214, 1.414214, 1.414214, 1.414214]
+  offset -3.0: joint log_prob  -26.53784  per-element predicted  -5.76551  worst departure 3.6029e+00
+  offset -1.0: joint log_prob  -11.47902  per-element predicted  -1.76551  worst departure 5.5018e+00
+  offset +0.0: joint log_prob   -9.59667  per-element predicted  -1.26551  worst departure 6.5832e+00
+  offset +0.5: joint log_prob  -10.06726  per-element predicted  -1.39051  worst departure 6.2400e+00
+  offset +2.0: joint log_prob  -17.12608  per-element predicted  -3.26551  worst departure 4.2445e+00
+  (default rtol at float64 = 1e3*eps = 2.220e-13)
+
+########## probes/probe_3_what_a_correlated_guard_must_probe.py
+eigenvalues A = [4.25, 2.798528, 1.45, 1.101472, 1.05, 1.101472, 1.45, 2.798528]
+eigenvalues B = [4.25, 4.477645, 1.45, 0.68842, 1.05, 0.68842, 1.45, 4.477645]
+both positive definite:  A True  B True
+lambda_0     A 4.250000000000   B 4.250000000000
+sum log eig  A 4.490318172083   B 4.490318172083
+kernel A = [2.0, 0.7, 0.3, 0.1, 0.05, 0.1, 0.3, 0.7]
+kernel B = [2.316516, 1.069847, 0.3, -0.269847, -0.266516, -0.269847, 0.3, 1.069847]
+
+how different the two PRECISIONS actually are: ||N_A^-1 - N_B^-1||_F / ||N_A^-1||_F = 0.4060
+sqrt(diag N_A) = [1.414214, 1.414214, 1.414214, 1.414214, 1.414214, 1.414214, 1.414214, 1.414214]  (constant: the kernel is stationary)
+
+==============================================================================
+(c) the PROBE_OFFSETS family: probe = loc + offset * sqrt(diag N)
+==============================================================================
+  offset -3.0: A -26.5378438223   B -26.5378438223   rel 0.000e+00
+  offset -1.0: A -11.4790202929   B -11.4790202929   rel 0.000e+00
+  offset +0.0: A  -9.5966673517   B  -9.5966673517   rel 1.851e-16
+  offset +0.5: A -10.0672555870   B -10.0672555870   rel 0.000e+00
+  offset +2.0: A -17.1260791164   B -17.1260791164   rel 0.000e+00
+  WORST over the whole probe family: 1.851e-16
+  default rtol at float64 (1e3*eps): 2.220e-13
+  -> the family CANNOT tell these two covariances apart.
+
+==============================================================================
+(d) a RANDOM displacement instead of a constant one
+==============================================================================
+  trial 0: A -10.4340905601   B -10.3940708407   rel 3.835e-03
+  trial 1: A -11.9925109354   B -12.6088149467   rel 4.888e-02
+  trial 2: A -11.0740767705   B -11.3221112177   rel 2.191e-02
+  trial 3: A -10.6052748098   B -10.6619374327   rel 5.314e-03
+  trial 4: A -10.6547911043   B -10.6343000951   rel 1.923e-03
+  trial 5: A -13.3725635972   B -14.2936293681   rel 6.444e-02
+  trial 6: A -12.1453420692   B -12.3025121214   rel 1.278e-02
+  trial 7: A -12.3020387425   B -13.3446684850   rel 7.813e-02
+  worst 7.813e-02, best 1.923e-03 over 8 random displacements
+
+==============================================================================
+(e) ONE gradient of log_prob -- n equations, elementwise
+==============================================================================
+  -grad log_prob_A(loc+r) = [0.08706062, -0.57511515, 0.77593972, 0.49187657, 0.53426398, -1.56664516, 0.30964667, 0.44645249]
+  CirculantPrecision_A.apply(r) = [0.08706062, -0.57511515, 0.77593972, 0.49187657, 0.53426398, -1.56664516, 0.30964667, 0.44645249]
+  worst elementwise relative error, A vs its own Precision: 2.220e-16
+  worst elementwise relative error, B's gradient vs A's Precision: 1.882e-01
+  -> a single gradient separates them by 8.48e+14x
+
+  the other half -- the normaliser -- from log_prob AT the mode:
+    A: log_prob(loc) -9.596667351679   -0.5*log_normalizer() -9.596667351679   rel 1.851e-16
+    B: log_prob(loc) -9.596667351679   -0.5*log_normalizer() -9.596667351679   rel 3.702e-16
+
+  cost of each verification style, for one observed node of size n:
+    scalar-offset family : 5 x log_prob                    (5 scalars)
+    random displacements : k x log_prob                    (k scalars)
+    gradient probe       : 1 x log_prob + 1 x grad log_prob (n+1 numbers)
+    dense oracle         : dense(precision, n) = n applies  (n^2 numbers)
+
+########## probes/probe_4_traceability_and_cost.py
+==============================================================================
+(a) can a Precision be CONSTRUCTED inside a trace?
+==============================================================================
+  DiagonalPrecision under jit      OK      -> 16.000000
+  CirculantPrecision under jit     REFUSED -> ConcretizationTypeError
+      Abstract tracer value encountered where concrete value is expected: traced array with shape float64[]
+
+  and inside jax.linearize, which is what block.py actually opens:
+    DiagonalPrecision    OK
+    CirculantPrecision   REFUSED -> ConcretizationTypeError
+
+  is the ARITHMETIC traceable if the check is skipped?
+    same quadratic without __check_init__: OK -> 1.577428, grad finite: True
+
+==============================================================================
+(b) cost: FFT route vs dense MultivariateNormal, log_prob and gradient
+==============================================================================
+       n   circ log_prob    circ grad   dense build  dense log_prob   dense RAM
+     256         0.024ms      0.018ms       194.3ms         0.050ms     0.000GB  (|MVN-circ| = 1.59e-12)
+    1024         0.035ms      0.032ms       144.0ms         0.267ms     0.008GB  (|MVN-circ| = 1.14e-11)
+    4096         0.042ms      0.050ms       208.4ms         3.819ms     0.125GB  (|MVN-circ| = 3.27e-11)
+   16384         0.170ms      0.149ms     not built       not built     2.000GB
+   65536         0.375ms      0.739ms     not built       not built    32.000GB
+  262144         1.835ms      3.510ms     not built       not built   512.000GB
+ 1048576         7.392ms     15.027ms     not built       not built  8192.000GB
+
+  dense RAM is one n x n float64 covariance; MultivariateNormal also
+  factorises it (Cholesky, O(n^3)) at construction.
+
+==============================================================================
+(c) the dense route's real wall: forming and factorising N
+==============================================================================
+  (the 'dense build' column above is dominated by one-time JIT compilation,
+   so it does NOT show the O(n^3) scaling. numpy, no compile step, does:)
+       n       form N     cholesky         RAM
+     256       1.83ms       0.34ms    0.0005GB
+     512       1.87ms       1.47ms    0.0020GB
+    1024       5.03ms       8.53ms    0.0078GB
+    2048      14.42ms      46.45ms    0.0312GB
+    4096      39.06ms     215.76ms    0.1250GB
+
+==============================================================================
+(d) does the noise really get built under a trace on the solve path?
+==============================================================================
+  types the observed node's dist_fn saw inside jax.linearize: ['LinearizeTracer']
+  -> `observation_parts` (and so any `precision_at` built the same way)
+     runs on TRACERS. A Precision whose constructor concretises cannot
+     be built there; see (a).
+
+########## probes/probe_5_the_one_object_seam.py
+==============================================================================
+(a) the signature every exact consumer actually takes
+==============================================================================
+  wiener_solve         noise-related parameters: ['noise_std']
+  gcr_sample           noise-related parameters: ['noise_std']
+  condition_bound      noise-related parameters: ['noise_std']
+  fisher_information   noise-related parameters: ['noise_std', 'sigma_of']
+  iterative_gls        noise-related parameters: ['sigma_of']
+
+  and what the type annotation says the value is:
+    wiener_solve.noise_std : dict[str, Any]
+    noise_std_at returns   : <class 'jaxlib._jax.ArrayImpl'>
+  -> there is no parameter anywhere that accepts a Precision.
+
+==============================================================================
+(b) is the ONE-object discipline structural, or call convention?
+==============================================================================
+  the graph's own sigma          : 0.500000
+  noise_std x1.0   -> wiener_solve w = +1.975278, posterior sd = 0.106551, log_joint at that w = -53.5719
+  noise_std x2.0   -> wiener_solve w = +1.972591, posterior sd = 0.212956, log_joint at that w = -53.5722
+  noise_std x10.0  -> wiener_solve w = +1.890294, posterior sd = 1.042332, log_joint at that w = -53.8900
+  Nothing refused. The sigma the solver was weighted by and the sigma
+  the node declares are compared NOWHERE -- the only thing keeping them
+  equal is that the caller passed noise_std_at(graph, ...).
+
+  the one place a cross-check DOES exist (fisher's centre/sigma_of):
+    REFUSED: noise_std['d'] is not what sigma_of produces at centre, so the weighting and the curvature would be 
+  -- but only when sigma_of= and centre= are supplied, which
+     depends_on_prediction=False lets a caller omit entirely.
+
+==============================================================================
+(c) could a Precision be passed through today's parameter?
+==============================================================================
+  DiagonalPrecision    REFUSED -> TypeError: Value 'DiagonalPrecision(sigma=f64[64])' with dtype object is not a valid JAX ar
+  CirculantPrecision   REFUSED -> TypeError: Value 'CirculantPrecision(first_column=f64[64])' with dtype object is not a vali
+
+########## probes/probe_6_sigma_census.py
+==============================================================================
+(a) functions whose signature carries a sigma-shaped parameter: 23
+==============================================================================
+  src/bayesmith/dispatch/classify.py
+      L406   _data_informed_point(noise_std)
+  src/bayesmith/dispatch/execute.py
+      L361   _iid_draws(sigma)
+  src/bayesmith/exact/correct.py
+      L62    log_weight(noise_std)
+  src/bayesmith/exact/fisher.py
+      L131   _log_sigma_curvature(sigma_of)
+      L194   fisher_information(noise_std, sigma_of)
+  src/bayesmith/exact/gibbs.py
+      L146   gibbs_factory(noise_std)
+      L249   _mh_step(sigma)
+      L327   assemble(noise_std)
+  src/bayesmith/exact/gls.py
+      L271   check_prediction_dependence(sigma_of)
+      L372   iterative_gls(sigma_of)
+      L456   solve_at(sigma)
+  src/bayesmith/exact/linearity.py
+      L211   _leaf_departures(sigma)
+      L287   affinity_errors(scales, sigma)
+      L549   _refuse_unusable_scale(sigma)
+      L606   check_linearity(scales)
+      L758   linear_operator(scales)
+      L722   probe_at(scale)
+  src/bayesmith/exact/precision.py
+      L182   diagonal_from(noise_std)
+  src/bayesmith/exact/solve.py
+      L58    _weights(noise_std)
+      L158   condition_bound(noise_std)
+      L210   _conjugate_solve(noise_std)
+      L401   wiener_solve(noise_std)
+      L465   gcr_sample(noise_std)
+
+==============================================================================
+(b) sites that do sigma ARITHMETIC (not just pass it along)
+==============================================================================
+  [1/sigma**2 weight] 2 site(s)
+      src/bayesmith/exact/fisher.py:283  jnp.reshape(1.0 / jnp.asarray(block.prior_std[name]) ** 2, (-1,))
+      src/bayesmith/exact/precision.py:121  return residual / self.sigma**2
+  [log-normaliser] 3 site(s)
+      src/bayesmith/exact/gaussian.py:65  _LOG_2PI = float(np.log(2.0 * np.pi))
+      src/bayesmith/exact/gaussian.py:226  -0.5 * ((probe - loc) / scale) ** 2 - jnp.log(scale) - 0.5 * _LOG_2PI
+      src/bayesmith/exact/precision.py:124  return jnp.sum(jnp.log(2.0 * jnp.pi * self.sigma**2))
+  [divide by scale] 8 site(s)
+      src/bayesmith/dispatch/classify.py:402  worst = max(worst, float(jnp.max(jnp.abs(value - baseline[observed]))) / sca
+      src/bayesmith/exact/fisher.py:166  This used to build ``1 / sigma**2`` inline, with a comment conceding that
+      src/bayesmith/exact/gaussian.py:226  -0.5 * ((probe - loc) / scale) ** 2 - jnp.log(scale) - 0.5 * _LOG_2PI
+      src/bayesmith/exact/gls.py:358  float(jnp.max(jnp.abs(value - baseline[observed]))) / scale,
+      src/bayesmith/exact/precision.py:5  whitening -- reads the same ``1 / sigma**2`` weight today, and so they share
+      src/bayesmith/exact/precision.py:114  ``1 / sigma**2`` and ``sum(log 2 pi sigma**2)`` expressions rather than
+      src/bayesmith/exact/precision.py:121  return residual / self.sigma**2
+      src/bayesmith/exact/precision.py:127  return omega / self.sigma
+  [log sigma] 6 site(s)
+      src/bayesmith/exact/fisher.py:131  def _log_sigma_curvature(
+      src/bayesmith/exact/fisher.py:145  def log_sigma(flat: jax.Array) -> jax.Array:
+      src/bayesmith/exact/fisher.py:149  jnp.reshape(jnp.log(jnp.asarray(sigma[name])), (-1,))
+      src/bayesmith/exact/fisher.py:157  jac = jax.jacfwd(log_sigma)(flat_centre)
+      src/bayesmith/exact/fisher.py:279  values = values + 2.0 * _log_sigma_curvature(block, sigma_of, centre, spans)
+      src/bayesmith/exact/gaussian.py:226  -0.5 * ((probe - loc) / scale) ** 2 - jnp.log(scale) - 0.5 * _LOG_2PI
+  [prior 1/std**2] 2 site(s)
+      src/bayesmith/exact/block.py:110  return {n: jnp.asarray(block.prior_std[n]) ** 2 for n in block.names}
+      src/bayesmith/exact/fisher.py:283  jnp.reshape(1.0 / jnp.asarray(block.prior_std[name]) ** 2, (-1,))
+
+==============================================================================
+(c) the single choke point: where a non-Normal is refused
+==============================================================================
+  src/bayesmith/exact/gaussian.py:77  while isinstance(distribution, dist.Independent):
+  src/bayesmith/exact/gaussian.py:100  if not isinstance(distribution, dist.Normal):
+
+########## probes/probe_7_what_the_feature_buys.py
+n = 256, two parameters (offset, slope), 2 priors of sd 10
+ corr len  bias/sd_true (offset)  bias/sd_true (slope)  sd_diag/sd_true off  sd_diag/sd_true slope
+      1.0                  0.001                 0.122               0.6432                 0.6946
+      4.0                  0.002                 0.641               0.3474                 0.4659
+     16.0                  0.003                 1.960               0.1763                 0.6364
+     64.0                  0.006                 4.932               0.0952                 1.2370
+
+  bias/sd_true : how far the diagonal-only posterior MEAN sits from the
+                 correlation-aware one, in units of the TRUE posterior sd,
+                 averaged over 200 realisations.
+  sd_diag/sd_true : ratio of the reported error bars. Below 1 means the
+                 diagonal answer is OVER-CONFIDENT.
+
+  and the coverage that implies for the offset, at corr = 64:
+    nominal 95% interval, correlation-aware : 94.5% coverage
+    nominal 95% interval, diagonal only     : 14.9% coverage
+
+########## probes/probe_8_what_the_gate_refuses.py
+do these spellings really declare the same density?
+  Normal                     log_prob -9.814748115868   |diff| 0.000e+00
+  Normal.to_event(1)         log_prob -9.814748115868   |diff| 0.000e+00
+  MultivariateNormal(diag)   log_prob -9.814748115868   |diff| 1.776e-15
+  MVN(scale_tril=diag)       log_prob -9.814748115868   |diff| 1.776e-15
+  CirculantNormal(s*I)       log_prob -9.814748115868   |diff| 0.000e+00
+  TransformedDistribution    log_prob -9.814748115868   |diff| 1.776e-15
+
+and what does the exact path do with each?
+  Normal                     ACCEPTED  worst probe error 1.879e-16
+  Normal.to_event(1)         ACCEPTED  worst probe error 1.879e-16
+  MultivariateNormal(diag)   REFUSED   NotGaussian
+  MVN(scale_tril=diag)       REFUSED   NotGaussian
+  CirculantNormal(s*I)       REFUSED   NotGaussian
+  TransformedDistribution    REFUSED   NotGaussian
+
+the asymmetry, stated precisely:
+  gaussian_parts refuses on `isinstance(distribution, dist.Normal)` at
+  gaussian.py:100, BEFORE check_gaussian evaluates any density. So the
+  probe can only ever REFUSE a Normal whose log_prob disagrees; it can
+  never ACCEPT a non-Normal whose log_prob agrees exactly.
+
+what the dispatcher then does with the refused spelling:
+  Normal                     plan -> block 0  {w}              GCR exact         linear_in ✓ 3 scales x 3 a
+  MultivariateNormal(diag)   plan -> block 0  {w}              NUTS
+
+is the Precision protocol structurally checkable (for a side-channel)?
+  isinstance(DiagonalPrecision   , Precision) = True
+  isinstance(CirculantPrecision  , Precision) = True
+  isinstance(Normal              , Precision) = False
+
