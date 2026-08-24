@@ -41,6 +41,8 @@ __all__ = [
     "log_joint",
     # inference
     "compile",
+    "Posterior",
+    "Estimate",
     "to_numpyro",
     "nuts",
     # exact
@@ -92,6 +94,8 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "evaluate": ("bayesmith.graph.evaluate", "evaluate"),
     "log_joint": ("bayesmith.graph.evaluate", "log_joint"),
     "compile": ("bayesmith.dispatch.plan", "compile"),
+    "Posterior": ("bayesmith.dispatch.plan", "Posterior"),
+    "Estimate": ("bayesmith.dispatch.plan", "Estimate"),
     "to_numpyro": ("bayesmith.bridge.numpyro_bridge", "to_numpyro"),
     "nuts": ("bayesmith.bridge.numpyro_bridge", "nuts"),
     "linear_operator": ("bayesmith.exact.linearity", "linear_operator"),
