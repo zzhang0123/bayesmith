@@ -811,3 +811,79 @@ def test_a_clipped_sigma_is_detected_at_every_key_because_of_the_anchor():
         "the uniform anchor guarantees 60.0 on this clipped sigma at every "
         f"key, but some key measured {min(movements):.3e}"
     )
+
+
+@pytest.mark.parametrize("kappa", [0.05, 0.2, 0.5, 1.0])
+def test_the_fixed_point_is_the_unbiased_estimator_not_the_gls_biased_one(kappa):
+    """WHICH estimator the reweighting converges to, pinned by name.
+
+    rheplicant's ``inference/noise.py`` documents a closed form for exactly
+    this model: dropping the log-determinant from the Gaussian density gives
+    "a *different estimator*", one that "returns ``sum d^2 / sum d``, biased
+    high by ``(1 + f^2)``". It is easy to read that as a statement about
+    generalized least squares in general, and therefore about this function,
+    and it is not.
+
+    The bias belongs to the objective that DIFFERENTIATES THROUGH sigma while
+    dropping ``log sigma``. :func:`iterative_gls` does neither: it freezes
+    sigma per inner solve and recomputes it afterwards, so each solve is an
+    ordinary weighted least squares and the fixed point satisfies
+    ``w = mean(u)``, ``u = d / x`` -- the same answer the FULL density gives,
+    not the biased one. Reduce the linear model with ``u = d / x``: sigma
+    ``= f w x`` makes the weighted normal equations collapse to ``sum(u) / n``
+    with every weight identical.
+
+    Measured here, distance from the fixed point to each candidate:
+
+    =====  ==========  ==============  ==========
+    kappa  |w-mean(u)|  |w-sum u^2/u|   ratio
+    =====  ==========  ==============  ==========
+    0.05   4.16e-05    5.32e-03        128x
+    0.2    1.17e-03    8.32e-02        71x
+    0.5    8.53e-03    4.97e-01        58x
+    1.0    4.17e-02    1.85e+00        44x
+    =====  ==========  ==============  ==========
+
+    The residual gap to ``mean(u)`` is the ``w ~ Normal(0, 10)`` prior, and it
+    grows with kappa because the data gets weaker -- direction and ordering
+    both as they should be, which is why this asserts a RATIO of distances
+    rather than an absolute tolerance that would have to absorb the prior.
+
+    **Why this is worth a test rather than a comment.** The migration spec's
+    first draft asked for the opposite: that this frozen-sigma path differ
+    from a live-sigma path by ``(1 + f^2)``. It does not, and a test written
+    to that specification would have been satisfied only by pulling a correct
+    estimator onto the biased side. ``tests/crosscheck/test_noise_logdet.py``
+    carries the other half -- that rheplicant's log-det-dropped likelihood
+    really is ``(1 + f^2)`` high -- so the divergence between the two packages
+    is recorded on both sides rather than in neither.
+    """
+    with jax.enable_x64(True):
+        graph = radiometer(kappa=kappa, floor=FLOOR)
+        block = linear_operator(graph, ("w",), at={})
+        result = iterative_gls(
+            block,
+            sigma_from_graph(graph, {}),
+            tol=1e-14,
+            reweight_tol=1e-12,
+            max_reweights=400,
+        )
+        oracle = graph_oracle(graph, ("w",), at={})
+        found = float(result.solution["w"])
+        u = (np.asarray(oracle.data) - np.asarray(oracle.offset)) / np.asarray(
+            oracle.design
+        )[:, 0]
+
+    assert bool(result.converged)
+    unbiased = float(u.mean())
+    biased = float((u**2).sum() / u.sum())
+    # The two candidates must actually be far apart, or "closer to one" is
+    # not a claim. At kappa=0.05 they differ by only 0.17%, which is still
+    # 128x the distance being resolved.
+    assert biased > unbiased, (biased, unbiased)
+    assert abs(found - unbiased) < 0.05 * abs(found - biased), (
+        f"kappa={kappa}: fixed point {found} sits {abs(found - unbiased):.3e} "
+        f"from mean(u)={unbiased} and {abs(found - biased):.3e} from "
+        f"sum u^2/sum u={biased} -- it has moved toward the log-det-dropped "
+        "estimator, which this function's freezing is what avoids."
+    )
