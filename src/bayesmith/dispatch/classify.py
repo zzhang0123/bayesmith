@@ -27,16 +27,23 @@ ordinary-looking fallback.
 from __future__ import annotations
 
 import dataclasses
+import math
 from typing import Any
 
 import jax
 import jax.numpy as jnp
 
 from bayesmith.errors import GraphError, NotGaussian, StructureError
-from bayesmith.exact.block import _ancestors, unchecked_operator
+from bayesmith.exact.block import (
+    LinearBlock,
+    _ancestors,
+    domain_centre,
+    unchecked_operator,
+)
 from bayesmith.exact.gaussian import check_gaussian, gaussian_parts, node_shape
 from bayesmith.exact.gls import check_prediction_dependence, sigma_from_graph
 from bayesmith.exact.linearity import DEFAULT_AT_POINTS, check_linearity
+from bayesmith.exact.solve import wiener_solve
 from bayesmith.graph.evaluate import apply_deterministic, apply_probabilistic
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
@@ -48,10 +55,13 @@ Matches :func:`~bayesmith.exact.gls.check_prediction_dependence`'s own
 ``rtol`` default, so the number a declaration is judged against and the
 number a method is chosen against are the same number. **Covered at the ends,
 not at the boundary**: every fixture in this package's suite reads either
-bitwise ``0.0`` or more than 1e+02, never within a decade of 1e-8. That is
-the same position ``check_prediction_dependence``'s docstring takes and for
-the same reason -- this is a coarse yes/no movement detector, not a numeric
-dispatcher between two methods that must agree at a threshold.
+bitwise ``0.0`` or at least 3.639e+00 -- eight decades above 1e-8, with
+nothing anywhere near the threshold itself. (The figure of 1e+02 this
+docstring carried before was never right: ``sigma_functional_block`` at a
+two-member contrast has read 3.639e+00 since it was written.) That is the
+same position ``check_prediction_dependence``'s docstring takes and for the
+same reason -- this is a coarse yes/no movement detector, not a
+numeric dispatcher between two methods that must agree at a threshold.
 """
 
 
@@ -67,7 +77,11 @@ class Classification:
             away from an exact solve can see that from the plan.
         linearity: ``check_linearity``'s per-at-point errors, or ``None``.
         sigma_movement: the largest relative movement of sigma with the
-            block, or ``None`` if there is no block.
+            block, or ``None`` if there is no block. Measured from TWO
+            anchors -- prior-scale probes around the prior centre, and the
+            block's own Wiener solution, which is where the data put the
+            posterior. See :func:`_sigma_movement` for why one of them is not
+            enough.
         sigma_needs_rebuild: whether any observed node's scale has a latent
             ANCESTOR outside the block, in which case ``noise_std`` must be
             recomputed every sweep rather than hoisted. Distinct from
@@ -96,6 +110,13 @@ def _latent_centre(graph: Graph, node: Probabilistic, env: dict[str, Any]) -> ja
     from NumPyro 0.21). Both of those are live fixtures here
     (``overflowing_outside_latent``, ``improper_outside_prior``) and both are
     LEGAL models the classifier must not refuse.
+
+    A NumPyro distribution does not know the plate its ``sample()`` named --
+    ``dist.StudentT(6.0, 0.4, 0.9).shape()`` is ``()`` either way -- so that
+    second choice has to be broadcast out to the plate's size by hand.
+    ``plated_student_t_latent`` is the fixture; without the broadcast
+    ``apply_deterministic`` raises out of ``vmap`` rather than returning a
+    wrong centre, so nothing downstream papers over it.
     """
     try:
         loc, _ = gaussian_parts(graph, node, env)
@@ -243,11 +264,18 @@ def _is_gaussian(graph: Graph, name: str, env: dict[str, Any]) -> tuple[bool, st
     NUTS. ``StructureError`` from :func:`check_gaussian` means the node's own
     ``log_prob`` contradicts the ``loc``/``scale`` read off it -- a broken
     model -- and is deliberately NOT caught here.
+
+    Only the message's FIRST SENTENCE is kept: the rest says which solve is
+    not implemented and that this is a verdict rather than a defect, neither
+    of which belongs in a one-line dispatch reason. Split on ``". "`` and not
+    on ``"."``, because that first sentence names the one wrapper that IS
+    accepted -- ``.to_event(...)`` -- and a bare ``"."`` cuts at that
+    wrapper's own leading dot, leaving the user reading "or one wrapped by".
     """
     try:
         check_gaussian(graph, graph.node(name), env)
     except NotGaussian as exc:
-        return False, str(exc).split(".")[0]
+        return False, str(exc).partition(". ")[0]
     return True, ""
 
 
@@ -358,6 +386,118 @@ def _accepted_reason(
     return f"exact block {list(block)}: {moved}{note}"
 
 
+def _relative_movement(
+    baseline: dict[str, jax.Array], moved: dict[str, jax.Array]
+) -> float:
+    """Largest relative change of sigma, in ``check_prediction_dependence``'s units.
+
+    The same denominator that function uses -- the largest ``|sigma|`` at the
+    anchor, floored at 1e-300 -- so a movement obtained here and a movement
+    obtained there mean the same thing and can be combined with ``max``. Two
+    spellings of "relative" would make the number the dispatcher thresholds
+    depend on which probe happened to be the largest.
+    """
+    worst = 0.0
+    for observed, value in moved.items():
+        scale = max(float(jnp.max(jnp.abs(baseline[observed]))), 1e-300)
+        worst = max(worst, float(jnp.max(jnp.abs(value - baseline[observed]))) / scale)
+    return worst
+
+
+def _data_informed_point(
+    operator: LinearBlock, noise_std: dict[str, jax.Array]
+) -> dict[str, jax.Array] | None:
+    """Where this block's posterior actually sits: one Wiener solve.
+
+    Solved at the PRIOR CENTRE's sigma, which is the only sigma available
+    before the question "does sigma move" has been answered. That makes it
+    the first step of the reweighting :func:`~bayesmith.exact.gls.
+    iterative_gls` would run, and it is not iterated here: this is a probe
+    LOCATION, not an answer, and it only has to land in the region the chain
+    will occupy.
+
+    ``require_convergence=None`` for the same reason. The guard costs
+    ``POWER_ITERATIONS`` extra operator applications and, worse, RAISES on an
+    ill-conditioned block -- which would turn a merely awkward model into a
+    compile-time failure over a probe whose accuracy does not matter. What
+    does matter is that the point is finite, so that is checked directly and
+    ``None`` comes back if it is not, leaving the prior-scale probes as the
+    whole measurement.
+    """
+    solution, _ = wiener_solve(operator, noise_std=noise_std, require_convergence=None)
+    finite = all(bool(jnp.all(jnp.isfinite(value))) for value in solution.values())
+    return solution if finite else None
+
+
+def _sigma_movement(
+    graph: Graph, operator: LinearBlock, at: dict[str, Any], key: jax.Array
+) -> float:
+    """How much sigma moves with the block -- probed from BOTH ends.
+
+    A MEASUREMENT, not a declaration check: ``declared=True`` never raises,
+    and the method is chosen from the number this returns rather than from
+    what any node claims. Policing a ``depends_on_prediction=False`` that is
+    false belongs where the claim is USED --
+    ``iterative_gls(depends_on_prediction=...)``.
+
+    **Two anchors, because one probe answers only half the question.**
+    :func:`~bayesmith.exact.gls.check_prediction_dependence` displaces the
+    block by :data:`~bayesmith.exact.gls.DEPENDENCE_PROBES`' 1.0 and -0.5
+    prior widths from the PRIOR centre, along a deterministic ray and a
+    random one. That covers DIRECTION -- a random direction detects any
+    non-zero linear functional with probability 1 -- and its own docstring
+    says what it does not cover: "The remaining gap is MAGNITUDE, not
+    direction. The probe displaces by O(1) prior width from the prior centre,
+    so a sigma that is exactly flat there and hinges further out reads
+    bitwise constant however the direction is chosen ... only a larger
+    magnitude would, at the cost of probing where the posterior will never
+    go."
+
+    So sigma is probed once more at the one larger magnitude that costs
+    nothing, because it is where the posterior goes by construction: the
+    block's own Wiener solution. ``hinged_sigma_beyond_the_probe`` is the
+    fixture -- ``a ~ N(0, 1)``, a hinge at ``mu = 3``, and data that put the
+    posterior at ``a ~ 6.1`` --
+    where the prior-scale probes read **bitwise 0.0** at every key and this
+    reads 1.904e+01, key-free. Classified from the prior probes alone it took
+    the bare ``gcr`` arm, which applies no correction of any kind, and
+    ``sample()`` returned a posterior 17.2x narrower than grid quadrature
+    with ``ess=4000.0``, ``log_weights=None`` and ``unreliable=False``.
+
+    **Cost**: one CG solve plus two ``sigma_of`` evaluations, at compile
+    time, on blocks that have already passed ``check_linearity`` -- and only
+    there. (One of the two is a re-read of the baseline
+    ``check_prediction_dependence`` already took and does not return.)
+    Measured, ``compile()`` over eight fixtures goes from 756 ms to 1030 ms,
+    +36%, once per graph. Over the twenty-eight classified fixtures that
+    predate it no verdict moves and three numbers rise (``plated_radiometer`` 1.133e+02 ->
+    1.482e+02, ``one_sided_sigma`` 6.000e+01 -> 1.200e+02,
+    ``element_contrast_sigma_plate`` 1.731e+01 -> 2.497e+02); every
+    constant-sigma row stays bitwise 0.0, which it must, a constant being
+    constant wherever it is read.
+
+    **What is NOT done here, measured rather than assumed.** Re-running the
+    whole probe battery ANCHORED at the solution -- four more ``sigma_of``
+    calls -- was prototyped and adds nothing this returns does not already
+    have. It fires only where sigma leaves its plateau and returns to exactly
+    the plateau's value at the solution while still varying there, i.e. a
+    root placed at the probe point, which is the fixture-crafting
+    :data:`~bayesmith.exact.gls.DEPENDENCE_PATTERNS` refuses. On the hinge
+    fixture it reads 2.994e-01 against this function's 1.904e+01, and on
+    every other fixture it is dominated too.
+    """
+    sigma_of = sigma_from_graph(graph, at)
+    movement = check_prediction_dependence(
+        operator, sigma_of, declared=True, rtol=SIGMA_RTOL, key=key
+    )
+    baseline = sigma_of(domain_centre(operator))
+    solution = _data_informed_point(operator, baseline)
+    if solution is None:
+        return movement
+    at_the_data = _relative_movement(baseline, sigma_of(solution))
+    return max(movement, at_the_data) if math.isfinite(at_the_data) else movement
+
+
 def _classify_block(
     graph: Graph,
     block: tuple[str, ...],
@@ -381,13 +521,7 @@ def _classify_block(
         # placed any wider would swallow `check_gaussian`'s, which must not be.
         return _all_to_nuts(latents, f"exact block {list(block)} falls together: {exc}")
     operator = unchecked_operator(graph, block, at)
-    # A MEASUREMENT, not a declaration check: `declared=True` never raises, and
-    # the method below is chosen from `movement` rather than from what any node
-    # claims. Policing a `depends_on_prediction=False` that is false belongs
-    # where the claim is USED -- `iterative_gls(depends_on_prediction=...)`.
-    movement = check_prediction_dependence(
-        operator, sigma_from_graph(graph, at), declared=True, rtol=SIGMA_RTOL, key=key
-    )
+    movement = _sigma_movement(graph, operator, at, key)
     if movement <= SIGMA_RTOL:
         method = "gcr"
     else:

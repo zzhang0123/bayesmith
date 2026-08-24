@@ -11,10 +11,18 @@ the plan already carried came back unchanged.
 """
 
 import jax
+import jax.numpy as jnp
 import pytest
 
-from bayesmith.dispatch.classify import SIGMA_RTOL, partition
+from bayesmith.dispatch.classify import (
+    SIGMA_RTOL,
+    block_at,
+    partition,
+    prior_environment,
+)
 from bayesmith.errors import StructureError
+from bayesmith.exact.block import unchecked_operator
+from bayesmith.exact.gls import check_prediction_dependence, sigma_from_graph
 from bayesmith.exact.linearity import DEFAULT_AT_POINTS
 from tests.exact.models import (
     affine_only_at_zero,
@@ -23,6 +31,7 @@ from tests.exact.models import (
     cubic_tail,
     dangling_deterministic,
     diamond_ancestor,
+    hinged_sigma_beyond_the_probe,
     improper_outside_prior,
     indirect_ancestor,
     lying_observed_node,
@@ -33,6 +42,7 @@ from tests.exact.models import (
     plated_and_scalar_latents,
     plated_latent,
     plated_radiometer,
+    plated_student_t_latent,
     quadratic_claim,
     radiometer,
     radiometer_group,
@@ -148,6 +158,20 @@ def three_member_moving_sigma():
             overflowing_outside_latent, ("w",), ("z",), "gcr", id="overflowing"
         ),
         pytest.param(improper_outside_prior, ("w",), ("z",), "gcr", id="improper"),
+        # A sigma whose hinge sits BEYOND every prior-scale probe, so the
+        # movement measured from the prior centre alone is bitwise 0.0 and
+        # this row reads `gcr` -- no correction at all -- unless sigma is
+        # also probed where the data put the posterior. See
+        # test_a_sigma_that_hinges_past_the_prior_probe_is_still_detected.
+        pytest.param(
+            hinged_sigma_beyond_the_probe, ("a",), (), "gcr+snis", id="hinged_sigma"
+        ),
+        # A latent that is plated AND not Gaussian: `u` is disqualified and
+        # leaves, `w` stays. The classifier has to give `u` a centre anyway,
+        # because `w`'s own check runs in an environment `u` is part of.
+        pytest.param(
+            plated_student_t_latent, ("w",), ("u",), "gcr", id="plated_student_t"
+        ),
     ],
 )
 def test_partition_matches_the_hand_derived_answer(build, exact, nuts, method):
@@ -163,9 +187,41 @@ def test_a_refused_block_names_its_members_in_the_reason():
     A user one `linear_in` declaration away from an exact solve has to be able
     to see that from the plan, or the whole-block-falls-together policy is
     just an unexplained downgrade.
+
+    Asserted on the part of the reason that came from `check_linearity`, not
+    on the whole string. `_all_to_nuts` is handed
+    `f"exact block {list(block)} falls together: {exc}"`, and that PREFIX
+    names every member unconditionally -- so "gain" and "t_ant" appear in the
+    reason even if `: {exc}` is deleted outright and the user is told nothing
+    about which claim failed. Measured: with the `: {exc}` removed, the
+    earlier spelling of this test stayed green. Splitting the prefix off first
+    is what makes the members and the diagnosis both load-bearing.
     """
     result = partition(bilinear_pair())
-    assert "gain" in result.reason and "t_ant" in result.reason
+    _, marker, body = result.reason.partition("falls together: ")
+    assert marker, f"the refusal carries no diagnosis at all: {result.reason!r}"
+    assert "not JOINTLY affine" in body
+    assert "gain" in body and "t_ant" in body
+
+
+def test_a_non_gaussian_refusal_keeps_its_first_sentence_whole():
+    """The truncation is at the first SENTENCE, and `.to_event` has a dot in it.
+
+    `check_gaussian`'s `NotGaussian` message names, in its first sentence, the
+    one wrapper that is nonetheless accepted -- `.to_event(...)`. Truncating
+    the message at the first "." rather than at the first ". " cuts inside
+    that wrapper's own leading dot, and what a user reads ends mid-clause on
+    "or one wrapped by", having dropped the only actionable thing the sentence
+    had to say. The plan this module was built from sketched the same `.split(".")`,
+    so the implementation was faithful and the sketch was wrong.
+    """
+    reason = partition(student_t_likelihood()).reason
+    assert "returns StudentT" in reason
+    assert "wrapped by .to_event(...))" in reason
+    # Still one sentence, not the whole message: the following two sentences
+    # are about a solve that is not implemented and about this being a verdict
+    # rather than a defect, and neither belongs in a one-line dispatch reason.
+    assert "MultivariateNormal" not in reason
 
 
 def test_a_disqualified_latent_is_named_with_the_criterion_it_failed():
@@ -238,6 +294,11 @@ def test_the_linearity_claim_is_checked_at_more_than_one_outside_point(point_cou
         # smaller than the tolerance.
         pytest.param(two_linear_latents, 0.0, 0.0, id="two_linear_bitwise_zero"),
         pytest.param(collinear_pair, 0.0, 0.0, id="collinear_bitwise_zero"),
+        # The only row whose number comes from the data-informed probe rather
+        # than from the prior-scale ones: those read bitwise 0.0 here.
+        # Measured 1.904e+01, key-free -- the Wiener solve that places the
+        # probe takes no key.
+        pytest.param(hinged_sigma_beyond_the_probe, 1e1, 1e2, id="hinged_far_above"),
     ],
 )
 def test_sigma_movement_is_reported_and_lands_far_from_the_threshold(
@@ -246,9 +307,9 @@ def test_sigma_movement_is_reported_and_lands_far_from_the_threshold(
     """Both sides of `SIGMA_RTOL` are covered AT THE ENDS, not at the boundary.
 
     This is deliberately not a boundary validation. `SIGMA_RTOL` is 1e-8 and
-    the four fixtures here read 2.50e+03, 8.46e+02, 0.0 and 0.0 -- eleven
-    decades above it and bitwise zero, with nothing within a decade of the
-    threshold itself. That matches what
+    the five fixtures here read 2.50e+03, 8.46e+02, 0.0, 0.0 and 1.90e+01 --
+    nine to eleven decades above it and bitwise zero, with nothing within a
+    decade of the threshold itself. That matches what
     `check_prediction_dependence`'s own docstring says about its `rtol`: it
     is a coarse yes/no movement detector guarding a declaration, not a
     numeric dispatcher choosing between two methods that must agree at a
@@ -260,6 +321,85 @@ def test_sigma_movement_is_reported_and_lands_far_from_the_threshold(
     assert result.sigma_movement is not None
     assert floor <= result.sigma_movement <= max(ceiling, floor)
     assert (result.sigma_movement > SIGMA_RTOL) == (result.method != "gcr")
+
+
+@pytest.mark.parametrize("key_seed", [0, 1, 7, 2026])
+def test_a_sigma_that_hinges_past_the_prior_probe_is_still_detected(key_seed):
+    """A block reaching `gcr` is a block getting NO correction at all.
+
+    `gcr` is the one method that applies nothing on top of the Wiener solve:
+    no importance weight, no Metropolis accept, `log_weights is None` and
+    `ess == num_samples` exactly. So a sigma that moves and is not SEEN to
+    move is not a degraded answer, it is a confident wrong one --
+    `hinged_sigma_beyond_the_probe` came back 17.2x too narrow with
+    `unreliable=False`.
+
+    Swept over four keys because the fix must not be a coincidence of the
+    default one, and because the prior-scale probes read bitwise 0.0 at every
+    key here: a flat region is flat in every direction, so no amount of
+    re-drawing the probe direction reaches this.
+    """
+    result = partition(hinged_sigma_beyond_the_probe(), key=jax.random.key(key_seed))
+    assert result.exact == ("a",)
+    assert result.sigma_movement is not None and result.sigma_movement > SIGMA_RTOL
+    assert result.method == "gcr+snis"
+
+
+def test_the_movement_that_catches_it_is_the_one_at_the_data_informed_point():
+    """Names the mechanism, so the row above cannot pass for the wrong reason.
+
+    Re-measures `check_prediction_dependence` directly, at the same block and
+    the same anchor `partition` uses, and shows it reads **bitwise 0.0** --
+    the prior-scale probes are `DEPENDENCE_PROBES`' 1.0 and -0.5 prior widths
+    from the prior centre, and the hinge is at 3 prior widths. What
+    `partition` reports instead is the movement between sigma at the prior
+    centre and sigma at the block's own Wiener solution, which is where the
+    posterior actually sits.
+
+    This is the gap `DEPENDENCE_PROBES`' docstring names and declines to
+    close from the prior side: "only a larger magnitude would, at the cost of
+    probing where the posterior will never go". The data-informed point is
+    the one place a larger magnitude costs nothing, because it is where the
+    chain goes by construction.
+    """
+    graph = hinged_sigma_beyond_the_probe()
+    result = partition(graph)
+    at = block_at(graph, result.exact, env=prior_environment(graph))
+    from_the_prior = check_prediction_dependence(
+        unchecked_operator(graph, result.exact, at),
+        sigma_from_graph(graph, at),
+        declared=True,
+        rtol=SIGMA_RTOL,
+        key=jax.random.key(0),
+    )
+    assert from_the_prior == 0.0
+    assert result.sigma_movement > 1e1
+
+
+def test_a_plated_non_gaussian_latent_is_centred_over_its_whole_plate():
+    """`_latent_centre`'s plate arm: a distribution does not know its plate.
+
+    `dist.StudentT(6.0, 0.4, 0.9).shape()` is `()` whether or not the
+    `sample()` that wrapped it named a plate, so the centre this returns has
+    to be broadcast out to the plate's size by hand. Every other non-Gaussian
+    latent in `models.py` is scalar and every plated one is Gaussian, so this
+    arm had no fixture.
+
+    The value is asserted as well as the shape. `_latent_centre`'s two
+    `except` branches immediately below return `jnp.zeros(shape)`, so a mean
+    of 0.0 would not tell the arms apart -- `u`'s prior centre is 0.4 for the
+    same reason `plated_latent_through_deterministic`'s is 0.8.
+
+    The shape is not cosmetic: measured, with the plate broadcast removed
+    `partition` on this fixture does not merely misreport a centre, it raises
+    from `apply_deterministic` -- "vmap was requested to map its argument
+    along axis 0 ... but is only 0 (its shape is ())" -- so the table row
+    above reds too.
+    """
+    graph = plated_student_t_latent(n=5)
+    env = prior_environment(graph)
+    assert jnp.shape(env["u"]) == (5,)
+    assert jnp.allclose(env["u"], 0.4)
 
 
 @pytest.mark.parametrize(

@@ -1639,3 +1639,100 @@ def cancelling_sum(*, cancel, n=16, big=1e3, sigma=1e-2, m=4, seed=32):
         observe("d", lambda u: dist.Normal(u, sigma), mu, obs=data)
 
     return trace(model)
+
+
+def hinged_sigma_beyond_the_probe(
+    *, n=40, a_true=6.0, prior_std=1.0, base=0.05, slope=0.3, hinge=3.0, seed=33
+):
+    """``sigma = base + slope * max(mu - hinge, 0)`` with the hinge out of reach.
+
+    The counterexample to reading
+    :data:`~bayesmith.exact.gls.DEPENDENCE_PROBES` alone as "does sigma move
+    with the block". Those probes displace by ``1.0`` and ``-0.5`` prior
+    widths from the PRIOR centre, so with ``a ~ N(0, 1)`` they reach
+    ``a in {1.0, -0.5}`` and ``mu`` never gets past 1. The hinge sits at
+    ``mu = 3`` and the data put the posterior at ``a ~ 6.1``, so every probe
+    lands on the flat side and the movement reads **bitwise 0.0** -- at every
+    key, since a flat sigma is flat in every direction.
+
+    That is the magnitude gap :data:`~bayesmith.exact.gls.DEPENDENCE_PROBES`'
+    own docstring names and says no pattern can repair ("only a larger
+    magnitude would, at the cost of probing where the posterior will never
+    go"). This fixture is where the posterior DOES go, which is why the
+    dispatcher probes sigma at the data-informed point as well.
+
+    Measured, before that second probe existed: classified ``gcr``, which
+    applies no correction at all, and ``sample()`` returned mean 6.173466 sd
+    **0.007764** against grid quadrature of ``log_joint`` over 400001 points
+    on [-2, 12] at mean 6.101637 sd **0.133736** -- a posterior 17.2x too
+    narrow, reported with ``ess=4000.0``, ``log_weights=None``,
+    ``unreliable=False`` and a plan printing "sigma does not move with the
+    block".
+
+    ``n`` is 40 rather than a handful so the likelihood is sharp enough to
+    pull the posterior clear of the hinge: at n=40 the posterior sits 3.1
+    sigma past ``mu = 3`` in its own units.
+    """
+    truth = a_true * jnp.ones(n)
+    width = base + slope * jnp.maximum(truth - hinge, 0.0)
+    data = truth + width * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        ones = const("ones", jnp.ones(n))
+        a = sample("a", lambda: dist.Normal(0.0, prior_std))
+        mu = det("mu", lambda a_, o_: a_ * o_, a, ones, linear_in=("a",))
+        observe(
+            "d",
+            lambda m: dist.Normal(m, base + slope * jnp.maximum(m - hinge, 0.0)),
+            mu,
+            depends_on_prediction=True,
+            obs=data,
+        )
+
+    return trace(model)
+
+
+def plated_student_t_latent(*, n=5, sigma=0.45, w_true=1.7, spread=0.9, seed=34):
+    """A latent that is BOTH plated and not Gaussian.
+
+    Every other non-Gaussian latent in this module is scalar
+    (``overflowing_outside_latent``'s Cauchy, ``improper_outside_prior``'s
+    ImproperUniform, ``orphaned_child_latent``'s and
+    ``student_t_likelihood``'s Student-t), and every plated latent is
+    Gaussian -- so
+    :func:`~bayesmith.dispatch.classify._latent_centre`'s plate arm, the one
+    that broadcasts a distribution's own ``mean`` out to the plate's size, had
+    no fixture at all. A NumPyro distribution declared under a plate does not
+    know it: ``dist.StudentT(6.0, 0.4, 0.9).shape()`` is ``()``, and only the
+    plate says there are ``n`` of them.
+
+    ``u``'s prior centre is 0.4, not 0.0, for the reason
+    ``plated_latent_through_deterministic``'s is 0.8: an arm that returned
+    ``jnp.zeros(shape)`` regardless -- which is what the two ``except``
+    branches immediately below it do -- is indistinguishable from one that
+    read the distribution, if the distribution's mean is zero.
+
+    ``u`` is disqualified by criterion 1 and leaves; ``w`` is Gaussian, affine
+    and stays, so this also exercises the degraded-at-points note (``u`` has
+    no draw ``_prior_draw`` will take, and is held at its centre).
+    """
+    x = jnp.linspace(1.0, 3.0, n)
+    data = w_true * x + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        obs = plate("obs", n)
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 2.5))
+        u = sample("u", lambda: dist.StudentT(6.0, 0.4, spread), plate=obs)
+        mu = det(
+            "mu",
+            lambda w_, u_, x_: w_ * x_ + u_,
+            w,
+            u,
+            xs,
+            plate=obs,
+            linear_in=("w", "u"),
+        )
+        observe("d", lambda m: dist.Normal(m, sigma), mu, plate=obs, obs=data)
+
+    return trace(model)
