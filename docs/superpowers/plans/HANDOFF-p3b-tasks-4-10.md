@@ -14,15 +14,11 @@ git log --oneline -1 && git status --short
 
 三样都干净再往前走。**基线数字以实际输出为准**，不要照抄本文里的任何数字。
 
-> **如果树不干净、且改动集中在 `src/bayesmith/exact/gls.py` / `tests/exact/models.py` /
-> `tests/exact/test_gls.py` 这三个文件上**：那是 Task 3b（把 B2 的探测方向改回 spec §1.5
-> 的逐成员随机方向）在交接时还没提交完。**不要动它们，也不要 `git checkout` 或
-> `git stash`**——那会毁掉未提交的工作，正是本文教训第 1 条讲的事故。
+> Tasks 1–3b 全部落地后应为 **278 测试全绿、ruff 干净**，HEAD 是 `ec7e142` 之后。
+> 唯一预期的未跟踪文件是 owner 的 `specs/2026-08-24-rheplicant-migration.md`（见下）。
 >
-> 处理办法：等它落地（`git log --oneline -1` 出现一条 gls/probe 相关的提交、且
-> `git status` 转干净），再开始 Task 4。若等不到而改动看起来已经完整，先跑
-> `pytest -q` 与 `ruff check`；两者都绿就把那三个文件按 Task 3b 的意图提交下来，
-> 提交信息说明它是交接时在飞行中的工作。**任何情况下都不要丢弃它们。**
+> **若树意外不干净**：不要 `git checkout` / `git stash` / `git restore` —— 那会毁掉
+> 未提交的工作，正是本文教训第 1 条讲的事故。先看 `git diff` 是什么，再决定。
 
 ## 先读这三处，按这个顺序
 
@@ -39,7 +35,7 @@ git log --oneline -1 && git status --short
 | Task 2 后续 | `23e6ccd` | 观测节点 scale 不可用时具名报错，而不是诬告 `linear_in` |
 | — | `b5f9509` | 记录两条杀不死的变异（见下「已知开口」） |
 | Task 3 | `888cc8b` | **B2**：`check_prediction_dependence` 不再只走一条射线 |
-| Task 3b | 见 `git log` | 改回 spec §1.5 的逐成员随机方向（`888cc8b` 在三成员块上仍失效） |
+| Task 3b | `ec7e142` | 改回 spec §1.5 的逐成员随机方向。`888cc8b` 在**三成员**块上仍失效（`a−c` 读 0.0）；现 `("uniform", "random")`，逐**元素**随机，`key` 默认 `jax.random.key(0)` |
 
 ## 还剩什么
 
