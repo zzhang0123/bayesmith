@@ -117,7 +117,11 @@ def test_a_bound_method_dist_fn_also_exposes_its_parameters_as_traceable_leaves(
     """
     model = ScaledNormal(scale=jnp.array(2.0))
     n = Probabilistic(
-        name="d", parents=("x",), plate=(), dist_fn=model.as_normal, observed=None,
+        name="d",
+        parents=("x",),
+        plate=(),
+        dist_fn=model.as_normal,
+        observed=None,
     )
 
     # dist_fn is a BoundMethod, but it is a pytree: the scale parameter is
@@ -137,7 +141,11 @@ def test_a_bound_method_dist_fn_also_exposes_its_parameters_as_traceable_leaves(
     # And it is the exact value the direct-module spelling produces --
     # the two are not just "both non-null", they agree.
     direct = Probabilistic(
-        name="d", parents=("x",), plate=(), dist_fn=model, observed=None,
+        name="d",
+        parents=("x",),
+        plate=(),
+        dist_fn=model,
+        observed=None,
     )
     direct_grad = eqx.filter_grad(
         lambda node, loc: node.dist_fn(loc).log_prob(jnp.array(1.0))
@@ -165,7 +173,11 @@ def test_a_closure_over_a_module_dist_fn_silently_loses_its_gradient():
         return model(loc)
 
     n = Probabilistic(
-        name="d", parents=("x",), plate=(), dist_fn=dist_fn, observed=None,
+        name="d",
+        parents=("x",),
+        plate=(),
+        dist_fn=dist_fn,
+        observed=None,
     )
 
     # The whole closure is one opaque leaf -- not an array, so not the
@@ -194,11 +206,16 @@ def test_const_holds_its_value_as_an_array_leaf():
 
 def test_probabilistic_is_latent_when_unobserved_and_observed_otherwise():
     latent = Probabilistic(
-        name="x", parents=(), plate=(), dist_fn=lambda: dist.Normal(0.0, 1.0),
+        name="x",
+        parents=(),
+        plate=(),
+        dist_fn=lambda: dist.Normal(0.0, 1.0),
         observed=None,
     )
     seen = Probabilistic(
-        name="d", parents=("x",), plate=(),
+        name="d",
+        parents=("x",),
+        plate=(),
         dist_fn=lambda m: dist.Normal(m, 1.0),
         observed=jnp.array([1.0, 2.0]),
     )
@@ -213,7 +230,10 @@ def test_probabilistic_support_and_depends_on_prediction_default_safely():
     Probabilistic's docstring for the full reasoning.
     """
     n = Probabilistic(
-        name="d", parents=(), plate=(), dist_fn=lambda: dist.Normal(0.0, 1.0),
+        name="d",
+        parents=(),
+        plate=(),
+        dist_fn=lambda: dist.Normal(0.0, 1.0),
         observed=None,
     )
     assert n.support is None
@@ -222,9 +242,13 @@ def test_probabilistic_support_and_depends_on_prediction_default_safely():
 
 def test_probabilistic_support_and_depends_on_prediction_are_static_not_leaves():
     n = Probabilistic(
-        name="d", parents=("x",), plate=(),
-        dist_fn=ScaledNormal(scale=jnp.array(3.0)), observed=None,
-        support=Discrete(n=4), depends_on_prediction=False,
+        name="d",
+        parents=("x",),
+        plate=(),
+        dist_fn=ScaledNormal(scale=jnp.array(3.0)),
+        observed=None,
+        support=Discrete(n=4),
+        depends_on_prediction=False,
     )
     # Only ScaledNormal's own array parameter is a leaf; support and
     # depends_on_prediction are static metadata, like name/parents/plate.

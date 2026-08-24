@@ -32,8 +32,7 @@ def _plate_in_axes(graph: Graph, node: Node) -> tuple[int | None, ...]:
     exactly how that kind of drift starts.
     """
     return tuple(
-        0 if graph.node(parent).plate == node.plate else None
-        for parent in node.parents
+        0 if graph.node(parent).plate == node.plate else None for parent in node.parents
     )
 
 
@@ -156,7 +155,9 @@ def evaluate(graph: Graph, values: Mapping[str, Any] | None = None) -> Env:
             # subtype, so a hand-built Graph containing a bare Node (or any
             # subclass other than Const/Deterministic/Probabilistic) reaches
             # this branch and raises correctly here.
-            raise GraphError(f"unknown node type {type(node).__name__}")  # pragma: no cover
+            raise GraphError(
+                f"unknown node type {type(node).__name__}"
+            )  # pragma: no cover
     return env
 
 

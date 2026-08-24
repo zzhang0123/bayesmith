@@ -42,7 +42,9 @@ def test_deterministic_nodes_contribute_no_density():
         observe("d", lambda v: dist.Normal(v, 1.0), x, obs=data)
 
     at = {"x": jnp.array(0.3)}
-    assert jnp.allclose(log_joint(trace(with_det), at), log_joint(trace(without_det), at))
+    assert jnp.allclose(
+        log_joint(trace(with_det), at), log_joint(trace(without_det), at)
+    )
 
 
 def test_const_nodes_contribute_no_density():

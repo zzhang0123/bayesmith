@@ -96,9 +96,7 @@ def _active() -> _Recorder:
     return _STACK[-1]
 
 
-def _parent_names(
-    parents: Sequence[NodeRef], recorder: _Recorder
-) -> tuple[str, ...]:
+def _parent_names(parents: Sequence[NodeRef], recorder: _Recorder) -> tuple[str, ...]:
     for parent in parents:
         if not isinstance(parent, NodeRef):
             raise GraphError(

@@ -9,7 +9,10 @@ from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
 
 def _x():
     return Probabilistic(
-        name="x", parents=(), plate=(), dist_fn=lambda: dist.Normal(0.0, 1.0),
+        name="x",
+        parents=(),
+        plate=(),
+        dist_fn=lambda: dist.Normal(0.0, 1.0),
         observed=None,
     )
 
@@ -22,8 +25,11 @@ def _mu():
 
 def _d():
     return Probabilistic(
-        name="d", parents=("mu",), plate=(),
-        dist_fn=lambda m: dist.Normal(m, 0.1), observed=jnp.array([1.0]),
+        name="d",
+        parents=("mu",),
+        plate=(),
+        dist_fn=lambda m: dist.Normal(m, 0.1),
+        observed=jnp.array([1.0]),
     )
 
 
@@ -82,12 +88,18 @@ def test_a_linear_in_that_is_a_proper_subset_of_parents_is_accepted():
 
     def _y():
         return Probabilistic(
-            name="y", parents=(), plate=(), dist_fn=lambda: dist.Normal(0.0, 1.0),
+            name="y",
+            parents=(),
+            plate=(),
+            dist_fn=lambda: dist.Normal(0.0, 1.0),
             observed=None,
         )
 
     n = Deterministic(
-        name="mu", parents=("x", "y"), plate=(), fn=lambda x, y: x + y,
+        name="mu",
+        parents=("x", "y"),
+        plate=(),
+        fn=lambda x, y: x + y,
         linear_in=("x",),
     )
     g = Graph(nodes=(_x(), _y(), n), plates=())

@@ -57,8 +57,10 @@ def test_linear_in_is_recorded_as_declared():
 def test_sample_threads_support_and_depends_on_prediction_through():
     def model():
         sample(
-            "x", lambda: dist.Normal(0.0, 1.0),
-            support=Discrete(n=3), depends_on_prediction=False,
+            "x",
+            lambda: dist.Normal(0.0, 1.0),
+            support=Discrete(n=3),
+            depends_on_prediction=False,
         )
 
     node = trace(model).node("x")
@@ -76,8 +78,11 @@ def test_observe_threads_support_and_depends_on_prediction_through():
 
     def model():
         observe(
-            "d", lambda: dist.Normal(0.0, 1.0), obs=jnp.array([1.0]),
-            support=Continuous(), depends_on_prediction=False,
+            "d",
+            lambda: dist.Normal(0.0, 1.0),
+            obs=jnp.array([1.0]),
+            support=Continuous(),
+            depends_on_prediction=False,
         )
 
     node = trace(model).node("d")
@@ -200,12 +205,18 @@ def test_an_explicit_graph_and_a_traced_one_agree_on_structure():
     built = Graph(
         nodes=(
             Probabilistic(
-                name="x", parents=(), plate=(),
-                dist_fn=lambda: dist.Normal(0.0, 1.0), observed=None,
+                name="x",
+                parents=(),
+                plate=(),
+                dist_fn=lambda: dist.Normal(0.0, 1.0),
+                observed=None,
             ),
             Deterministic(
-                name="mu", parents=("x",), plate=(),
-                fn=lambda v: 2.0 * v, linear_in=("x",),
+                name="mu",
+                parents=("x",),
+                plate=(),
+                fn=lambda v: 2.0 * v,
+                linear_in=("x",),
             ),
         ),
         plates=(),

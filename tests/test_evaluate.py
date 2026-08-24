@@ -55,9 +55,7 @@ def test_a_value_for_an_observed_node_explains_it_is_observed():
     data through ``values`` -- so it gets its own explanation rather than
     sharing text with the deterministic/constant/unknown-name cases.
     """
-    with pytest.raises(
-        GraphError, match="values names 'd', which is an observed node"
-    ):
+    with pytest.raises(GraphError, match="values names 'd', which is an observed node"):
         evaluate(_linear_model(), {"a": jnp.array(1.0), "d": jnp.zeros(3)})
 
 

@@ -68,9 +68,7 @@ def test_the_bridge_and_log_joint_agree_with_the_truth_not_just_each_other():
     graph = trace(model)
     ours = log_joint(graph, {})
     theirs, _ = log_density(to_numpyro(graph), (), {}, {})
-    truth = jnp.sum(
-        jnp.stack([dist_fn(X[i]).log_prob(obs_vals[i]) for i in range(3)])
-    )
+    truth = jnp.sum(jnp.stack([dist_fn(X[i]).log_prob(obs_vals[i]) for i in range(3)]))
 
     assert jnp.allclose(ours, theirs, rtol=1e-6)
     assert jnp.allclose(ours, truth, rtol=1e-6)
@@ -100,8 +98,11 @@ def test_a_plated_graph_bridges_and_still_agrees():
         obs = plate("obs", 3)
         x = sample("x", lambda: dist.Normal(0.0, 1.0))
         observe(
-            "d", lambda v: dist.Normal(v, 1.0), x,
-            obs=jnp.array([1.0, 2.0, 3.0]), plate=obs,
+            "d",
+            lambda v: dist.Normal(v, 1.0),
+            x,
+            obs=jnp.array([1.0, 2.0, 3.0]),
+            plate=obs,
         )
 
     graph = trace(model)

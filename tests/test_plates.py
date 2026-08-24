@@ -82,7 +82,13 @@ def test_a_plated_likelihood_sums_over_the_plate():
     def model():
         obs = plate("obs", 3)
         x = sample("x", lambda: dist.Normal(0.0, 1.0))
-        observe("d", lambda v: dist.Normal(v, 1.0), x, obs=jnp.array([1.0, 2.0, 3.0]), plate=obs)
+        observe(
+            "d",
+            lambda v: dist.Normal(v, 1.0),
+            x,
+            obs=jnp.array([1.0, 2.0, 3.0]),
+            plate=obs,
+        )
 
     got = log_joint(trace(model), {"x": jnp.array(0.5)})
     expected = dist.Normal(0.0, 1.0).log_prob(0.5) + jnp.sum(
