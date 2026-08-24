@@ -32,6 +32,8 @@ from bayesmith.exact.correct import (
     unreliable,
 )
 from bayesmith.exact.gaussian import noise_std_at
+from bayesmith.exact.gls import iterative_gls, sigma_from_graph
+from bayesmith.exact.solve import gcr_sample, wiener_solve
 from bayesmith.graph.evaluate import log_joint
 from tests.exact.models import (
     plated_and_scalar_latents,
@@ -484,3 +486,129 @@ def test_unreliable_abstains_rather_than_condemning_when_khat_is_unavailable():
     """
     assert unreliable(None, 2000) is False
     assert unreliable(None, 3) is False
+
+
+# --------------------------------- log_weight and self_normalise, together
+
+
+#: Where the DELIBERATELY wrong sigma is frozen for
+#: `test_a_wrong_frozen_sigma_shows_up_as_ess_and_not_as_bias`. Not 3.0
+#: (`radiometer`'s `weight`), not 0.0 (the prior mean and the block's zero),
+#: not 10.0 (the prior width), not 2.946 (the posterior mean): a value
+#: distinct from every number in the fixture, chosen so that
+#: `sigma = 0.05|mu| + 1e-3` comes out 9.14x too WIDE.
+#:
+#: Too wide and never too narrow, and that is not cosmetic. A proposal
+#: narrower than the target misses mass the weights cannot put back, and the
+#: weighted mean then does NOT converge -- so the claim below would be false
+#: rather than merely hard to measure. Frozen at `w=0` this same fixture's
+#: sigma is the floor 1e-3 alone, 148x too narrow, which is that failure.
+WRONG_FREEZE = 27.0
+
+
+def _snis_at(graph, names, sigma, key, count, tol=1e-8):
+    """Draw from the frozen-sigma Gaussian and weight it, as `_whole_graph` does.
+
+    Spelled out here rather than driven through `InferencePlan.sample` because
+    the whole point is to choose the freeze point, which `sample` -- correctly
+    -- does not expose: it always uses the GLS fixed point.
+    """
+    at = {}
+    block = unchecked_operator(graph, names, at)
+    mu, _ = wiener_solve(
+        block, noise_std=sigma, tol=tol, require_convergence=None
+    )
+    draws, _ = jax.vmap(
+        lambda one: gcr_sample(
+            block, noise_std=sigma, key=one, tol=tol, require_convergence=None
+        )
+    )(jax.random.split(key, count))
+    log_weights = jax.vmap(
+        lambda x: log_weight(graph, block, x, at=at, noise_std=sigma, mu=mu)
+    )(draws)
+    weights, ess = self_normalise(log_weights)
+    return np.asarray(draws[names[0]], dtype=float), np.asarray(
+        weights, dtype=float
+    ), float(ess)
+
+
+@pytest.mark.parametrize("count, seed", [(2000, 0), (2000, 4), (2000, 7)])
+def test_a_wrong_frozen_sigma_shows_up_as_ess_and_not_as_bias(count, seed):
+    """The moments are blind to WHERE sigma was frozen. Only the Kish ESS reads it.
+
+    Both halves are load-bearing and they pull in opposite directions.
+    Self-normalised importance sampling is valid for ANY x-independent
+    proposal, so a sigma-hat that is merely bad -- a reweighting stopped
+    short, a hand-supplied `noise_std=`, the GLS fixed point of a slightly
+    different model -- must still give the right answer. What it costs is
+    effective sample size, and that is the only diagnostic that can see it.
+    A guard that read the moments alone would report a wrong sigma-hat as
+    fine; one that expected the moments to move would be asserting something
+    false.
+
+    **The draft asked for this on a NON-CONVERGED GLS and that fixture cannot
+    reach the region.** Measured on `radiometer` with
+    `min_reweights = max_reweights = 1`, i.e. a single reweighting step:
+    Kish ESS/N 0.99870 against the converged 0.99878 -- four matching digits
+    -- and 0.81186 against 0.81203 on `steep_radiometer`. The reweighting
+    converges in one step on every prediction-dependent fixture here, so
+    "non-converged" is bitwise indistinguishable from converged and a
+    mutation there would be a no-op. The freeze point is moved directly
+    instead, which is the same claim with a fixture that reaches it.
+
+    Measured over keys 0/4/7 at N=2000, against 1-D quadrature of `log_joint`
+    (mean 2.94632609, sd 0.04665180):
+
+    ================  ==========  ================  ============  ===========
+    sigma frozen at   Kish ESS/N  weighted mean     weighted sd   raw sd
+    ================  ==========  ================  ============  ===========
+    GLS fixed point   0.998       -0.021..+0.035    1.001..1.046  1.003..1.044
+    ``w = 27``        0.151-0.161 -0.083..+0.065    0.967..0.996  9.15..9.52
+    ================  ==========  ================  ============  ===========
+
+    -- a 6.2x ESS collapse against a weighted mean that never moves past 0.083
+    posterior sd and a weighted sd that never moves past 3.3%, while the
+    UNWEIGHTED draws behind it are 9.2x too wide. The raw clause is the
+    positive control: without it, a mutation that quietly ignored `noise_std`
+    and drew at the GLS fixed point on both arms would make every other
+    clause here green.
+    """
+    graph = radiometer()
+    grid = jnp.linspace(-4.0, 12.0, 20001)
+    log_p = jax.vmap(lambda value: log_joint(graph, {"w": value}))(grid)
+    density = np.array(jnp.exp(log_p - jnp.max(log_p)), dtype=float)
+    axis = np.array(grid, dtype=float)
+    density /= np.trapezoid(density, axis)
+    truth = float(np.trapezoid(axis * density, axis))
+    spread = math.sqrt(float(np.trapezoid((axis - truth) ** 2 * density, axis)))
+
+    at = {}
+    block = unchecked_operator(graph, ("w",), at)
+    right = iterative_gls(
+        block,
+        sigma_from_graph(graph, at),
+        depends_on_prediction=True,
+        tol=1e-8,
+        require_convergence=None,
+    ).noise_std
+    wrong = noise_std_at(graph, {"w": jnp.asarray(WRONG_FREEZE)})
+    assert float(np.mean(np.asarray(wrong["d"]) / np.asarray(right["d"]))) > 5.0
+
+    ratios = {}
+    for label, sigma in (("right", right), ("wrong", wrong)):
+        draws, weights, ess = _snis_at(
+            graph, ("w",), sigma, jax.random.key(seed), count
+        )
+        mean = float((weights * draws).sum())
+        weighted_sd = math.sqrt(float((weights * (draws - mean) ** 2).sum()))
+        # Blind to the freeze point: the same answer on both arms.
+        assert abs(mean - truth) / spread < 0.25, label
+        assert weighted_sd / spread == pytest.approx(1.0, abs=0.15), label
+        ratios[label] = (ess / count, float(draws.std()) / spread)
+
+    # Not blind: the ESS reads the freeze point, and the raw draws show why.
+    assert ratios["right"][0] > 0.90
+    assert ratios["wrong"][0] < 0.30
+    assert ratios["right"][0] > 3.0 * ratios["wrong"][0]
+    assert ratios["right"][1] == pytest.approx(1.0, abs=0.20)
+    assert ratios["wrong"][1] > 5.0
