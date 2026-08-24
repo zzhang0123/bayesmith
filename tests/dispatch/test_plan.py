@@ -21,12 +21,16 @@ depend on which line happens to come first.
 """
 
 import itertools
+import math
 import re
 
 import jax
+import jax.numpy as jnp
+import numpyro.distributions as dist
 import pytest
 
 from bayesmith import compile as compile_graph
+from bayesmith import const, det, observe, sample, trace
 from bayesmith.dispatch import plan as plan_module
 from bayesmith.dispatch.classify import block_at, partition
 from bayesmith.dispatch.plan import (
@@ -35,6 +39,7 @@ from bayesmith.dispatch.plan import (
     InferencePlan,
     kappa_interval,
 )
+from bayesmith.errors import StructureError
 from bayesmith.exact.block import domain_centre, unchecked_operator
 from bayesmith.exact.gls import sigma_from_graph
 from bayesmith.exact.solve import condition_bound
@@ -42,6 +47,7 @@ from tests.dispatch.test_classify import (
     three_member_constant_sigma,
     three_member_moving_sigma,
 )
+from tests.dispatch.test_dispatch_entry import detached_ancestor
 from tests.exact.models import (
     bilinear_pair,
     collinear_pair,
@@ -53,6 +59,8 @@ from tests.exact.models import (
     overflowing_outside_latent,
     plated_and_scalar_latents,
     plated_latent,
+    plated_radiometer,
+    prior_held_direction,
     quadratic_claim,
     radiometer,
     shared_ancestor,
@@ -95,6 +103,70 @@ def measured_kappa(graph, names) -> float:
     operator = unchecked_operator(graph, names, at)
     sigma = sigma_from_graph(graph, at)(domain_centre(operator))
     return float(condition_bound(operator, noise_std=sigma))
+
+
+def _ancestor_width(width_of_tau, *, tau_loc, tau_scale, n=6, sigma=0.5, seed=8):
+    """``indirect_ancestor``'s shape with the width function handed in. LOCAL.
+
+    ``tau -> width -> x``'s prior, ``x -> mu -> d``, so the ancestor rule
+    ejects ``tau`` and the exact block is ``{x}`` -- the partition
+    ``indirect_ancestor`` already pins. What varies is the one function this
+    module's kappa sweep evaluates at four displacements of ``tau``, which is
+    the only thing the two fixtures below are about. Both are LOCAL to this
+    file for the reason ``detached_ancestor``'s docstring gives: each exists
+    for one dimension of one test, and neither is a shape any other module
+    needs.
+    """
+    grid = jnp.linspace(1.0, 2.0, n)
+    data = 1.0 * grid + sigma * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", grid)
+        tau = sample("tau", lambda: dist.Normal(tau_loc, tau_scale))
+        width = det("width", width_of_tau, tau)
+        x = sample("x", lambda w: dist.Normal(0.0, w), width)
+        mu = det("mu", lambda x_, g_: x_ * g_, x, xs, linear_in=("x",))
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
+def overflowing_probe_width(*, rate=15.0, **kwargs):
+    """``x``'s prior width is ``exp(rate*tau)``, ``tau ~ N(0, 1)``. LOCAL.
+
+    Legal, finite and strictly positive at every probe point -- a log-normal
+    prior width is an ordinary way to write "this scale spans decades" -- but
+    its SQUARE is not: at ``tau = +3`` the width is ``exp(45) = 3.5e+19`` and
+    ``width**2`` overflows float32's 3.4e+38, while at ``tau = -3`` it is
+    ``exp(-45) = 2.9e-20`` and the reciprocal variance overflows the same way.
+    ``condition_bound`` is ``lambda_max * max(prior_variance)``, so it comes
+    back ``inf`` at the upper probe and ``nan`` at the lower one, with
+    ``check_gaussian`` raising nothing at either -- the scale itself is
+    perfectly representable.
+
+    That is the ONE route this package has to a non-finite kappa at a probe
+    point, and it is what makes ``kappa_interval``'s ``refused`` list
+    reachable at all.
+    """
+    return _ancestor_width(
+        lambda t: jnp.exp(rate * t), tau_loc=0.0, tau_scale=1.0, **kwargs
+    )
+
+
+def unfloored_probe_width(**kwargs):
+    """``x``'s prior width IS ``tau ~ N(1.0, 0.5)``, so it goes negative. LOCAL.
+
+    A declaration that is true where the model was classified and false a
+    fifth of the way into its own prior: at the centre the width is 1.0 and
+    ``partition`` accepts it, at the ``-3``-sigma probe it is ``-0.5`` and
+    ``check_gaussian`` raises ``StructureError`` -- "a zero or negative sigma
+    is an infinite or negative weight rather than a tight constraint. Add a
+    floor to the expression that produces it."
+
+    That is a fault in the model and not a verdict about it, which is what
+    ``test_a_broken_probe_point_is_raised_rather_than_noted`` is about.
+    """
+    return _ancestor_width(lambda t: t, tau_loc=1.0, tau_scale=0.5, **kwargs)
 
 
 #: Graphs whose exact block spans every latent, so nothing outside it can move
@@ -155,7 +227,7 @@ def test_the_printed_plan_carries_kappa_and_the_tol_derived_from_it(
     assert "tol" in text
     kappa = float(KAPPA_POINT.search(text).group(1))
     tol = float(TOL.search(text).group(1))
-    assert tol == pytest.approx(CONVERGENCE_TARGET / kappa, rel=1e-6)
+    assert tol == pytest.approx(CONVERGENCE_TARGET / kappa, rel=1e-6, abs=0.0)
 
 
 @pytest.mark.parametrize("build, members, method", POINT_KAPPA)
@@ -236,7 +308,7 @@ def test_tol_comes_from_the_upper_end_of_the_interval_on_every_mixed_graph(
     lo, hi = (float(v) for v in match.groups())
     assert hi > 4 * lo, "the interval is too narrow to tell the two ends apart"
     tol = float(TOL.search(text).group(1))
-    assert tol == pytest.approx(CONVERGENCE_TARGET / hi, rel=1e-6)
+    assert tol == pytest.approx(CONVERGENCE_TARGET / hi, rel=1e-6, abs=0.0)
     assert tol != pytest.approx(CONVERGENCE_TARGET / lo, rel=0.5, abs=0.0)
 
 
@@ -369,6 +441,7 @@ def test_the_gibbs_sites_are_the_exact_block_and_not_the_sampled_one():
     [
         pytest.param(indirect_ancestor, True, id="rebuild"),
         pytest.param(three_latent_chain, True, id="rebuild_chain"),
+        pytest.param(detached_ancestor, False, id="hoisted"),
     ],
 )
 def test_the_execution_line_says_whether_noise_std_can_be_hoisted(build, rebuild):
@@ -377,11 +450,111 @@ def test_the_execution_line_says_whether_noise_std_can_be_hoisted(build, rebuild
     Recomputing sigma every sweep costs work; hoisting it when an outside
     latent moves it costs correctness. The plan states which one it chose so
     the choice is auditable rather than buried in the executor.
+
+    **The `False` row is the whole test.** Every mixed fixture in
+    `tests/exact/models.py` reports `sigma_needs_rebuild=True` -- measured
+    over all seven -- so with only `True` rows the verdict is a constant and
+    `("rebuilt every sweep" in line) is rebuild` cannot fail: the string
+    `"noise_std hoisted out of the sweep"` (`plan.py`'s other arm) then
+    appears in no assertion anywhere in the repository. Measured directly:
+    with both arms of that ternary made to return `"noise_std rebuilt every
+    sweep"`, the entire suite stays green without this row.
+
+    `detached_ancestor` is imported from `test_dispatch_entry`, which is where
+    it was written and where the other half of the `sigma_rebuild` wiring is
+    checked, rather than copied: two spellings of a fixture whose one job is
+    to be the `False` arm is two things to keep in step.
     """
     plan = compile_graph(build())
     assert plan.sigma_needs_rebuild is rebuild
     line = execution_line(plan)
     assert ("rebuilt every sweep" in line) is rebuild
+    assert ("hoisted out of the sweep" in line) is not rebuild
+
+
+#: ``kappa_upper(kappa) * eps`` at float32, measured over every zero-argument
+#: fixture in ``tests/exact/models.py`` plus the parametrised cells
+#: ``test_acceptance`` uses. Ten of the 36 with an exact block sit at or above
+#: ``CONVERGENCE_TARGET``; the six rows below bracket the threshold from both
+#: sides and span its whole range. The nearest pair straddles it by 1.5x,
+#: which is the resolution this line is asserted at.
+PRECISION_ROWS = [
+    pytest.param(radiometer, {}, True, id="radiometer"),  # 1.267e+03
+    pytest.param(prior_held_direction, {}, True, id="prior_held"),  # 1.203e+01
+    pytest.param(plated_radiometer, {}, True, id="plated_rad"),  # 2.682e-01
+    pytest.param(three_member_constant_sigma, {}, True, id="three_member"),  # 1.39e-3
+    pytest.param(two_linear_latents, {}, False, id="two_linear"),  # 6.905e-04
+    pytest.param(plated_latent, {}, False, id="plated"),  # 1.796e-06
+]
+
+
+@pytest.mark.parametrize("build, kwargs, unattainable", PRECISION_ROWS)
+def test_a_tol_under_the_working_precision_says_so_rather_than_promising_a_guard(
+    build, kwargs, unattainable
+):
+    """`tol = target / kappa` can land where the arithmetic cannot follow it.
+
+    `CONVERGENCE_TARGET`'s own docstring already declines to CLIP such a
+    `tol`, on the grounds that "it is a true statement that this target is
+    unreachable at this precision" -- but the plan printed it beside
+    `guard reachable, off by default`, and that pair reads as a promise. It is
+    not one: the error CG delivers is `kappa * residual`, and when CG cannot
+    get the residual below `tol` the delivered error is whatever the
+    arithmetic allows times kappa, not `CONVERGENCE_TARGET`.
+
+    Measured on a 200-element Gaussian-smoothing deconvolution -- `z ~ N(0,1)`
+    of length 200, `mu = G z` with a width-6 row-normalised Gaussian kernel,
+    `d ~ N(mu, 3e-4)` -- built and run at each dtype in turn:
+
+        float32  kappa=1.089e+07 tol=9.19e-11  kappa*eps=1.30   UNATTAINABLE
+                 CG stalls at residual 6.18e-07; delivered relative error of
+                 the mean 1.10, i.e. 1100x the 1e-3 target, and the posterior
+                 mean sits 1.05 posterior sd from the dense oracle.
+        float64  kappa=1.084e+07 tol=9.22e-11  kappa*eps=2.41e-09  reachable
+                 CG reaches residual 9.01e-11; delivered error 2.23e-04,
+                 inside the target, mean 0.10 sd from the oracle.
+
+    Same model, same printed `tol`, and the only thing separating a delivered
+    1e-3 from a delivered 1.1 is the dtype -- which is what the line now says.
+
+    The test is the WHOLE predicate `kappa_upper * eps >= CONVERGENCE_TARGET`
+    and not one arm of it: `unattainable` rows must print the clause, and
+    attainable rows must print the old one and NOT the clause. `two_linear_
+    latents` at 6.905e-04 is the closest attainable row and `three_member_
+    constant_sigma` at 1.392e-03 the closest unattainable one, so the pair
+    straddles the threshold by 1.5x and neither arm can be satisfied by a
+    constant.
+    """
+    plan = compile_graph(build(**kwargs))
+    body = flat(str(plan))
+    assert ("tol UNATTAINABLE at this dtype" in body) is unattainable
+    assert ("guard reachable, off by default" in body) is not unattainable
+    assert plan.exact.tol_attainable is not unattainable
+
+
+def test_whether_the_tol_is_attainable_is_a_verdict_about_the_dtype():
+    """The same graph, both precisions: the line has to move, and it is the
+    only thing that does.
+
+    `radiometer`'s condition bound is 1.063e+10, so `kappa * eps` is 1.27e+03
+    at float32 and 2.36e-06 at float64 -- six decades either side of the 1e-3
+    target. `tol` itself is 9.4e-14 at both, which is exactly the point: a
+    reader comparing two plans cannot tell the two situations apart from
+    `kappa` and `tol` alone, and those are the two numbers section 4.2 asks
+    them to read together.
+
+    The graph is rebuilt INSIDE the `enable_x64` block, not merely recompiled
+    there: `const` and `observe` capture their arrays at trace time, so a
+    graph traced at float32 stays float32 however it is later compiled, and a
+    version of this test that hoisted the build would pass on a plan that
+    ignored the dtype entirely.
+    """
+    at_float32 = str(compile_graph(radiometer()))
+    with jax.enable_x64(True):
+        at_float64 = str(compile_graph(radiometer()))
+    assert "tol UNATTAINABLE at this dtype" in flat(at_float32)
+    assert "tol UNATTAINABLE at this dtype" not in flat(at_float64)
+    assert "guard reachable, off by default" in flat(at_float64)
 
 
 @pytest.mark.parametrize("build", [overflowing_outside_latent, improper_outside_prior])
@@ -400,6 +573,74 @@ def test_an_unsweepable_outside_latent_is_named_rather_than_silently_pinned(buil
     assert KAPPA_RANGE.search(text) is None
     assert KAPPA_POINT.search(text) is not None
     assert "kappa sweep held ['z']" in flat(text)
+
+
+def test_a_probe_point_the_bound_cannot_be_measured_at_is_named_too():
+    """A narrowed interval with no note reads as a full one. It is not.
+
+    ``kappa_interval`` drops any probe whose ``condition_bound`` is not
+    finite, which is right -- ``tol = target / inf`` is 0.0 and ``/ nan`` is
+    ``nan``, and neither is a tolerance -- but the interval that comes back
+    then covers less of the outside latent's prior than it claims to, and
+    ``tol`` is derived from the largest kappa the sweep could SEE rather than
+    from the largest it went looking for. So the block's reason has to say
+    which latent's probes were dropped.
+
+    Until ``overflowing_probe_width`` existed nothing in the suite reached
+    that branch: branch coverage reported ``refused.append(name)`` and the
+    whole ``refused`` clause of ``_sweep_note`` unreached, and deleting the
+    append reddened nothing. Measured here: the ``+3`` probe reads ``inf``
+    and the ``-3`` probe ``nan``, both from ``width**2`` leaving float32 at
+    ``exp(+/-45)``, while ``+/-1`` and the centre are finite -- so the
+    interval that survives is [1.0, 6.07e+14] against a prior the sweep was
+    asked to cover four points of.
+
+    The complement of ``test_an_unsweepable_outside_latent_is_named_rather_
+    than_silently_pinned``, which is the other half of ``_sweep_note``: there
+    the latent had no width to step by at all, here it has one and the
+    step lands where the bound cannot be measured.
+    """
+    graph = overflowing_probe_width()
+    plan = compile_graph(graph)
+    assert partition(graph).nuts == ("tau",)
+    text = flat(str(plan))
+    assert "kappa sweep could not build the block at ['tau']" in text
+    assert "the interval is narrower than the prior it was meant to cover" in text
+    # Whatever survived has to still be usable: a non-finite kappa that got
+    # through would make `tol` 0.0 or nan, and both print without complaint.
+    assert math.isfinite(plan_module.kappa_upper(plan.exact.kappa))
+    assert plan.exact.tol > 0.0 and math.isfinite(plan.exact.tol)
+
+
+def test_a_broken_probe_point_is_raised_rather_than_noted():
+    """``StructureError`` is a fault. It must not arrive as a footnote.
+
+    ``classify``'s own module docstring states the package's rule: a
+    ``StructureError`` is caught at exactly one call site -- ``check_
+    linearity``'s -- and allowed through everywhere else, because from
+    ``check_gaussian`` it means a declaration the model contradicts. The two
+    ``except BayesmithError`` handlers in ``plan.py`` were wider than their
+    own docstrings, which say ``NotGaussian``, and ``StructureError`` is a
+    SIBLING of that class rather than a subclass, so the wider spelling
+    swallowed it.
+
+    Measured, on this fixture: ``partition`` accepts the graph because at the
+    prior centre ``tau`` is 1.0 and the width is 1.0, and the ``-3``-sigma
+    probe puts the width at ``-0.5``. Under ``except BayesmithError``,
+    ``compile()`` returned an ordinary-looking plan carrying ``kappa in
+    [15.2, 356.0]`` -- built from the three probes that survived -- and the
+    same "could not build the block" note the test above asserts, which is
+    exactly the sentence that makes a broken model indistinguishable from a
+    graph whose bound merely overflowed. Nothing else in the plan, and nothing
+    in ``Posterior``, said the prior width goes negative.
+    """
+    graph = unfloored_probe_width()
+    assert partition(graph).exact == ("x",), "the centre must still classify"
+    with pytest.raises(StructureError) as caught:
+        compile_graph(graph)
+    assert "'x'" in str(caught.value)
+    assert "not strictly positive" in str(caught.value)
+    assert "Add a floor" in str(caught.value)
 
 
 def test_the_plan_covers_exactly_the_partition_the_classifier_made():

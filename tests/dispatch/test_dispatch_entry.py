@@ -15,9 +15,20 @@ only the plate of ``plated_radiometer`` at N=2000, Kish ESS/N reads 0.966
 Meanwhile ``radiometer()`` -- a ONE-dimensional block whose Kish ESS/N is
 0.9988 at every N and seed tried -- reads k-hat 0.91 to 1.80 at N=1200 across
 six seeds, i.e. "unreliable" on a sample that is essentially perfect. The two
-diagnostics disagree by that much, which is why the fallback in
+diagnostics disagree by that much, which is why the collapse verdict in
 ``test_the_collapse_floor_is_read_off_the_kish_ess_and_not_off_khat`` must be
 driven by the Kish ESS and never by k-hat.
+
+*And the collapse is not a reason to substitute NUTS.* At the collapsed cell
+``plated_radiometer(n=25, kappa=0.4)``, N=1200, against exact per-coordinate
+quadrature of that fixture's factorised plate, worst coordinate in units of
+its own posterior sd: SNIS is out by 1.398 (key 0) and 1.376 (key 4) while
+NUTS is out by 18.507 and 18.471, with NUTS's chain ESS (33.3, 51.3) ABOVE
+the SNIS Kish ESS (14.1, 13.5). So the floor annotates and
+``nuts_on_collapse=True`` substitutes;
+``test_a_collapsed_snis_is_annotated_rather_than_replaced`` and
+``test_the_nuts_fallback_on_a_collapse_is_reachable_by_keyword`` are the two
+halves.
 
 *The convergence guard cannot be left on by default at float32.* ``tol`` is
 derived as ``CONVERGENCE_TARGET / kappa`` precisely so that a CG stopping at
@@ -58,9 +69,14 @@ from bayesmith.errors import ConvergenceError
 from bayesmith.exact.correct import self_normalise
 from bayesmith.exact.gaussian import noise_std_at
 from bayesmith.graph.evaluate import log_joint
+from tests.dispatch.test_classify import (
+    three_member_constant_sigma,
+    three_member_moving_sigma,
+)
 from tests.exact.models import (
     bilinear_pair,
     mixed_radiometer,
+    orphaned_child_latent,
     plated_and_scalar_latents,
     plated_latent,
     plated_radiometer,
@@ -84,13 +100,18 @@ HEALTHY = {"n": 6}
 
 
 def detached_ancestor(*, n=8, w_true=1.4, sigma=0.5, seed=33):
-    """A mixed graph whose outside latent never reaches the data. LOCAL.
+    """A mixed graph whose outside latent never reaches the data.
 
-    Defined here rather than in ``tests/exact/models.py`` because it exists for
-    one dimension of ONE test in this file: every mixed fixture that module
-    ships reports ``sigma_needs_rebuild=True`` (measured over all seven), so
-    the ``False`` branch of ``sample()``'s ``sigma_rebuild=`` wiring has no
-    fixture anywhere in the suite.
+    It exists for one dimension of two tests: every mixed fixture
+    ``tests/exact/models.py`` ships reports ``sigma_needs_rebuild=True``
+    (measured over all seven), so the ``False`` branch has no fixture anywhere
+    else in the suite -- neither for ``sample()``'s ``sigma_rebuild=`` wiring,
+    checked here, nor for the ``execution:`` line that says which way the plan
+    went, checked by ``test_the_execution_line_says_whether_noise_std_can_be_
+    hoisted`` in ``tests/dispatch/test_plan.py``, which imports this function.
+    Kept here rather than promoted to ``models.py`` because both consumers are
+    dispatch tests and ``test_plan`` already imports its three-member fixtures
+    from a sibling test module for the same reason.
 
     ``z`` is Gaussian and would qualify on its own, but it is an ancestor of
     ``q``'s prior width, so the ejection rule sends it to NUTS -- and it sits
@@ -158,8 +179,8 @@ def every_coordinate_ess(samples):
 
 @pytest.mark.parametrize(
     "build",
-    [straight_line, two_linear_latents, plated_latent, plated_and_scalar_latents,
-     two_observations],
+    [straight_line, two_linear_latents, three_member_constant_sigma, plated_latent,
+     plated_and_scalar_latents, two_observations],
 )
 @pytest.mark.parametrize("num_samples,seed", [(200, 0), (500, 3)])
 def test_a_fully_exact_graph_samples_without_a_chain(build, num_samples, seed):
@@ -170,9 +191,17 @@ def test_a_fully_exact_graph_samples_without_a_chain(build, num_samples, seed):
     ``test_the_iid_path_really_is_iid`` is what stops it being a lie.
 
     Structural coverage: one scalar member (``straight_line``,
-    ``two_observations``), two scalar members (``two_linear_latents``), one
-    plated member of six (``plated_latent``), and a plate plus a scalar in the
-    same block (``plated_and_scalar_latents``); one observed node and two.
+    ``two_observations``), two scalar members (``two_linear_latents``), THREE
+    scalar members (``three_member_constant_sigma``), one plated member of six
+    (``plated_latent``), and a plate plus a scalar in the same block
+    (``plated_and_scalar_latents``); one observed node and two.
+
+    **Three is not two plus one.** Until the three-member row existed, no
+    fixture reaching ``sample()`` or ``estimate()`` anywhere in the suite had
+    a block wider than two, so any defect that reads only the first two
+    members was invisible at this layer. Measured: with ``_whole_graph`` and
+    ``run_estimate`` both changed to solve ``plan.exact.latents[:2]``, all 72
+    tests in this file stayed green.
     """
     graph = build()
     post = compile_graph(graph).sample(
@@ -226,8 +255,8 @@ def test_the_iid_path_really_is_iid(build, num_samples, seed):
 
 
 @pytest.mark.parametrize(
-    "build", [straight_line, two_linear_latents, plated_latent,
-              plated_and_scalar_latents]
+    "build", [straight_line, two_linear_latents, three_member_constant_sigma,
+              plated_latent, plated_and_scalar_latents]
 )
 def test_the_iid_draws_reproduce_the_dense_posterior(build):
     """The draws are of the right distribution, not merely of the right shape.
@@ -260,13 +289,14 @@ def test_the_iid_draws_reproduce_the_dense_posterior(build):
 
 
 @pytest.mark.parametrize(
-    "build,kwargs",
-    [(radiometer, {}), (radiometer_group, {}), (steep_radiometer, {}),
-     (plated_radiometer, HEALTHY)],
+    "build,kwargs,clears_floor",
+    [(radiometer, {}, True), (radiometer_group, {}, True),
+     (steep_radiometer, {}, True), (plated_radiometer, HEALTHY, True),
+     (three_member_moving_sigma, {}, False)],
 )
 @pytest.mark.parametrize("num_samples,seed", [(600, 0), (1200, 4)])
 def test_a_moving_sigma_returns_weights_and_the_kish_ess_of_them(
-    build, kwargs, num_samples, seed
+    build, kwargs, clears_floor, num_samples, seed
 ):
     """``gcr+snis``: the draws, the weights that correct them, and their ESS.
 
@@ -274,7 +304,21 @@ def test_a_moving_sigma_returns_weights_and_the_kish_ess_of_them(
     of some other set -- so it is recomputed here from ``post.log_weights``
     through ``self_normalise``. Structural coverage: one scalar member
     (``radiometer``, ``steep_radiometer``), two scalar members over two
-    observed nodes (``radiometer_group``), one plated member of six.
+    observed nodes (``radiometer_group``), one plated member of six, and
+    THREE scalar members (``three_member_moving_sigma``) -- the block-size
+    axis this entry point had no fixture for, and the axis the handoff's
+    lesson 5 is about.
+
+    ``clears_floor`` is a per-row expectation and not a constant, which is the
+    three-member row's second contribution: measured over six (N, key) cells,
+    ``three_member_moving_sigma`` reads a Kish ESS/N of 0.0443-0.0549, i.e.
+    the sigma mismatch a three-member contrast carries collapses the weights
+    where a one- or two-member one does not. It comes back as a weighted
+    sample all the same -- with ``unreliable=True`` and the collapse in its
+    reason -- so every structural assertion below still applies to it, which
+    is exactly what makes it usable as a row here at all. Under the old
+    replace-with-NUTS behaviour this fixture could not have been added: it
+    would have arrived as ``method="nuts"`` with no weights to check.
     """
     graph = build(**kwargs)
     post = compile_graph(graph).sample(jax.random.key(seed),
@@ -284,7 +328,8 @@ def test_a_moving_sigma_returns_weights_and_the_kish_ess_of_them(
     assert post.log_weights.shape == (num_samples,)
     _, kish = self_normalise(post.log_weights)
     assert post.ess == pytest.approx(float(kish), rel=1e-6)
-    assert post.ess / num_samples >= SNIS_ESS_FLOOR
+    assert (post.ess / num_samples >= SNIS_ESS_FLOOR) is clears_floor
+    assert ("collapsed" in post.reason) is not clears_floor
     assert post.khat is not None
     assert set(post.samples) == set(graph.latents)
 
@@ -320,24 +365,78 @@ def test_the_weights_recover_the_posterior_the_gls_fixed_point_misses(
 
 
 @pytest.mark.parametrize("num_samples,seed", [(400, 0), (800, 2)])
-def test_a_collapsed_snis_falls_back_instead_of_relabelling_one_draw(
-    num_samples, seed
-):
-    """§6.4's decision: below the floor the dispatcher must not hand SNIS back.
+def test_a_collapsed_snis_is_annotated_rather_than_replaced(num_samples, seed):
+    """§6.4's decision, corrected: below the floor, SAY so -- do not substitute.
 
     ``plated_radiometer(n=25, kappa=0.4)`` reads a Kish ESS/N of at most
-    0.0301 over eighteen (N, key) cells, so the fallback fires with 3.3x of
-    margin. The fallback target is NUTS rather than the Gibbs+MH path (B) and
-    that is FORCED, not chosen: ``gibbs.assemble`` refuses a block covering
-    every latent, in those words, because the inner NUTS kernel would have no
-    site left to sample.
+    0.0301 over eighteen (N, key) cells, so the floor fires with 3.3x of
+    margin. What the floor may NOT do is silently hand back the worse answer,
+    and it was doing exactly that. Measured at N=1200 against exact
+    per-coordinate quadrature of this fixture's own factorised plate, worst
+    coordinate, in units of that coordinate's posterior sd:
+
+        seed 0:  SNIS 1.398  NUTS 18.507       seed 4:  SNIS 1.376  NUTS 18.471
+
+    a factor of 13. And the floor's own currency inverts the ordering: NUTS's
+    chain ESS reads 33.3 and 51.3 against the SNIS Kish ESS of 14.1 and 13.5,
+    so the diagnostic that fires prefers the estimator that is 13x further
+    from the truth.
+
+    So the weighted sample comes back, carrying ``unreliable=True``, its
+    ``khat``, its ``log_weights`` and the collapse named in ``reason`` --
+    everything a caller needs to refuse it -- and running NUTS instead is
+    ``nuts_on_collapse=True``, checked below. ``ess`` is unchanged: it was
+    already the Kish ESS and it already carries the number.
 
     The paired ``HEALTHY`` cell is the other side of the floor, on the same
-    fixture family with only the plate size and ``kappa`` moved.
+    fixture family with only the plate size and ``kappa`` moved, and it is
+    what stops "annotate" degrading into "annotate everything".
     """
     key = jax.random.key(seed)
     fell = compile_graph(plated_radiometer(**COLLAPSED)).sample(
         key, num_samples=num_samples, num_warmup=num_samples
+    )
+    assert fell.method == "gcr+snis"
+    assert fell.log_weights is not None
+    assert fell.log_weights.shape == (num_samples,)
+    assert fell.khat is not None
+    assert fell.unreliable is True
+    assert fell.ess / num_samples < SNIS_ESS_FLOOR
+    assert "collapsed" in fell.reason and "Kish ESS/N" in fell.reason
+    assert "nuts_on_collapse" in fell.reason
+
+    stayed = compile_graph(plated_radiometer(**HEALTHY)).sample(
+        key, num_samples=num_samples
+    )
+    assert stayed.method == "gcr+snis"
+    assert "Kish ESS/N" in stayed.reason
+    assert "collapsed" not in stayed.reason
+    assert stayed.ess / num_samples >= SNIS_ESS_FLOOR
+
+
+@pytest.mark.parametrize("num_samples,seed", [(400, 0), (800, 2)])
+def test_the_nuts_fallback_on_a_collapse_is_reachable_by_keyword(
+    num_samples, seed
+):
+    """The replacement is still there, opted INTO rather than out of.
+
+    It is not a bad estimator everywhere -- :data:`SNIS_ESS_FLOOR`'s own
+    docstring records cells where NUTS's ESS beats the weights by 51x -- it is
+    a bad DEFAULT, because the caller who did not ask for it is the one who
+    cannot tell it happened.
+
+    ``method`` is what RAN, so it reads ``"nuts"`` here, and the weights are
+    gone because they describe draws this object no longer carries. The
+    reason names the collapse and says NUTS ran, and it also says why the
+    Gibbs+MH correction was not the fallback: ``gibbs.assemble`` refuses a
+    block covering every latent, in those words, the inner NUTS kernel having
+    no site left to sample.
+    """
+    fell = compile_graph(plated_radiometer(**COLLAPSED)).sample(
+        jax.random.key(seed),
+        num_samples=num_samples,
+        num_warmup=num_samples,
+        nuts_on_collapse=True,
     )
     assert fell.method == "nuts"
     assert fell.log_weights is None
@@ -345,16 +444,13 @@ def test_a_collapsed_snis_falls_back_instead_of_relabelling_one_draw(
     assert "Kish ESS/N" in fell.reason and "NUTS" in fell.reason
     assert fell.ess > 0.0
 
-    stayed = compile_graph(plated_radiometer(**HEALTHY)).sample(
-        key, num_samples=num_samples
-    )
-    assert stayed.method == "gcr+snis"
-    assert "Kish ESS/N" in stayed.reason
 
-
-@pytest.mark.parametrize("floor,expect", [(0.99, "nuts"), (0.01, "gcr+snis")])
+@pytest.mark.parametrize(
+    "floor,collapsed", [(0.99, True), (0.01, False)]
+)
+@pytest.mark.parametrize("nuts_on_collapse", [False, True])
 def test_the_floor_is_what_decides_and_it_is_two_sided_on_one_fixture(
-    floor, expect
+    floor, collapsed, nuts_on_collapse
 ):
     """Both verdicts on ONE graph, moved only by the floor.
 
@@ -362,11 +458,22 @@ def test_the_floor_is_what_decides_and_it_is_two_sided_on_one_fixture(
     between these two floors, so the fixture is held fixed and the threshold
     is what crosses it. Neither floor equals :data:`SNIS_ESS_FLOOR`, so this
     cannot pass by the default happening to be right.
+
+    Swept over ``nuts_on_collapse`` as well, because the floor's verdict and
+    what is DONE with it are now two decisions and only the first belongs to
+    the floor: on the ``0.01`` rows nothing collapses and the keyword must
+    make no difference at all, which is the half a fallback wired to the
+    keyword rather than to the ESS would fail.
     """
     post = compile_graph(plated_radiometer(**HEALTHY)).sample(
-        jax.random.key(0), num_samples=400, num_warmup=400, ess_floor=floor
+        jax.random.key(0), num_samples=400, num_warmup=400, ess_floor=floor,
+        nuts_on_collapse=nuts_on_collapse,
     )
+    expect = "nuts" if (collapsed and nuts_on_collapse) else "gcr+snis"
     assert post.method == expect
+    assert ("collapsed" in post.reason) is collapsed
+    if collapsed and not nuts_on_collapse:
+        assert post.unreliable is True
 
 
 @pytest.mark.parametrize("seed", [0, 2, 5])
@@ -540,6 +647,107 @@ def test_a_graph_with_no_exact_structure_says_nuts_and_says_why():
 
 
 @pytest.mark.parametrize(
+    "build,kwargs,extra",
+    [
+        pytest.param(bilinear_pair, {}, {}, id="no_exact_block"),
+        pytest.param(
+            plated_radiometer, COLLAPSED, {"nuts_on_collapse": True},
+            id="snis_collapse",
+        ),
+    ],
+)
+def test_both_nuts_paths_are_handed_the_chain_settings_sample_was_given(
+    monkeypatch, build, kwargs, extra
+):
+    """``sample()`` documents these as "passed to whichever sampler runs".
+
+    Two of the five shapes run bare NUTS -- the graph with no exact block, and
+    the SNIS collapse -- and both reach it through ``bridge.nuts``. Neither
+    ``chain_method`` nor ``nuts_options`` had a route there: ``run_sample``
+    packed only ``num_warmup``/``num_samples``/``num_chains``/``progress_bar``
+    into its ``chain`` dict, and ``bridge.nuts`` accepted neither keyword. So
+    ``sample(key, num_chains=4, chain_method="parallel", nuts_options={...})``
+    ran sequentially at the default kernel settings and said nothing, while
+    the mixed path -- which goes through ``gibbs.assemble``, and which has
+    taken both since it was written -- honoured them. A keyword that is
+    honoured on one path and dropped on another is worse than one that is
+    refused everywhere.
+
+    A spy rather than a statistical check for the same reason
+    ``test_the_sweep_is_handed_the_numbers_the_plan_decided`` uses one: what
+    is unguarded is the WIRING. That the settings then DO something is
+    ``test_a_nuts_option_reaches_the_kernel_and_changes_the_chain``'s job.
+    """
+    seen: dict = {}
+    real = execute_module.nuts_draws
+
+    def recording(graph, key, **passed):
+        seen.update(passed)
+        return real(graph, key, **passed)
+
+    monkeypatch.setattr(execute_module, "nuts_draws", recording)
+    options = {"target_accept_prob": 0.9}
+    compile_graph(build(**kwargs)).sample(
+        jax.random.key(0),
+        num_warmup=60,
+        num_samples=60,
+        chain_method="sequential",
+        nuts_options=options,
+        **extra,
+    )
+    assert seen, "the NUTS path was not taken -- this fixture no longer reaches it"
+    assert seen["chain_method"] == "sequential"
+    assert seen["nuts_options"] == options
+    assert seen["num_samples"] == 60
+
+
+@pytest.mark.parametrize("build", [bilinear_pair, orphaned_child_latent])
+@pytest.mark.parametrize("seed", [0, 3])
+def test_a_nuts_option_reaches_the_kernel_and_changes_the_chain(build, seed):
+    """The wiring above is only worth having if the far end reads it.
+
+    The probe is ``{"step_size": 1e-8, "adapt_step_size": False}``, which
+    pins the leapfrog step at a size no trajectory can escape: over 600 draws
+    the chain cannot travel further than 1e-8 times the number of leapfrog
+    steps, so its spread collapses to the dtype's own noise. Measured over
+    five keys and both fixtures at 300 warmup / 600 draws -- the widest
+    per-site sd with the option against the NARROWEST without it:
+
+        bilinear_pair       2.98e-08 / 0 / 5.96e-08 / 1.19e-07 / 2.98e-08
+                            against 0.948, 0.364, 0.677, 0.338, 0.563
+        orphaned_child_latent  same five frozen values
+                            against 0.128, 0.136, 0.138, 0.139, 0.127
+
+    i.e. six to twenty-nine orders of magnitude apart, with the frozen side
+    at or under one float32 ulp of the values themselves. 1e-5 sits 84x above
+    the largest frozen sd and 12,700x below the smallest free one, so this is
+    a structural check and not a mixing statistic.
+
+    ``max_tree_depth=1`` and ``target_accept_prob=0.95`` were both tried
+    first and both rejected as probes, for the same reason: they change the
+    chain's MIXING, and the mixing of the fixtures that reach bare NUTS here
+    is itself unstable in the key. ``bilinear_pair``'s default ``chain_ess``
+    reads 17.1, 124.7, 22.7, 99.4, 87.7 and 127.4 over keys 0-5, so an
+    assertion on a ratio to it would ride on which key it ran at.
+
+    Both bare-NUTS shapes' fixtures are swept, so this cannot pass on a
+    ``nuts_options`` that reached the kernel only through one of them.
+    """
+    plan = compile_graph(build())
+    settings = {"num_warmup": 300, "num_samples": 600}
+    free = plan.sample(jax.random.key(seed), **settings)
+    frozen = plan.sample(
+        jax.random.key(seed),
+        nuts_options={"step_size": 1e-8, "adapt_step_size": False},
+        **settings,
+    )
+    assert plan.exact is None, "fixture no longer reaches the bare-NUTS path"
+    widest = max(float(np.asarray(v).std()) for v in frozen.samples.values())
+    narrowest = min(float(np.asarray(v).std()) for v in free.samples.values())
+    assert widest < 1e-5 < narrowest
+
+
+@pytest.mark.parametrize(
     "draws,expect",
     [
         ({"a": np.full((40,), 2.0)}, 1.0),
@@ -580,7 +788,8 @@ def test_the_reduction_takes_the_worst_coordinate_within_one_site():
 
 
 @pytest.mark.parametrize(
-    "build", [straight_line, two_linear_latents, plated_latent, two_observations]
+    "build", [straight_line, two_linear_latents, three_member_constant_sigma,
+              plated_latent, two_observations]
 )
 def test_estimate_solves_a_constant_sigma_graph_in_one_pass(build):
     """A constant sigma has no fixed point to find, so there is nothing to loop.
@@ -588,6 +797,10 @@ def test_estimate_solves_a_constant_sigma_graph_in_one_pass(build):
     ``iterations == 1`` is the live half of this: routing a constant-sigma
     graph through the reweighting loop returns the same answer after
     ``MIN_REWEIGHTS`` solves, so only the count can tell the two apart.
+
+    ``three_member_constant_sigma`` is the block-size-three row on this entry
+    point -- see ``test_a_fully_exact_graph_samples_without_a_chain`` for the
+    measurement that says why two was not enough.
     """
     graph = build()
     plan = compile_graph(graph)
@@ -601,7 +814,10 @@ def test_estimate_solves_a_constant_sigma_graph_in_one_pass(build):
                        atol=2e-3 * max(1.0, float(np.abs(oracle.mean).max())))
 
 
-@pytest.mark.parametrize("build", [radiometer, steep_radiometer, plated_radiometer])
+@pytest.mark.parametrize(
+    "build",
+    [radiometer, steep_radiometer, plated_radiometer, three_member_moving_sigma],
+)
 def test_estimate_returns_a_covariance_that_is_a_fixed_point(build):
     """The defining property of the GLS answer, checked as such.
 

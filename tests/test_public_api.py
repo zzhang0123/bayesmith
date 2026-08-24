@@ -76,6 +76,35 @@ def test_every_exact_name_resolves_and_is_the_same_object_as_its_module_s():
         assert name in bayesmith.__all__
 
 
+def test_the_dispatch_exports_are_the_objects_their_own_module_defines():
+    """The same identity pin as above, for the two names ``dispatch/`` owns.
+
+    ``Posterior`` and ``Estimate`` are lazy attributes like every name in the
+    test above, but they are not ``exact`` names, so that test's map does not
+    and should not reach them -- and until this one existed nothing did.
+    Measured directly: swapping the two entries in ``_LAZY_ATTRS`` so
+    ``bayesmith.Posterior`` resolves to ``execute.Estimate`` and vice versa
+    left all seven tests in this file green, ``test_every_exported_name_
+    resolves`` included, because both names still resolve to *something*.
+
+    Checked against ``bayesmith.dispatch.execute`` rather than
+    ``bayesmith.dispatch.plan``: ``plan`` re-exports both, so a map pointed
+    there would be satisfied by the re-export and blind to which object it
+    re-exports. ``execute`` is the owning module -- what ``_LAZY_ATTRS``'
+    own comment says every entry points at.
+    """
+    import bayesmith
+    from bayesmith.dispatch import execute
+
+    expected = {
+        "Posterior": execute.Posterior,
+        "Estimate": execute.Estimate,
+    }
+    for name, target in expected.items():
+        assert getattr(bayesmith, name) is target, name
+        assert name in bayesmith.__all__
+
+
 def test_the_exact_subpackage_s_own_all_reexports_the_right_object():
     """``bayesmith.exact.__all__`` is a SEPARATE contract from the top-level one.
 

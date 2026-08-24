@@ -936,7 +936,7 @@ def test_the_derived_tol_delivers_its_target_at_every_extreme(build, kwargs):
     assert plan.exact.kappa is not None
     assert math.isfinite(kappa_upper(plan.exact.kappa))
     assert plan.exact.tol == pytest.approx(
-        CONVERGENCE_TARGET / kappa_upper(plan.exact.kappa), rel=1e-6
+        CONVERGENCE_TARGET / kappa_upper(plan.exact.kappa), rel=1e-6, abs=0.0
     )
 
     zero = {name: jnp.zeros_like(block.prior_mean[name]) for name in names}
@@ -1017,19 +1017,22 @@ def test_the_collapse_floor_flips_the_dispatch_at_the_measured_kish_ratio(seed):
     assumption that both are valid in a neighbourhood of it. Here they are
     not: per-coordinate quadrature of this fixture says the SNIS answer is
     within 0.14 posterior sd on every coordinate at every key, while the NUTS
-    the fallback runs instead is off by up to 204 sd on coordinate 1 -- the
+    that used to replace it is off by up to 204 sd on coordinate 1 -- the
     ``sigma = 0.06|z| + 0.002`` funnel, which NUTS does not traverse. At the
     genuinely collapsed cell the ordering is the same: ``n=25, kappa=0.4``
     reads Kish ESS/N 0.012-0.029, and there SNIS is out by at most 1.40 sd
-    against NUTS's 18.46.
+    against NUTS's 18.5.
 
-    So what is asserted is the DECISION -- which is what the floor is
-    responsible for -- plus the fact that the SNIS side is the one that
-    matches quadrature. Whether NUTS is the right thing to fall back TO on
-    this fixture family is a question for section 5.2 and not for this guard;
-    :data:`~bayesmith.dispatch.plan.SNIS_ESS_FLOOR`'s own docstring already
-    declines to claim the fallback is uniformly better, and these numbers say
-    on which side of that hedge this fixture falls.
+    **That disagreement is now acted on rather than only recorded.** When this
+    test was first written the floor DISCARDED the weighted sample, so these
+    numbers sat in a docstring saying the dispatcher preferred the worse
+    answer at both cells; :data:`~bayesmith.dispatch.plan.SNIS_ESS_FLOOR` now
+    annotates instead, and substituting NUTS is ``nuts_on_collapse=True``. So
+    what the floor decides is the VERDICT -- ``unreliable`` and the reason --
+    and the ``nuts_on_collapse`` arm below is where the substitution is still
+    checked to happen when it is asked for. Both arms are swept, because a
+    floor wired to the keyword rather than to the ratio would satisfy either
+    one alone.
     """
     draws = 1200
     graph = plated_radiometer(n=6)
@@ -1038,6 +1041,7 @@ def test_the_collapse_floor_flips_the_dispatch_at_the_measured_kish_ratio(seed):
         key, num_samples=draws, num_warmup=600, ess_floor=0.0
     )
     assert measured.method == "gcr+snis"
+    assert not measured.reason.startswith("exact block ['z']: the SNIS")
     ratio = measured.ess / draws
 
     below = compile_graph(graph).sample(
@@ -1047,8 +1051,24 @@ def test_the_collapse_floor_flips_the_dispatch_at_the_measured_kish_ratio(seed):
         key, num_samples=draws, num_warmup=600, ess_floor=ratio * 1.3
     )
     assert below.method == "gcr+snis"
-    assert above.method == "nuts"
-    assert "Kish ESS/N" in above.reason and "num_samples does not help" in above.reason
+    assert below.unreliable is measured.unreliable
+    assert "collapsed" not in below.reason
+    assert above.method == "gcr+snis"
+    assert above.unreliable is True
+    assert above.log_weights is not None
+    assert "Kish ESS/N" in above.reason and "collapsed" in above.reason
+    assert "ESS/N this floor reads FALLS" in above.reason
+
+    replaced = compile_graph(graph).sample(
+        key, num_samples=draws, num_warmup=600, ess_floor=ratio * 1.3,
+        nuts_on_collapse=True,
+    )
+    kept = compile_graph(graph).sample(
+        key, num_samples=draws, num_warmup=600, ess_floor=ratio * 0.7,
+        nuts_on_collapse=True,
+    )
+    assert replaced.method == "nuts"
+    assert kept.method == "gcr+snis"
 
     # The kept side is the accurate one, per coordinate, against quadrature of
     # the plate's own independent factors: element i of `plated_radiometer`

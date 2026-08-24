@@ -43,7 +43,7 @@ if TYPE_CHECKING:  # annotations only -- see the module docstring
 
 
 SNIS_ESS_FLOOR: float = 0.1
-"""Kish ESS/N below which the SNIS correction is discarded and NUTS is run.
+"""Kish ESS/N below which the SNIS correction is declared collapsed.
 
 Section 5.2's decision, and the reason it is a floor on the RATIO rather than
 a flag on the object: self-normalised importance sampling degrades
@@ -54,18 +54,40 @@ throughout); sweeping only the plate of this package's ``plated_radiometer``
 at N=2000 reproduces the shape -- 0.966 (n=1), 0.739 (n=6), 0.445 (n=12),
 0.123 (n=50), 0.054 (n=100), 0.0039 (n=400).
 
+**Crossing it ANNOTATES the sample; it does not replace it.** This floor used
+to discard the weighted draws and run NUTS instead, and that was measured to
+be the wrong way round. At the genuinely collapsed cell
+``plated_radiometer(n=25, kappa=0.4)`` at N=1200, against exact
+per-coordinate quadrature of that fixture's own factorised plate, worst
+coordinate in units of its posterior sd: the SNIS answer that was being
+discarded is out by **1.40** (keys 0 and 4: 1.398, 1.376) and the NUTS that
+replaced it by **18.5** (18.507, 18.471) -- a factor of 13, in favour of the
+estimator the floor threw away. Worse, the floor's own currency inverts the
+ordering: NUTS's chain ESS on those two keys reads 33.3 and 51.3 against the
+SNIS Kish ESS of 14.1 and 13.5, so the diagnostic that fires prefers the
+answer 13x further from the truth. A floor that fires on a number cannot also
+be trusted to choose the replacement by that number.
+
+So what crossing it now produces is a :class:`Posterior` carrying its draws,
+its weights, its k-hat, ``unreliable=True`` and the collapse named in
+``reason``. Substituting NUTS is :meth:`InferencePlan.sample`'s
+``nuts_on_collapse=True``, and it is opt-in rather than opt-out because the
+caller who did not ask for it is exactly the caller who cannot tell it
+happened.
+
 **0.1 is the variance-inflation red line, not a crossover.** At ESS/N = 0.1
 the estimator's variance is inflated 10x, i.e. the error bars are 3.16x wider
 than the nominal ones and recovering a nominal bar costs ten times the draws.
-It would be dishonest to claim the fallback is uniformly better: measured at
-N=1000 against NUTS's own min-over-coordinates ESS/N on the same graph,
+It would be dishonest to claim either estimator is uniformly better: measured
+at N=1000 against NUTS's own min-over-coordinates ESS/N on the same graph,
 ``plated_radiometer(n=6, kappa=0.4)`` reads SNIS 0.120 against NUTS 0.014 (the
 weights win, 8x), while ``n=12, kappa=0.2`` reads SNIS 0.0065 against NUTS
 0.332 (NUTS wins, 51x) and ``n=50, kappa=0.2`` reads 0.014 against 0.241. So
 the crossover lies somewhere in 0.01-0.12 and is not sharp; 0.1 is its
 conservative end. What the floor guarantees is not the better estimator, it is
 that a ``Posterior`` carrying a thousand draws never comes back with four of
-them real and only a boolean to say so.
+them real and only a boolean to say so -- and it now guarantees that by
+setting the boolean, which is a claim it can actually support.
 
 **It is read off the Kish ESS and never off k-hat**, which is not
 interchangeable with it here. Measured on ``radiometer()`` -- a
@@ -73,8 +95,8 @@ ONE-dimensional block -- at N=1200 over six keys: Kish ESS/N is 0.9986-0.9988
 every time while k-hat reads 0.91 to 1.80, past
 :data:`~bayesmith.exact.correct.FINITE_MEAN_KHAT`. The log weights span under
 one nat there, which is not a tail PSIS has any business fitting a
-generalised Pareto to. Dispatch on k-hat and that graph goes to NUTS with a
-collapse reported that did not happen.
+generalised Pareto to. Dispatch on k-hat and that graph is reported as a
+collapse that did not happen.
 """
 
 
@@ -92,14 +114,20 @@ class Posterior(NamedTuple):
             every coordinate -- see :func:`chain_ess`. The Kish ESS on the
             SNIS path, and ``num_samples`` exactly on the iid one.
         khat: PSIS k-hat of ``log_weights``, or ``None`` where there are none.
-        unreliable: k-hat past ``min(1 - 1/log10(N), 0.7)``. ``False`` wherever
-            ``khat`` is ``None``, which is **abstention, not endorsement** --
-            read ``ess``, which is always there.
+        unreliable: k-hat past ``min(1 - 1/log10(N), 0.7)``, **or** a Kish
+            ESS/N under ``ess_floor`` -- either is a reason not to trust the
+            weights, and the field is the one place a caller looks for that.
+            ``False`` wherever ``khat`` is ``None`` and nothing collapsed,
+            which is **abstention, not endorsement** -- read ``ess``, which is
+            always there.
         method: what actually RAN: ``"gcr"``, ``"gcr+snis"``, ``"gcr+mh"`` or
             ``"nuts"``. Not necessarily ``plan.exact.method``: a collapsed
-            SNIS reports ``"nuts"``, because that is what produced the draws.
+            SNIS reports ``"nuts"`` when ``nuts_on_collapse=True`` asked for
+            it, because that is what produced the draws, and ``"gcr+snis"``
+            otherwise -- see :data:`SNIS_ESS_FLOOR` for why the default is
+            to annotate rather than substitute.
         reason: why that, in the plan's own words, including the measured
-            Kish ESS/N wherever a fallback turned on it.
+            Kish ESS/N wherever the floor fired.
     """
 
     samples: dict[str, jax.Array]
@@ -184,6 +212,7 @@ def run_sample(
     maxiter: int | None,
     require_convergence: float | None,
     ess_floor: float,
+    nuts_on_collapse: bool,
 ) -> Posterior:
     """:meth:`~bayesmith.dispatch.plan.InferencePlan.sample`, as a function.
 
@@ -192,21 +221,30 @@ def run_sample(
     read them off and one place they can drift from.
     """
     draw_key, fallback_key = jax.random.split(key)
+    # Every chain setting, in ONE dict that all three sampling paths splat.
+    # `chain_method` and `nuts_options` used to travel beside it as separate
+    # arguments, reaching `assemble` on the mixed path and nowhere else -- so
+    # both bare-NUTS shapes dropped them in silence while `sample`'s docstring
+    # said they were "passed to whichever sampler runs". `gibbs.assemble` and
+    # `bridge.nuts` take these six keywords under these six names precisely so
+    # this dict can be handed to either without a translation step to get
+    # wrong.
     chain = {
         "num_warmup": num_warmup,
         "num_samples": num_samples,
         "num_chains": num_chains,
+        "chain_method": chain_method,
         "progress_bar": progress_bar,
+        "nuts_options": nuts_options,
     }
     if plan.exact is None:
         return _nuts_posterior(plan.graph, fallback_key, plan.sampled.reason, chain)
     tol = plan.exact.tol if tol is None else tol
     if plan.sampled is not None:
-        return _swept(plan, draw_key, tol, maxiter, chain_method,
-                      nuts_options, chain)
+        return _swept(plan, draw_key, tol, maxiter, chain)
     return _whole_graph(
         plan, draw_key, fallback_key, tol, maxiter, require_convergence,
-        ess_floor, chain,
+        ess_floor, nuts_on_collapse, chain,
     )
 
 
@@ -272,7 +310,14 @@ def _latents_only(
 def _nuts_posterior(
     graph: Graph, key: jax.Array, reason: str, chain: dict[str, Any]
 ) -> Posterior:
-    """Sample the whole graph with NUTS -- the no-structure path and the fallback."""
+    """Sample the whole graph with NUTS.
+
+    Two callers: the graph with no exact block, and the SNIS collapse when
+    ``nuts_on_collapse`` asked for the substitution. Both hand it the same
+    ``chain`` dict, so the chain settings a caller passed reach the kernel on
+    either -- which they did not before ``bridge.nuts`` took ``chain_method``
+    and ``nuts_options``.
+    """
     samples = _latents_only(nuts_draws(graph, key, **chain), graph)
     ess = chain_ess(samples, num_chains=chain["num_chains"])
     return Posterior(samples, None, ess, None, False, "nuts", reason)
@@ -283,8 +328,6 @@ def _swept(
     key: jax.Array,
     tol: float,
     maxiter: int | None,
-    chain_method: str,
-    nuts_options: Mapping[str, Any] | None,
     chain: dict[str, Any],
 ) -> Posterior:
     """The mixed path: ``HMCGibbs``, assembled from the plan's own three numbers.
@@ -300,8 +343,6 @@ def _swept(
         method=plan.exact.method,
         sigma_rebuild=plan.sigma_needs_rebuild,
         maxiter=maxiter,
-        chain_method=chain_method,
-        nuts_options=nuts_options,
         **chain,
     )
     mcmc.run(key)
@@ -351,6 +392,7 @@ def _whole_graph(
     maxiter: int | None,
     require_convergence: float | None,
     ess_floor: float,
+    nuts_on_collapse: bool,
     chain: dict[str, Any],
 ) -> Posterior:
     """One block spanning every latent: iid draws, reweighted only if sigma moved.
@@ -392,37 +434,88 @@ def _whole_graph(
         )
     )(draws)
     ess = float(self_normalise(weights)[1])
-    if ess < ess_floor * count:
+    collapsed = ess < ess_floor * count
+    if collapsed and nuts_on_collapse:
         return _nuts_posterior(
-            graph, fallback_key, _collapse_reason(names, ess, count, ess_floor), chain
+            graph,
+            fallback_key,
+            _collapse_reason(names, ess, count, ess_floor, replaced=True),
+            chain,
         )
     measured = khat(weights)
-    return Posterior(
-        draws, weights, ess, measured, unreliable(measured, count), "gcr+snis",
-        f"exact block {list(names)}: GCR proposal at the GLS fixed point, "
+    reason = (
+        _collapse_reason(names, ess, count, ess_floor, replaced=False)
+        if collapsed
+        else f"exact block {list(names)}: GCR proposal at the GLS fixed point, "
         "corrected by self-normalised importance weights; Kish ESS/N = "
-        f"{ess / count:.3g} at N={count}, at or above ess_floor={ess_floor:g}",
+        f"{ess / count:.3g} at N={count}, at or above ess_floor={ess_floor:g}"
+    )
+    # `unreliable` is an OR and not a replacement: k-hat and the Kish ESS
+    # disagree in both directions on this package's own fixtures -- see
+    # `SNIS_ESS_FLOOR` -- so a collapse must set the flag whatever k-hat
+    # says, and a k-hat past its own threshold must set it whatever the
+    # ratio says. The two live in one boolean because a caller checking
+    # "may I use these weights" has one question, not two.
+    return Posterior(
+        draws, weights, ess, measured,
+        collapsed or unreliable(measured, count), "gcr+snis", reason,
     )
 
 
 def _collapse_reason(
-    names: tuple[str, ...], ess: float, count: int, floor: float
+    names: tuple[str, ...], ess: float, count: int, floor: float, *, replaced: bool
 ) -> str:
-    """Why the weights were thrown away, with the number that threw them.
+    """That the floor fired, the number that fired it, and what was done.
 
-    Names NUTS rather than the Gibbs+MH path because that choice is FORCED,
-    not preferred: ``gibbs.assemble`` refuses a block covering every latent,
-    in those words, the inner NUTS kernel having no site left to sample.
+    Two endings for one event, because ``method`` alone cannot carry the
+    difference: ``"gcr+snis"`` with ``unreliable=True`` and ``"nuts"`` are
+    both honest labels for what ran, and neither says that the OTHER was
+    available.
+
+    **Where the fallback is named, it is named as forced rather than
+    preferred**: ``gibbs.assemble`` refuses a block covering every latent, in
+    those words, the inner NUTS kernel having no site left to sample -- so
+    the Gibbs+MH correction is not a third option here.
+
+    **Raising N is not the lever, and the old wording had the mechanism
+    wrong.** It said "the Kish ESS of this proposal is bounded by the
+    mismatch, not by N", and measurement contradicts that: on
+    ``plated_radiometer(n=25, kappa=0.4)`` at key 0 the Kish ESS reads 5.65 at
+    N=300, 14.14 at N=1200, 7.47 at N=5000, 55.84 at N=20000 and 119.54 at
+    N=60000, so it does grow -- erratically, and 8.5x for 50x the draws. What
+    is true is the conclusion: ESS/N, which is what this floor reads, FALLS
+    over that range, 0.0188 -> 0.0118 -> 0.0015 -> 0.0028 -> 0.0020. Buying
+    draws buys a worse ratio, so the collapse is not a sample-size problem
+    and the message says which of those two statements it is making.
     """
-    return (
+    head = (
         f"exact block {list(names)}: the SNIS correction collapsed -- Kish "
         f"ESS/N = {ess / count:.3g} at N={count}, below ess_floor={floor:g} -- "
+    )
+    tail = (
         "so the weighted sample was discarded and the whole graph was sampled "
-        "by NUTS instead. The Gibbs+MH correction is not available here: a "
-        "block covering every latent leaves the inner NUTS kernel no site to "
-        "sample, so there is no sweep to embed the Metropolis step in. Raising "
-        "num_samples does not help -- the Kish ESS of this proposal is bounded "
-        "by the mismatch, not by N."
+        "by NUTS instead, which is what nuts_on_collapse=True asks for. The "
+        "Gibbs+MH correction is not available here: a block covering every "
+        "latent leaves the inner NUTS kernel no site to sample, so there is no "
+        "sweep to embed the Metropolis step in."
+        if replaced
+        else "so this Posterior carries unreliable=True, and its draws, "
+        "weights and khat are handed back rather than replaced. Measured on "
+        "plated_radiometer(n=25, kappa=0.4) at N=1200 against exact "
+        "per-coordinate quadrature, worst coordinate in units of its own "
+        "posterior sd: the weighted answer is out by 1.40 and the NUTS that "
+        "used to replace it by 18.5, while NUTS's chain ESS of 33 exceeds "
+        "this Kish ESS of 14 -- the diagnostic that fired prefers the answer "
+        "13x further from the truth. Pass nuts_on_collapse=True to run NUTS "
+        "here instead."
+    )
+    return (
+        head
+        + tail
+        + " Raising num_samples does not rescue the weights: measured on that "
+        "same cell the Kish ESS goes 14.1 at N=1200 to 119.5 at N=60000, i.e. "
+        "8.5x for 50x the draws, so the ESS/N this floor reads FALLS from "
+        "0.0118 to 0.0020."
     )
 
 

@@ -66,7 +66,7 @@ from bayesmith.dispatch.execute import (
     run_estimate,
     run_sample,
 )
-from bayesmith.errors import BayesmithError
+from bayesmith.errors import NotGaussian
 from bayesmith.exact.block import domain_centre, unchecked_operator
 from bayesmith.exact.gaussian import gaussian_parts, node_shape
 from bayesmith.exact.gls import MAX_REWEIGHTS, MIN_REWEIGHTS, sigma_from_graph
@@ -173,6 +173,26 @@ def _kappa_at(
     return float(condition_bound(operator, noise_std=sigma, key=key))
 
 
+def working_epsilon(graph: Graph, names: tuple[str, ...], at: dict[str, Any]) -> float:
+    """Machine epsilon of the dtype the block's own arithmetic runs at.
+
+    Read off ``block.offset``, which is the same leaf
+    :func:`~bayesmith.exact.solve.wiener_solve`'s own precision guard reads
+    (``jnp.result_type(*jax.tree.leaves(block.offset))``). Deliberately the
+    same expression and not an equivalent one: the plan's verdict about
+    whether ``tol`` is reachable and the solver's verdict about whether
+    ``require_convergence`` is reachable must be verdicts about one number,
+    or the plan can promise an accuracy the solve then refuses.
+
+    It is a property of the GRAPH rather than of this module, because
+    ``const`` and ``observe`` capture their arrays at trace time: a graph
+    traced outside ``jax.enable_x64(True)`` stays float32 however it is later
+    compiled.
+    """
+    block = unchecked_operator(graph, names, at)
+    return float(jnp.finfo(jnp.result_type(*jax.tree.leaves(block.offset))).eps)
+
+
 def _probe_values(
     graph: Graph, name: str, env: dict[str, Any]
 ) -> list[jax.Array] | None:
@@ -184,11 +204,21 @@ def _probe_values(
     LEGAL models, so the answer is to leave them at their centre and say so --
     the same policy, and for the same reason, as
     ``classify._at_points``' handling of the linearity check's own draws.
+
+    ``NotGaussian`` and not ``BayesmithError``. They are siblings, not
+    ancestor and descendant, and only one of them is a verdict about an
+    ordinary model: :mod:`bayesmith.dispatch.classify`'s own docstring states
+    that ``StructureError`` is caught at exactly one site in this package --
+    ``check_linearity``'s -- and allowed through everywhere else, because from
+    ``check_gaussian`` it means a node whose ``log_prob`` contradicts the
+    ``loc``/``scale`` read off it. Held at its centre and reported as "not
+    Gaussian, so this module has no prior width", a broken model would print
+    as an ordinary unsweepable one.
     """
     node = graph.node(name)
     try:
         loc, scale = gaussian_parts(graph, node, env)
-    except BayesmithError:
+    except NotGaussian:
         return None
     shape = node_shape(graph, node, env)
     loc = jnp.broadcast_to(loc, shape)
@@ -261,7 +291,34 @@ def kappa_interval(
         for probe in probes:
             try:
                 measured = _kappa_at(graph, names, {**at, name: probe}, key)
-            except BayesmithError:
+            except NotGaussian:
+                # NOT `BayesmithError`, which is the base class of both this
+                # and `StructureError`. `StructureError` is a SIBLING of this
+                # class, not a subclass, and it is the one exception this
+                # package insists must propagate: `check_gaussian` raises it
+                # for a scale that is not strictly positive and finite, and
+                # `gaussian_parts` for an integer `loc`. Both are faults in
+                # the declaration, and dropping the probe printed a narrowed
+                # interval and a note instead. Measured, on a graph whose
+                # member prior width is an unfloored `tau ~ N(1.0, 0.5)`:
+                # the -3-sigma probe puts that width at -0.5, and under
+                # `except BayesmithError` `compile()` returned an interval of
+                # [15.2, 356.0] built from the three probes that survived,
+                # with nothing anywhere saying the model declares a negative
+                # prior width over a fifth of its own prior.
+                #
+                # Nothing in this package's fixture suite reaches this arm as
+                # narrowed, and the reason is worth writing down rather than
+                # rediscovering: `_kappa_at` raises `NotGaussian` only from a
+                # DISTRIBUTION TYPE -- a member's or an observed node's -- and
+                # `unchecked_operator`'s internal-ancestry refusal, and both
+                # are properties of the graph rather than of the values it is
+                # evaluated at, so both fire at the ANCHOR evaluation that
+                # seeds `values` -- which is outside this `try` -- before any
+                # probe is taken. Only a
+                # `dist_fn` returning a different distribution CLASS at
+                # different parent values could reach it. The arm a fixture
+                # does reach is the non-finite one below.
                 refused.append(name)
                 continue
             if math.isfinite(measured):
@@ -285,6 +342,12 @@ class Block(eqx.Module):
             outside the block moves it. ``None`` for a NUTS block, which is
             solved by no linear system at all.
         tol: ``CONVERGENCE_TARGET / kappa_upper(kappa)``.
+        epsilon: machine epsilon of the dtype this block's arithmetic runs at,
+            from :func:`working_epsilon`. ``None`` for a NUTS block, which
+            solves nothing. Stored rather than re-derived at print time
+            because it is a property of the GRAPH -- ``const`` and ``observe``
+            capture their arrays at trace time -- and a plan is meant to be a
+            record of what was measured, not a live query.
     """
 
     latents: tuple[str, ...] = eqx.field(static=True)
@@ -293,6 +356,41 @@ class Block(eqx.Module):
     linearity: dict | None = eqx.field(static=True, default=None)
     kappa: float | tuple[float, float] | None = eqx.field(static=True, default=None)
     tol: float | None = eqx.field(static=True, default=None)
+    epsilon: float | None = eqx.field(static=True, default=None)
+
+    @property
+    def tol_attainable(self) -> bool:
+        """Whether CG can reach ``tol`` at all in this block's own arithmetic.
+
+        ``False`` when ``kappa_upper(kappa) * epsilon >= CONVERGENCE_TARGET``:
+        the error a solve delivers is ``kappa`` times its relative residual,
+        the residual cannot go below the arithmetic's own noise, and past this
+        product the target is arithmetically out of reach whatever ``tol``
+        says. It is the same test
+        :func:`~bayesmith.exact.solve.wiener_solve` makes on
+        ``require_convergence`` (``bound * epsilon > require_convergence``),
+        against the target ``tol`` was derived from, so the plan's verdict and
+        the solver's cannot disagree.
+
+        **A statement about the guarantee, not about the answer.** The bound
+        is an UPPER bound on kappa and a loose one -- measured at 3676x the
+        true conditioning on ``two_linear_latents``, and 232,000x between the
+        prior centre and the GLS fixed point on ``radiometer`` -- so a
+        ``False`` here is compatible with a solve that is in fact accurate.
+        Ten of this package's own fixtures read ``False`` at float32 and
+        ``tests/dispatch/test_acceptance.py`` measures two of them
+        (``prior_held_direction``, ``straight_line(prior_std=1e3,
+        sigma=1e-2)``) delivering inside ``CONVERGENCE_TARGET`` anyway. That
+        is exactly why this is printed rather than raised.
+
+        ``True`` where there is nothing to solve, which is abstention rather
+        than endorsement -- the same convention
+        :attr:`~bayesmith.dispatch.execute.Posterior.unreliable` uses for a
+        missing k-hat.
+        """
+        if self.kappa is None or self.epsilon is None:
+            return True
+        return kappa_upper(self.kappa) * self.epsilon < CONVERGENCE_TARGET
 
 
 def _evidence(block: Block) -> str:
@@ -341,6 +439,38 @@ def _kappa_text(kappa: float | tuple[float, float]) -> str:
     return f"kappa={kappa:.8g}"
 
 
+def _precision_note(block: Block) -> str:
+    """What to say when ``tol`` is below what the arithmetic can deliver.
+
+    Empty where :attr:`Block.tol_attainable` holds. Where it does not, this
+    REPLACES ``"guard reachable, off by default"`` rather than joining it,
+    because that clause's justification is precisely that ``tol`` already
+    delivers ``CONVERGENCE_TARGET`` -- see :attr:`InferencePlan.guard_hoisted`
+    -- and here it does not, so offering the guard as the remedy points at a
+    keyword that would refuse the solve rather than rescue it. It JOINS
+    ``"guard hoisted out of the sweep"``, which is a different statement and
+    still true: a sweep whose guard cannot run AND whose ``tol`` cannot
+    deliver is section 4.2's forbidden combination, and both halves of it are
+    worth naming.
+
+    The wording follows :func:`~bayesmith.exact.solve.wiener_solve`'s own
+    refusal, which reaches the same verdict from the same product and already
+    says "either the condition bound times the machine epsilon already
+    exceeds the target ... Run the solve inside ``with jax.enable_x64(True):``,
+    or strengthen the prior".
+    """
+    if block.tol_attainable:
+        return ""
+    reach = kappa_upper(block.kappa) * block.epsilon
+    return (
+        f"tol UNATTAINABLE at this dtype: the condition bound times the machine "
+        f"epsilon is {reach:.3g}, already past the {CONVERGENCE_TARGET:g} target, "
+        "so no tol delivers it -- the error is kappa times whatever residual the "
+        "arithmetic allows. Run inside `with jax.enable_x64(True):`, building "
+        "the graph there too, or strengthen the prior"
+    )
+
+
 def _continuation(block: Block, *, hoisted: bool, width: int) -> list[str]:
     """The block's remaining lines: the kappa/tol pair, then the reason.
 
@@ -350,15 +480,21 @@ def _continuation(block: Block, *, hoisted: bool, width: int) -> list[str]:
     somewhere else because section 4.2's rule is about the two together: a
     ``tol`` with no statement of the guard is half of the pair the rule
     constrains.
+
+    Whether that ``tol`` is REACHABLE is the third thing the pair needs, and
+    :func:`_precision_note` is where it comes from.
     """
     lines: list[str] = []
     if block.kappa is not None and block.tol is not None:
-        guard = (
-            "guard hoisted out of the sweep"
-            if hoisted
-            else "guard reachable, off by default (require_convergence=)"
-        )
-        pair = f"{_kappa_text(block.kappa)} -> tol={block.tol:.8g}, {guard}"
+        unattainable = _precision_note(block)
+        if hoisted:
+            guard = "guard hoisted out of the sweep"
+        elif unattainable:
+            guard = ""
+        else:
+            guard = "guard reachable, off by default (require_convergence=)"
+        clauses = "; ".join(part for part in (guard, unattainable) if part)
+        pair = f"{_kappa_text(block.kappa)} -> tol={block.tol:.8g}, {clauses}"
         lines.extend(_wrapped(pair, width))
     lines.extend(_wrapped(block.reason, width) or [""])
     return lines
@@ -469,6 +605,7 @@ class InferencePlan(eqx.Module):
         maxiter: int | None = None,
         require_convergence: float | None = None,
         ess_floor: float = SNIS_ESS_FLOOR,
+        nuts_on_collapse: bool = False,
     ) -> Posterior:
         """Run the plan. Section 6.4's dispatch, and nothing else decides.
 
@@ -477,15 +614,21 @@ class InferencePlan(eqx.Module):
         printed; whole graph exact with a fixed sigma -> iid GCR draws, no
         chain; whole graph exact with a moving sigma -> GCR at the GLS fixed
         point corrected by SNIS; and that last one again when its Kish ESS/N
-        falls under ``ess_floor`` -> discard the weights and run NUTS, saying
-        so. See :data:`SNIS_ESS_FLOOR` for why the last row exists.
+        falls under ``ess_floor`` -> the same weighted sample, marked
+        ``unreliable=True`` and saying so, or NUTS instead if
+        ``nuts_on_collapse``. See :data:`SNIS_ESS_FLOOR` for the measurement
+        that decided which of those two is the default.
 
         Args:
             key: PRNG key. Split once, so the draws and any fallback chain do
                 not share a stream.
             num_samples, num_warmup, num_chains, chain_method, progress_bar,
-                nuts_options: passed to whichever sampler runs. ``num_warmup``
-                is ignored on the iid path, there being nothing to adapt.
+                nuts_options: passed to whichever sampler runs -- ``HMCGibbs``
+                through :func:`~bayesmith.exact.gibbs.assemble` on the mixed
+                path, ``NUTS`` through
+                :func:`~bayesmith.bridge.numpyro_bridge.nuts` on both bare
+                ones, under the same six names in both. ``num_warmup`` is
+                ignored on the iid path, there being nothing to adapt.
             tol: CG tolerance. Defaults to the plan's own
                 ``exact.tol = CONVERGENCE_TARGET / kappa``; overriding it
                 overrides the discipline that number carries.
@@ -501,7 +644,19 @@ class InferencePlan(eqx.Module):
                 0.3% inside and 26% outside. It is also a property of the
                 OPERATOR, so on the draw path it would be re-measured, at
                 ``POWER_ITERATIONS`` operator applications, once per draw.
-            ess_floor: the Kish ESS/N under which the SNIS path falls back.
+            ess_floor: the Kish ESS/N under which the SNIS path declares the
+                correction collapsed.
+            nuts_on_collapse: on a collapse, discard the weighted sample and
+                sample the whole graph with NUTS instead. **Off by default,
+                measured.** At the collapsed cell ``plated_radiometer(n=25,
+                kappa=0.4)``, N=1200, against exact per-coordinate quadrature,
+                the weighted answer's worst coordinate is 1.40 posterior sd
+                from the truth and the NUTS replacement's is 18.5 -- while
+                NUTS's chain ESS (33) exceeds the Kish ESS (14), so the
+                diagnostic that fires prefers the worse answer. Substituting
+                is therefore something to ask for, with the collapse already
+                reported in ``unreliable`` and ``reason`` for a caller who
+                wants to decide for themselves.
 
         Returns:
             A :class:`Posterior`, whose ``method`` is what RAN.
@@ -519,6 +674,7 @@ class InferencePlan(eqx.Module):
             maxiter=maxiter,
             require_convergence=require_convergence,
             ess_floor=ess_floor,
+            nuts_on_collapse=nuts_on_collapse,
         )
 
     def estimate(
@@ -603,9 +759,12 @@ def compile(graph: Graph, *, key: jax.Array | None = None) -> InferencePlan:
 
     Runs :func:`~bayesmith.dispatch.classify.partition`, then measures the
     exact block's conditioning across the outside latents' own priors and
-    derives ``tol`` from the worst of it. Takes no samples and forms no
-    matrix; costs ``1 + len(KAPPA_PROBE_SIGMAS) * outside`` power iterations
-    on top of what ``partition`` already spends.
+    derives ``tol`` from the worst of it, and reads the block's working
+    precision so the plan can say whether that ``tol`` is reachable at all.
+    Takes no samples and forms no matrix; costs
+    ``1 + len(KAPPA_PROBE_SIGMAS) * outside`` power iterations, plus one
+    further block build for :func:`working_epsilon`, on top of what
+    ``partition`` already spends.
 
     Shadows the builtin ``compile`` at module scope, which is the decided UX
     -- ``bayesmith.compile(graph)`` is the name this package wants -- so
@@ -630,6 +789,9 @@ def compile(graph: Graph, *, key: jax.Array | None = None) -> InferencePlan:
     if classification.exact:
         low, high, note = kappa_interval(graph, classification.exact, env=env, key=key)
         kappa: float | tuple[float, float] = high if high <= low else (low, high)
+        epsilon = working_epsilon(
+            graph, classification.exact, block_at(graph, classification.exact, env=env)
+        )
         blocks.append(
             Block(
                 latents=classification.exact,
@@ -637,6 +799,7 @@ def compile(graph: Graph, *, key: jax.Array | None = None) -> InferencePlan:
                 reason=classification.reason + note,
                 linearity=classification.linearity,
                 kappa=kappa,
+                epsilon=epsilon,
                 tol=tol_for(kappa),
             )
         )
