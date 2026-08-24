@@ -47,7 +47,7 @@ from numpyro.diagnostics import effective_sample_size
 
 from bayesmith import compile as compile_graph
 from bayesmith import const, det, observe, sample, trace
-from bayesmith.dispatch import plan as plan_module
+from bayesmith.dispatch import execute as execute_module
 from bayesmith.dispatch.plan import (
     SNIS_ESS_FLOOR,
     Estimate,
@@ -468,13 +468,13 @@ def test_the_sweep_is_handed_the_numbers_the_plan_decided(
     the sweep is plain ``gcr`` rather than ``gcr+mh``.
     """
     seen: dict = {}
-    real = plan_module.assemble
+    real = execute_module.assemble
 
     def recording(graph, names, **kwargs):
         seen.update(names=tuple(names), **kwargs)
         return real(graph, names, **kwargs)
 
-    monkeypatch.setattr(plan_module, "assemble", recording)
+    monkeypatch.setattr(execute_module, "assemble", recording)
     plan = compile_graph(build())
     plan.sample(jax.random.key(0), num_warmup=60, num_samples=60)
     assert seen["names"] == plan.exact.latents
