@@ -998,3 +998,111 @@ def two_unusable_observed_scales(*, n=5, m=4, w_true=2.0):
                 obs=w_true * x2)
 
     return trace(model)
+
+
+def contrast_sigma_pair(*, n=200, a_true=1.0, b_true=-0.5, base=0.3, seed=24):
+    """sigma depends on a CONTRAST of two members that the mean cannot separate.
+
+    `check_prediction_dependence` moved every member by the same signed
+    multiple of its own prior width, so its probe never left the level set of
+    `a - b` and it measured a movement of exactly 0.0 -- bitwise. The
+    dispatcher then reads "sigma is constant" and picks plain `gcr`.
+
+    Both latents sit on the SAME regressor, so `a + b` is all the mean knows
+    and `a - b` is determined entirely by sigma. Measured with the lockstep
+    probe: the contrast came back +0.0000 (sd 1.4142) against a long-NUTS
+    +1.6038 (sd 0.0486) -- 33 NUTS sd out, width inflated 29x.
+
+    The worst part is not the size of the error. This graph is
+    whole-graph-one-block, so it takes the iid-draws-no-chain row of the
+    dispatch table: no r-hat, no k-hat, no ESS, nothing to diagnose.
+
+    **Point or region, measured.** The quantity this fixture exists to
+    produce -- `check_prediction_dependence`'s movement -- does not depend on
+    ``n``, ``base``, ``seed`` or the true contrast AT ALL: sigma is
+    ``base * exp(a - b)`` evaluated at probe points around the PRIOR centre
+    (0, 0), the data never enters it, and the relative movement divides
+    ``base`` out. Swept n in {2, 3, 5, 10, 200, 5000}, base over 1e-6..1e6,
+    seed 0-18, and ``a_true - b_true`` in {0, +-1.5, +-10}: the fixed probe
+    reads 6.389057 (``exp(2) - 1``) at every single one and the lockstep
+    probe reads bitwise 0.0 at every single one. **In particular
+    ``a_true == b_true``, contrast zero at the truth, is detected exactly as
+    strongly** -- the probe starts at the prior mean, so where the truth sits
+    is irrelevant to the guard, which is the whole reason a movement probe
+    can run before any data is fitted.
+
+    The axis the DEFECT actually lives on is the ratio of the two PRIOR
+    WIDTHS, which this fixture holds at exactly 1.0 (both ``Normal(0, 1)``):
+    the lockstep ray only stays inside the level set of ``a - b`` when the
+    two members are displaced by equal amounts. Measured on a throwaway
+    variant with the widths exposed (not a committed fixture), sd_a = 1 and
+    sd_b = 1 + delta, lockstep probe, float64: movement is delta to four
+    digits -- 0.0 at delta=0, 1.0e-8 at 1e-8, 9.995e-4 at 1e-3, 9.950e-3 at
+    1e-2. So the blind spot is a REGION whose width is set by the consumer's
+    threshold, not a knife edge: |delta| <~ 1e-3 for a dispatcher reading the
+    returned number against 1e-3, but only |delta| <~ 1e-8 for
+    `check_prediction_dependence`'s own ``rtol`` guard on a ``declared=False``
+    node. In float32, the suite's default, delta below ~1e-7 is not even
+    representable in the probe and every one of those reads bitwise 0.0.
+    The FIXED probe reads 6.389-6.463 across that entire sweep.
+    """
+    x = jnp.linspace(0.5, 2.0, n)
+    truth = (a_true + b_true) * x
+    noise = base * jnp.exp(a_true - b_true)
+    data = truth + noise * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        a = sample("a", lambda: dist.Normal(0.0, 1.0))
+        b = sample("b", lambda: dist.Normal(0.0, 1.0))
+        mu = det(
+            "mu", lambda a_, b_, x_: (a_ + b_) * x_, a, b, xs, linear_in=("a", "b")
+        )
+        observe(
+            "d",
+            lambda m, a_, b_: dist.Normal(m, base * jnp.exp(a_ - b_)),
+            mu, a, b, obs=data,
+        )
+
+    return trace(model)
+
+
+def sum_sigma_pair(*, n=200, a_true=1.0, b_true=-0.5, base=0.3, seed=25):
+    """The mirror of `contrast_sigma_pair`: sigma depends on the SUM.
+
+    Here the mean determines ``a - b`` and sigma determines ``a + b``, so the
+    direction sigma moves along is the LOCKSTEP one -- exactly the ray the
+    original probe travelled, and exactly the ray `alternating` holds
+    constant.
+
+    Exists to make the ``uniform`` entry of
+    :data:`~bayesmith.exact.gls.DEPENDENCE_PATTERNS` load-bearing. Measured
+    without it (``DEPENDENCE_PATTERNS = ("alternating",)``): movement is
+    bitwise 0.0 here, while the whole rest of the suite stays green -- the
+    same silent-wrong-answer shape as the contrast bug, one sign flip away.
+    With both patterns it reads 6.389 (``exp(2) - 1``), from the uniform
+    probe alone.
+
+    This fixture is NOT a regression test for the contrast defect: it passes
+    on the pre-fix lockstep probe too, by construction. It guards the fix
+    from being "simplified" into the opposite blind spot.
+    """
+    x = jnp.linspace(0.5, 2.0, n)
+    truth = (a_true - b_true) * x
+    noise = base * jnp.exp(a_true + b_true)
+    data = truth + noise * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("X", x)
+        a = sample("a", lambda: dist.Normal(0.0, 1.0))
+        b = sample("b", lambda: dist.Normal(0.0, 1.0))
+        mu = det(
+            "mu", lambda a_, b_, x_: (a_ - b_) * x_, a, b, xs, linear_in=("a", "b")
+        )
+        observe(
+            "d",
+            lambda m, a_, b_: dist.Normal(m, base * jnp.exp(a_ + b_)),
+            mu, a, b, obs=data,
+        )
+
+    return trace(model)

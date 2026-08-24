@@ -42,6 +42,7 @@ P3b's importance weight exists to correct for.
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
@@ -69,14 +70,56 @@ MAX_REWEIGHTS: int = 100
 #: ``reweight_tol``. See :func:`iterative_gls` for why it cannot be a constant.
 REWEIGHT_TOL_EPS: float = 8.0
 
-#: Multiples of the prior standard deviation the dependence probe moves the
-#: block by. Movement is measured against the value at the CENTRE, not between
-#: probes, so one probe would usually do -- except where sigma is clipped or
-#: floored on one side (``kappa * max(mu, 0) + floor`` reads exactly constant
-#: for every negative probe). Two-sided, and at unequal magnitudes so a sigma
-#: that happens to be symmetric about the centre still moves the two probes by
-#: different amounts.
 DEPENDENCE_PROBES: tuple[float, ...] = (1.0, -0.5)
+"""Probe magnitudes, in units of each member's own prior width.
+
+Movement is measured against the value at the CENTRE, not between probes, so
+one magnitude would usually do -- except where sigma is clipped or floored on
+one side (``kappa * max(mu, 0) + floor`` reads exactly constant for every
+negative probe). Two-sided, and at unequal magnitudes so a sigma that happens
+to be symmetric about the centre still moves the two probes by different
+amounts.
+"""
+
+DEPENDENCE_PATTERNS: tuple[str, ...] = ("uniform", "alternating")
+"""Directions the magnitudes are applied along.
+
+``uniform`` is the original single ray -- every member displaced by the same
+signed multiple. ``alternating`` flips the sign with each member's position
+in the SORTED names, which is what makes a sigma depending on a CONTRAST
+visible: on the uniform ray the contrast is exactly constant, so the original
+probe measured bitwise 0.0 and the dispatcher read "sigma does not move".
+
+Two deterministic patterns rather than one random direction: a random
+direction would almost surely work, but it makes a yes/no guard's verdict
+key-dependent, and ``alternating`` is the direction that provably separates
+the two-member contrast case. Cost goes from 2 to 4 ``sigma_of`` calls,
+negligible beside the CG solves this guard protects.
+
+**A one-member block gets nothing from this** -- ``alternating`` and
+``uniform`` build bitwise identical probes when there is no second member to
+flip, measured on ``radiometer()`` -- so the added cost buys detection only
+from two members up, and both entries are needed from two up: sigma on a SUM
+of two equal-width members is exactly constant along ``alternating``, the
+mirror image of the bug this pattern fixes. Each entry has a named test that
+dies without it (``..._contrast_...`` and ``..._sum_...`` in
+``tests/exact/test_gls.py``); dropping ``uniform`` was measured to leave the
+whole suite green before the second of those existed.
+
+**Where this still cannot see, measured rather than assumed.** Two patterns
+separate every contrast of TWO members and no more. On three members with
+sigma depending on ``a - c`` -- positions 0 and 2 of the sorted names, so the
+same sign under ``alternating`` and under ``uniform`` alike -- the probe
+reads bitwise 0.0, exactly the failure this fix repairs one member up. The
+deterministic family that closes it in general is the binary counter: pattern
+``k`` gives position ``p`` the sign ``(-1)`` to the power of bit ``k`` of
+``p``, so any two distinct positions differ in some bit and get opposite
+signs in that pattern. ``alternating`` IS bit 0 of that family, and the whole
+family is ``ceil(log2(members))`` patterns beside ``uniform`` -- 2 patterns
+at three members, where this has 1. Not built here: this fix is scoped to the
+measured two-member defect, and a guard whose cost grows with block size is a
+decision for the dispatcher work, not a silent widening of this one.
+"""
 
 
 class GLSResult(NamedTuple):
@@ -117,6 +160,33 @@ def sigma_from_graph(
         return noise_std_at(graph, {**at, **x})
 
     return sigma_of
+
+
+def _dependence_probe(
+    block: LinearBlock,
+    centre: dict[str, Any],
+    factor: float,
+    pattern: str,
+) -> dict[str, Any]:
+    """One displacement of the whole block, in units of each prior width.
+
+    Ordered by ``sorted(block.names)`` rather than ``block.names``, which is
+    whatever order the caller happened to pass: the same block described two
+    ways must get the same probes, or the guard's verdict depends on how the
+    member list was typed. Matches
+    :func:`~bayesmith.exact.linearity.check_linearity`'s ``ordered =
+    sorted(names)``. This dict is a plain comprehension rather than the output
+    of a JAX transform, so nothing downstream re-sorts it and the ``sorted``
+    is load-bearing.
+    """
+    ordered = sorted(block.names)
+    return {
+        name: centre[name]
+        + factor
+        * block.prior_std[name]
+        * (-1.0 if (pattern == "alternating" and position % 2) else 1.0)
+        for position, name in enumerate(ordered)
+    }
 
 
 def check_prediction_dependence(
@@ -163,11 +233,8 @@ def check_prediction_dependence(
     centre = domain_centre(block)
     baseline = sigma_of(centre)
     movement = 0.0
-    for factor in DEPENDENCE_PROBES:
-        probe = {
-            name: centre[name] + factor * block.prior_std[name] for name in block.names
-        }
-        moved = sigma_of(probe)
+    for factor, pattern in itertools.product(DEPENDENCE_PROBES, DEPENDENCE_PATTERNS):
+        moved = sigma_of(_dependence_probe(block, centre, factor, pattern))
         for observed, value in moved.items():
             scale = max(float(jnp.max(jnp.abs(baseline[observed]))), 1e-300)
             movement = max(

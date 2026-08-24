@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from bayesmith.errors import GraphError, StructureError
+from bayesmith.exact.block import unchecked_operator
 from bayesmith.exact.gls import (
     check_prediction_dependence,
     iterative_gls,
@@ -13,7 +14,13 @@ from bayesmith.exact.gls import (
 )
 from bayesmith.exact.linearity import linear_operator
 from bayesmith.exact.solve import wiener_solve
-from tests.exact.models import radiometer, straight_line
+from tests.exact.models import (
+    contrast_sigma_pair,
+    radiometer,
+    straight_line,
+    sum_sigma_pair,
+    two_linear_latents,
+)
 from tests.exact.oracle import flat_domain, graph_oracle
 
 KAPPA = 0.05
@@ -448,3 +455,108 @@ def test_iterative_gls_refuses_min_reweights_above_max():
                 min_reweights=5,
                 max_reweights=2,
             )
+
+
+def test_sigma_depending_on_a_contrast_of_two_members_is_detected():
+    """The probe must not travel one ray through the block's domain.
+
+    Measured with the lockstep probe `centre + factor * prior_std`: movement
+    came back exactly 0.0 -- not small, BITWISE zero -- because both members
+    were displaced by the same signed multiple of equal prior widths, so
+    `a - b` never changed and sigma is constant along that ray.
+
+    No function here was crafted to have a root at the probe points. The ray
+    simply never leaves the level set, which is why "try another magnitude"
+    does not help: every magnitude is on the same ray.
+    """
+    graph = contrast_sigma_pair()
+    block = unchecked_operator(graph, ["a", "b"])
+    movement = check_prediction_dependence(
+        block, sigma_from_graph(graph, {}), declared=True
+    )
+    assert movement > 1e-3, (
+        f"sigma moves with a - b, but the probe measured {movement:.3e}"
+    )
+
+
+def test_a_genuinely_constant_sigma_still_measures_no_movement():
+    """The two-sided half: richer probe directions must not invent movement.
+
+    Without this, a 'fix' that reported a large movement unconditionally
+    would pass the test above and route every model through the correction
+    machinery it does not need.
+    """
+    graph = two_linear_latents()
+    block = unchecked_operator(graph, ["a", "b"])
+    movement = check_prediction_dependence(
+        block, sigma_from_graph(graph, {}), declared=True
+    )
+    assert movement == pytest.approx(0.0, abs=1e-12)
+
+
+def test_the_measured_movement_does_not_depend_on_the_member_order():
+    """`_dependence_probe` sorts, so the same block described two ways agrees.
+
+    The alternating pattern flips sign with a member's POSITION, so the
+    positions have to come from somewhere stable. `block.names` is whatever
+    order the caller passed -- `unchecked_operator` stores it verbatim -- so
+    building the probe from it makes a yes/no guard's verdict depend on how
+    the member list was typed. Measured with `sorted(block.names)` swapped
+    for `block.names`: ``["a", "b"]`` reads 6.389e+00 (the contrast probed
+    at ``a - b = +2``, ``exp(2) - 1``) and ``["b", "a"]`` reads 1.718e+00
+    (the same probe at ``-2`` and ``+1``, ``exp(1) - 1``) -- same block,
+    same graph, two different numbers for a dispatcher to read.
+
+    **The declaration order in the GRAPH is NOT the axis here**, unlike
+    `two_observations_reverse_sorted_names` and `two_unusable_observed_scales`
+    (whose dicts are built by comprehension over `graph.observed`). Nothing
+    in this path consults it: `unchecked_operator` takes `names` from the
+    caller and `_validated_names` returns `tuple(names)` unchanged, so a
+    fixture that merely declared `b` before `a` would leave this mutation a
+    no-op. Reversing the CALLER's list is what makes it visible -- measured
+    both ways.
+    """
+    graph = contrast_sigma_pair()
+    seam = sigma_from_graph(graph, {})
+    declared = check_prediction_dependence(
+        unchecked_operator(graph, ["a", "b"]), seam, declared=True
+    )
+    reversed_ = check_prediction_dependence(
+        unchecked_operator(graph, ["b", "a"]), seam, declared=True
+    )
+    assert declared == pytest.approx(reversed_, rel=1e-12, abs=0.0)
+    assert declared > 1e-3
+
+
+def test_sigma_depending_on_a_sum_of_two_members_is_still_detected():
+    """The other pattern's own guard -- not on the plan's mutation list.
+
+    Found by mutation rather than predicted: dropping ``uniform`` from
+    `DEPENDENCE_PATTERNS` (leaving only ``alternating``, the pattern this
+    task adds) left the ENTIRE suite green at 270 tests. Diagnosis is (a) --
+    no fixture reached the region: every other prediction-dependent-sigma
+    fixture here is either a ONE-member block, where the two patterns build
+    bitwise identical probes and dropping either really is a no-op, or
+    `radiometer_group`, whose sigma tracks ``mu = a*x_i + b`` elementwise, so
+    the alternating displacement still moves it at every element with
+    ``x_i != 1``.
+
+    `sum_sigma_pair` is the missing region: sigma moves along the LOCKSTEP
+    ray and is exactly constant along the alternating one. Measured with
+    ``DEPENDENCE_PATTERNS = ("alternating",)``: bitwise 0.0, the same silent
+    "sigma does not move" the contrast fixture produced before this fix, one
+    sign flip away. With both patterns: 6.389 (``exp(2) - 1``), from the
+    uniform probe alone.
+
+    So this passes on the PRE-fix code as well. It is not a regression test
+    for the contrast defect -- it is what stops the fix being "simplified"
+    into the mirror-image blind spot.
+    """
+    graph = sum_sigma_pair()
+    block = unchecked_operator(graph, ["a", "b"])
+    movement = check_prediction_dependence(
+        block, sigma_from_graph(graph, {}), declared=True
+    )
+    assert movement > 1e-3, (
+        f"sigma moves with a + b, but the probe measured {movement:.3e}"
+    )
