@@ -138,28 +138,19 @@ class CirculantPrecision(eqx.Module):
     Attributes:
         first_column: the autocovariance kernel, length ``n``.
 
-    Raises:
-        ValueError: at construction, if any eigenvalue is not strictly
-            positive. A covariance that is not positive-definite has no
-            inverse and no log-determinant, and the FFT will happily return a
-            finite answer for both -- a negative eigenvalue gives a NaN log
-            and a sign-flipped weight, neither of which announces itself.
+    **Construction does not validate.** Positive-definiteness is checked by
+    :func:`check_positive_definite`, a separate eager call, and the split is
+    not stylistic: validating in ``__check_init__`` requires reading the
+    smallest eigenvalue as a Python float, which concretises. Measured, that
+    made this class raise ``ConcretizationTypeError`` under ``jit``,
+    ``linearize`` AND ``grad`` -- so it could not be built anywhere its kernel
+    was traced, which is the entire solve path. ``gaussian.py`` already splits
+    ``gaussian_parts`` from ``check_gaussian`` for exactly this reason, and
+    this follows it: validate once, eagerly, at the boundary; trace freely
+    afterwards.
     """
 
     first_column: jax.Array
-
-    def __check_init__(self):
-        eigenvalues = jnp.real(jnp.fft.fft(self.first_column))
-        smallest = float(jnp.min(eigenvalues))
-        if not smallest > 0.0:  # `not >` so a NaN eigenvalue is refused too
-            raise ValueError(
-                f"circulant covariance is not positive definite: its smallest "
-                f"eigenvalue is {smallest:.6g}. The eigenvalues are the FFT of "
-                "the first column, so this is a statement about the "
-                "autocovariance kernel, not about conditioning -- a kernel "
-                "that falls off too slowly, or one that is not symmetric "
-                "under k -> n - k, produces it."
-            )
 
     @property
     def eigenvalues(self) -> jax.Array:
@@ -177,6 +168,35 @@ class CirculantPrecision(eqx.Module):
     def whiten(self, omega: jax.Array) -> jax.Array:
         spectrum = jnp.fft.fft(omega) / jnp.sqrt(self.eigenvalues)
         return jnp.real(jnp.fft.ifft(spectrum))
+
+
+def check_positive_definite(precision: CirculantPrecision) -> None:
+    """Refuse a circulant covariance that is not positive definite.
+
+    Call this EAGERLY, at the point a kernel enters the system, the way
+    ``block.py`` and ``classify.py`` call ``check_gaussian``. It reads the
+    smallest eigenvalue as a Python float and therefore cannot run under a
+    trace -- which is precisely why it is not in the constructor.
+
+    The check is needed because the FFT does not fail on an indefinite
+    covariance, it answers finitely: a negative eigenvalue gives ``log`` a NaN
+    and pushes that mode's residual the WRONG WAY, and neither announces
+    itself downstream.
+
+    Raises:
+        ValueError: if any eigenvalue is not strictly positive.
+    """
+    eigenvalues = jnp.real(jnp.fft.fft(precision.first_column))
+    smallest = float(jnp.min(eigenvalues))
+    if not smallest > 0.0:  # `not >` so a NaN eigenvalue is refused too
+        raise ValueError(
+            f"circulant covariance is not positive definite: its smallest "
+            f"eigenvalue is {smallest:.6g}. The eigenvalues are the FFT of "
+            "the first column, so this is a statement about the "
+            "autocovariance kernel, not about conditioning -- a kernel that "
+            "falls off too slowly, or one that is not symmetric under "
+            "k -> n - k, produces it."
+        )
 
 
 def diagonal_from(noise_std: dict[str, Any]) -> dict[str, DiagonalPrecision]:

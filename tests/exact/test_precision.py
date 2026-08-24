@@ -139,18 +139,88 @@ class TestTheCirculantOracleIsDirectMatrixInversion:
 
 class TestTheContractRefusesWhatItCannotDescribe:
     def test_a_kernel_that_is_not_positive_definite_is_refused(self):
-        """The FFT answers finitely for an indefinite covariance, so the
-        constructor has to be the thing that does not.
+        """The FFT answers finitely for an indefinite covariance, so something
+        has to be the thing that does not.
 
         A negative eigenvalue gives ``log`` a NaN and ``apply`` a sign-flipped
         weight in that mode -- a residual pushed the WRONG WAY, which no
         finiteness check downstream would catch.
         """
+        from bayesmith.exact.precision import check_positive_definite
+
         with jax.enable_x64(True):
             # alternating kernel: its highest-frequency eigenvalue goes negative
             kernel = jnp.asarray([1.0, -0.9, 0.8, -0.9])
             with pytest.raises(ValueError, match="positive definite"):
-                CirculantPrecision(first_column=kernel)
+                check_positive_definite(CirculantPrecision(first_column=kernel))
+
+    def test_an_all_positive_kernel_can_still_be_indefinite(self):
+        """The check must read the SPECTRUM, not the kernel's own values.
+
+        Found by mutation: replacing ``min(fft(first_column))`` with
+        ``min(first_column)`` survived the whole file, because the fixture
+        above happens to have negative entries and so is refused for the
+        wrong reason. The two are not the same test.
+
+        ``[1, 1.5, 1, 1.5]`` is every-entry-positive and indefinite: for a
+        symmetric 4-kernel ``[a, b, c, b]`` the eigenvalues are
+        ``a+2b+c, a-c, a-2b+c, a-c``, so ``2b > a + c`` drives one negative --
+        here to exactly ``-1``. An autocovariance that stays positive at every
+        lag while describing no realisable process is not exotic; it is what
+        writing a kernel down by hand tends to produce, which is the case this
+        guard exists for.
+        """
+        from bayesmith.exact.precision import check_positive_definite
+
+        with jax.enable_x64(True):
+            kernel = jnp.asarray([1.0, 1.5, 1.0, 1.5])
+            assert bool(np.all(np.asarray(kernel) > 0.0))
+            with pytest.raises(ValueError, match="positive definite"):
+                check_positive_definite(CirculantPrecision(first_column=kernel))
+
+    def test_construction_itself_does_not_validate_and_says_so(self):
+        """Nobody should read the class and assume building one is safe.
+
+        The check moved OUT of ``__check_init__`` (see the next test for why),
+        so an indefinite kernel now constructs happily. That is a real hazard
+        and the reason ``check_positive_definite`` exists as a named, callable
+        thing rather than an implicit one -- this pins the hazard so the
+        docstring cannot quietly stop being true.
+        """
+        with jax.enable_x64(True):
+            built = CirculantPrecision(first_column=jnp.asarray([1.0, -0.9, 0.8, -0.9]))
+        assert built is not None
+
+    @pytest.mark.parametrize("transform", ["jit", "linearize", "grad"])
+    def test_a_circulant_can_be_built_under_a_trace(self, transform):
+        """Why the check cannot live in the constructor.
+
+        Validating there means reading the smallest eigenvalue as a Python
+        float, which CONCRETISES. Measured before this split: building one
+        inside ``jit``, ``linearize`` or ``grad`` raised
+        ``ConcretizationTypeError`` -- so the class could not be used anywhere
+        its kernel was traced, which is the whole solve path, and the failure
+        appeared at the call site rather than as anything about validation.
+
+        ``gaussian.py`` already splits ``gaussian_parts`` from
+        ``check_gaussian`` for this exact reason. All three transforms are
+        checked because they fail independently: ``jit`` alone would not have
+        caught the ``grad`` path that ``gcr_sample`` takes.
+        """
+        lag = np.minimum(np.arange(8), 8 - np.arange(8))
+
+        def build(kernel):
+            return CirculantPrecision(first_column=kernel).apply(jnp.ones(8))
+
+        with jax.enable_x64(True):
+            kernel = jnp.asarray(4.0 * 0.4**lag)
+            if transform == "jit":
+                found = jax.jit(build)(kernel)
+            elif transform == "linearize":
+                found = jax.linearize(build, kernel)[0]
+            else:
+                found = jax.grad(lambda k: jnp.sum(build(k)))(kernel)
+        assert np.all(np.isfinite(np.asarray(found)))
 
     def test_both_implementations_satisfy_the_protocol(self):
         """``Precision`` is runtime-checkable, so this is a real check."""
