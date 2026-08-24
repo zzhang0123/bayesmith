@@ -379,7 +379,7 @@ def iterative_gls(
     reweight_tol: float | None = None,
     min_reweights: int = MIN_REWEIGHTS,
     max_reweights: int = MAX_REWEIGHTS,
-    require_convergence: float | None = 1e-3,
+    require_convergence: float | None = None,
 ) -> GLSResult:
     """Find the covariance a prediction-dependent noise model implies.
 
@@ -416,6 +416,13 @@ def iterative_gls(
             solve. Deliberately applied once, at the converged covariance, and
             not inside the loop: it bounds the error of what is returned and
             says nothing about the intermediate steps, which do not need it.
+
+            ``None`` by default, for the reason
+            :func:`~bayesmith.exact.solve.wiener_solve` documents and
+            ``test_the_convergence_guard_is_off_by_default_but_reachable``
+            measures. This function is the one MOST exposed to that finding:
+            every fixture the measurement refuses is a prediction-dependent
+            sigma, which is exactly what this function exists to solve.
 
     Returns:
         A :class:`GLSResult`. **Check ``converged``** -- a covariance that is
