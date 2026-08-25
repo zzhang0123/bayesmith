@@ -803,6 +803,53 @@ a shipped number to remove a duplicate is the wrong trade. The duplicate is
 guarded instead, by `test_log_normalizer_is_the_log_spectrums_own_sum`, which
 is the only thing rendering the two definitions side by side.
 
+### 5.1e What B11 will find here (2026-08-25)
+
+The migration spec says the evidence layer was "waiting on this interface's
+shape", and step 6 above says "the whitening row becomes `L^-1 r`;
+`Precision.whiten` is the operation it needs and already exists".
+
+**True of the ROW. Not true of the layer**, and the difference is measured
+rather than argued. B11's must-preserve list names "the masked normalisation
+of `sigma = inf` samples" among its numerical kernels; rheplicant implements
+that as `weight = where(seen, 1/sigma, 0)`
+(`inference/compress.py:111`) plus a normaliser summed over finite-sigma
+samples only (`compress.py:422`). On a fixture with one unobserved sample:
+
+  ==========================  ==========================================
+  operation                   result
+  ==========================  ==========================================
+  `apply(r)` at the inf entry  `0.0` -- exactly the mask, no special case
+  `whiten(r)` at that entry    `0.0` -- likewise
+  `quadratic(precision, r)`    finite; the unseen sample contributes none
+  `log_normalizer()`           `+inf`
+  `log_spectrum()[2]`          `+inf`
+  rheplicant's masked figure   `5.513631199`
+  ==========================  ==========================================
+
+So the whitening and the weighting are already right, and the NORMALISER is
+not expressed at all.
+
+**This is not a defect to fix in `precision.py`.** A `sigma = inf` sample has
+no density, so `+inf` is the honest answer to the question a `Precision` is
+asked. Reading it as `0` is a statement that the sample is UNOBSERVED --
+a modelling concept the evidence layer has and this interface does not.
+Masking it here would put a silently-wrong normaliser one import away from
+every consumer, which is defect B1's shape.
+
+It is therefore **B11's first design decision**, and
+`TestWhatTheEvidenceLayerWillFindHere` in `tests/exact/test_precision.py`
+pins both halves so that whoever writes B11 cannot assume `log_normalizer`
+already made it.
+
+**And B11 is a subsystem, not a row.** Its spec entry lists five numerical
+kernels to preserve exactly (`SqrtInfo`'s `[R|z]` form, the QR fold's
+`-1/2 sum rho^2` corner, the marginalisation constant, the masked
+normalisation above, the opaque-leaf archive), an oracle suite to port whole
+(`tests/evidence/test_streaming_equals_batch.py` plus a per-constant nat-cost
+table), and a factorization that should be DERIVED from the graph's plates
+rather than declared. Step 4 unblocked it; it did not shorten it.
+
 ### 5.2 Then, in order
 
 2. **Split `CirculantPrecision`'s constructor check** into a `check_circulant`
@@ -824,8 +871,9 @@ is the only thing rendering the two definitions side by side.
    derived (Mathematica), measured (dense finite-difference Fisher) and
    implemented, and it turned out to cover BOTH accepted rows rather than
    being a correlated special case.
-6. Only then the evidence layer's whitening row, which the spec says was
-   waiting on this interface's shape.
+6. The evidence layer's whitening row, which the spec says was waiting on
+   this interface's shape. **The wait is over for the ROW and not for the
+   layer** -- see 5.1e.
 
 ---
 
