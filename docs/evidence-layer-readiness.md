@@ -190,12 +190,47 @@ and the first half is exactly zero at `std = 1`. Mutation: removing it fails
 7 tests — and **none** of them when the sweep is narrowed to `prior_std =
 1.0`. That is rheplicant's historical blind spot reproduced on demand.
 
-## 6. What is still untouched
+## 6. The factorization derives the partition and TESTS it
 
-The thousand-epoch opaque-leaf archive; the layer that decides WHICH latents
-are folded per epoch and which survive (§2 — the factorization, where the
-spec's derivation claim is two-thirds true); and `diagnostics.py`'s
-declarative refusal of in-span coherent errors, which the spec calls design
-philosophy rather than implementation.
+`bayesmith.evidence.factorize` splits a campaign's latents by plate
+membership — `global` outside the epoch plate, `per_epoch` inside it — which
+is the part of §2's derivation claim that holds. But plate membership is a
+*hypothesis*, and `epoch_leakage` is the test of it: one forward-mode
+jacobian of the observed predictions asks whether the latent touches any epoch
+but its own, which is the question the fold actually depends on.
+
+**Why it is a refusal.** A per-epoch nuisance is integrated exactly once. One
+that also touches its neighbours is integrated E times instead, and the result
+is a finite, plausible, WRONG evidence — measured at 0.15 nats over four
+epochs and tens of nats over thirty-two, with no consistent sign. At zero
+leakage the fold is exact to the bit.
+
+**What a leak can look like** took three measurements to establish, each from
+a fixture that did not work:
+
+* a plated `Deterministic`'s function sees a **scalar** for a plated parent,
+  so a cross-epoch map cannot be a plated node;
+* a plated node whose parents are all unplated is refused by the graph itself
+  ("nothing to map over");
+* so a leak needs a plated consumer with **both** a plated parent and an
+  unplated `(E,)` map.
+
+The other reachable shape is an observation with no plate tag: its axis is an
+epoch axis only by the author's intention, so it cannot be sliced. Both are
+refused, and there is one fixture for each.
+
+**The guard had a bug, found by mutation.** Python's `max` LOSES a NaN —
+`max(0.0, nan)` is `0.0`, because it returns the first argument when
+`nan > 0.0` is False. A model whose per-epoch map is singular at the
+evaluation point had both running maxima stay at `0.0` and was reported as
+**perfectly epoch-local**. A non-finite sensitivity is now refused by name,
+before any maximum.
+
+## 7. What is still untouched
+
+The thousand-epoch opaque-leaf archive; the bridge that builds per-epoch
+designs from a graph and feeds them to `compress_epoch`; and
+`diagnostics.py`'s declarative refusal of in-span coherent errors, which the
+spec calls design philosophy rather than implementation.
 
 Nothing is blocked. The numerics are not the reason.
