@@ -163,6 +163,10 @@ rheplicant 当作 cross-check 基准是安全的**——它的数值层确实还
 
 ## 二、cross-check 协议
 
+> **`docs/migration/` 在 2026-08-25 之前一直不存在**（上游交接 §5.14 记下的
+> 那条）。P5 的三页是第一批：`identifiability.md`、`sensitivity.md`、
+> `priors.md`。§六 被本节第 6 步卡住的那些模块，缺的正是这种页面。
+
 每个模块按序执行并留痕，一模块一页，记在 `docs/migration/<module>.md`：
 
 1. **选 fixture**：优先复用 rheplicant 自己的测试 fixture——它们是钉过的实测点，
@@ -215,9 +219,9 @@ rheplicant 当作 cross-check 基准是安全的**——它的数值层确实还
 | `parameters.py`（`Latent`/`Bind`/`ParameterSpace`/`validate`/`refuse_stochastic_stages`） | 节点声明层（`linear_in`） | 语义映射而非逐行移植。最小集：三种绑定形态（derived/tied/direct）在同一 toy pipeline 上给出相同预测；`refuse_stochastic_stages` 有等价物（这边表述为「无密度的随机节点不能进联合分布」）——**理由改写，行为不得变** |
 | `noise.py`（协议、`RadiometerNoise`、`FlaggedNoise`、`NoiseModelLikelihood`、`check_noise_std_axis`、`inverse_variance`） | 概率节点（`dist_fn`） | 三个噪声模型 × 有/无 flags：log-density 与抽样分布一致。`FlaggedNoise` 的 σ=∞→零权重必须是 **mask**。**顺序：§五 B9（相关噪声）会改这一层的接口形态，先定接口再定稿本模块** |
 | `plan.py` + `engines.py` 的 Gibbs | P3b 分派执行 | 同 partition 同 toy 模型下 `plan.estimate` 逐值一致；`plan.sample` 比后验矩（χ² 迹线跨 NUTS 实现不可比）。**先落 B1** |
-| `identifiability.py` | P5 `diagnose/` | 同一退化模型的 rank/nullity 相同；`IdentifiabilityReport.direction` 逐分量一致。**必须重测 `rtol=1e-8` 的谱隙论证**——rheplicant 的论证建立在进程全局 x64 上（实测：null 方向 6.6e-17、最弱可辨识方向 4.8e-5、SVD 噪声底 ~1e-14；float32 下 null 方向浮到 3.1e-8），上下文管理器的 dtype 边界不同，谱可能略变 |
-| `sensitivity.py` | P5 `diagnose/` | 闭式 `Δ = H⁻¹P(m−θ̂)` 与重拟合两条路线在 tour 模型上复现 rheplicant 的实测表（0.0069σ 等）；同一 pass 修 B3 |
-| `priors.py`（`JeffreysPrior`） | P5 `diagnose/` 或桥层 | 复现 RadiometerNoise 下 Jeffreys 退化为平坦先验的实测常数 **+15.80169853**——既是回归测试，也是对「先验形状由噪声模型选择」这一语义的 cross-check。保留 `eigh` + 秩下限；**不得**换回 `slogdet`/Cholesky（病态块上它们给出貌似合理的有限值） |
+| `identifiability.py` | P5 `diagnose/` | 同一退化模型的 rank/nullity 相同；`IdentifiabilityReport.direction` 逐分量一致。**必须重测 `rtol=1e-8` 的谱隙论证**——rheplicant 的论证建立在进程全局 x64 上（实测：null 方向 6.6e-17、最弱可辨识方向 4.8e-5、SVD 噪声底 ~1e-14；float32 下 null 方向浮到 3.1e-8），上下文管理器的 dtype 边界不同，谱可能略变。**已落地（2026-08-25）**：常数重测而非搬运——本侧机制下 null 方向 **7.479e-17**（谱确实动了，判决没动）、最弱可辨识 **4.822138e-5**（逐位相同）、float32 null **3.116759e-8**；1e-8 仍成立，理由文字已换成本侧实测。四行表逐格一致；方向按符号固定后逐分量 1e-9，八维 null 空间按投影算子比对。记录：`docs/migration/identifiability.md` |
+| `sensitivity.py` | P5 `diagnose/` | 闭式 `Δ = H⁻¹P(m−θ̂)` 与重拟合两条路线在 tour 模型上复现 rheplicant 的实测表（0.0069σ 等）；同一 pass 修 B3。**已落地（2026-08-25）**：tour 表逐项复现（mode、shift、sigma_post、criterion 0.0795、七级 s-ladder），并与 rheplicant 活体报告逐字段比对；B3 修法为 eigvalsh 判定 + Cholesky-with-jitter（shift 取 2·\|λ_min\| 反射式——只加过零的 shift 会返回 2e7 长度的方向）。**一个移植暴露的语义发现**：秩拒绝的裁决对象从观测 Jacobian 挪到 rest 项自身曲率——图里被选 latent 可以只被下游 latent 密度约束（`child ~ Normal(parent, s)`），似然 mode 存在而观测 Jacobian rank 0，rheplicant 的平坦结构表达不出这种情形。记录：`docs/migration/sensitivity.md` |
+| `priors.py`（`JeffreysPrior`） | P5 `diagnose/` 或桥层 | 复现 RadiometerNoise 下 Jeffreys 退化为平坦先验的实测常数 **+15.80169853**——既是回归测试，也是对「先验形状由噪声模型选择」这一语义的 cross-check。保留 `eigh` + 秩下限；**不得**换回 `slogdet`/Cholesky（病态块上它们给出貌似合理的有限值）。**已落地（2026-08-25），取 `diagnose/`**：常数九格逐位复现（对 rheplicant 活体、对 numpy 独立闭式各 1e-8）；奇异块的两个"貌似合理"数也逐位复现（slogdet +6.420496、cholesky pivot 9.755e-05），eigh+floor 给 −338；噪声改从图读取，行序保留 over= 顺序（sorted 之疣不移植）；今日消费者是 `numpyro.factor` 模式（套件演示），图上声明 + 桥集成留给 numpyro_bridge 行。记录：`docs/migration/priors.md` |
 | `numpyro_bridge.py` | `bridge/numpyro_bridge.py`（已有） | 补三条 rheplicant 特有的：`init_to_declared` 等价物（实测 r_hat 840 vs 1.002——**带过去的是教训不是代码**）、`predict_from_samples` 的形状守卫、Jeffreys factor site 的「密度只加一次」 |
 
 ### 4.3 不迁移
@@ -329,6 +333,26 @@ README 的第四条头条能力，也是 config 完全够不着的子系统（`c
 rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这边实现，
 含其 config 面。
 
+> **本条上半句被实测推翻，下半句无法按字面执行（2026-08-25 重定范围）。**
+> `tests/crosscheck/test_spec_claims.py` 把这条留作台账，所以上面的原文
+> **不动**；下面是执行时该读的版本。
+>
+> - **"只有 Python API" 是半假的。** rheplicant 侧 `prior_sensitivity`
+>   已有完整 config 面，形态是**受控检查**而非 run kind：四个模式经真实
+>   gate 生效，非法值给出 `Finding(check='A1', severity='refuse')`，默认
+>   `off`，id **C19**，接线在 `config/postflight/fitting.py:469`；GUI 以
+>   通配 `inference.checks.*.mode` 承载，所以按 `prior_sensitivity` 去 grep
+>   catalog 什么都搜不到、读起来像不存在。真正为假的只有 "无 run kind"
+>   这一半——那一半是真的。
+> - **"含其 config 面" 在这边没有可执行对象**：bayesmith 根本没有 config
+>   层，而 D1 的建议是 config 语法留在 rheplicant。
+> - **B3 已经做完了**（§八 第 5 步，`diagnose/sensitivity.py`），所以本条
+>   剩下的实质工作只有"决定要哪种形状"。三个选项：(a) 什么都不做——Python
+>   API 就是这边的面，rheplicant 的 C19 检查改调 bayesmith；(b) 在
+>   rheplicant 的 config 层加一个真正的 run kind，消费 bayesmith 的
+>   `prior_sensitivity`；(c) 等 bayesmith 有第二个消费者时再谈 config 层。
+>   **需要 owner 拍板，写之前先定。**
+
 ---
 
 ## 六、rheplicant 侧收尾（cross-check 全绿之后）
@@ -395,6 +419,9 @@ e-RHINO 侧装 bayesmith——但那会让 rheplicant 依赖一个 0.0.0 版包�
 3. **B2**，然后比对 §四 4.1 的 Fisher 行。
 4. **B9 相关噪声**（它决定证据层的压缩格式）。
 5. **P5 诊断移植**：`identifiability`、`sensitivity`（+B3）、`priors`。
+   **已完成 2026-08-25**（顺序上被跳过、在第 6 步之后补做）：`diagnose/`
+   包 + 120 个本地测试 + 三份 cross-check 页；rtol 常数重测、B3 修复、
+   `fisher._weighted_design` 顺带修了一个真缺陷（二维观测节点上广播失败）。
 6. **P6 = B11 流式证据重写**。
 7. **B10、B12**，然后 §六的 rheplicant 收尾。
 

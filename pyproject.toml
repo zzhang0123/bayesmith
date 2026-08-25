@@ -56,6 +56,18 @@ dev = [
 #
 # The path is written relative to nothing here on purpose: it differs per
 # machine, so it is an install-time argument rather than a pinned string.
+#
+# The P5 sensitivity cross-check additionally needs rheplicant's tour twin,
+# which imports rhino-cal-jax -- another local editable, same recipe, plus
+# `editables` (its editable hook's runtime, which uv does not install with
+# --no-deps; measured: the .pth hook fails on import without it and the
+# package silently is not on the path):
+#
+#     uv pip install --python .venv/bin/python --no-deps -e ../rhino-cal
+#     uv pip install --python .venv/bin/python editables
+#
+# Without it that one fixture skips loudly and says so; the identifiability
+# and Jeffreys cross-checks need only rheplicant.
 crosscheck = []
 
 [tool.hatch.build.targets.wheel]
