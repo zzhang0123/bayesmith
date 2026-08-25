@@ -47,6 +47,7 @@ PAGED_TODAY = {
     "linear.py",
     "noise.py",
     "parameters.py",
+    "plan.py",
     "identifiability.py",
     "sensitivity.py",
     "priors.py",
@@ -59,7 +60,16 @@ PAGED_TODAY = {
 #: Rows whose module column names no single rheplicant file (a group, or a
 #: destination-side note), excluded from the "one page per module" rule
 #: because there is no module to name a page after.
-NOT_A_SINGLE_MODULE = {"likelihood.py"}  # paired with noise.py in one row
+NOT_A_SINGLE_MODULE = {
+    "likelihood.py",  # paired with noise.py in one §四 4.1 row
+    # Paired with `plan.py` in one §四 4.2 row, whose required agreement is a
+    # single comparison ("同 partition 同 toy 模型下 plan.estimate 逐值一致").
+    # `plan.md` records it. A second page named for the other half of one
+    # comparison would be a second copy of one fact, which is the shape this
+    # repository's docstrings keep warning about -- so the pairing is declared
+    # here rather than paid for with a duplicate page.
+    "engines.py",
+}
 
 #: Pages for modules the §四 ledger does not list, with the reason. Kept as
 #: an explicit exception rather than by loosening the rule that a page must
@@ -186,6 +196,10 @@ def test_every_paged_module_actually_has_a_cross_check_test():
             "gls": ("gls", "noise_logdet"),
             "uncertainty": ("uncertainty", "noise_logdet"),
             "sqrtinfo": ("sqrtinfo",),
+            # `plan.py`'s comparison is of the DISPATCH layer, and the test
+            # is named for that rather than for the upstream file it came
+            # from -- same principle as `priors` -> `jeffreys`.
+            "plan": ("plan", "dispatch"),
         }.get(stem, (stem,))
         assert any(any(a in name for a in aliases) for name in files), (
             module,
@@ -209,7 +223,9 @@ def test_the_readme_states_the_derived_number_of_unpaged_modules():
     added. The count is now the same set difference the gate itself uses.
     """
     text = (MIGRATION / "README.md").read_text(encoding="utf-8")
-    match = re.search(r"\*\*(\w+) §四 modules have neither", text)
+    # "module" or "modules": the count reaches one, and a page that reads
+    # "one modules" to satisfy a regex is the tail wagging the dog.
+    match = re.search(r"\*\*(\w+) §四 modules? h(?:as|ave) neither", text)
     assert match, "the README no longer states an unpaged-module count"
     stated = _NUMBER_WORDS.get(match.group(1).lower())
     assert stated is not None, match.group(1)
