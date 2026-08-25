@@ -504,3 +504,43 @@ def test_a_rank_deficient_partition_is_refused_there_and_answered_here():
     assert got[:N_FREQ] == pytest.approx(got[N_FREQ:], rel=1e-12)
     # And the conditioning is on the face of the plan.
     assert "kappa=" in text, text
+
+
+def test_rheplicants_plan_now_attributes_b1_to_the_block_type():
+    """The other half of a cross-repository record, so neither can go stale
+    alone.
+
+    This row measured that B1 attaches to which ENGINE ran rather than to
+    which exit was called, and e-RHINO's ``7f03af1`` rewrote
+    ``inference/plan.py``'s module docstring around that, carrying the two
+    numbers and crediting this file for them.
+
+    Asserted here rather than trusted, because a docstring is the one kind
+    of claim nothing else executes -- which is exactly how
+    ``condition_estimate`` came to open with a paragraph describing a
+    different function.
+
+    **The paragraph is on e-RHINO's ``track-a-tail`` branch and NOT on its
+    ``main``**, measured 2026-08-25. So this guard reads whatever the
+    editable install has checked out, and a red here means one of three
+    things, in decreasing order of likelihood: that branch is not the one
+    checked out, the branch was dropped in review, or the docstring was
+    edited. The first is not a defect in either package; the second and
+    third mean ``docs/migration/plan.md`` §5(a)'s "Carried upstream"
+    paragraph has become false and is what needs changing.
+
+    Recorded rather than softened into a skip: a guard that cannot fail is
+    worse than one that fails for a reason the message explains.
+    """
+    import rheplicant.inference.plan as upstream
+
+    text = upstream.__doc__ or ""
+    assert "It is the BLOCK TYPE that decides, not the exit" in text, (
+        "rheplicant's plan.py does not attribute B1 to the block type. If "
+        "e-RHINO is checked out on `main`, that is expected -- the paragraph "
+        "is on `track-a-tail` and unmerged as of 2026-08-25. Otherwise the "
+        "branch was dropped or the docstring changed, and "
+        "docs/migration/plan.md section 5(a) is what needs updating."
+    )
+    # The numbers this row supplied, still the ones it is arguing from.
+    assert "5.104558" in text and "6.248269" in text, text[:200]
