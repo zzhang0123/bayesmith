@@ -102,6 +102,21 @@ that commit is on `track-a-tail`, **unmerged and unpushed**, so a checkout
 of e-RHINO's `main` does not carry it — which is also why the guard below
 can go red for a reason that is nobody's defect — its own words: *"reading it as a
 property of one exit is what left the estimate path unexamined."*
+**Where the upstream text lives, and what does not depend on it.**
+Measured 2026-08-25: the corrected sentences are on e-RHINO's
+`track-a-tail`, **not on `main`**, so the two guards that assert them read
+whatever the editable install has checked out. Those two — here and in
+`plan.md`/`linear.md` respectively — are the only ones in
+`tests/crosscheck/` with that dependency.
+
+**No numeric comparison has it.** `main...track-a-tail` touches exactly two
+files under `src/rheplicant/inference/`, `linear.py` and `plan.py`, and
+both are **docstring-only** — verified by comparing `ast.dump` with every
+module, class and function docstring stripped, rather than by reading the
+diff. Every number in this directory is therefore identical on both refs.
+That is a claim about a branch, so re-run the comparison rather than
+trusting this paragraph.
+
 `test_rheplicants_plan_now_attributes_b1_to_the_block_type` asserts that
 framing is still there, because a docstring is the one kind of claim
 nothing else executes, and that is precisely how `condition_estimate` came

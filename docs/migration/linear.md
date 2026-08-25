@@ -153,6 +153,21 @@ it; the numbers were deliberately not touched**, because §四 4.1 lists
 pin the present behaviour. So: **docstring fixed, arithmetic unchanged,
 bias still there.**
 
+**Where the upstream text lives, and what does not depend on it.**
+Measured 2026-08-25: the corrected sentences are on e-RHINO's
+`track-a-tail`, **not on `main`**, so the two guards that assert them read
+whatever the editable install has checked out. Those two — here and in
+`plan.md`/`linear.md` respectively — are the only ones in
+`tests/crosscheck/` with that dependency.
+
+**No numeric comparison has it.** `main...track-a-tail` touches exactly two
+files under `src/rheplicant/inference/`, `linear.py` and `plan.py`, and
+both are **docstring-only** — verified by comparing `ast.dump` with every
+module, class and function docstring stripped, rather than by reading the
+diff. Every number in this directory is therefore identical on both refs.
+That is a claim about a branch, so re-run the comparison rather than
+trusting this paragraph.
+
 Three guards here, none of which duplicates e-RHINO's own
 `TestTheTwoConditionNumbersDivideTheLabour` — that one holds the API
 contract upstream, these hold this page from going stale:
