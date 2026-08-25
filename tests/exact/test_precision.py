@@ -887,3 +887,82 @@ class TestTheLogSpectrumIsTheFourthOperation:
 
         assert not isinstance(ThreeOperations(), Precision)
         assert isinstance(DiagonalPrecision(sigma=jnp.ones(3)), Precision)
+
+
+class TestWhatTheEvidenceLayerWillFindHere:
+    """B11's whitening row against this interface, before it is written.
+
+    The migration spec says the evidence layer was "waiting on this
+    interface's shape" and that the whitening row becomes ``L^-1 r``, which
+    :meth:`Precision.whiten` supplies. That is true of the ROW. It is not true
+    of the layer, and the difference is worth pinning before someone builds on
+    the shorter claim.
+
+    B11's must-preserve list names "the masked normalisation of ``sigma=inf``
+    samples" among its numerical kernels. rheplicant does it with
+    ``weight = where(seen, 1/sigma, 0)`` in ``inference/compress.py:111`` and
+    a normaliser summed over finite-sigma samples only
+    (``compress.py:422``). Measured below: this interface gets the first half
+    exactly right and does not express the second at all.
+    """
+
+    @staticmethod
+    def _with_unobserved():
+        return DiagonalPrecision(sigma=jnp.asarray([0.5, 1.0, jnp.inf, 2.0]))
+
+    def test_whitening_and_weighting_already_mask_an_unobserved_sample(self):
+        """The half the spec is right about, and it is exactly right.
+
+        ``sigma = inf`` gives ``1/sigma**2 = 0`` and ``1/sigma = 0`` with no
+        special case and no NaN, so the quadratic form stays finite and the
+        unseen sample contributes nothing -- which is what
+        ``compress.py``'s explicit `where(seen, ...)` mask is for.
+        """
+        with jax.enable_x64(True):
+            precision = self._with_unobserved()
+            residual = jnp.asarray([1.0, -2.0, 7.0, 0.5])
+            assert float(precision.apply(residual)[2]) == 0.0
+            assert float(precision.whiten(residual)[2]) == 0.0
+            assert float(quadratic(precision, residual)) == pytest.approx(8.0625)
+            # ...and applying the whitening twice is applying the weight, at
+            # the masked entry as much as anywhere else.
+            twice = precision.whiten(precision.whiten(residual))
+            assert jnp.allclose(twice, precision.apply(residual))
+
+    def test_the_normaliser_does_NOT_mask_it_and_that_is_B11s_first_decision(self):
+        """The half the spec is silent about. Measured, not assumed.
+
+        ``log_normalizer`` sums ``log(2 pi sigma**2)`` over every sample, so an
+        unobserved one takes it to ``+inf``; ``log_spectrum`` carries the same
+        ``inf`` in its own entry. rheplicant's masked normaliser on this
+        fixture is ``5.513631199``.
+
+        **This is not a defect to fix here.** A ``sigma = inf`` sample has no
+        density, so ``inf`` is the honest answer to the question ``Precision``
+        is asked. Treating it as ``0`` is a statement that the sample is
+        UNOBSERVED, which is a modelling concept this interface does not have
+        and the evidence layer does. Masking it here would put a
+        silently-wrong normaliser one import away from every consumer --
+        exactly the defect B1 shape ``precision.py`` exists to prevent.
+
+        So this pins the gap rather than closing it: whoever writes B11 owns
+        the decision, and this test is what stops them assuming
+        ``log_normalizer`` already made it.
+        """
+        with jax.enable_x64(True):
+            precision = self._with_unobserved()
+            assert not bool(jnp.isfinite(precision.log_normalizer()))
+            spectrum = precision.log_spectrum()
+            assert not bool(jnp.isfinite(spectrum[2]))
+            assert bool(jnp.all(jnp.isfinite(spectrum[jnp.asarray([0, 1, 3])])))
+
+            sigma = precision.sigma
+            seen = jnp.isfinite(sigma)
+            masked = float(
+                jnp.sum(
+                    jnp.where(
+                        seen, jnp.log(2.0 * jnp.pi * jnp.where(seen, sigma, 1.0) ** 2), 0.0
+                    )
+                )
+            )
+        assert masked == pytest.approx(5.513631199, rel=1e-9)
