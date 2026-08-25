@@ -261,7 +261,46 @@ plate can still have a shape of its own, so domain shapes come from a block
 rather than from plate membership; and an unplated `const` inside a plated
 `det` broadcasts, so a covariate has to be plated too.
 
-## 8. What is still untouched
+## 8. The fold is vectorised, and the cost is flat in E
+
+The archive property the ledger row names — rheplicant's "12,007 leaves → 8"
+— **already held by construction**: a folded `SqrtInfo` is 3 leaves and 3
+floats whatever the campaign length. Measured at E = 10, 100 and 1000.
+
+What did not hold was the COST. The Python loop ran an eager QR per epoch,
+and an unrolled `jit` of it compiled in 5.4 s at E = 1000 for a fold whose
+warm run is 2 ms. Now the per-epoch build is one `vmap` and the fold is one
+`lax.scan`:
+
+| epochs | Python loop | vectorised | ms/epoch |
+|---|---|---|---|
+| 10 | 1.442 s | 1.413 s | 141 |
+| 200 | 1.288 s | 1.325 s | 6.6 |
+| 1000 | 2.847 s | 1.407 s | 1.41 |
+| 5000 | — | 1.513 s | 0.30 |
+
+**The number that matters is the slope, not the total.** About 1.4 s is fixed
+— tracing and compiling — and the marginal cost per epoch fell from
+**2.82 ms to 0.027 ms**, read off the 1000 → 5000 difference. Below roughly
+500 epochs the fixed cost dominates and the loop was just as good; above it
+the campaign is essentially free.
+
+Two things made it possible, and both are the same split this codebase uses
+everywhere. `compress` now always uses the masked normaliser for a
+per-sample sigma — **bitwise** `log_normalizer()` when nothing is masked, so
+nothing moved, and it removes the one concretisation that stopped the
+function tracing. And `epoch_joint` was split out of `compress_epoch` so the
+assembly exists once while `marginalise` (checked) and `marginalise_arrays`
+(traced) can both use it.
+
+**The refusal is moved, not weakened**, and that is now tested rather than
+asserted: `_refuse_unconstrained_epochs` judges every epoch's pivots in one
+comparison instead of E. Mutation found it untested at first — both branches
+survived — so it has a graph-level fixture (a nuisance the data does not see,
+with a `1e12` prior, since a wide prior alone is accepted when the data
+constrains it) and direct tests for the ordering.
+
+## 9. What is still untouched
 
 The thousand-epoch opaque-leaf archive, and `diagnostics.py`'s declarative
 refusal of in-span coherent errors, which the spec calls design philosophy

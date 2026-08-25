@@ -309,3 +309,108 @@ def test_a_campaign_with_a_per_epoch_offset_and_a_per_epoch_sigma():
             residual @ np.linalg.solve(covariance, residual)
         ) - 0.5 * float(logdet)
         assert got == pytest.approx(expected, rel=1e-10, abs=1e-10), point
+
+
+class TestTheRefusalIsMovedNotWeakened:
+    """`marginalise`'s per-term checks, made once over the whole campaign.
+
+    The vectorised path calls `marginalise_arrays`, which traces and cannot
+    judge; `_refuse_unconstrained_epochs` is where the judgement went. It is
+    E comparisons collapsed into one, and it has to be able to fail -- which
+    mutation says it was not, until these.
+    """
+
+    @staticmethod
+    def _unconstrained(prior_std, design_weight):
+        """A nuisance the data does not see, with a wide prior.
+
+        Both halves are needed. The data alone constrains a nuisance that
+        appears in the prediction -- measured, a `1e12` prior is accepted when
+        the design weight is 1 -- so the design weight has to be zero AND the
+        prior wide before the block stops constraining itself.
+        """
+        data = np.random.default_rng(0).normal(size=N_EPOCH)
+
+        def model():
+            epoch = plate("epoch", N_EPOCH)
+            g = sample("g", lambda: ndist.Normal(0.0, 3.0))
+            n = sample("n", lambda: ndist.Normal(0.0, prior_std), plate=epoch)
+            mu = det(
+                "mu",
+                lambda a, b: GAIN * a + design_weight * b,
+                g,
+                n,
+                plate=epoch,
+                linear_in=("g", "n"),
+            )
+            observe(
+                "d",
+                lambda m: ndist.Normal(m, SIGMA),
+                mu,
+                plate=epoch,
+                obs=jnp.asarray(data),
+            )
+
+        return trace(model)
+
+    def test_an_unconstrained_epoch_block_is_refused_through_the_graph(self):
+        with jax.enable_x64(True), pytest.raises(
+            StructureError, match="does not constrain"
+        ):
+            compress_campaign(self._unconstrained(1e12, 0.0), "epoch")
+
+    @pytest.mark.parametrize(
+        "prior_std, weight", [(1e12, 1.0), (1e6, 0.0), (TAU, 0.0)]
+    )
+    def test_and_accepted_when_something_does_constrain_it(self, prior_std, weight):
+        """ANTI-VACUITY: the refusal is about the pivot, not about the fixture.
+
+        A wide prior alone is fine when the DATA constrains the nuisance, and
+        a blind design is fine when the PRIOR does.
+        """
+        with jax.enable_x64(True):
+            assert compress_campaign(
+                self._unconstrained(prior_std, weight), "epoch"
+            ) is not None
+
+    def test_the_guard_reads_pivots_and_names_the_epochs(self):
+        """Tested directly too: it is a pure function of the pivots.
+
+        The graph fixture above reaches one branch; a non-finite pivot needs a
+        design or covariance that already carried `nan`, which `epoch_leakage`
+        refuses earlier with a better message. So the second branch is checked
+        here, on the arrays, where it is reachable.
+        """
+        from bayesmith.evidence.campaign import _refuse_unconstrained_epochs
+
+        with jax.enable_x64(True):
+            healthy = jnp.asarray([[2.0, 1.0], [2.0, 1.0], [2.0, 1.0]])
+            _refuse_unconstrained_epochs(healthy, 1, ("n",))  # no raise
+
+            degenerate = healthy.at[1, 0].set(1e-20)
+            with pytest.raises(StructureError, match=r"in epochs \[1\]"):
+                _refuse_unconstrained_epochs(degenerate, 1, ("n",))
+
+            for poison in (jnp.nan, jnp.inf):
+                spoiled = healthy.at[2, 1].set(poison)
+                with pytest.raises(StructureError, match=r"epochs \[2\].*non-finite"):
+                    _refuse_unconstrained_epochs(spoiled, 1, ("n",))
+
+            # and it stands down when nothing is being integrated
+            _refuse_unconstrained_epochs(degenerate, 0, ())
+
+    def test_finiteness_is_judged_before_the_relative_threshold(self):
+        """Order, and it is the same reason `marginalise` has it.
+
+        The threshold is relative to each epoch's largest pivot, so one `nan`
+        makes that epoch's threshold `nan` and every comparison against it
+        False -- and one `inf` makes it `inf` and admits every pivot there is.
+        An epoch carrying BOTH a poisoned pivot and a degenerate one must be
+        reported as poisoned.
+        """
+        from bayesmith.evidence.campaign import _refuse_unconstrained_epochs
+
+        with jax.enable_x64(True):
+            both = jnp.asarray([[jnp.inf, 1e-20], [2.0, 1.0]])
+            with pytest.raises(StructureError, match="non-finite"):
+                _refuse_unconstrained_epochs(both, 1, ("n",))

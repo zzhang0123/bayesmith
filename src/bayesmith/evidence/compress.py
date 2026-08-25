@@ -125,10 +125,17 @@ def compress(
             )
 
     seen = observed_mask(precision)
-    if seen is not None and not bool(jnp.all(seen)):
-        # The masked path. Only a per-sample sigma can say a sample was not
-        # taken, and only then is the normaliser a subset sum -- which is
-        # exactly why this branch is gated on `seen` existing at all.
+    if seen is not None:
+        # The masked normaliser, ALWAYS for a per-sample sigma -- not only
+        # when something is actually masked. With every sample seen it is
+        # BITWISE `log_normalizer()`, so there is nothing to gain by branching
+        # on the values and something to lose: the branch was the one
+        # concretisation in this function, and without it the whole thing
+        # traces. `epoch_terms` vmaps it over a campaign.
+        #
+        # Only a per-sample sigma can say a sample was not taken, and only
+        # then is the normaliser a subset sum, so the remaining branch is a
+        # question about the TYPE -- static, and safe under a trace.
         sigma = per_sample_sigma({"_": precision})["_"]
         safe = jnp.where(seen, sigma, 1.0)
         offset = -0.5 * jnp.sum(
@@ -238,6 +245,56 @@ def nuisance_prior(
     )
 
 
+def epoch_joint(
+    global_design: Mapping[str, jax.Array],
+    data: jax.Array,
+    precision: Any,
+    global_shapes: Mapping[str, tuple[int, ...]],
+    *,
+    nuisance_design: Mapping[str, jax.Array] | None = None,
+    nuisance_shapes: Mapping[str, tuple[int, ...]] | None = None,
+    nuisance_prior_std: Mapping[str, Any] | None = None,
+    nuisance_prior_mean: Mapping[str, Any] | None = None,
+    offset_prediction: jax.Array | None = None,
+) -> tuple[SqrtInfo, tuple[str, ...]]:
+    """The epoch's term over BOTH sets, prior rows appended -- before integrating.
+
+    Split out of :func:`compress_epoch` so the assembly exists once and the
+    two marginalisers can both use it. ``compress_epoch`` passes the result
+    to :func:`~bayesmith.evidence.sqrtinfo.marginalise`, which checks and
+    cannot be traced; a campaign passes it to
+    :func:`~bayesmith.evidence.sqrtinfo.marginalise_arrays`, which traces and
+    hands back ``pivots`` for the caller to check on every epoch at once.
+    The same split as ``marginalise``/``marginalise_arrays`` one level down,
+    and for the same reason.
+
+    **The nuisances are the LEADING columns**, which is what lets a traced
+    caller skip the name permutation entirely.
+
+    Returns:
+        ``(joint term, nuisance names)``.
+    """
+    nuisances = tuple(nuisance_design or ())
+    joint = compress(
+        {**dict(nuisance_design or {}), **dict(global_design)},
+        data,
+        precision,
+        {**dict(nuisance_shapes or {}), **dict(global_shapes)},
+        offset_prediction=offset_prediction,
+    )
+    if not nuisances:
+        return joint, nuisances
+    prior = nuisance_prior(
+        nuisances,
+        nuisance_shapes,
+        nuisance_prior_std,
+        nuisance_prior_mean,
+        tuple(global_design),
+        global_shapes,
+    )
+    return SqrtInfo.combine(joint, prior), nuisances
+
+
 def compress_epoch(
     global_design: Mapping[str, jax.Array],
     data: jax.Array,
@@ -306,24 +363,18 @@ def compress_epoch(
             "optional regulariser -- without one the block need not constrain "
             "itself and the integral over it diverges."
         )
-    nuisances = tuple(nuisance_design)
-    survivors = tuple(global_design)
-    joint = compress(
-        {**dict(nuisance_design), **dict(global_design)},
+    joint, nuisances = epoch_joint(
+        global_design,
         data,
         precision,
-        {**dict(nuisance_shapes), **dict(global_shapes)},
+        global_shapes,
+        nuisance_design=nuisance_design,
+        nuisance_shapes=nuisance_shapes,
+        nuisance_prior_std=nuisance_prior_std,
+        nuisance_prior_mean=nuisance_prior_mean,
         offset_prediction=offset_prediction,
     )
-    prior = nuisance_prior(
-        nuisances,
-        nuisance_shapes,
-        nuisance_prior_std,
-        nuisance_prior_mean,
-        survivors,
-        global_shapes,
-    )
-    return marginalise(SqrtInfo.combine(joint, prior), nuisances)
+    return marginalise(joint, nuisances)
 
 
 def _ravelled(shape: tuple[int, ...]) -> int:
