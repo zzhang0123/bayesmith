@@ -78,6 +78,15 @@ def check_frozen_sigma(
     split as ``gaussian_parts``/``check_gaussian``: the cheap thing traces, the
     checking thing runs eagerly at the boundary.
 
+    **This is a guard for a caller who assembles the pair, and nothing in
+    ``src/`` does.** ``execute._whole_graph`` -- the one freeze this package
+    ships -- takes both halves from ONE ``GLSResult``, so ``mu`` is the
+    solution at that precision by construction and this reports exactly
+    ``0.0``. Wiring it there would cost a ``tol=1e-10`` solve per run to
+    report zero forever. Measured, and pinned by
+    ``test_check_frozen_sigma_is_not_wired_into_the_freeze_and_should_not_be``
+    so its absence reads as a decision rather than an oversight.
+
     **What it is protecting.** ``log_weight`` takes ``log p`` from the graph's
     own distributions and ``q``'s operator from the ``precision`` dict, in one
     expression, and its own docstring records ``at`` as "Unverifiable here". If

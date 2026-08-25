@@ -735,3 +735,56 @@ class TestTheFrozenSigmaSeamIsChecked:
         broken = {name: value * jnp.nan for name, value in mu.items()}
         with pytest.raises(FrozenSigmaMismatch):
             check_frozen_sigma(block, honest, broken)
+
+
+def test_check_frozen_sigma_is_not_wired_into_the_freeze_and_should_not_be():
+    """Why this guard has no caller in `src/`, measured rather than assumed.
+
+    It looks like unwired plumbing beside `check_precision` and
+    `check_positive_definite`, both of which gained callers. It is not the
+    same case, and the difference is worth a test so the next reader does not
+    "finish" it.
+
+    The obvious site is `execute._whole_graph`'s freeze, where the draws and
+    the weight are both handed a covariance and a centre. But BOTH come from
+    ONE `GLSResult` -- `fixed.precision` and `fixed.solution` -- so mu is the
+    solution at that precision by construction. Measured here: the guard
+    reports exactly `0.0` on the shipped pair. Wiring it would cost an extra
+    `wiener_solve` at `tol=1e-10` on every run to report zero forever, which
+    is the shape of guard this repository keeps finding and removing.
+
+    And the defect it would nominally protect against IS caught. Measured by
+    mutating `_whole_graph` to weight at 3x the draws' covariance -- the
+    silent direction, which leaves the mean right and the width 30 % narrow:
+    NINE tests fail, led by the quadrature comparisons in
+    `tests/dispatch/test_acceptance.py`, which see a width the Kish ESS
+    cannot.
+
+    So it stays a PUBLIC guard, for a caller who assembles `mu` and
+    `precision` from two places -- which nothing in `src/` does. The second
+    half below is what keeps it honest: it must still fire on a pair that
+    really did come from two places, or it is a guard for nobody.
+    """
+    from bayesmith.exact.correct import FrozenSigmaMismatch, check_frozen_sigma
+    from bayesmith.exact.gls import iterative_gls, precision_from_graph
+
+    with jax.enable_x64(True):
+        graph = radiometer()
+        block = unchecked_operator(graph, ("w",), {})
+        fixed = iterative_gls(
+            block,
+            precision_of=precision_from_graph(graph, {}),
+            depends_on_prediction=True,
+            tol=1e-8,
+            require_convergence=None,
+        )
+        # the shipped pair: one GLSResult, so it cannot disagree
+        assert check_frozen_sigma(block, fixed.precision, fixed.solution) == 0.0
+
+        # a pair that really did come from two places
+        wide = {
+            name: type(value)(sigma=value.sigma * 3.0)
+            for name, value in fixed.precision.items()
+        }
+        with pytest.raises(FrozenSigmaMismatch, match="away from the solution"):
+            check_frozen_sigma(block, wide, fixed.solution)
