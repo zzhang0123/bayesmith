@@ -527,3 +527,130 @@ def test_a_correlated_graph_is_promised_an_exact_solve_and_gets_one():
     # A correlated model has no per-sample sigma, and the estimate says so
     # rather than reporting per-mode amplitudes under that name.
     assert estimate.noise_std is None
+
+
+# ---------------------------------------------------------------------------
+# B11's premise: which of the evidence layer's three scopes the graph reaches.
+# ---------------------------------------------------------------------------
+
+_AR_DECAY, _AR_INNOVATION, _AR_NOISE, _AR_EPOCHS = 0.9, 0.4, 0.5, 6
+
+
+def _ar_lower(size=_AR_EPOCHS):
+    """The AR(1) map as a lower-triangular matrix, in NumPy."""
+    import numpy as np
+
+    powers = _AR_DECAY ** np.arange(size)
+    return _AR_INNOVATION * np.tril(
+        powers[:, None] / np.maximum(powers[None, :], 1e-300)
+    )
+
+
+def _ar_data(size=_AR_EPOCHS):
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    truth = np.zeros(size)
+    for i in range(1, size):
+        truth[i] = _AR_DECAY * truth[i - 1] + _AR_INNOVATION * rng.normal()
+    return truth + _AR_NOISE * rng.normal(size=size)
+
+
+def test_a_linked_latent_reaches_the_exact_path_when_written_non_centred():
+    """B11's `linked` scope needs no new machinery in this spelling.
+
+    rheplicant declares a latent's extent with `scope="linked"` and carries a
+    transition for it. The migration spec's argument for rewriting rather than
+    transplanting is that bayesmith's graph should let the factorization be
+    DERIVED -- which needs every scope to be expressible here.
+
+    An AR(1) chain written NON-CENTRED -- iid innovations through a
+    deterministic linear recursion -- is affine in the innovations, so the
+    block stays linear and the exact path takes it. Checked against a dense
+    posterior mean rather than against itself.
+
+    The tolerance is tightened deliberately. At the plan's own default
+    (`1.2e-4` on this fixture) the answer is 1.2e-05 out, which is CG
+    tolerance and not disagreement: it falls to 2.5e-16 at `tol=1e-14`.
+    Asserting at the default would have pinned the solver's settings instead
+    of its correctness.
+    """
+    import numpy as np
+    import numpyro.distributions as ndist
+
+    from bayesmith import det, observe, sample, trace
+    from bayesmith.dispatch.plan import compile as compile_graph
+
+    data = _ar_data()
+
+    def recursion(innovations):
+        powers = _AR_DECAY ** jnp.arange(_AR_EPOCHS)
+        lower = jnp.tril(powers[:, None] / jnp.maximum(powers[None, :], 1e-300))
+        return _AR_INNOVATION * (lower @ innovations)
+
+    def model():
+        eps = sample("eps", lambda: ndist.Normal(jnp.zeros(_AR_EPOCHS), 1.0))
+        z = det("z", recursion, eps, linear_in=("eps",))
+        observe(
+            "d", lambda m: ndist.Normal(m, _AR_NOISE), z, obs=jnp.asarray(data)
+        )
+
+    with jax.enable_x64(True):
+        plan = compile_graph(trace(model))
+        assert plan.blocks[0].method == "gcr", plan.blocks[0].method
+        got = np.asarray(plan.estimate(tol=1e-14).values["eps"])
+
+    lower = _ar_lower()
+    normal = lower.T @ lower / _AR_NOISE**2 + np.eye(_AR_EPOCHS)
+    reference = np.linalg.solve(normal, lower.T @ data / _AR_NOISE**2)
+    assert np.allclose(got, reference, rtol=1e-10)
+
+
+def test_a_linked_latent_written_CENTRED_is_routed_to_nuts():
+    """The other spelling, and it is a THIRD Precision row rather than a bug.
+
+    The same AR(1) chain as a joint prior is a Gaussian whose PRECISION is
+    tridiagonal. The block-member gate reads a latent's prior through
+    `gaussian_parts`, which takes a diagonal Normal, so this classifies to
+    NUTS -- correctly, since no row of the gate describes a tridiagonal
+    precision.
+
+    Pinned because the fix is not obvious and its cost is not the QR:
+    `fisher._log_spectrum_curvature`'s identity holds only where the
+    covariance's eigenBASIS does not move with the parameters, which is true
+    of `I` and of the DFT and not of a general band. **A third row must bring
+    its own variance-information term**, so this routing changing is a
+    decision, not an improvement to slip in.
+    """
+    import numpy as np
+    import numpyro.distributions as ndist
+
+    from bayesmith import det, observe, sample, trace
+    from bayesmith.dispatch.plan import compile as compile_graph
+
+    band = np.zeros((_AR_EPOCHS, _AR_EPOCHS))
+    for i in range(_AR_EPOCHS):
+        last = i == _AR_EPOCHS - 1
+        band[i, i] = (1.0 if last else 1.0 + _AR_DECAY**2) / _AR_INNOVATION**2
+        if i:
+            band[i, i - 1] = band[i - 1, i] = -_AR_DECAY / _AR_INNOVATION**2
+
+    def model():
+        z = sample(
+            "z",
+            lambda: ndist.MultivariateNormal(
+                jnp.zeros(_AR_EPOCHS), precision_matrix=jnp.asarray(band)
+            ),
+        )
+        mu = det("mu", lambda v: 1.0 * v, z, linear_in=("z",))
+        observe(
+            "d",
+            lambda m: ndist.Normal(m, _AR_NOISE),
+            mu,
+            obs=jnp.asarray(_ar_data()),
+        )
+
+    with jax.enable_x64(True):
+        plan = compile_graph(trace(model))
+    assert plan.blocks[0].method == "nuts", plan.blocks[0].method
+    assert "MultivariateNormal" in plan.blocks[0].reason
