@@ -48,6 +48,7 @@ PAGED_TODAY = {
     "noise.py",
     "parameters.py",
     "plan.py",
+    "numpyro_bridge.py",
     "identifiability.py",
     "sensitivity.py",
     "priors.py",
@@ -144,16 +145,37 @@ def test_the_set_of_paged_modules_is_exactly_what_is_recorded():
     }
 
 
-def test_the_gate_on_section_six_is_not_open():
-    """The claim §六 turns on, asserted rather than assumed.
+def test_the_gate_on_section_six_is_open_and_every_module_has_a_page():
+    """The claim §六 turns on -- and it turned over on 2026-08-25.
 
-    While any §四 module lacks a page, no part of §六 may start. When this
-    finally fails, that is the migration reaching its next phase -- read
-    §六's five steps then, and note step 1's exception list.
+    This assertion used to read the other way: *"while any §四 module lacks
+    a page, no part of §六 may start"*, with a note saying that when it
+    finally failed, that was the migration reaching its next phase. It
+    failed on 2026-08-25, when `numpyro_bridge.md` landed and the last
+    unpaged module got its record.
+
+    Turned around rather than deleted, because the guard is still needed
+    and it is the SAME guard: every §四 module must have a page. Before, no
+    page could be missing without §六 being blocked; now, no page may go
+    missing at all, because §六's steps are being taken against them. A
+    page that disappears while `inference/` is being emptied is the one
+    failure this file exists to prevent.
+
+    §六 step 1 still governs what may move: nothing in
+    ``src/rheplicant/inference/`` except the two exceptions already in
+    e-RHINO's Track A Batch 1.
     """
+    # The DIRECTORY, not `PAGED_TODAY`. Measured: with the gate reading the
+    # recorded set, deleting `numpyro_bridge.md` left this green and only
+    # the bookkeeping test fired. A gate on §六 that cannot see a page
+    # disappear is guarding a variable, not the repository.
+    pages = {p.stem + ".py" for p in MIGRATION.glob("*.md") if p.stem != "README"}
     spec_names = _spec_module_names() - NOT_A_SINGLE_MODULE
-    unpaged = spec_names - PAGED_TODAY
-    assert unpaged, "every module now has a page -- §六 may begin; read its step 1"
+    unpaged = spec_names - pages
+    assert not unpaged, {
+        "modules with no page on disk": sorted(unpaged),
+        "note": "§六 is under way; a page may not go missing now",
+    }
 
 
 def test_each_page_carries_the_five_headings_the_protocol_names():
@@ -200,6 +222,8 @@ def test_every_paged_module_actually_has_a_cross_check_test():
             # is named for that rather than for the upstream file it came
             # from -- same principle as `priors` -> `jeffreys`.
             "plan": ("plan", "dispatch"),
+            # Named for the layer it tests, as `plan` is.
+            "numpyro_bridge": ("numpyro_bridge", "bridge"),
         }.get(stem, (stem,))
         assert any(any(a in name for a in aliases) for name in files), (
             module,
@@ -215,21 +239,32 @@ _NUMBER_WORDS = {
 }
 
 
-def test_the_readme_states_the_derived_number_of_unpaged_modules():
-    """The one number in the index that is not a table, derived not trusted.
+def test_the_readme_agrees_with_the_derived_state_of_the_gate():
+    """The one claim in the index that is not a table, derived not trusted.
 
     It read "five §四 rows" against a real SIX for a whole session -- prose
     counting the bullets under it, with nothing to notice when a row was
-    added. The count is now the same set difference the gate itself uses.
+    added. Then the list emptied, and a test that only knew how to parse a
+    count had nothing to check.
+
+    So it checks both regimes, and can fail in either: while modules are
+    unpaged the README must state their number, and once none are it must
+    say the gate is open. A page going missing after §六 has started puts
+    the README back in the first regime and this back to counting.
     """
     text = (MIGRATION / "README.md").read_text(encoding="utf-8")
-    # "module" or "modules": the count reaches one, and a page that reads
-    # "one modules" to satisfy a regex is the tail wagging the dog.
+    derived = _spec_module_names() - NOT_A_SINGLE_MODULE - PAGED_TODAY
+    if not derived:
+        assert "**Open, since" in text, (
+            "every module has a page, but the README does not say the gate "
+            "is open"
+        )
+        assert "every §四 module has\none" in text or "every §四 module has one" in text
+        return
     match = re.search(r"\*\*(\w+) §四 modules? h(?:as|ave) neither", text)
-    assert match, "the README no longer states an unpaged-module count"
+    assert match, ("modules are unpaged and the README does not say so", sorted(derived))
     stated = _NUMBER_WORDS.get(match.group(1).lower())
     assert stated is not None, match.group(1)
-    derived = _spec_module_names() - NOT_A_SINGLE_MODULE - PAGED_TODAY
     assert stated == len(derived), {"stated": stated, "derived": sorted(derived)}
 
 

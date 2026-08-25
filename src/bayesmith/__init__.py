@@ -45,6 +45,7 @@ __all__ = [
     "Estimate",
     "to_numpyro",
     "nuts",
+    "predict",
     # exact
     "linear_operator",
     "check_linearity",
@@ -103,6 +104,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "Estimate": ("bayesmith.dispatch.execute", "Estimate"),
     "to_numpyro": ("bayesmith.bridge.numpyro_bridge", "to_numpyro"),
     "nuts": ("bayesmith.bridge.numpyro_bridge", "nuts"),
+    "predict": ("bayesmith.bridge.numpyro_bridge", "predict"),
     "linear_operator": ("bayesmith.exact.linearity", "linear_operator"),
     "check_linearity": ("bayesmith.exact.linearity", "check_linearity"),
     "wiener_solve": ("bayesmith.exact.solve", "wiener_solve"),
