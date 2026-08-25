@@ -971,3 +971,87 @@ class TestWhatTheEvidenceLayerWillFindHere:
                 )
             )
         assert masked == pytest.approx(5.513631199, rel=1e-9)
+
+
+class TestABatchedCirculantKernel:
+    """`(batch, n)` is `batch` independent circulants -- how a plate arrives.
+
+    `precision_at` builds exactly this for an epoch-plated `CirculantNormal`
+    observation, so it is not a hypothetical shape.
+    """
+
+    @staticmethod
+    def _blocks(batch=3, size=4):
+        lag = np.minimum(np.arange(size), size - np.arange(size))
+        kernel = np.stack([0.4**lag + 0.5 + 0.1 * b for b in range(batch)])
+        dense_blocks = np.zeros((batch * size, batch * size))
+        for b in range(batch):
+            block = np.array(
+                [[kernel[b][(j - i) % size] for j in range(size)] for i in range(size)]
+            )
+            dense_blocks[b * size : (b + 1) * size, b * size : (b + 1) * size] = block
+        return kernel, dense_blocks
+
+    def test_the_operator_half_was_always_right(self):
+        """`apply`, `quadratic` and `whiten` work along the LAST axis, which is
+        where the FFT belongs -- so a batch axis costs them nothing."""
+        kernel, dense_blocks = self._blocks()
+        with jax.enable_x64(True):
+            precision = CirculantPrecision(first_column=jnp.asarray(kernel))
+            residual = jnp.asarray(np.random.default_rng(0).normal(size=kernel.shape))
+            applied = np.asarray(precision.apply(residual)).reshape(-1)
+            quadratic_form = float(quadratic(precision, residual))
+            twice = precision.whiten(precision.whiten(residual))
+            assert jnp.allclose(twice, precision.apply(residual))
+        flat = np.asarray(residual).reshape(-1)
+        inverse = np.linalg.inv(dense_blocks)
+        assert np.allclose(applied, inverse @ flat)
+        assert quadratic_form == pytest.approx(float(flat @ inverse @ flat), rel=1e-12)
+
+    def test_the_normaliser_counts_every_sample_not_every_row(self):
+        """The defect this class caught: `shape[0]` counted the BATCH.
+
+        Measured before the fix at `(3, 4)`: `5.8115208846` against a dense
+        `22.3524144823`, short by exactly `(3*4 - 3) log 2pi = 16.540894`.
+        Invisible to every operator test above, and to a posterior -- it is a
+        constant. Only an absolute log-density or an evidence can see it.
+        """
+        kernel, dense_blocks = self._blocks()
+        with jax.enable_x64(True):
+            precision = CirculantPrecision(first_column=jnp.asarray(kernel))
+            got = float(precision.log_normalizer())
+        _, expected = np.linalg.slogdet(2.0 * math.pi * dense_blocks)
+        assert got == pytest.approx(expected, rel=1e-12)
+        # ...and the defective spelling is off by the amount recorded above
+        batch, size = kernel.shape
+        defective = batch * math.log(2.0 * math.pi) + float(
+            np.sum(np.log(np.real(np.fft.fft(kernel))))
+        )
+        assert expected - defective == pytest.approx(
+            (batch * size - batch) * math.log(2.0 * math.pi), rel=1e-12
+        )
+
+    def test_the_one_dimensional_case_is_unchanged(self):
+        """`.size` and `.shape[0]` agree for a 1-D kernel, so nothing moved."""
+        kernel, _ = self._blocks()
+        size = kernel.shape[1]
+        with jax.enable_x64(True):
+            precision = CirculantPrecision(first_column=jnp.asarray(kernel[0]))
+            got = float(precision.log_normalizer())
+        block = np.array(
+            [[kernel[0][(j - i) % size] for j in range(size)] for i in range(size)]
+        )
+        _, expected = np.linalg.slogdet(2.0 * math.pi * block)
+        assert got == pytest.approx(expected, rel=1e-12)
+
+    def test_log_normalizer_is_still_the_log_spectrums_own_sum(self):
+        """The invariant that guards the duplicate, at the batched shape too."""
+        kernel, _ = self._blocks()
+        with jax.enable_x64(True):
+            precision = CirculantPrecision(first_column=jnp.asarray(kernel))
+            spectrum = precision.log_spectrum()
+            assert spectrum.shape == kernel.shape
+            assert float(precision.log_normalizer()) == pytest.approx(
+                kernel.size * math.log(2.0 * math.pi) + float(jnp.sum(spectrum)),
+                rel=1e-12,
+            )

@@ -176,6 +176,12 @@ class CirculantPrecision(eqx.Module):
     be symmetric under ``k -> n - k`` for the matrix to be. The eigenvalues
     are ``fft(first_column)``, real for such a column.
 
+    **A BATCHED kernel is supported and is how a plate arrives.** Shape
+    ``(batch, n)`` is ``batch`` independent circulants, one per row -- every
+    operation here works along the LAST axis, which is where the FFT belongs,
+    and the whole thing describes a block-diagonal covariance over
+    ``batch * n`` samples. Checked against a dense block-diagonal reference.
+
     Attributes:
         first_column: the autocovariance kernel, length ``n``.
 
@@ -203,7 +209,17 @@ class CirculantPrecision(eqx.Module):
         return jnp.real(jnp.fft.ifft(spectrum))
 
     def log_normalizer(self) -> jax.Array:
-        size = self.first_column.shape[0]
+        # `.size`, not `.shape[0]`. A BATCHED kernel -- shape `(batch, n)`, one
+        # independent circulant per row -- describes `batch * n` samples, and
+        # `shape[0]` counted the batch. Identical for the 1-D case this class
+        # was written against; measured wrong by `(batch*n - batch) log 2 pi`
+        # otherwise, which is 16.54 nats at `(3, 4)`.
+        #
+        # `apply`, `whiten`, `quadratic` and `log_spectrum` were all already
+        # right batched -- they work along the LAST axis, which is where the
+        # FFT belongs. Only the count was wrong, which is why nothing that
+        # exercised the operator half could see it.
+        size = self.first_column.size
         return size * math.log(2.0 * jnp.pi) + jnp.sum(jnp.log(self.eigenvalues))
 
     def log_spectrum(self) -> jax.Array:
