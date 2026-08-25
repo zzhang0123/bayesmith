@@ -234,13 +234,30 @@ def check_gaussian(
     loc = jnp.broadcast_to(loc, shape)
     scale = jnp.broadcast_to(scale, shape)
 
-    if not bool(jnp.all(jnp.isfinite(scale) & (scale > 0))):
+    usable = jnp.isfinite(scale) & (scale > 0)
+    if not bool(jnp.all(usable)):
+        # The OFFENDING entry, not `min(scale)`. Measured: on
+        # `[1, 1, inf, 1, inf, 1]` the minimum is 1, which is strictly
+        # positive and finite -- so the message's own evidence exonerated
+        # the scale it was refusing, and a reader checking it concludes the
+        # guard is broken rather than the model. A number offered as
+        # evidence has to point at the fault.
+        broken = np.flatnonzero(~np.asarray(usable).reshape(-1))
+        first = float(np.asarray(scale).reshape(-1)[broken[0]])
         raise StructureError(
             f"node {node.name!r} has a scale that is not strictly positive and "
-            f"finite (min {float(jnp.min(scale)):g}). A conjugate solve weights "
-            "by 1/scale**2, so a zero or negative sigma is an infinite or "
-            "negative weight rather than a tight constraint. Add a floor to the "
-            "expression that produces it."
+            f"finite: {broken.size} of {int(np.asarray(scale).size)} entries, "
+            f"the first being {first:g} at flat index {int(broken[0])}. A "
+            "conjugate solve weights by 1/scale**2, so a zero or negative "
+            "sigma is an infinite or negative weight rather than a tight "
+            "constraint. Add a floor to the expression that produces it.\n\n"
+            "An INFINITE sigma is a different intent and has a different "
+            "home: it is how this package spells an unobserved (flagged) "
+            "sample, and the mask that turns it into a clean zero "
+            "contribution lives in bayesmith.evidence.compress, which owns "
+            "that concept. A Precision is asked what density a covariance "
+            "gives, and the honest answer for infinite variance is none, so "
+            "it is not masked here."
         )
     if rtol is None:
         rtol = 1e3 * float(jnp.finfo(loc.dtype).eps)
@@ -487,6 +504,8 @@ def noise_std_at(graph: Graph, values: dict[str, Any]) -> dict[str, jax.Array]:
     """
     _, _, scale = observation_parts(graph, evaluate(graph, values))
     return scale
+
+
 def precision_at(graph: Graph, values: dict[str, Any]) -> dict[str, Any]:
     """``{obs: Precision}`` with the latents at ``values`` -- the OPERATOR seam.
 

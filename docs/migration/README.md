@@ -17,9 +17,9 @@ they disagree. If the table and that test ever disagree, the test is right.
 | 4.1* | `conditioning.py` → `exact/conditioning` | `test_conditioning.py` | ✅ |
 | 4.1 | `gls.py` → `exact/gls` | `test_noise_logdet.py` (B1 half) | ✅ |
 | 4.1 | `uncertainty.py` (Fisher) → `exact/fisher` | `test_noise_logdet.py` | ✅ |
-| 4.1 | `likelihood.py`/`noise.py` → `exact/gaussian` | — | — |
+| 4.1 | `likelihood.py`/`noise.py` → `exact/gaussian` | `test_gaussian.py` | ✅ `noise.md` |
 | 4.2 | `parameters.py` → node declarations | — | — |
-| 4.2 | `noise.py` → probabilistic nodes | — | — |
+| 4.2 | `noise.py` → probabilistic nodes | `test_gaussian.py` | ✅ `noise.md` |
 | 4.2 | `plan.py`+`engines.py` → dispatch | — | — |
 | 4.2 | `identifiability.py` → `diagnose/` | `test_diagnose_identifiability.py` | ✅ |
 | 4.2 | `sensitivity.py` → `diagnose/` | `test_diagnose_sensitivity.py` | ✅ |
@@ -37,16 +37,13 @@ cross-check enforcing it.
 
 ## Where the gate actually stands
 
-Eight pages exist; **five §四 modules have neither a cross-check test nor
-a page**, and they are the blocker (the count is asserted against the
+Nine pages exist; **four §四 modules have neither a cross-check test nor
+a page** (three rows — `plan.py` and `engines.py` share one), and they are the blocker (the count is asserted against the
 derived one by
 `test_the_readme_states_the_derived_number_of_unpaged_modules`, because it
 was written as "five" against a real six for a whole session):
 
-- `likelihood.py`/`noise.py` → `exact/gaussian` (§四 4.1)
 - `parameters.py` → node declarations (§四 4.2)
-- `noise.py` → probabilistic nodes (§四 4.2) — **ordering**: §五 B9 changes
-  this interface, so settle the interface before finalising the module
 - `plan.py`+`engines.py` → dispatch (§四 4.2) — **B1 first**, or the
   comparison fixes the GLS-type target as the reference
 - `numpyro_bridge.py` → `bridge/` (§四 4.2)
