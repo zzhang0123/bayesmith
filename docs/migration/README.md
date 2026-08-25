@@ -37,20 +37,30 @@ cross-check enforcing it.
 
 ## Where the gate actually stands
 
-Eleven pages exist; **one §四 module has neither a cross-check test nor
-a page**, and it is the whole of what still blocks §六 (the count is
-asserted against the derived one by
-`test_the_readme_states_the_derived_number_of_unpaged_modules`, because it
-was written as "five" against a real six for a whole session):
+**Open, since 2026-08-25.** Twelve pages exist and **every §四 module has
+one**. `tests/test_migration_records.py::test_the_gate_on_section_six_is_open_and_every_module_has_a_page`
+now asserts that in the other direction: while the list was non-empty it
+blocked §六, and now that §六's steps are being taken against these pages,
+a page may not go missing.
 
-- `numpyro_bridge.py` → `bridge/` (§四 4.2)
+| §四 row | closed |
+|---|---|
+| `linear.py` → `exact/{block,linearity,solve}` | `linear.md` |
+| `likelihood.py`/`noise.py` → `exact/gaussian` | `noise.md` |
+| `gls.py`, `uncertainty.py` (Fisher) | `gls.md`, `uncertainty.md` |
+| `parameters.py` → node declarations | `parameters.md` |
+| `noise.py` → probabilistic nodes | `noise.md` |
+| `plan.py`+`engines.py` → dispatch | `plan.md` |
+| `identifiability.py`, `sensitivity.py`, `priors.py` → `diagnose/` | three pages |
+| `numpyro_bridge.py` → `bridge/` | `numpyro_bridge.md` |
+| *(out of ledger)* `conditioning.py`, `sqrtinfo` | two pages, with their reasons |
 
-That is a measurement job, not a writing job: it needs fixtures, an
-independent oracle and a refusal comparison before its page can exist.
-
-So §六 is still blocked, on a list rather than a category. Nothing in
-`src/rheplicant/inference/` may move until that list is empty — the two
-exceptions §六 step 1 names are already in e-RHINO's Track A Batch 1.
+**What that does and does not authorise.** §六 step 1 still governs:
+nothing in `src/rheplicant/inference/` moves except the two exceptions
+already in e-RHINO's Track A Batch 1 (B1's `plan.py` docstring and B4's
+one-line fix), plus docstring pointers to bayesmith. Read §六's five steps
+before starting, and note step 3's possible dividend — the two pytest
+sessions may be able to merge once the evidence layer is out.
 
 ## What a page must contain
 
