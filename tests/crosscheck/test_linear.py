@@ -746,14 +746,37 @@ def test_rheplicants_condition_estimate_no_longer_claims_to_be_the_bound():
     test is what keeps it fixed: it asserts the docstring now names itself
     MEASURED and warns the reader off, so a future rename cannot quietly put
     the old sentence back.
+
+    **Both sentences are on e-RHINO's ``track-a-tail`` and NOT on its
+    ``main``**, measured 2026-08-25 -- the same branch dependency
+    ``test_dispatch.py``'s
+    ``test_rheplicants_plan_now_attributes_b1_to_the_block_type`` carries,
+    and these two are the only guards in this directory that have it. A red
+    here means, in decreasing order of likelihood: e-RHINO is checked out on
+    ``main``, the branch was dropped in review, or the docstring changed.
+    Only the last two are defects, and both make ``linear.md`` §5(a) false.
+
+    **No NUMERIC cross-check depends on the checkout.** Measured
+    independently rather than taken on report: ``main...track-a-tail``
+    touches exactly two files under ``src/rheplicant/inference/`` --
+    ``linear.py`` and ``plan.py`` -- and both are docstring-only, verified
+    by comparing ``ast.dump`` with every ``Module``/``ClassDef``/
+    ``FunctionDef`` docstring removed. Re-run that comparison rather than
+    trusting this sentence; it is a claim about a branch, and branches move.
     """
     import inspect
 
     from rheplicant.inference.linear import condition_estimate
 
     text = inspect.getdoc(condition_estimate) or ""
-    assert text.startswith("The MEASURED conditioning"), text[:120]
-    assert "Do not divide an accuracy target by this number" in text
+    branch_note = (
+        " If e-RHINO is checked out on `main`, this is expected -- the "
+        "corrected docstring is on `track-a-tail` and unmerged as of "
+        "2026-08-25. Otherwise the branch was dropped or the docstring "
+        "changed, and docs/migration/linear.md section 5(a) needs updating."
+    )
+    assert text.startswith("The MEASURED conditioning"), text[:120] + branch_note
+    assert "Do not divide an accuracy target by this number" in text, branch_note
 
 
 def test_bayesmith_checks_linearity_at_more_at_points_and_says_when_it_cannot():
