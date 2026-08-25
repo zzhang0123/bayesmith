@@ -219,6 +219,37 @@ def factorize(
             "is nothing to accumulate."
         )
 
+    # BEFORE the leakage probe, because the probe is what cannot survive this.
+    # `epoch_leakage` takes one `jacfwd` of an `isolate` over survivors AND
+    # per-epoch latents together, and a survivor plated on some other axis has
+    # the wrong rank for that vmap. The model was already refused -- by
+    # `ValueError: vmap was requested to map its argument along axis 0 ...`
+    # raised out of `graph/evaluate.py`, naming no latent, no plate and
+    # nothing the author could act on. Right verdict, unusable reason: the
+    # same shape `check_precision` was caught in when it refused an
+    # indefinite kernel via NaN and reported "the log-density is not
+    # quadratic" about a perfectly quadratic density.
+    #
+    # Note this is NOT "the graph may have only one plate". A second plate
+    # with no latent of its own is fine and `tests/dispatch/test_streaming.py`
+    # depends on it -- that fixture is how the ambiguity branch is reachable
+    # at all. What cannot be folded is a survivor that is itself plated.
+    elsewhere = [
+        (name, graph.node(name).plate) for name in survivors if graph.node(name).plate
+    ]
+    if elsewhere:
+        listed = "; ".join(
+            f"{name!r} is plated on {list(plates)}" for name, plates in elsewhere
+        )
+        raise StructureError(
+            f"a campaign streamed over {epoch_plate!r} needs its survivors to be "
+            f"constant across the whole campaign, but {listed}. The leakage check "
+            "evaluates the survivors and the per-epoch latents together over the "
+            "epoch axis, and a latent carrying a second plate's axis cannot be "
+            "mapped over this one. Fold the other plate into this latent's own "
+            "shape, or analyse the two plates as separate campaigns."
+        )
+
     for name in per_epoch:
         leak = epoch_leakage(graph, name, epoch_plate, at or {})
         # `not <=` so a NaN is refused too. **A SHAPE, not a live guard, and
