@@ -41,7 +41,7 @@ import jax
 import jax.numpy as jnp
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence.sqrtinfo import SqrtInfo
+from bayesmith.evidence.sqrtinfo import SqrtInfo, marginalise
 from bayesmith.exact.precision import per_sample_sigma
 
 
@@ -173,3 +173,161 @@ def compress(
         names=names,
         shapes=tuple(tuple(shapes[name]) for name in names),
     )
+def nuisance_prior(
+    names: tuple[str, ...],
+    shapes: Mapping[str, tuple[int, ...]],
+    prior_std: Mapping[str, Any],
+    prior_mean: Mapping[str, Any] | None,
+    over: tuple[str, ...],
+    over_shapes: Mapping[str, tuple[int, ...]],
+) -> SqrtInfo:
+    """``N(x_n | m_n, S_n)`` as a ``[R | z]`` term over the FULL column set.
+
+    Rows ``I/std`` in the nuisance columns, zero everywhere else, target
+    ``m_n/std``, and the offset the prior's own normalisation:
+    ``-sum(log std) - (n/2) log 2 pi``.
+
+    **That offset is the caller's, and this is the caller.**
+    :func:`~bayesmith.evidence.sqrtinfo.marginalise` contributes
+    ``+(n/2) log 2 pi - sum log|R_bb,ii| - 1/2 rho^2`` and deliberately not
+    the prior's normalisation -- the two ``2 pi`` halves cancel and
+    ``sum(log std)`` has nothing to cancel against, which is how rheplicant
+    shipped it missing and why a unit-prior fixture could not see it.
+
+    Emitted over the full column set rather than over the nuisances alone so
+    it can be :meth:`~bayesmith.evidence.sqrtinfo.SqrtInfo.combine`d with the
+    epoch's own term, which is what puts the prior rows in BEFORE the
+    marginalisation rather than after.
+    """
+    order = names + over
+    all_shapes = {**dict(shapes), **dict(over_shapes)}
+    widths = {name: _ravelled(all_shapes[name]) for name in order}
+    total = sum(widths.values())
+    rows, targets = [], []
+    position = 0
+    for name in order:
+        if name in names:
+            std = jnp.broadcast_to(jnp.asarray(prior_std[name]), (widths[name],))
+            mean = (
+                jnp.zeros(widths[name])
+                if prior_mean is None or name not in prior_mean
+                else jnp.reshape(jnp.asarray(prior_mean[name]), (widths[name],))
+            )
+            block = jnp.zeros((widths[name], total))
+            block = block.at[
+                :, position : position + widths[name]
+            ].set(jnp.diag(1.0 / std))
+            rows.append(block)
+            targets.append(mean / std)
+        position += widths[name]
+    factor = jnp.concatenate(rows, axis=0) if rows else jnp.zeros((0, total))
+    target = jnp.concatenate(targets) if targets else jnp.zeros(0)
+    size = int(factor.shape[0])
+    offset = -jnp.sum(jnp.log(jnp.concatenate(
+        [
+            jnp.broadcast_to(jnp.asarray(prior_std[name]), (widths[name],))
+            for name in names
+        ]
+    ))) - 0.5 * size * math.log(2.0 * math.pi)
+    return SqrtInfo(
+        factor=factor,
+        target=target,
+        offset=jnp.asarray(offset),
+        names=order,
+        shapes=tuple(tuple(all_shapes[name]) for name in order),
+    )
+
+
+def compress_epoch(
+    global_design: Mapping[str, jax.Array],
+    data: jax.Array,
+    precision: Any,
+    global_shapes: Mapping[str, tuple[int, ...]],
+    *,
+    nuisance_design: Mapping[str, jax.Array] | None = None,
+    nuisance_shapes: Mapping[str, tuple[int, ...]] | None = None,
+    nuisance_prior_std: Mapping[str, Any] | None = None,
+    nuisance_prior_mean: Mapping[str, Any] | None = None,
+    offset_prediction: jax.Array | None = None,
+) -> SqrtInfo:
+    """One epoch, with its own nuisances integrated out, over the globals.
+
+    The streaming analysis in one call: compress the epoch over BOTH sets,
+    append the nuisances' prior rows, and marginalise them. What comes back is
+    a term over the globals alone, and folding those across a campaign is
+    :meth:`~bayesmith.evidence.sqrtinfo.SqrtInfo.combine`.
+
+    **The prior rows go in before the marginalisation, not after**, and that
+    is not a convenience. A per-epoch nuisance is integrated exactly once, so
+    a prior that arrives later has nowhere to be applied -- and without one
+    the block need not constrain itself, which makes the integral divergent.
+    :func:`~bayesmith.evidence.sqrtinfo.marginalise` refuses that case rather
+    than returning the large plausible number finite arithmetic would give.
+
+    Args:
+        global_design: ``{latent: (n_data, n_i)}`` for the latents that
+            SURVIVE the epoch.
+        data: ``(n_data,)`` this epoch's observations.
+        precision: the epoch's ``N^-1``.
+        global_shapes: ``{latent: shape}`` for the survivors.
+        nuisance_design: ``{latent: (n_data, n_i)}`` for the latents
+            integrated away inside the epoch. ``None`` means there are none,
+            and this reduces to :func:`compress`.
+        nuisance_shapes, nuisance_prior_std, nuisance_prior_mean: the
+            nuisances' shapes, prior widths and prior centres.
+            ``nuisance_prior_mean`` defaults to zero.
+        offset_prediction: as for :func:`compress`.
+
+    Returns:
+        A term over ``global_design``'s latents whose ``log_prob`` is the
+        epoch's marginal log-likelihood -- exactly
+        ``log N(d | A_g x_g + A_n m_n + c, N + A_n S_n A_n^T)``, which is the
+        independent formula the tests compare against.
+
+    Raises:
+        StructureError: from :func:`compress` or from
+            :func:`~bayesmith.evidence.sqrtinfo.marginalise`; and if
+            nuisances are named without a prior, which the marginalisation
+            has no way to make convergent.
+    """
+    if not nuisance_design:
+        return compress(
+            global_design,
+            data,
+            precision,
+            global_shapes,
+            offset_prediction=offset_prediction,
+        )
+    if nuisance_shapes is None or nuisance_prior_std is None:
+        raise StructureError(
+            "compress_epoch was given nuisance_design but no nuisance_shapes "
+            "or nuisance_prior_std. A per-epoch nuisance is integrated exactly "
+            "once, so its prior has to be part of the model rather than an "
+            "optional regulariser -- without one the block need not constrain "
+            "itself and the integral over it diverges."
+        )
+    nuisances = tuple(nuisance_design)
+    survivors = tuple(global_design)
+    joint = compress(
+        {**dict(nuisance_design), **dict(global_design)},
+        data,
+        precision,
+        {**dict(nuisance_shapes), **dict(global_shapes)},
+        offset_prediction=offset_prediction,
+    )
+    prior = nuisance_prior(
+        nuisances,
+        nuisance_shapes,
+        nuisance_prior_std,
+        nuisance_prior_mean,
+        survivors,
+        global_shapes,
+    )
+    return marginalise(SqrtInfo.combine(joint, prior), nuisances)
+
+
+def _ravelled(shape: tuple[int, ...]) -> int:
+    total = 1
+    for dim in shape:
+        total *= int(dim)
+    return total

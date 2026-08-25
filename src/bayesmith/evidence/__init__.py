@@ -7,7 +7,12 @@ it is to be **preserved exactly** rather than reinvented; see
 needs and what was measured about it.
 """
 
-from bayesmith.evidence.compress import compress, observed_mask
+from bayesmith.evidence.compress import (
+    compress,
+    compress_epoch,
+    nuisance_prior,
+    observed_mask,
+)
 from bayesmith.evidence.sqrtinfo import (
     SqrtInfo,
     marginalise,
@@ -19,5 +24,7 @@ __all__ = [
     "marginalise",
     "marginalise_arrays",
     "compress",
+    "compress_epoch",
+    "nuisance_prior",
     "observed_mask",
 ]
