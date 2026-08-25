@@ -4,7 +4,10 @@
 `PlanDiagnostics`) and `rheplicant.inference.engines` → `bayesmith.dispatch`
 (`compile`, `InferencePlan.estimate`, `InferencePlan.sample`).
 
-Test: `tests/crosscheck/test_dispatch.py` (6 cases, ~9 s). Measured
+Test: `tests/crosscheck/test_dispatch.py`. Case count and runtime are not written
+here: `test_dispatch.py`'s said 6 within hours of being 7, and nothing in
+this repository reads a count out of a page. Ask pytest —
+`pytest tests/crosscheck/test_dispatch.py --collect-only -q`. Measured
 2026-08-25.
 
 §四 4.2 asks for `plan.estimate` value-for-value on one partition and one
