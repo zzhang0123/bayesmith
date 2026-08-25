@@ -220,3 +220,53 @@ def test_compile_is_the_function_not_the_subpackage():
     root = pathlib.Path(bayesmith.__file__).parent
     assert not (root / "compile").exists()
     assert importlib.util.find_spec("bayesmith.compile") is None
+
+
+def test_the_evidence_subpackage_is_reachable_from_the_package_root():
+    """``bayesmith.evidence`` must resolve, like every other subpackage.
+
+    It did not, for the whole of B11: ``evidence`` was absent from
+    ``_LAZY_SUBMODULES``, so ``import bayesmith; bayesmith.evidence`` raised
+    ``AttributeError`` and only an explicit ``import bayesmith.evidence``
+    reached the layer. The handover recorded the gap as "nothing in
+    ``dispatch/`` calls it", which is a design gap; this is the narrower
+    reachability one underneath it, and no amount of dispatcher work would
+    have fixed it.
+
+    Checked by identity against the real module, not by ``hasattr``: a
+    ``__getattr__`` that returned some other module would pass a name check.
+    """
+    import importlib
+
+    import bayesmith
+
+    assert "evidence" in bayesmith._LAZY_SUBMODULES
+    assert bayesmith.evidence is importlib.import_module("bayesmith.evidence")
+    assert bayesmith.evidence.compress_campaign is not None
+
+
+def test_reaching_the_evidence_layer_is_what_imports_jax_not_importing_bayesmith():
+    """``evidence`` must be LAZY, not merely present.
+
+    ``evidence/sqrtinfo.py`` imports jax at module scope, so listing it
+    eagerly in ``__init__.py`` would break the stdlib-only contract
+    ``test_importing_bayesmith_stays_light`` pins -- and it would break it
+    for every caller, including one that never touches the evidence layer.
+    Same subprocess shape as ``test_importing_bayesmith_still_does_not_
+    import_numpyro``, for the same reason: this process has already imported
+    jax by now.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import bayesmith, sys;"
+        "assert 'jax' not in sys.modules;"
+        "assert 'bayesmith.evidence' not in sys.modules;"
+        "assert bayesmith.evidence.compress_campaign is not None;"
+        "assert 'jax' in sys.modules"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr

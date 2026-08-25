@@ -118,7 +118,16 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
 # `gaussian.py`'s use of `numpyro.distributions`). `errors` is listed too for
 # __dir__'s sake even though the eager import above already binds it as a
 # real attribute, so __getattr__ is never actually consulted for it.
-_LAZY_SUBMODULES = ("graph", "bridge", "exact", "dispatch", "errors")
+#
+# `evidence` reaches jax through `sqrtinfo.py`'s module-scope import, so it is
+# listed here and NOT imported eagerly, for the same reason `exact` is not.
+# It was missing from this tuple for the whole of B11: the layer was complete,
+# dense-oracled and cross-checked, and `import bayesmith; bayesmith.evidence`
+# still raised AttributeError, so only an explicit `import bayesmith.evidence`
+# reached it. Both halves are pinned in `tests/test_public_api.py` -- that it
+# resolves, and that resolving it is what pulls jax in rather than importing
+# this package.
+_LAZY_SUBMODULES = ("graph", "bridge", "exact", "dispatch", "evidence", "errors")
 
 
 def __getattr__(name: str) -> Any:

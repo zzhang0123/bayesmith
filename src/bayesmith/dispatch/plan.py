@@ -66,6 +66,7 @@ from bayesmith.dispatch.execute import (
     run_estimate,
     run_sample,
 )
+from bayesmith.dispatch.streaming import StreamingRoute, streaming_route
 from bayesmith.errors import NotGaussian
 from bayesmith.exact.block import domain_centre, unchecked_operator
 from bayesmith.exact.gaussian import gaussian_parts, node_shape, precision_at
@@ -513,11 +514,17 @@ class InferencePlan(eqx.Module):
         sigma_needs_rebuild: whether an observed node's scale has a latent
             ancestor outside the exact block, in which case ``noise_std``
             must be recomputed every sweep rather than hoisted.
+        streaming: whether the campaign fold applies to this graph, and on
+            which plate -- see
+            :mod:`~bayesmith.dispatch.streaming`. MEASURED here rather than
+            offered as a live query, because a plan is a record of what was
+            measured; ``None`` only on a plan built by hand.
     """
 
     graph: Graph
     blocks: tuple[Block, ...]
     sigma_needs_rebuild: bool = eqx.field(static=True, default=False)
+    streaming: StreamingRoute | None = eqx.field(static=True, default=None)
 
     @property
     def exact(self) -> Block | None:
@@ -593,6 +600,12 @@ class InferencePlan(eqx.Module):
             for extra in _continuation(block, hoisted=hoisted, width=width):
                 lines.append(pad + extra)
         lines.append("execution: " + self._execution())
+        # Only when there IS a route. A graph that is not a campaign prints
+        # byte-identically to what it printed before `streaming.py` existed,
+        # which is what keeps the twenty existing assertions on `str(plan)`
+        # measuring what they were written to measure.
+        if self.streaming is not None and (note := self.streaming.line()):
+            lines.append(note)
         return "\n".join(lines)
 
     def sample(
@@ -770,6 +783,13 @@ def compile(graph: Graph, *, key: jax.Array | None = None) -> InferencePlan:
     further block build for :func:`working_epsilon`, on top of what
     ``partition`` already spends.
 
+    Then :func:`~bayesmith.dispatch.streaming.streaming_route`, which costs
+    one leakage probe per PLATE and nothing at all on a graph with none.
+    Measured on the scalar campaign: 0.278 s at four epochs and 0.342 s at
+    512, against this function's own 1.0-1.3 s -- flat in the campaign,
+    because the probe is one ``jacfwd`` of the whole plate rather than one
+    per epoch.
+
     Shadows the builtin ``compile`` at module scope, which is the decided UX
     -- ``bayesmith.compile(graph)`` is the name this package wants -- so
     callers who need both spell it ``from bayesmith import compile as
@@ -815,4 +835,9 @@ def compile(graph: Graph, *, key: jax.Array | None = None) -> InferencePlan:
                 reason=_sampled_reason(classification),
             )
         )
-    return InferencePlan(graph, tuple(blocks), classification.sigma_needs_rebuild)
+    return InferencePlan(
+        graph,
+        tuple(blocks),
+        classification.sigma_needs_rebuild,
+        streaming_route(graph),
+    )

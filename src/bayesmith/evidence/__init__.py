@@ -7,7 +7,11 @@ it is to be **preserved exactly** rather than reinvented; see
 needs and what was measured about it.
 """
 
-from bayesmith.evidence.campaign import compress_campaign, epoch_terms
+from bayesmith.evidence.campaign import (
+    compress_campaign,
+    epoch_observation,
+    epoch_terms,
+)
 from bayesmith.evidence.compress import (
     compress,
     compress_epoch,
@@ -45,6 +49,7 @@ __all__ = [
     "epoch_leakage",
     "compress_campaign",
     "epoch_terms",
+    "epoch_observation",
     "coherent_mode",
     "epoch_chi_square",
     "refuse_undeclared_coherent_error",

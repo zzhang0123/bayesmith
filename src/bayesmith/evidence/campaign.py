@@ -77,7 +77,7 @@ def epoch_terms(
             makes "one epoch's data" a thing that can be sliced.
     """
     found = factorization or factorize(graph, epoch_plate, at=at)
-    observed = _the_epoch_observation(graph, epoch_plate)
+    observed = epoch_observation(graph, epoch_plate)
     node = graph.node(observed)
     size = graph.plate_size(epoch_plate)
 
@@ -277,7 +277,16 @@ def compress_campaign(
     )
 
 
-def _the_epoch_observation(graph: Graph, epoch_plate: str) -> str:
+def epoch_observation(graph: Graph, epoch_plate: str) -> str:
+    """The one observed node whose data IS this plate's epochs, or a refusal.
+
+    PUBLIC because a caller deciding *whether* to fold needs the same
+    structural verdict the fold itself makes, and cannot get it from
+    ``factorize`` alone -- see
+    :func:`~bayesmith.dispatch.streaming.streaming_route`, which was the
+    package's only cross-module private import until this name lost its
+    underscore.
+    """
     plated = [
         name for name in graph.observed if epoch_plate in graph.node(name).plate
     ]

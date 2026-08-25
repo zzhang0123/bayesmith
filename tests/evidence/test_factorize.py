@@ -398,3 +398,73 @@ class TestTheGuardsOwnFailureModes:
         """The language fact the fix is written against, so it is not folklore."""
         assert max(0.0, float("nan")) == 0.0
         assert math.isnan(max(float("nan"), 0.0))
+
+
+def _survivor_plated_elsewhere():
+    """A campaign plate, plus a second plate carrying a latent of its own.
+
+    Both are legitimate models and the graph builds them happily. From
+    ``"epoch"``'s point of view ``b`` is a survivor -- it is constant across
+    epochs -- but it is not a SCALAR survivor, it is plated on ``"night"``.
+    """
+    data = np.random.default_rng(0).normal(size=N_EPOCH)
+
+    def model():
+        epoch = plate("epoch", N_EPOCH)
+        night = plate("night", 3)
+        g = sample("g", lambda: ndist.Normal(0.0, 3.0))
+        n = sample("n", lambda: ndist.Normal(0.4, 1.3), plate=epoch)
+        mu = det("mu", lambda a, b: 2.0 * a + b, g, n, plate=epoch, linear_in=("g", "n"))
+        observe(
+            "d", lambda v: ndist.Normal(v, 0.55), mu, plate=epoch, obs=jnp.asarray(data)
+        )
+        b = sample("b", lambda: ndist.Normal(0.0, 1.0), plate=night)
+        observe("e", lambda v: ndist.Normal(v, 0.5), b, plate=night, obs=jnp.zeros(3))
+
+    return trace(model)
+
+
+class TestASurvivorPlatedOnAnotherAxisIsRefusedInThisLayersOwnWords:
+    """It was refused already -- in jax's words, from inside a vmap.
+
+    ``epoch_leakage`` probes with one ``jacfwd`` of an ``isolate`` over
+    survivors AND per-epoch latents together. A survivor plated on some other
+    axis has the wrong rank for that vmap, so the model was refused by
+    ``ValueError: vmap was requested to map its argument along axis 0, which
+    implies that its rank should be at least 1, but is only 0`` -- raised out
+    of ``graph/evaluate.py``, naming no latent, no plate, and nothing the
+    author could act on.
+
+    The verdict was right and the reason was unusable, which is the shape
+    ``check_precision`` was already caught in once (an indefinite kernel
+    refused via NaN, reporting "the log-density is not quadratic" about a
+    perfectly quadratic density). Refusing early and by name costs one
+    comprehension.
+    """
+
+    def test_the_refusal_names_the_latent_and_the_other_plate(self):
+        with jax.enable_x64(True):
+            with pytest.raises(StructureError) as refused:
+                factorize(_survivor_plated_elsewhere(), "epoch")
+        message = str(refused.value)
+        assert "'b'" in message
+        assert "night" in message
+
+    def test_it_is_not_a_vmap_error_any_more(self):
+        """The anti-regression clause: a ValueError here is the OLD behaviour."""
+        with jax.enable_x64(True):
+            with pytest.raises(StructureError):
+                factorize(_survivor_plated_elsewhere(), "epoch")
+            with pytest.raises(StructureError):
+                factorize(_survivor_plated_elsewhere(), "night")
+
+    def test_an_unplated_survivor_is_still_fine(self):
+        """Anti-vacuity: the guard must not refuse the ordinary campaign.
+
+        ``_epoch_local``'s survivor is unplated, which is the normal case and
+        the one every other test in this file rests on.
+        """
+        with jax.enable_x64(True):
+            found = factorize(_epoch_local(), "epoch")
+        assert found.survivors
+        assert all(not p for p in ())  # no plated survivors to check
