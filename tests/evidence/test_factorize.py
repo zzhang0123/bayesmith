@@ -443,9 +443,8 @@ class TestASurvivorPlatedOnAnotherAxisIsRefusedInThisLayersOwnWords:
     """
 
     def test_the_refusal_names_the_latent_and_the_other_plate(self):
-        with jax.enable_x64(True):
-            with pytest.raises(StructureError) as refused:
-                factorize(_survivor_plated_elsewhere(), "epoch")
+        with jax.enable_x64(True), pytest.raises(StructureError) as refused:
+            factorize(_survivor_plated_elsewhere(), "epoch")
         message = str(refused.value)
         assert "'b'" in message
         assert "night" in message
