@@ -270,3 +270,78 @@ def test_reaching_the_evidence_layer_is_what_imports_jax_not_importing_bayesmith
         [sys.executable, "-c", code], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_the_diagnose_exports_are_the_objects_their_own_modules_define():
+    """Identity pins for the three names ``diagnose/`` owns.
+
+    Same rationale as the dispatch pin above: both halves of a swapped
+    ``_LAZY_ATTRS`` entry still *resolve*, so only identity can tell the
+    right object from a wrong one that answers to the same name.
+    """
+    import importlib
+
+    import bayesmith
+
+    # importlib rather than `from bayesmith.diagnose import identifiability`:
+    # the subpackage re-exports a FUNCTION under that name, so the from-import
+    # returns the function and shadows the module this pin needs.
+    identifiability_module = importlib.import_module(
+        "bayesmith.diagnose.identifiability"
+    )
+    priors = importlib.import_module("bayesmith.diagnose.priors")
+    sensitivity = importlib.import_module("bayesmith.diagnose.sensitivity")
+
+    expected = {
+        "identifiability": identifiability_module.identifiability,
+        "prior_sensitivity": sensitivity.prior_sensitivity,
+        "JeffreysPrior": priors.JeffreysPrior,
+    }
+    for name, target in expected.items():
+        assert getattr(bayesmith, name) is target, name
+        assert name in bayesmith.__all__
+
+
+def test_the_diagnose_subpackage_is_reachable_from_the_package_root():
+    """``bayesmith.diagnose`` must resolve, like every other subpackage.
+
+    The evidence layer shipped complete and unreachable once -- absent from
+    ``_LAZY_SUBMODULES``, so ``bayesmith.evidence`` raised AttributeError
+    for the whole of B11 -- and this package must not repeat that shape.
+    Checked by identity against the real module, not by ``hasattr``.
+    """
+    import importlib
+
+    import bayesmith
+
+    assert "diagnose" in bayesmith._LAZY_SUBMODULES
+    assert bayesmith.diagnose is importlib.import_module("bayesmith.diagnose")
+    assert bayesmith.diagnose.identifiability is not None
+    assert bayesmith.diagnose.prior_sensitivity is not None
+    assert bayesmith.diagnose.JeffreysPrior is not None
+
+
+def test_reaching_the_diagnose_layer_is_what_imports_jax_not_importing_bayesmith():
+    """``diagnose`` must be LAZY, not merely present.
+
+    ``diagnose/priors.py`` imports numpyro.distributions at module scope and
+    everything under ``diagnose/`` imports jax, so listing the subpackage
+    eagerly would break the stdlib-only contract
+    ``test_importing_bayesmith_stays_light`` pins. Same subprocess shape as
+    the evidence pin above, for the same reason: this process has already
+    imported jax by now.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import bayesmith, sys;"
+        "assert 'jax' not in sys.modules;"
+        "assert 'bayesmith.diagnose' not in sys.modules;"
+        "assert bayesmith.diagnose.identifiability is not None;"
+        "assert 'jax' in sys.modules"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr

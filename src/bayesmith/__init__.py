@@ -57,6 +57,10 @@ __all__ = [
     "precision_at",
     "fisher_information",
     "parameter_covariance",
+    # diagnose
+    "identifiability",
+    "prior_sensitivity",
+    "JeffreysPrior",
     # errors
     "BayesmithError",
     "GraphError",
@@ -110,6 +114,9 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "precision_at": ("bayesmith.exact.gaussian", "precision_at"),
     "fisher_information": ("bayesmith.exact.fisher", "fisher_information"),
     "parameter_covariance": ("bayesmith.exact.fisher", "parameter_covariance"),
+    "identifiability": ("bayesmith.diagnose.identifiability", "identifiability"),
+    "prior_sensitivity": ("bayesmith.diagnose.sensitivity", "prior_sensitivity"),
+    "JeffreysPrior": ("bayesmith.diagnose.priors", "JeffreysPrior"),
 }
 
 # Subpackages reachable as `bayesmith.<name>` after a bare `import bayesmith`,
@@ -127,7 +134,15 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
 # reached it. Both halves are pinned in `tests/test_public_api.py` -- that it
 # resolves, and that resolving it is what pulls jax in rather than importing
 # this package.
-_LAZY_SUBMODULES = ("graph", "bridge", "exact", "dispatch", "evidence", "errors")
+_LAZY_SUBMODULES = (
+    "graph",
+    "bridge",
+    "exact",
+    "dispatch",
+    "evidence",
+    "diagnose",
+    "errors",
+)
 
 
 def __getattr__(name: str) -> Any:
