@@ -128,33 +128,62 @@ def dense_operator(block: LinearBlock) -> jax.Array:
     return jax.jacfwd(flat_forward)(jnp.zeros(size, dtype=_domain_dtype(block)))
 
 
-def _log_sigma_curvature(
+def _log_spectrum_curvature(
     block: LinearBlock,
-    sigma_of: Any,
+    precision_of: Any,
     centre: dict[str, Any],
     spans: Any,
 ) -> jax.Array:
-    """``(dlog sigma/dx)^T (dlog sigma/dx)`` over the observed samples.
+    """``1/2 sum_k d_a log lambda_k d_b log lambda_k`` over the observed samples.
 
-    The information carried by the VARIANCE rather than the mean. Flattened
-    the same way :func:`dense_operator` flattens ``A`` -- observed nodes in
-    sorted name order, latents in the block's own order -- because the two are
-    added together and a different row order would be a silent transpose.
+    The information carried by the COVARIANCE rather than the mean. Written
+    on the SPECTRUM rather than on per-sample sigmas, which is what makes it
+    cover a correlated node:
+
+        ``1/2 tr(N^-1 d_a N N^-1 d_b N) = 1/2 sum_k d_a log lam_k d_b log lam_k``
+
+    holds whenever ``N``'s eigenbasis does not move with the parameters, and
+    both rows the gate accepts have a fixed basis -- ``I`` for a ``Normal``,
+    the DFT for a ``CirculantNormal``. Derived symbolically in
+    ``docs/derivations/variance_information_spectral.wls``; measured against a
+    dense finite-difference Fisher matrix in
+    ``docs/probes/probe_9_correlated_variance_information.py``, agreeing to
+    the difference floor (~1e-10) on a circulant whose kernel changes SHAPE
+    with the parameters.
+
+    **This is not a new rule for the diagonal case, it is the same one.** The
+    jacobian is taken of ``1/2 log lambda_k``, and for a ``DiagonalPrecision``
+    ``lambda_i = sigma_i**2``, so that is ``log sigma_i`` -- bitwise, because
+    ``log_spectrum`` returns ``2 log sigma`` and halving it is exact. The
+    caller still multiplies by ``2.0``, so the diagonal answer is the number
+    it always was.
+
+    What the old per-sample form got WRONG on a correlated node is worth
+    stating, because it is not a small error. ``sqrt(diag N)`` is CONSTANT
+    across samples for a stationary covariance, so a kernel whose shape moves
+    while its diagonal does not registers as no information at all. Measured
+    on such a fixture: the shape parameter's entry is exactly ``0.0`` against
+    a true ``3.44`` -- not inaccurate, blind.
+
+    Flattened the same way :func:`dense_operator` flattens ``A`` -- observed
+    nodes in sorted name order, latents in the block's own order -- because
+    the two are added together and a different row order would be a silent
+    transpose.
     """
 
-    def log_sigma(flat: jax.Array) -> jax.Array:
-        sigma = sigma_of(_unravel(flat, block, spans))
+    def half_log_spectrum(flat: jax.Array) -> jax.Array:
+        precision = precision_of(_unravel(flat, block, spans))
         return jnp.concatenate(
             [
-                jnp.reshape(jnp.log(jnp.asarray(sigma[name])), (-1,))
-                for name in sorted(sigma)
+                jnp.reshape(0.5 * precision[name].log_spectrum(), (-1,))
+                for name in sorted(precision)
             ]
         )
 
     flat_centre = jnp.concatenate(
         [jnp.reshape(jnp.asarray(centre[name]), (-1,)) for name in block.names]
     )
-    jac = jax.jacfwd(log_sigma)(flat_centre)
+    jac = jax.jacfwd(half_log_spectrum)(flat_centre)
     return jac.T @ jac
 
 
@@ -198,6 +227,7 @@ def fisher_information(
     include_prior: bool = True,
     depends_on_prediction: bool = True,
     sigma_of: Any = None,
+    precision_of: Any = None,
     centre: dict[str, Any] | None = None,
 ) -> FlatMatrix:
     """``J^T N^-1 J``, plus the variance's own information and the priors'.
@@ -236,7 +266,7 @@ def fisher_information(
             targets and a forecast that silently answered a different question
             would agree with none of them.
         depends_on_prediction: the node's own claim, and it governs only
-            whether ``sigma_of`` is REQUIRED -- not whether the term is added.
+            whether a RULE is REQUIRED -- not whether the term is added.
             **Check it first** with
             :func:`~bayesmith.exact.gls.check_prediction_dependence`; this
             function cannot, having been handed a decided dict. It defaults
@@ -244,42 +274,71 @@ def fisher_information(
             stopped rather than handed a matrix quietly missing a term.
         sigma_of: the ``{name: x} -> {observed: sigma}`` seam, from
             :func:`~bayesmith.exact.gls.sigma_from_graph` -- the same one
-            :func:`~bayesmith.exact.gls.iterative_gls` iterates. The decided
-            ``precision`` cannot supply this: an operator has no
-            per-sample sigma, and a decided dict has no derivative.
-            Passing it for a genuinely constant sigma is harmless and costs
-            one ``jacfwd``, because the term is then exactly ``0.0``.
+            :func:`~bayesmith.exact.gls.iterative_gls` iterates. The DIAGONAL
+            spelling of the rule, kept because that is what the reweighting
+            loop produces; it is wrapped in
+            :func:`~bayesmith.exact.precision.diagonal_from` and takes the
+            same path as ``precision_of``. The decided ``precision`` cannot
+            supply either: an operator has no derivative.
+        precision_of: the general form of the same rule,
+            ``{name: x} -> {observed: Precision}`` -- from
+            :func:`~bayesmith.exact.gaussian.precision_at` curried on the
+            graph. **Required for a correlated node**, which has no
+            per-sample sigma for ``sigma_of`` to return. Give one or the
+            other, not both. Passing a rule for a genuinely constant
+            covariance is harmless and costs one ``jacfwd``, because the term
+            is then exactly ``0.0``.
         centre: the domain point ``precision`` was read at, i.e. the point the
-            curvature is taken at. Checked against ``sigma_of(centre)`` rather
-            than trusted, because the two are redundant by construction and an
-            unchecked redundancy is how a covariance ends up weighted at one
-            point and curved at another. The check compares the two as
-            OPERATORS -- both applied to one fixed probe -- rather than
-            comparing sigma arrays, because ``precision`` need not have sigma
-            arrays to compare.
+            curvature is taken at. Checked against the rule at ``centre``
+            rather than trusted, because the two are redundant by
+            construction and an unchecked redundancy is how a covariance ends
+            up weighted at one point and curved at another. The check
+            compares the two as OPERATORS -- both applied to one fixed probe
+            -- rather than comparing sigma arrays, because ``precision`` need
+            not have sigma arrays to compare.
 
     Raises:
         ValueError: if ``depends_on_prediction`` is True and no rule is given.
-        ValueError: if ``precision`` is not the operator ``sigma_of(centre)``
-            implies.
+        ValueError: if both ``sigma_of`` and ``precision_of`` are given.
+        ValueError: if ``precision`` is not the operator the rule implies at
+            ``centre``.
     """
+    if sigma_of is not None and precision_of is not None:
+        raise ValueError(
+            "fisher_information() was given both sigma_of= and precision_of=, "
+            "which are two spellings of one rule -- the diagonal one and the "
+            "general one. Two rules is two chances to describe a different "
+            "covariance than the one `precision` weights by, which is the "
+            "redundancy the centre check exists to catch. Pass whichever "
+            "matches how the noise is produced."
+        )
+    if sigma_of is not None:
+        # One curvature implementation, not two: the diagonal rule is wrapped
+        # rather than special-cased, so the degenerate case keeps going
+        # through the same code the correlated one does.
+        def rule(x):
+            return diagonal_from(sigma_of(x))
+    else:
+        rule = precision_of
+
     spans, _ = _spans(block)
     design = dense_operator(block)
     values = design.T @ _weighted_design(block, design, precision)
-    if depends_on_prediction and (sigma_of is None or centre is None):
+    if depends_on_prediction and (rule is None or centre is None):
         raise ValueError(
             "fisher_information() was told the noise depends on the prediction "
             "but given no rule to differentiate: J^T N^-1 J is then missing the "
             "variance's own information, 2 (dlog sigma/dx)^T (dlog sigma/dx), "
             "and the error bar it implies is too WIDE rather than too narrow, "
             "which reads as safe. Pass sigma_of=sigma_from_graph(graph, at) "
-            "and centre= the point the precision was read at; or, if the sigma "
+            "and centre= the point the precision was read at (or precision_of= "
+            "for a correlated node); or, if the sigma "
             "really is constant, pass depends_on_prediction=False. "
             "check_prediction_dependence() settles which, and this function "
             "cannot -- a decided precision has no derivative."
         )
-    if sigma_of is not None and centre is not None:
-        implied = diagonal_from(sigma_of(centre))
+    if rule is not None and centre is not None:
+        implied = rule(centre)
         for name in sorted(precision):
             # Compared as OPERATORS, on one fixed probe, rather than as sigma
             # arrays: `precision` is an interface and a correlated
@@ -310,7 +369,7 @@ def fisher_information(
                     "not derived yet, and precision_parts refuses that "
                     "combination upstream.)"
                 )
-        values = values + 2.0 * _log_sigma_curvature(block, sigma_of, centre, spans)
+        values = values + 2.0 * _log_spectrum_curvature(block, rule, centre, spans)
     if include_prior:
         curvature = jnp.concatenate(
             [

@@ -66,6 +66,41 @@ class Precision(Protocol):
         """``log det (2 pi N)`` -- the Gaussian's normalisation, a scalar."""
         ...
 
+    def log_spectrum(self) -> jax.Array:
+        """``log lambda_k`` -- the log of ``N``'s eigenvalues, as a VECTOR.
+
+        **The fourth operation, and it is what the Fisher matrix needs.** When
+        the covariance depends on the parameters, the information carries a
+        second term ``1/2 tr(N^-1 d_a N N^-1 d_b N)``, and whenever ``N``'s
+        eigenBASIS does not move with the parameters that collapses onto the
+        spectrum::
+
+            1/2 sum_k d_a log lambda_k  d_b log lambda_k
+
+        Both implementations here have a fixed basis -- ``I`` for a diagonal,
+        the DFT for a circulant -- so the identity covers both, and the
+        diagonal rule ``exact/fisher.py`` shipped,
+        ``2 (dlog sigma/dx)^T (dlog sigma/dx)``, is that at
+        ``lambda_i = sigma_i**2``. Derived in
+        ``docs/derivations/variance_information_spectral.wls`` and measured
+        against a dense finite-difference Fisher matrix in
+        ``docs/probes/probe_9_correlated_variance_information.py``.
+
+        It is the VECTOR and not its sum, which is why
+        :meth:`log_normalizer` cannot supply it: a sum of logs cannot give
+        back the sum of their products. The two are related --
+        ``log_normalizer() == n log 2 pi + sum(log_spectrum())`` -- and
+        ``test_log_normalizer_is_the_log_spectrums_own_sum`` pins that, since
+        nothing else renders the two side by side.
+
+        A covariance whose eigenbasis DOES move with the parameters (say
+        ``D(theta) C D(theta)`` with a per-sample ``D``) is not covered by the
+        identity, and is also not something either implementation here can
+        represent -- measured: exact 2.7847 against spectral 2.7595 on such a
+        case.
+        """
+        ...
+
     def whiten(self, omega: jax.Array) -> jax.Array:
         """``N^-1/2 omega`` -- a standard normal draw given this covariance.
 
@@ -123,6 +158,12 @@ class DiagonalPrecision(eqx.Module):
     def log_normalizer(self) -> jax.Array:
         return jnp.sum(jnp.log(2.0 * jnp.pi * self.sigma**2))
 
+    def log_spectrum(self) -> jax.Array:
+        # `2 log sigma` rather than `log(sigma**2)`: multiplying a float by 2
+        # is exact in binary, so half of this is `log sigma` BITWISE, and the
+        # Fisher term's diagonal case stays the number it always was.
+        return 2.0 * jnp.log(self.sigma)
+
     def whiten(self, omega: jax.Array) -> jax.Array:
         return omega / self.sigma
 
@@ -164,6 +205,9 @@ class CirculantPrecision(eqx.Module):
     def log_normalizer(self) -> jax.Array:
         size = self.first_column.shape[0]
         return size * math.log(2.0 * jnp.pi) + jnp.sum(jnp.log(self.eigenvalues))
+
+    def log_spectrum(self) -> jax.Array:
+        return jnp.log(self.eigenvalues)
 
     def whiten(self, omega: jax.Array) -> jax.Array:
         spectrum = jnp.fft.fft(omega) / jnp.sqrt(self.eigenvalues)

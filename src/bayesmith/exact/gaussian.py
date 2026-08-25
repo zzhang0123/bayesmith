@@ -380,6 +380,21 @@ def precision_parts(
     the only thing refusing a correlated noise the rest of the stack could
     already handle.
 
+    **``depends_on_prediction=True`` is accepted now.** ``45198f9`` refused
+    it, because ``fisher.py``'s variance-information term was derived for a
+    DIAGONAL ``N`` and nothing said it survived off-diagonal terms. It does,
+    in a form that covers both rows at once:
+    ``1/2 tr(N^-1 d_a N N^-1 d_b N) = 1/2 sum_k d_a log lam_k d_b log lam_k``
+    whenever ``N``'s eigenbasis does not move with the parameters -- ``I`` for
+    a ``Normal``, the DFT for a ``CirculantNormal``. Derived in
+    ``docs/derivations/variance_information_spectral.wls``, measured against a
+    dense finite-difference Fisher matrix in
+    ``docs/probes/probe_9_correlated_variance_information.py``, and
+    implemented as
+    :func:`~bayesmith.exact.fisher._log_spectrum_curvature`, which
+    ``fisher_information`` reaches through ``precision_of=``. The refusal was
+    written to be deleted and this is its deletion.
+
     Raises:
         NotGaussian: for any other distribution, as before.
         StructureError: for an integer ``loc``, as before.
@@ -389,22 +404,6 @@ def precision_parts(
     distribution = unwrap(apply_probabilistic(graph, node, env))
     circulant = getattr(dist, "CirculantNormal", None)
     if circulant is not None and isinstance(distribution, circulant):
-        if node.depends_on_prediction:
-            raise NotGaussian(
-                f"node {node.name!r} declares a CORRELATED noise AND "
-                "depends_on_prediction=True, which the exact path refuses "
-                "until the variance's own information has a correlated form "
-                "that has been derived and MEASURED. When sigma depends on "
-                "the prediction the Fisher matrix carries a second term, "
-                "1/2 tr(N^-1 dN N^-1 dN); the factor exact/fisher.py applies "
-                "-- (1 + 2 f^2) -- was derived for a DIAGONAL N and there is "
-                "no reason to expect it to survive off-diagonal terms. "
-                "Running anyway would return a Cramer-Rao bound that is "
-                "silently wrong, which is worse than routing to NUTS. Declare "
-                "depends_on_prediction=False if the covariance really is "
-                "fixed, and check that claim with "
-                "gls.check_prediction_dependence."
-            )
         loc = _checked_loc(node, distribution.loc)
         return loc, CirculantPrecision(
             first_column=jnp.asarray(distribution.covariance_row)

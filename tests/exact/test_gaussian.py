@@ -394,29 +394,32 @@ def test_a_distribution_neither_gate_row_covers_is_still_a_routing_outcome():
         precision_parts(graph, graph.node("d"), env)
 
 
-def test_a_correlated_node_that_claims_prediction_dependence_is_refused():
-    """The safe side, and the reason is a gap in a DERIVATION, not in code.
+def test_a_correlated_node_may_now_claim_prediction_dependence():
+    """The refusal of ``45198f9`` is gone, and this is what replaced it.
 
-    When sigma depends on the prediction the Fisher matrix carries a second
-    term, ``1/2 tr(N^-1 dN N^-1 dN)``. `exact/fisher.py` applies it as the
-    clean factor ``(1 + 2 f^2)``, and that factor was derived for a DIAGONAL
-    N -- the trace of a product of diagonal matrices. Nothing says it survives
-    off-diagonal terms, and nobody has derived or measured what replaces it.
+    It refused because ``fisher.py``'s variance-information term was derived
+    for a DIAGONAL N -- the trace of a product of diagonal matrices -- and
+    nothing said it survived off-diagonal terms. It does, and the form covers
+    both accepted rows at once rather than patching one:
 
-    Running anyway would produce a Cramer-Rao bound that is silently wrong.
-    Refusing routes the model to NUTS, which handles it correctly. That is the
-    same direction `fisher_information`'s own default already chose when it
-    made `depends_on_prediction` a claim the caller must make rather than a
-    default it could quietly get wrong.
+        ``1/2 tr(N^-1 d_a N N^-1 d_b N) = 1/2 sum_k d_a log lam_k d_b log lam_k``
 
-    This is a refusal to be DELETED, not maintained: when the correlated form
-    exists and has been measured, this raise goes, and this test with it.
+    whenever N's eigenBASIS does not move with the parameters -- ``I`` for a
+    Normal, the DFT for a CirculantNormal. Derived in
+    ``docs/derivations/variance_information_spectral.wls`` and measured
+    against a dense finite-difference Fisher matrix in
+    ``docs/probes/probe_9_correlated_variance_information.py``.
+
+    Asserting the ACCEPTANCE is the weak half; the strong half is that the
+    Fisher matrix this unlocks is right, which
+    ``tests/exact/test_fisher.py::test_the_correlated_variance_term_matches_a_dense_reference``
+    measures. This one pins that the gate no longer stands in its way, and
+    that the extracted operator is the kernel that was declared.
     """
     from bayesmith.exact.gaussian import precision_parts
+    from bayesmith.exact.precision import CirculantPrecision
 
     with jax.enable_x64(True):
-        graph, _ = _correlated_graph()
-        # the same model, but claiming the covariance tracks the prediction
         import numpy as _np
 
         lag = _np.minimum(_np.arange(8), 8 - _np.arange(8))
@@ -437,13 +440,12 @@ def test_a_correlated_node_that_claims_prediction_dependence_is_refused():
 
         dependent = trace(model)
         env = evaluate(dependent, {"w": jnp.asarray(2.0)})
-        with pytest.raises(NotGaussian, match="1 \\+ 2 f\\^2"):
-            precision_parts(dependent, dependent.node("d"), env)
-
-        # ...and the SAME kernel with the claim withdrawn is accepted, so this
-        # is refusing the claim rather than the correlation.
-        env_ok = evaluate(graph, {"w": jnp.asarray(2.0)})
-        assert precision_parts(graph, graph.node("d"), env_ok)[1] is not None
+        loc, precision = precision_parts(dependent, dependent.node("d"), env)
+        # Read INSIDE the context: `jax.enable_x64` governs the operation,
+        # and `jnp.allclose` on a float64 array outside it is a dtype clash.
+        assert isinstance(precision, CirculantPrecision)
+        assert jnp.allclose(precision.first_column, kernel)
+        assert loc.shape == (8,)
 
 
 # ---------------------------------------------------------------------------
