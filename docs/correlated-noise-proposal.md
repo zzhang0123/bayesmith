@@ -719,6 +719,90 @@ closes: the class has to stay traceable, so
 `test_construction_itself_does_not_validate_and_says_so` stays true for as
 long as the split does.
 
+### 5.1d The correlated variance-information term (2026-08-25)
+
+Done symbolically first (`docs/derivations/variance_information_*.wls`, run
+with `wolframscript`), then measured against a dense finite-difference Fisher
+matrix (`docs/probes/probe_9_correlated_variance_information.py`) — an
+independent route sharing no algebra, no FFT and no autodiff with the
+implementation.
+
+**The partial hand-derivation in the handover is exactly right**, and
+Mathematica confirms every step of it at general symbolic `n=3` and at
+explicit `n = 2,3,4`:
+
+* `N^-1 d_a N = D^-1 C^-1 G_a C D + G_a` with `G_a = D^-1 d_a D` — identity
+  holds identically;
+* for a single scaling parameter (`mu = theta x`), `N^-1 d_th N = 2I/theta`
+  exactly, for ANY `C`;
+* the factor is `1 + 2 f^2 n / (1^T C^-1 1)`, reducing to `1 + 2 f^2` at
+  `C = I`, and `1^T C^-1 1 = n/lambda0` for a circulant.
+
+Measured against the dense route: `2.3096380799` predicted vs
+`2.3096380799` found, `6e-12` relative.
+
+**But that factor belongs to a model this package cannot express.** It comes
+from `N = D C D` with a PER-SAMPLE `D = diag(f mu_i)`, which is not
+stationary unless every `mu_i` is equal — so it is not a `CirculantNormal`.
+What a `CirculantNormal` *can* express is a covariance that stays circulant
+while its kernel depends on the prediction, and that has no universal scalar
+factor at all (measured: `1 + 2 f^2 n/(x^T C^-1 x)` for a common scale, which
+does not reduce to anything kernel-only). **A "correlated factor" is the
+wrong shape for the answer.**
+
+**The right shape covers both accepted rows at once.** Whenever `N`'s
+eigenBASIS does not move with the parameters,
+
+    1/2 tr(N^-1 d_a N N^-1 d_b N) = 1/2 sum_k d_a log lam_k d_b log lam_k
+
+and both rows qualify: `I` for a `Normal`, the DFT for a `CirculantNormal`
+whatever its kernel does. Verified symbolically for a circulant whose kernel
+changes SHAPE with `theta` at `n = 3,4,5` (`exact - spectral` simplifies to
+`0`), and the shipped diagonal rule
+`2 (dlog sigma/dx)^T (dlog sigma/dx)` is that identity at
+`lam_i = sigma_i^2` — not a different rule.
+
+The identity also predicts its own failure, and the prediction was checked: a
+covariance whose eigenbasis DOES move (`D(theta) C D(theta)`, per-sample `D`)
+is not covered — measured, exact `2.7847` against spectral `2.7595`.
+
+**How wrong the shipped per-sample form is on a correlated node**, measured
+against the dense reference at `n=12`:
+
+  ====================================  ========  ==============  =======
+  case                                  truth     per-sample form  ratio
+  ====================================  ========  ==============  =======
+  parameter moves amplitude AND shape   10.6646   6.0000          0.563
+  parameter moves shape only            3.4445    0.0000          0.000
+  ====================================  ========  ==============  =======
+
+`sqrt(diag N)` is CONSTANT across samples for a stationary covariance, so
+that form can only see how the diagonal moves — one number, `n` times over.
+When the kernel's shape moves while its diagonal does not, it reports
+**exactly zero**. Both errors are too SMALL, making `F^-1` too WIDE, which is
+the direction that reads as safe.
+
+**What landed.** `Precision.log_spectrum()` is a fourth operation returning
+`log lam_k` as a vector; `fisher._log_sigma_curvature` became
+`_log_spectrum_curvature`, jacobian-ing `1/2 log lam_k`; and
+`fisher_information` gained `precision_of=`, the general form of the rule,
+with `sigma_of=` wrapped in `diagonal_from` so there is ONE curvature
+implementation rather than two. The diagonal answer is unchanged **bitwise**:
+`log_spectrum` returns `2 log sigma` rather than `log(sigma**2)` precisely so
+that halving it is exact.
+
+Measured end to end: `fisher_information` with `precision_of=` on a circulant
+whose kernel changes shape agrees with the dense finite-difference Fisher to
+`1.4e-10` — the difference floor. On that fixture the variance term is 71% of
+the total, so omitting it would have widened the error bar by 1.86x.
+
+`log_normalizer` was deliberately NOT rewritten to call `log_spectrum`:
+measured, `sum(log(2 pi sigma^2))` is not bitwise
+`n log 2 pi + sum(2 log sigma)` (one ULP apart at `sigma = 1e-8`), and moving
+a shipped number to remove a duplicate is the wrong trade. The duplicate is
+guarded instead, by `test_log_normalizer_is_the_log_spectrums_own_sum`, which
+is the only thing rendering the two definitions side by side.
+
 ### 5.2 Then, in order
 
 2. **Split `CirculantPrecision`'s constructor check** into a `check_circulant`
@@ -735,10 +819,11 @@ long as the split does.
    beside it. The 4 `diagonal_from` reach points (`solve.py::condition_bound`,
    `solve.py::_conjugate_solve`, `correct.py::log_weight`,
    `fisher.py::fisher_information`) do stop manufacturing and start receiving.
-5. **Refuse a correlated node with `depends_on_prediction=True`** until
-   `fisher.py`'s variance-information term has a correlated form that has been
-   derived AND measured. Refusing is the safe side, in the direction
-   `fisher_information`'s own default already chose.
+5. ~~**Refuse a correlated node with `depends_on_prediction=True`**~~
+   **Done, and the refusal is deleted** -- see 5.1d. The correlated form is
+   derived (Mathematica), measured (dense finite-difference Fisher) and
+   implemented, and it turned out to cover BOTH accepted rows rather than
+   being a correlated special case.
 6. Only then the evidence layer's whitening row, which the spec says was
    waiting on this interface's shape.
 

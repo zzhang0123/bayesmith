@@ -806,3 +806,84 @@ class TestThePositiveDefiniteCheckIsWiredIntoTheBuildPath:
             assert errors["operator"] < 1e-10
             with pytest.raises(NotGaussian, match="CirculantNormal"):
                 unchecked_operator(graph, ("w",), {})
+
+
+class TestTheLogSpectrumIsTheFourthOperation:
+    """``log lambda_k``, which the Fisher matrix needs and the other three cannot give."""
+
+    @pytest.mark.parametrize("size", [1, 4, 8])
+    def test_log_normalizer_is_the_log_spectrums_own_sum(self, size):
+        """The two are ONE rule kept in two places, so this renders them side by side.
+
+        `log_normalizer` was NOT rewritten to call `log_spectrum`, and that is
+        a deliberate choice with a measured reason: `log(2 pi sigma**2)`
+        summed is not bitwise `n log 2 pi + sum(2 log sigma)` -- measured, a
+        `sigma = 1e-8` fixture differs by one ULP (1.6e-16 relative). Deriving
+        would have been the tidier code and would have moved a shipped number.
+
+        Two copies of a rule is how one goes stale, and the remedy this
+        codebase uses is to make the drift loud. That is this test: it is the
+        only thing rendering the two definitions against each other.
+        """
+        with jax.enable_x64(True):
+            for precision in (
+                DiagonalPrecision(sigma=jnp.linspace(0.3, 2.1, size)),
+                CirculantPrecision(first_column=_kernel(size) if size > 1 else jnp.asarray([2.0])),
+            ):
+                spectrum = precision.log_spectrum()
+                assert spectrum.shape == (size,)
+                assert float(precision.log_normalizer()) == pytest.approx(
+                    size * math.log(2.0 * math.pi) + float(jnp.sum(spectrum)),
+                    rel=1e-12,
+                )
+
+    def test_half_the_diagonal_log_spectrum_is_log_sigma_BITWISE(self):
+        """What keeps the diagonal Fisher answer the number it always was.
+
+        `_log_spectrum_curvature` jacobians `0.5 * log_spectrum()`. For a
+        diagonal that must be exactly the `log(sigma)` the old
+        `_log_sigma_curvature` used -- not approximately, or the generalisation
+        would move every existing forecast in its last digits.
+
+        `log_spectrum` therefore returns `2 log sigma` rather than
+        `log(sigma**2)`: multiplying a float by two and halving it is exact in
+        binary, and `log(sigma**2)` is not `2 log sigma`.
+        """
+        with jax.enable_x64(True):
+            sigma = jnp.asarray([1e-8, 0.3, 1.0, 7.5, 1e6])
+            precision = DiagonalPrecision(sigma=sigma)
+            assert bool(jnp.all(0.5 * precision.log_spectrum() == jnp.log(sigma)))
+            # ...and the tidier spelling would NOT have been bitwise, which is
+            # the whole reason for the one above.
+            assert not bool(jnp.all(jnp.log(sigma**2) == 2.0 * jnp.log(sigma)))
+
+    def test_the_circulant_log_spectrum_is_the_kernels_own_fft(self):
+        """Against `scipy.linalg`'s eigenvalues, not against our FFT again."""
+        with jax.enable_x64(True):
+            kernel = _kernel(8)
+            precision = CirculantPrecision(first_column=kernel)
+            found = np.sort(np.exp(np.asarray(precision.log_spectrum())))
+        dense_matrix = sla.circulant(np.asarray(kernel))
+        expected = np.sort(np.real(np.linalg.eigvals(dense_matrix)))
+        assert np.allclose(found, expected, rtol=1e-12)
+
+    def test_the_protocol_admits_only_implementations_that_have_it(self):
+        """`Precision` is `runtime_checkable`, so a missing method must show.
+
+        A four-operation protocol that still accepted a three-operation object
+        would let `fisher_information` fail at the call site instead of at the
+        boundary.
+        """
+
+        class ThreeOperations(eqx.Module):
+            def apply(self, residual):
+                return residual
+
+            def log_normalizer(self):
+                return jnp.asarray(0.0)
+
+            def whiten(self, omega):
+                return omega
+
+        assert not isinstance(ThreeOperations(), Precision)
+        assert isinstance(DiagonalPrecision(sigma=jnp.ones(3)), Precision)

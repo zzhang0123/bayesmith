@@ -716,3 +716,190 @@ def test_the_weighted_design_is_ready_for_a_correlated_precision():
     # ...and the correlation is really present, or this proves nothing.
     off = dense_cov - np.diag(np.diag(dense_cov))
     assert np.max(np.abs(off)) > 0.1 * np.max(np.abs(np.diag(dense_cov)))
+
+
+# ---------------------------------------------------------------------------
+# The correlated form of the variance-information term.
+# ---------------------------------------------------------------------------
+
+
+def _circulant(column, size):
+    return np.array([[column[(j - i) % size] for j in range(size)] for i in range(size)])
+
+
+def _shape_moving_pieces(size=12, centre=2.0):
+    """A block, and a CIRCULANT covariance whose SHAPE moves with the latent.
+
+    The block comes from a diagonal graph because the correlated
+    graph-building path is a separate, still-open blocker; the covariance and
+    its rule are handed in, which is exactly what `fisher_information` takes.
+
+    The kernel's decay rate depends on `w`, not merely its amplitude, which is
+    the case no scalar factor covers and the one the old per-sample form is
+    blind to.
+    """
+    grid = np.linspace(0.7, 3.1, size)
+    lag = np.minimum(np.arange(size), size - np.arange(size))
+
+    def model():
+        import numpyro.distributions as dist
+
+        from bayesmith import const, det, observe, sample, trace
+
+        def inner():
+            xs = const("x", jnp.asarray(grid))
+            w = sample("w", lambda: dist.Normal(0.0, 1e8))
+            mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+            observe("d", lambda m: dist.Normal(m, 0.5), mu, obs=jnp.asarray(2.0 * grid))
+
+        return trace(inner)
+
+    def kernel_of(w):
+        return w**2 * (0.55 ** (0.4 * w * lag)) + 0.05 * w**2
+
+    return model(), kernel_of, grid, size, {"w": jnp.asarray(centre)}
+
+
+def test_the_correlated_variance_term_matches_a_dense_reference():
+    """The measurement the deleted refusal was waiting for.
+
+    `45198f9` refused a correlated node claiming `depends_on_prediction=True`
+    because `(1 + 2 f^2)` was derived for a diagonal N. The replacement is not
+    a correlated version of that factor -- it is the form both rows share:
+
+        1/2 tr(N^-1 d_a N N^-1 d_b N) = 1/2 sum_k d_a log lam_k d_b log lam_k
+
+    valid whenever N's eigenbasis is parameter-independent. Derived
+    symbolically in `docs/derivations/variance_information_spectral.wls`.
+
+    The reference here is the OTHER route the proposal asks for: a dense
+    Fisher matrix from central differences of the exact Gaussian formula,
+    sharing no algebra, no FFT and no autodiff with the implementation.
+    Measured: 1.4e-10 relative, which is the difference floor at this step.
+    """
+    from bayesmith.exact.precision import CirculantPrecision
+
+    graph, kernel_of, grid, size, centre = _shape_moving_pieces()
+
+    with jax.enable_x64(True):
+        block = linear_operator(graph, ("w",))
+
+        def precision_of(x):
+            return {"d": CirculantPrecision(first_column=kernel_of(x["w"]))}
+
+        got = fisher_information(
+            block,
+            precision=precision_of(centre),
+            include_prior=False,
+            precision_of=precision_of,
+            centre=centre,
+        )
+        ours = float(np.asarray(got.values).reshape(()))
+
+    at = float(centre["w"])
+    step = 1e-6
+
+    def covariance(w):
+        return _circulant(np.asarray(kernel_of(w)), size)
+
+    inverse = np.linalg.inv(covariance(at))
+    derivative = (covariance(at + step) - covariance(at - step)) / (2.0 * step)
+    reference = float(
+        grid @ inverse @ grid
+        + 0.5 * np.trace(inverse @ derivative @ inverse @ derivative)
+    )
+    assert ours == pytest.approx(reference, rel=1e-8)
+
+    # ...and the term is not a rounding correction here: without it the
+    # error bar would be 1.86x too wide, so a test that only checked
+    # finiteness would pass for the wrong matrix.
+    mean_only = float(grid @ inverse @ grid)
+    assert reference / mean_only > 3.0
+
+
+@pytest.mark.parametrize(
+    "label, decay, at, expected_truth, expected_old",
+    [
+        ("scale and shape both move", None, 2.0, 10.664593, 6.000000),
+        ("shape moves, diagonal does not", 1.0, 1.0, 3.444459, 0.000000),
+    ],
+)
+def test_the_per_sample_form_gets_a_correlated_kernel_wrong(
+    label, decay, at, expected_truth, expected_old
+):
+    """Why the generalisation was needed, as two measurements rather than a claim.
+
+    `sqrt(diag N)` is CONSTANT across samples for a stationary covariance, so
+    the old `2 (dlog sigma/dx)^T (dlog sigma/dx)` can only see how the
+    DIAGONAL moves -- one number, n times over -- and is deaf to every other
+    spectral mode.
+
+    Two cases, and they fail differently, which is why both are here:
+
+    * a parameter that moves the amplitude AND the shape: the old form reads
+      6.000 against a true 10.665, 56% of it. WRONG, not blind.
+    * a parameter that moves only the SHAPE, leaving `diag N` fixed: the old
+      form reads exactly 0.0 against a true 3.444. Blind.
+
+    Both are too SMALL, which makes `F^-1` too WIDE -- the forgiving-looking
+    direction that reads as safe, and the one `fisher_information`'s own
+    docstring is written against.
+
+    Asserted against a dense reference rather than against our other formula,
+    so this is a claim about the truth.
+    """
+    size, step = 12, 1e-6
+    lag = np.minimum(np.arange(size), size - np.arange(size))
+
+    def kernel_of(value):
+        if decay is None:  # amplitude and decay both carried by `value`
+            return value**2 * (0.55 ** (0.4 * value * lag)) + 0.05 * value**2
+        return 0.55 ** (value * lag) + 0.05  # decay alone; kernel[0] is fixed
+
+    def covariance(value):
+        column = np.asarray(kernel_of(value))
+        return _circulant(column, size)
+
+    inverse = np.linalg.inv(covariance(at))
+    derivative = (covariance(at + step) - covariance(at - step)) / (2.0 * step)
+    truth = 0.5 * np.trace(inverse @ derivative @ inverse @ derivative)
+
+    def per_sample(value):
+        return np.sqrt(np.diag(covariance(value)))
+
+    old = 2.0 * float(
+        np.sum(
+            (
+                (np.log(per_sample(at + step)) - np.log(per_sample(at - step)))
+                / (2.0 * step)
+            )
+            ** 2
+        )
+    )
+    assert truth == pytest.approx(expected_truth, rel=1e-6), label
+    assert old == pytest.approx(expected_old, abs=1e-6), label
+    assert old < truth, "the old form is too SMALL, so the error bar is too wide"
+
+
+def test_giving_both_rules_is_refused_rather_than_one_silently_winning():
+    """Two spellings of one rule is two chances to describe a different
+    covariance than the one the design is weighted by -- the redundancy the
+    centre check exists to catch, arriving through the API instead.
+    """
+    graph, kernel_of, _, _, centre = _shape_moving_pieces()
+    from bayesmith.exact.gls import sigma_from_graph
+    from bayesmith.exact.precision import CirculantPrecision
+
+    with jax.enable_x64(True):
+        block = linear_operator(graph, ("w",))
+        with pytest.raises(ValueError, match="two spellings of one rule"):
+            fisher_information(
+                block,
+                precision={"d": CirculantPrecision(first_column=kernel_of(2.0))},
+                include_prior=False,
+                sigma_of=sigma_from_graph(graph, {}),
+                precision_of=lambda x: {
+                    "d": CirculantPrecision(first_column=kernel_of(x["w"]))
+                },
+                centre=centre,
+            )
