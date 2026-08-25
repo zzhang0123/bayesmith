@@ -1125,3 +1125,116 @@ def test_the_collapse_floor_flips_the_dispatch_at_the_measured_kish_ratio(seed):
         )
         assert abs(float(mean[index]) - reference) / width < 0.35
         assert float(spread[index]) / width == pytest.approx(1.0, abs=0.25)
+
+
+# --------------------------------------------------------------------------
+# B10's acceptance, which nothing demonstrated until now.
+# --------------------------------------------------------------------------
+#
+# The migration spec's §五 B10 states it in one line: "一个非高斯节点能产出
+# **抽样**，而不只是一个 loss". rheplicant's posterior engines hard-code a
+# Gaussian observation site, so a Poisson or Student-t likelihood can drive an
+# optimisation there and cannot produce draws or enter a SamplingPlan. The
+# claim here is that a `Probabilistic` node is the right seam and dispatch
+# routes what it cannot solve to NUTS.
+#
+# Mechanically that has been true since the classifier existed. It was never
+# DEMONSTRATED: no test took a non-Gaussian observed node all the way to
+# samples, so the acceptance rested on reading the dispatch table rather than
+# on running it. "Assumed to hold, with no guard" is the state this file
+# exists to convert into a measurement.
+
+
+def _poisson_graph(rate=12.0, n=60, seed=1):
+    """Counts from a Poisson whose rate is the exponential of a latent."""
+    counts = jax.random.poisson(jax.random.key(seed), rate, (n,))
+
+    def model():
+        log_rate = sample("log_rate", lambda: dist.Normal(0.0, 5.0))
+        mu = det("mu", lambda r: jnp.exp(r) * jnp.ones(n), log_rate)
+        observe(
+            "d",
+            lambda m: dist.Poisson(m).to_event(1),
+            mu,
+            depends_on_prediction=True,
+            obs=counts,
+        )
+
+    return trace(model)
+
+
+def _student_t_graph(n=60, seed=7):
+    """A straight line observed through heavy tails."""
+    x = jnp.linspace(0.0, 1.0, n)
+    y = 2.0 + 3.0 * x + 0.3 * jax.random.normal(jax.random.key(seed), (n,))
+
+    def model():
+        xs = const("x", x)
+        a = sample("a", lambda: dist.Normal(0.0, 10.0))
+        b = sample("b", lambda: dist.Normal(0.0, 10.0))
+        mu = det("mu", lambda a_, b_, xx: a_ + b_ * xx, a, b, xs)
+        observe(
+            "d",
+            lambda m: dist.StudentT(4.0, m, 0.3).to_event(1),
+            mu,
+            depends_on_prediction=False,
+            obs=y,
+        )
+
+    return trace(model)
+
+
+def test_a_poisson_observation_produces_draws_and_they_match_quadrature():
+    """B10's acceptance, on the shape that also has a prediction-dependent
+    variance -- a Poisson's mean IS its variance, so this is not merely a
+    non-Gaussian density but one the exact path could not fake.
+
+    The oracle is this file's own grid quadrature of ``log_joint``, which
+    shares the model and nothing else. Compared in posterior sd, which is
+    the only scale on which "the sampler found the right distribution"
+    means anything.
+    """
+    with jax.enable_x64(True):
+        graph = _poisson_graph()
+        plan = compile_graph(graph)
+        assert plan.exact is None, str(plan)
+        assert "not a diagonal Gaussian" in str(plan)
+        posterior = plan.sample(
+            jax.random.key(0), num_samples=2000, num_warmup=1000
+        )
+        drawn = np.asarray(posterior.samples["log_rate"])
+        mean, spread, _, _ = quadrature(graph, "log_rate", 1.5, 3.5, points=4001)
+    assert drawn.shape == (2000,)
+    assert abs(float(drawn.mean()) - mean) < 0.15 * spread, (drawn.mean(), mean)
+    assert float(drawn.std()) == pytest.approx(spread, rel=0.15)
+
+
+def test_a_student_t_observation_produces_draws_on_both_of_its_latents():
+    """The second shape, and a two-latent one, so the claim is not about a
+    single scalar site.
+
+    Heavy tails rather than a different mean-variance link: between them the
+    two fixtures cover both ways a node can fail to be a diagonal Gaussian.
+    """
+    with jax.enable_x64(True):
+        graph = _student_t_graph()
+        plan = compile_graph(graph)
+        assert plan.exact is None, str(plan)
+        posterior = plan.sample(
+            jax.random.key(0), num_samples=2000, num_warmup=1000
+        )
+        drawn = {k: np.asarray(v) for k, v in posterior.samples.items()}
+        marginals = quadrature_pair(
+            graph, ("a", "b"), ((1.0, 3.0), (2.0, 4.0)), points=401
+        )
+    # `quadrature_pair` returns {name: (mean, sd)}; zipping over it walks its
+    # KEYS, which read as one-character strings and index like them.
+    for name in ("a", "b"):
+        mean, spread = marginals[name]
+        assert drawn[name].shape == (2000,)
+        assert abs(float(drawn[name].mean()) - mean) < 0.15 * spread, (
+            name,
+            drawn[name].mean(),
+            mean,
+        )
+        assert float(drawn[name].std()) == pytest.approx(spread, rel=0.2)
