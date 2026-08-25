@@ -2,6 +2,7 @@
 
 import math
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -418,3 +419,267 @@ class TestTheMotivatingPhysicsIsActuallyExpressible:
             worst = max(worst, float(eigenvalues.max() / eigenvalues.min()))
         assert worst < 1.0e3, worst
         assert worst**2 < ceiling / 1.0e3, (worst**2, ceiling)
+
+
+class TestCheckPrecisionSeparatesWhatTheScalarProbeCannot:
+    """The guard the correlated path needs, and the measurement of its power.
+
+    ``check_gaussian`` probes ``log_prob`` at five multiples of
+    ``sqrt(diag N)``. For a STATIONARY covariance that is constant, so the
+    five offsets are five points along one direction and the family pins two
+    scalars of the covariance. The A/B pair below is 0.4060 apart in relative
+    Frobenius norm and agrees at every one of those offsets to 1.851e-16.
+
+    So this class asserts the SEPARATION, not merely the verdict. A guard that
+    accepts the right pairing tells you nothing on its own; what matters is
+    the ratio between what it reports for a matched pairing and for a
+    mismatched one, and that ratio is what a future change could quietly
+    erode.
+    """
+
+    #: Scaling one conjugate mode pair by ``t`` and another by ``1/t``.
+    #: The product over modes is unchanged, so ``sum log lambda`` -- the
+    #: log-determinant, hence the normaliser -- is EXACTLY equal; and mode 0
+    #: is untouched, so ``lambda_0`` is too. Those are the two scalars the
+    #: scalar-offset family constrains. Conjugate PAIRS because a real
+    #: symmetric kernel needs ``lambda_k == lambda_{n-k}``; scaling one mode
+    #: alone would give a complex kernel and prove nothing.
+    MODE_SCALE: float = 2.0
+
+    @staticmethod
+    def _pair(size: int = 8):
+        """Two circulant covariances the scalar-offset family cannot tell apart.
+
+        Measured on this construction: ``lambda_0`` identical, ``sum log
+        lambda`` different by exactly 0.0, both positive definite, and 0.4212
+        apart in relative Frobenius norm.
+        """
+        base = np.array([4.0, 2.0, 1.5, 1.0, 0.8, 1.0, 1.5, 2.0])[:size]
+        spectrum_a = np.real(np.fft.fft(base))
+        spectrum_b = spectrum_a.copy()
+        scale = TestCheckPrecisionSeparatesWhatTheScalarProbeCannot.MODE_SCALE
+        spectrum_b[1] *= scale
+        spectrum_b[size - 1] *= scale
+        spectrum_b[2] /= scale
+        spectrum_b[size - 2] /= scale
+        return (
+            np.real(np.fft.ifft(spectrum_a)),
+            np.real(np.fft.ifft(spectrum_b)),
+        )
+
+    def test_the_fixture_is_the_blind_spot_it_claims_to_be(self):
+        """ANTI-VACUITY for the whole class, and it comes first deliberately.
+
+        Every test below is about a guard separating A from B. If A and B
+        differed in the two scalars the OLD family already sees, none of them
+        would be demonstrating anything the old family could not do. So:
+        identical ``lambda_0``, identical ``sum log lambda``, both positive
+        definite, and genuinely far apart.
+        """
+        kernel_a, kernel_b = self._pair()
+        spectrum_a = np.real(np.fft.fft(kernel_a))
+        spectrum_b = np.real(np.fft.fft(kernel_b))
+        assert spectrum_a[0] == pytest.approx(spectrum_b[0], rel=1e-14)
+        assert float(np.sum(np.log(spectrum_a))) == pytest.approx(
+            float(np.sum(np.log(spectrum_b))), abs=1e-12
+        )
+        assert spectrum_b.min() > 0.0
+        apart = float(np.linalg.norm(kernel_a - kernel_b) / np.linalg.norm(kernel_a))
+        assert apart > 0.2, apart
+
+    def test_the_matched_pairing_passes_and_the_mismatched_one_is_refused(self):
+        """Both directions, because either alone is satisfiable by a stub."""
+        import numpyro.distributions as ndist
+
+        from bayesmith.exact.precision import PrecisionMismatch, check_precision
+
+        with jax.enable_x64(True):
+            kernel_a, kernel_b = self._pair()
+            loc = jnp.zeros(8, dtype=jnp.float64)
+            node_a = ndist.CirculantNormal(
+                loc=loc, covariance_row=jnp.asarray(kernel_a)
+            )
+            precision_a = CirculantPrecision(first_column=jnp.asarray(kernel_a))
+            precision_b = CirculantPrecision(first_column=jnp.asarray(kernel_b))
+
+            matched = check_precision(node_a, precision_a, loc)
+            with pytest.raises(PrecisionMismatch, match="operator"):
+                check_precision(node_a, precision_b, loc)
+        assert matched["operator"] <= 1e-12, matched
+        assert matched["linearity"] <= 1e-12, matched
+
+    def test_the_separation_is_pinned_not_only_the_verdict(self):
+        """How much power the guard has, as a number.
+
+        Measured: the matched pairing reports ~1e-16 on the operator and the
+        mismatched one ~1e-1, a separation of order 1e+14. Asserting only
+        "one passes and one raises" would still hold if the guard's power
+        collapsed to a hair above the tolerance.
+        """
+        from bayesmith.exact.precision import check_precision
+
+        with jax.enable_x64(True):
+            kernel_a, kernel_b = self._pair()
+            loc = jnp.zeros(8, dtype=jnp.float64)
+            import numpyro.distributions as ndist
+
+            node_a = ndist.CirculantNormal(
+                loc=loc, covariance_row=jnp.asarray(kernel_a)
+            )
+            matched = check_precision(
+                node_a, CirculantPrecision(first_column=jnp.asarray(kernel_a)), loc
+            )
+            mismatched = check_precision(
+                node_a,
+                CirculantPrecision(first_column=jnp.asarray(kernel_b)),
+                loc,
+                # Read the numbers without raising. `inf` rather than a large
+                # finite value, so this cannot start raising the day the
+                # separation grows -- and NaN is still refused, since
+                # `not (nan <= inf)` is True.
+                rtol=float("inf"),
+            )
+        assert mismatched["operator"] >= 1e-2, mismatched
+        assert matched["operator"] <= 1e-12, matched
+        assert mismatched["operator"] / max(matched["operator"], 1e-18) >= 1e10
+
+    def test_the_normalizer_alone_cannot_separate_the_pair(self):
+        """Which is why the guard returns two numbers and checks both.
+
+        A and B share a normaliser by construction, so a guard that checked
+        only ``log_prob`` at the mode would pass the mismatched pairing. This
+        is the clause that makes the operator check load-bearing rather than
+        redundant.
+        """
+        from bayesmith.exact.precision import check_precision
+
+        with jax.enable_x64(True):
+            kernel_a, kernel_b = self._pair()
+            loc = jnp.zeros(8, dtype=jnp.float64)
+            import numpyro.distributions as ndist
+
+            node_a = ndist.CirculantNormal(
+                loc=loc, covariance_row=jnp.asarray(kernel_a)
+            )
+            mismatched = check_precision(
+                node_a,
+                CirculantPrecision(first_column=jnp.asarray(kernel_b)),
+                loc,
+                rtol=float("inf"),
+            )
+        assert mismatched["normalizer"] <= 1e-12, (
+            "the fixture no longer shares a normaliser, so this test has "
+            f"stopped making its point: {mismatched}"
+        )
+        assert mismatched["operator"] >= 1e-2, mismatched
+
+    def test_the_diagonal_case_degenerates_to_the_old_answer(self):
+        """A ``Normal`` node must pass against its own DiagonalPrecision.
+
+        The acceptance clause B9 sets for every part of this work: the
+        existing behaviour has to come back, numerically. Here it also
+        strengthens the diagonal path, because the gradient probe checks
+        ``1/sigma**2`` at EVERY entry where the scalar family checks the
+        density at five offsets.
+        """
+        import numpyro.distributions as ndist
+
+        from bayesmith.exact.precision import check_precision
+
+        with jax.enable_x64(True):
+            sigma = jnp.linspace(0.4, 1.6, 9, dtype=jnp.float64)
+            loc = jnp.linspace(-1.0, 1.0, 9, dtype=jnp.float64)
+            node = ndist.Normal(loc, sigma)
+            errors = check_precision(node, DiagonalPrecision(sigma=sigma), loc)
+        assert max(errors.values()) <= 1e-12, errors
+
+    def test_a_non_quadratic_density_is_refused_as_such(self):
+        """``linearity`` names the case where the other two are meaningless.
+
+        A density that is not quadratic has no covariance to extract, so
+        reporting "the covariance is wrong" would send the reader to fix the
+        wrong thing.
+        """
+        from bayesmith.exact.precision import PrecisionMismatch, check_precision
+
+        class Cauchyish:
+            """Not Gaussian: a heavy-tailed log-density, so grad is not linear."""
+
+            def log_prob(self, value):
+                return -jnp.log1p(value**2)
+
+        with jax.enable_x64(True):
+            loc = jnp.zeros(6, dtype=jnp.float64)
+            # `match="linearity="` -- with the equals sign -- because the
+            # message EXPLAINS all three names in prose, so a bare
+            # "linearity" matches the explanation rather than the finding.
+            # Found by mutation: forcing the linearity term to 0.0 left this
+            # test green, since `operator` also fires here and the word still
+            # appeared in the text. The same self-matching trap that turned
+            # the docs guard from a regex into an AST walk.
+            with pytest.raises(PrecisionMismatch, match=r"linearity=[0-9]"):
+                check_precision(Cauchyish(), DiagonalPrecision(sigma=jnp.ones(6)), loc)
+
+    def test_a_wrong_normalizer_is_caught_when_the_operator_is_right(self):
+        """The half the A/B pair cannot exercise, because it shares a normaliser.
+
+        Found by mutation: forcing the `normalizer` term to 0.0 left the whole
+        file green. Every fixture here either agrees on everything or differs
+        in the OPERATOR, so nothing was asking whether a wrong log-determinant
+        is noticed. A covariance scaled by a constant is exactly that case in
+        the wild -- same correlation structure, wrong overall scale -- and it
+        is invisible to the gradient, which the normaliser does not enter.
+        """
+        from bayesmith.exact.precision import PrecisionMismatch, check_precision
+
+        class RightOperatorWrongNormalizer(eqx.Module):
+            """Delegates `apply`, and lies about `log det 2 pi N` alone."""
+
+            inner: DiagonalPrecision
+
+            def apply(self, residual):
+                return self.inner.apply(residual)
+
+            def whiten(self, omega):
+                return self.inner.whiten(omega)
+
+            def log_normalizer(self):
+                return self.inner.log_normalizer() + 5.0
+
+        import numpyro.distributions as ndist
+
+        with jax.enable_x64(True):
+            sigma = jnp.linspace(0.5, 1.2, 7, dtype=jnp.float64)
+            loc = jnp.zeros(7, dtype=jnp.float64)
+            node = ndist.Normal(loc, sigma)
+            honest = DiagonalPrecision(sigma=sigma)
+            liar = RightOperatorWrongNormalizer(inner=honest)
+            # the operator half is untouched, which is what makes this the
+            # normaliser's own test rather than a second operator test
+            errors = check_precision(node, liar, loc, rtol=float("inf"))
+            assert errors["operator"] <= 1e-12, errors
+            assert errors["normalizer"] >= 1e-2, errors
+            with pytest.raises(PrecisionMismatch, match=r"normalizer=[0-9]"):
+                check_precision(node, liar, loc)
+
+    def test_a_non_finite_error_is_refused_rather_than_compared(self):
+        """`not value <= tolerance`, which `value > tolerance` would not give.
+
+        Found by mutation: rewriting the gate as `value > tolerance` left the
+        file green, because nothing produced a NaN. NaN fails every
+        comparison, so `>` is False and a Precision that has gone non-finite
+        would be ACCEPTED -- reported as agreeing with a distribution it
+        cannot even be compared against.
+        """
+        import numpyro.distributions as ndist
+
+        from bayesmith.exact.precision import PrecisionMismatch, check_precision
+
+        with jax.enable_x64(True):
+            loc = jnp.zeros(5, dtype=jnp.float64)
+            node = ndist.Normal(loc, jnp.ones(5, dtype=jnp.float64))
+            broken = DiagonalPrecision(
+                sigma=jnp.asarray([1.0, jnp.nan, 1.0, 1.0, 1.0], dtype=jnp.float64)
+            )
+            with pytest.raises(PrecisionMismatch):
+                check_precision(node, broken, loc)

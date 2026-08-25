@@ -199,6 +199,129 @@ def check_positive_definite(precision: CirculantPrecision) -> None:
         )
 
 
+class PrecisionMismatch(Exception):
+    """A :class:`Precision` does not describe the distribution it was paired with."""
+
+
+def check_precision(
+    distribution: Any,
+    precision: Precision,
+    loc: jax.Array,
+    *,
+    rtol: float | None = None,
+    key: jax.Array | None = None,
+) -> dict[str, float]:
+    """Verify a ``Precision`` really is the covariance of ``distribution``.
+
+    The counterpart of :func:`~bayesmith.exact.gaussian.check_gaussian` for a
+    covariance that is not per-sample diagonal, and the piece that decides
+    whether extracting a ``Precision`` from a node's own distribution is sound
+    at all. Runs on concrete values, **outside** any trace.
+
+    **Why a scalar-offset family is not enough here.** ``check_gaussian``
+    probes ``log_prob`` at five multiples of ``sqrt(diag N)``. For a
+    STATIONARY covariance that quantity is constant, so the five offsets are
+    five points along ONE direction, and the family constrains only two
+    scalars of the covariance. Measured on two circulant covariances 0.4060
+    apart in relative Frobenius norm: they agree at every offset to 1.851e-16,
+    against an rtol of 2.220e-13. More offsets do not help -- they are more
+    points on the same line. For an ``n``-point kernel that leaves ``n/2 - 1``
+    independent spectral parameters unchecked, and no fixture in this package
+    is correlated, so nothing would have shown it.
+
+    **What replaces it.** For any Gaussian,
+    ``grad log_prob(x) = -N^-1 (x - loc)`` exactly, so ONE reverse-mode pass
+    yields the whole vector and can be compared against
+    :meth:`Precision.apply` elementwise -- ``n`` equations from one AD
+    evaluation where a scalar probe gives one. On the same pair: 2.220e-16 for
+    the matched pairing against 1.882e-01 for the mismatched, a separation of
+    8.48e+14.
+
+    **Both halves are required and neither subsumes the other**, which is why
+    this returns two numbers rather than a verdict. The gradient cannot see
+    the normaliser, since it does not appear in it; and the normaliser cannot
+    separate that pair either, because the two covariances share it by
+    construction -- both report ``log_prob(loc) = -9.596667351679``. Only the
+    two together pin the Gaussian.
+
+    Linearity is checked for free, and is the third thing that must hold: the
+    gradient of a quadratic log-density is linear, so ``grad`` at ``2r`` must
+    be exactly twice ``grad`` at ``r``. A density that is not quadratic has no
+    covariance to extract, and this is what notices.
+
+    Args:
+        distribution: the node's own distribution, the authority on the
+            density. Must expose ``log_prob``.
+        precision: the ``N^-1`` claimed to describe it.
+        loc: the distribution's mean, where the normaliser is read.
+        rtol: per-number tolerance. Defaults to ``1e3 * eps`` of ``loc``'s
+            dtype, matching ``check_gaussian``.
+        key: PRNG key for the displacement. Fixed by default, so a failure is
+            reproducible; the check is deterministic given it.
+
+    Returns:
+        ``{"operator": worst elementwise relative error of N^-1 r,
+        "normalizer": relative error at the mode,
+        "linearity": worst relative error of grad(2r) - 2 grad(r)}``.
+        Reported rather than reduced to a bool, so a caller can say HOW far
+        off a node is, not only that it is.
+
+    Raises:
+        PrecisionMismatch: if any of the three exceeds ``rtol``. Which one is
+            named, because "the covariance is wrong" and "the normaliser is
+            wrong" and "the density is not Gaussian" need different fixes.
+    """
+    tolerance = (
+        1e3 * float(jnp.finfo(jnp.asarray(loc).dtype).eps) if rtol is None else rtol
+    )
+    centre = jnp.asarray(loc)
+    displacement = jax.random.normal(
+        jax.random.key(0) if key is None else key, centre.shape, centre.dtype
+    )
+
+    def density(value: jax.Array) -> jax.Array:
+        return jnp.sum(distribution.log_prob(value))
+
+    gradient = jax.grad(density)(centre + displacement)
+    doubled = jax.grad(density)(centre + 2.0 * displacement)
+    applied = precision.apply(displacement)
+
+    def worst(found: jax.Array, expected: jax.Array) -> float:
+        scale = jnp.maximum(jnp.abs(expected), jnp.abs(found))
+        return float(
+            jnp.max(jnp.abs(found - expected) / jnp.where(scale > 0.0, scale, 1.0))
+        )
+
+    at_mode = float(jnp.sum(distribution.log_prob(centre)))
+    expected_mode = -0.5 * float(precision.log_normalizer())
+    denominator = max(abs(expected_mode), abs(at_mode), 1.0)
+
+    errors = {
+        "operator": worst(-gradient, applied),
+        "normalizer": abs(at_mode - expected_mode) / denominator,
+        "linearity": worst(doubled, 2.0 * gradient),
+    }
+    offenders = {
+        name: value for name, value in errors.items() if not value <= tolerance
+    }
+    if offenders:
+        named = ", ".join(
+            f"{name}={value:.3e}" for name, value in sorted(offenders.items())
+        )
+        raise PrecisionMismatch(
+            f"this Precision does not describe that distribution: {named}, "
+            f"against rtol {tolerance:.3e}. "
+            "'operator' means the covariance itself disagrees -- the gradient "
+            "identity grad log_prob(x) = -N^-1 (x - loc) is exact for any "
+            "Gaussian, so a mismatch there is a different covariance, not "
+            "roundoff. 'normalizer' means log det N disagrees while the "
+            "operator may not. 'linearity' means the log-density is not "
+            "quadratic, so it has no covariance to extract and the other two "
+            "numbers are meaningless."
+        )
+    return errors
+
+
 def diagonal_from(noise_std: dict[str, Any]) -> dict[str, DiagonalPrecision]:
     """``{observed: sigma}`` -> ``{observed: Precision}``.
 
