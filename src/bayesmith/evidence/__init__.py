@@ -7,6 +7,7 @@ it is to be **preserved exactly** rather than reinvented; see
 needs and what was measured about it.
 """
 
+from bayesmith.evidence.campaign import compress_campaign, epoch_terms
 from bayesmith.evidence.compress import (
     compress,
     compress_epoch,
@@ -35,4 +36,6 @@ __all__ = [
     "Factorization",
     "factorize",
     "epoch_leakage",
+    "compress_campaign",
+    "epoch_terms",
 ]
