@@ -10,6 +10,11 @@ Nothing here is a plan. It is the set of facts a plan would otherwise assume.
 
 ---
 
+> **Sections 1 and 4 have moved since this was written.** The masked
+> normalisation is no longer an open decision — it was made, in
+> `bayesmith.evidence.compress`, and §1 records what the decision was and why.
+> §5 is what remains.
+
 ## 1. The whitening row is ready. The layer is not.
 
 Step 6 reads: *"the whitening row becomes `L^-1 r`; `Precision.whiten` is the
@@ -37,9 +42,21 @@ modelling concept the evidence layer has and this interface does not. Masking
 it here would put a silently-wrong normaliser one import away from every
 consumer, which is defect B1's shape.
 
-So it is B11's first design decision.
-`TestWhatTheEvidenceLayerWillFindHere` in `tests/exact/test_precision.py`
-pins both halves so nobody assumes `log_normalizer` already made it.
+So it was B11's first design decision. **It is made:**
+`bayesmith.evidence.compress` owns the mask, because it is the layer that has
+the concept, and `precision.py` keeps a normaliser that is never silently
+wrong. `TestWhatTheEvidenceLayerWillFindHere` in
+`tests/exact/test_precision.py` still pins both halves of the interface's
+behaviour.
+
+**And masking turned out to be a DIAGONAL concept**, measured rather than
+assumed: for a stationary covariance the observed submatrix is neither
+circulant nor a subset of the spectrum. On a 6-point kernel with one sample
+dropped, its log-determinant is `-0.7084` while the closest subset sum of
+log-eigenvalues is **0.47 nats away**. So an unobserved sample inside a
+correlated epoch is *refused*, not approximated — any "mask the spectrum"
+rule would be an approximation wearing an exact result's name, and the
+constant is this layer's whole job.
 
 ---
 
@@ -121,12 +138,34 @@ Two things measured that rheplicant's own docstring does not say:
   the comment with the measurement. The other two constants are convicted:
   dropping the corner fails 4 tests, dropping the log-pivot term fails 16.
 
-## 4. What is still untouched
+## 4. The compressor and the campaign oracle are in
 
-The masked normalisation (§1 — B11's first design decision, unmade), the
-thousand-epoch opaque-leaf archive, the streaming layer that would USE this
-kernel, the oracle suite that runs a whole campaign through it, and
-`diagnostics.py`'s declarative refusal of in-span coherent errors, which the
-spec calls design philosophy rather than implementation.
+`bayesmith.evidence.compress` turns one epoch of a linear-Gaussian model into
+a `[R | z]` term: `R = N^-1/2 A`, `z = N^-1/2 (d - c)`, offset
+`-1/2 log det (2 pi N)`. It reads the noise through B9's `Precision`, so a
+CORRELATED epoch compresses with no special case — checked against a dense
+Gaussian whose covariance is materialised by `precision.dense` and inverted
+in NumPy, so the oracle shares no FFT with the implementation.
 
-Nothing is blocked. The kernel is no longer the reason.
+**The spec's total oracle now runs**:
+`tests/evidence/test_streaming_equals_batch.py` folds a campaign one epoch at
+a time, holding one term, and compares against one dense Gaussian over every
+observed sample — at three points, over three gap patterns, and at a thousand
+epochs. It also checks the campaign EVIDENCE against `slogdet`, which is
+where the compressor's normalisation, the fold's corner and the
+marginalisation constant all have to be right at once. Mutating any one of
+the three is caught by the campaign tests alone (3, 5 and 1 failures
+respectively).
+
+`kappa(R) = sqrt(kappa(F))` is asserted at a thousand epochs, which is the
+property the square-root form exists for.
+
+## 5. What is still untouched
+
+The thousand-epoch opaque-leaf archive, the layer that decides WHICH latents
+are folded per epoch and which survive (§2 — the factorization), the
+`Factorization`-to-graph bridge, and `diagnostics.py`'s declarative refusal
+of in-span coherent errors, which the spec calls design philosophy rather
+than implementation.
+
+Nothing is blocked. Neither the kernel nor the compressor is the reason.
