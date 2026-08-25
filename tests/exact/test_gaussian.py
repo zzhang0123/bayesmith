@@ -276,3 +276,113 @@ def test_noise_std_at_moves_with_the_latent_only_for_a_prediction_dependent_node
     d = noise_std_at(tracking, {"w": jnp.asarray(9.0)})["d"]
     assert not jnp.allclose(c, d)
     assert jnp.all(d > c)
+
+
+# ---------------------------------------------------------------------------
+# B9 step 3: the gate widens by exactly two rows.
+# ---------------------------------------------------------------------------
+
+
+def _correlated_graph(size: int = 8, weight: float = 2.0, decay: float = 0.4):
+    """A model whose observed node declares a CORRELATED noise.
+
+    Built with numpyro's own ``CirculantNormal`` rather than anything of ours,
+    which is the point: the density side could already express this, and only
+    the exact path refused it.
+    """
+    import numpy as _np
+
+    lag = _np.minimum(_np.arange(size), size - _np.arange(size))
+    kernel = jnp.asarray(1.0 * decay**lag + 0.5)
+    x = jnp.linspace(1.0, 4.0, size)
+    data = weight * x
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 5.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: dist.CirculantNormal(m, kernel), mu, obs=data)
+
+    return trace(model), kernel
+
+
+def test_precision_parts_reads_a_correlated_node_the_old_gate_refused():
+    """The widened row, and that the OLD entry point still refuses it.
+
+    Both halves matter. If `gaussian_parts` had quietly started accepting it
+    too, the diagonal `scale` it returns would be a lie about a correlated
+    node -- the silent-wrong-answer shape this whole exercise is about.
+    """
+    from bayesmith.exact.gaussian import precision_parts
+    from bayesmith.exact.precision import CirculantPrecision
+
+    with jax.enable_x64(True):
+        graph, kernel = _correlated_graph()
+        node = graph.node("d")
+        env = evaluate(graph, {"w": jnp.asarray(2.0)})
+        loc, precision = precision_parts(graph, node, env)
+        assert isinstance(precision, CirculantPrecision)
+        assert jnp.allclose(precision.first_column, kernel)
+        assert loc.shape == (8,)
+        with pytest.raises(NotGaussian, match="CirculantNormal"):
+            gaussian_parts(graph, node, env)
+
+
+def test_the_extracted_precision_is_verified_against_the_nodes_own_density():
+    """The extraction is only sound if `check_precision` says so.
+
+    This is the whole reason that guard was built first: the gate above
+    decides a distribution's TYPE, and a type is not a covariance. The
+    gradient identity is what confirms the operator actually describes the
+    density the node carries.
+    """
+    from bayesmith.exact.gaussian import precision_parts
+    from bayesmith.exact.precision import check_precision
+
+    with jax.enable_x64(True):
+        graph, _ = _correlated_graph()
+        node = graph.node("d")
+        env = evaluate(graph, {"w": jnp.asarray(2.0)})
+        loc, precision = precision_parts(graph, node, env)
+        distribution = dist.CirculantNormal(loc, precision.first_column)
+        errors = check_precision(distribution, precision, loc)
+    assert max(errors.values()) <= 1e-12, errors
+
+
+def test_a_diagonal_node_gives_the_same_numbers_through_both_entry_points():
+    """B9's standing acceptance: the diagonal case degenerates numerically.
+
+    Not "returns a DiagonalPrecision" -- that is a type check and would pass
+    on a wrong sigma. The operator it applies must equal division by the
+    scale `gaussian_parts` reports, elementwise.
+    """
+    from bayesmith.exact.gaussian import precision_parts
+
+    with jax.enable_x64(True):
+        graph = straight_line()
+        node = graph.node("d")
+        env = evaluate(graph, {"w": jnp.asarray(2.5)})
+        loc_old, scale = gaussian_parts(graph, node, env)
+        loc_new, precision = precision_parts(graph, node, env)
+        residual = jnp.linspace(-1.0, 2.0, scale.shape[0])
+        assert jnp.array_equal(loc_old, loc_new)
+        assert jnp.allclose(precision.apply(residual), residual / scale**2, rtol=0)
+
+
+def test_a_distribution_neither_gate_row_covers_is_still_a_routing_outcome():
+    """Widening by two rows must not turn the refusal into a fault.
+
+    A model the exact path cannot express is routed to NUTS. If this started
+    raising something other than NotGaussian, the dispatcher would stop
+    catching it and a perfectly good model would become an error.
+    """
+    from bayesmith.exact.gaussian import precision_parts
+
+    def model():
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        observe("d", lambda m: dist.StudentT(3.0, m, 1.0), w, obs=jnp.asarray(0.5))
+
+    graph = trace(model)
+    env = evaluate(graph, {"w": jnp.asarray(0.0)})
+    with pytest.raises(NotGaussian, match="StudentT"):
+        precision_parts(graph, graph.node("d"), env)

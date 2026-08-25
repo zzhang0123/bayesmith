@@ -105,15 +105,26 @@ def gaussian_parts(
             "covariance is a different solve and is not implemented. This is a "
             "classification outcome, not a defect in the model."
         )
-    loc = jnp.asarray(distribution.loc)
-    if not jnp.issubdtype(loc.dtype, jnp.inexact):
+    return _checked_loc(node, distribution.loc), jnp.broadcast_to(
+        jnp.asarray(distribution.scale), jnp.shape(jnp.asarray(distribution.loc))
+    )
+
+
+def _checked_loc(node: Node, loc: Any) -> jax.Array:
+    """``loc`` as an array, refusing an integer dtype.
+
+    Shared by :func:`gaussian_parts` and :func:`precision_parts` rather than
+    written twice -- the two entry points must agree about what a usable loc
+    is, and the second copy is the one that would drift.
+    """
+    found = jnp.asarray(loc)
+    if not jnp.issubdtype(found.dtype, jnp.inexact):
         raise StructureError(
-            f"node {node.name!r} has an integer loc (dtype {loc.dtype}). A "
+            f"node {node.name!r} has an integer loc (dtype {found.dtype}). A "
             "conjugate solve differentiates through loc, so it has to be a "
             "floating dtype -- pass a float to the distribution."
         )
-    scale = jnp.broadcast_to(jnp.asarray(distribution.scale), jnp.shape(loc))
-    return loc, scale
+    return found
 
 
 def node_shape(graph: Graph, node: Node, env: dict[str, Any]) -> tuple[int, ...]:
@@ -243,6 +254,61 @@ def check_gaussian(
                 "wrong posterior; it refuses instead."
             )
     return errors
+
+
+def precision_parts(
+    graph: Graph, node: Node, env: dict[str, Any]
+) -> tuple[jax.Array, Any]:
+    """``(loc, Precision)`` -- the ONE object the whole exact path should read.
+
+    The widened counterpart of :func:`gaussian_parts`, which returns a
+    per-sample ``scale`` and so can only ever describe a diagonal covariance.
+    Traceable and **unchecked**; pair it with
+    :func:`~bayesmith.exact.precision.check_precision`, which verifies the
+    returned operator against the node's own density by the gradient identity
+    and runs eagerly, outside any trace.
+
+    The gate widens by exactly two rows and refuses everything else with the
+    same :class:`NotGaussian`, so a model this cannot express is still a
+    CLASSIFICATION outcome routed to NUTS rather than a fault:
+
+    ==================  ====================================================
+    distribution        Precision
+    ==================  ====================================================
+    ``Normal``          ``DiagonalPrecision`` -- unchanged behaviour
+    ``CirculantNormal``  ``CirculantPrecision`` from ``.covariance_row``
+    ==================  ====================================================
+
+    ``CirculantNormal`` is not a new idea imported from outside: numpyro ships
+    it, and its log-density agrees with ``CirculantPrecision``'s and with a
+    dense reference to 1.8e-15 -- three independent routes. The exact path was
+    the only thing refusing a correlated noise the rest of the stack could
+    already handle.
+
+    Raises:
+        NotGaussian: for any other distribution, as before.
+        StructureError: for an integer ``loc``, as before.
+    """
+    from bayesmith.exact.precision import CirculantPrecision, DiagonalPrecision
+
+    distribution = unwrap(apply_probabilistic(graph, node, env))
+    circulant = getattr(dist, "CirculantNormal", None)
+    if circulant is not None and isinstance(distribution, circulant):
+        loc = _checked_loc(node, distribution.loc)
+        return loc, CirculantPrecision(
+            first_column=jnp.asarray(distribution.covariance_row)
+        )
+    if not isinstance(distribution, dist.Normal):
+        raise NotGaussian(
+            f"node {node.name!r} returns {type(distribution).__name__}; the exact "
+            "linear-Gaussian path reads a Normal (diagonal) or a "
+            "CirculantNormal (stationary, periodic). A MultivariateNormal with "
+            "a dense covariance is a different solve and is not implemented. "
+            "This is a classification outcome, not a defect in the model."
+        )
+    loc = _checked_loc(node, distribution.loc)
+    scale = jnp.broadcast_to(jnp.asarray(distribution.scale), jnp.shape(loc))
+    return loc, DiagonalPrecision(sigma=scale)
 
 
 def observation_parts(
