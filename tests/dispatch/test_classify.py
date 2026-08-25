@@ -463,51 +463,67 @@ def test_the_verdict_is_a_region_not_a_point_in_the_data(seed, n):
     assert result.sigma_movement > 1e2
 
 
-def test_a_correlated_graph_still_compiles_to_nuts_rather_than_raising():
-    """The dispatcher must not promise an exact solve it cannot deliver.
+def test_a_correlated_graph_is_promised_an_exact_solve_and_gets_one():
+    """The dispatcher must not promise a solve it cannot deliver.
 
-    `classify._is_gaussian` asks a CAPABILITY question -- "can the exact path
-    solve a block containing this node?" -- which is not the same question as
-    the build path's `check_observed`, "is this node's declared density
-    sound?". For a correlated node the second answer became yes at B9 step 4
-    while the first is still no: the block builder's data and loc walks go
-    through `observation_parts`, which is diagonal-only.
+    That property is what this test has always been for; its VERDICT has now
+    changed twice, and both changes are the point.
 
-    Measured by wiring `check_observed` into `_is_gaussian` and running the
-    suite: `compile()` on this graph stopped returning a NUTS plan and raised
-    `NotGaussian` from deeper in the block builder instead -- and all 748
-    tests stayed green, because nothing else compiles a correlated graph.
-    This is that missing test.
+    It was written when wiring `check_observed` into `_is_gaussian` was a
+    REGRESSION: the density was sound but the block builder's data and loc
+    walks were diagonal-only, so `compile()` stopped routing to NUTS and
+    raised `NotGaussian` from deeper in. All 748 tests stayed green through
+    that, because nothing else compiles a correlated graph.
 
-    Both halves are asserted. That it compiles at all is the regression
-    guard; that the block is routed to NUTS is what says the verdict is a
-    classification outcome rather than an accident of where the exception
-    happened to be caught.
+    Increment 5 closed the gap, and this test then failed a second time --
+    correctly -- because "routes to NUTS" had stopped being the right answer.
+    The property did not move. What replaced the verdict is the stronger
+    statement: the plan says exact, AND the exact path produces the dense
+    Wiener filter's answer.
+
+    Asserting the estimate and not merely the routing is what makes this a
+    promise-and-delivery test rather than a label check. A `compile()` that
+    said "gcr" while `estimate()` raised would pass the first assertion.
     """
     import numpy as np
     import numpyro.distributions as ndist
 
     from bayesmith import const, det, observe, sample, trace
     from bayesmith.dispatch.plan import compile as compile_graph
+    from bayesmith.exact.precision import CirculantPrecision, dense
 
-    size = 8
+    size, prior_std = 8, 5.0
     lag = np.minimum(np.arange(size), size - np.arange(size))
     kernel = jnp.asarray(1.0 * 0.4**lag + 0.5)
     grid = jnp.linspace(1.0, 4.0, size)
+    data = 2.0 * np.asarray(grid)
 
     def model():
         xs = const("X", grid)
-        w = sample("w", lambda: ndist.Normal(0.0, 5.0))
+        w = sample("w", lambda: ndist.Normal(0.0, prior_std))
         mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
         observe(
             "d",
             lambda m: ndist.CirculantNormal(m, kernel),
             mu,
             depends_on_prediction=False,
-            obs=2.0 * grid,
+            obs=jnp.asarray(data),
         )
 
     with jax.enable_x64(True):
         plan = compile_graph(trace(model))
-    assert plan.blocks[0].method == "nuts", plan.blocks[0].method
-    assert "CirculantNormal" in plan.blocks[0].reason
+        assert plan.blocks[0].method == "gcr", plan.blocks[0].method
+        estimate = plan.estimate()
+        got = float(np.asarray(estimate.values["w"]).reshape(()))
+        inverse = np.asarray(
+            dense(CirculantPrecision(first_column=kernel), size, jnp.float64)
+        )
+
+    design = np.asarray(grid).reshape(-1, 1)
+    normal = design.T @ inverse @ design + np.eye(1) / prior_std**2
+    reference = np.linalg.solve(normal, design.T @ inverse @ data.reshape(-1, 1)).item()
+    assert got == pytest.approx(reference, rel=1e-9)
+
+    # A correlated model has no per-sample sigma, and the estimate says so
+    # rather than reporting per-mode amplitudes under that name.
+    assert estimate.noise_std is None

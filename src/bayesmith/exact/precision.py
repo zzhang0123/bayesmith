@@ -366,6 +366,32 @@ def check_precision(
     return errors
 
 
+def per_sample_sigma(
+    precision: dict[str, Any],
+) -> dict[str, jax.Array] | None:
+    """``{observed: sigma}`` when every covariance has one, else ``None``.
+
+    The inverse of :func:`diagonal_from`, and the one place in this package
+    that asks which IMPLEMENTATION a ``Precision`` is. That question is
+    legitimate exactly here: "does this covariance have per-sample sigmas" is
+    a real property of a model, not a leak -- a stationary covariance has an
+    n-point kernel and no per-sample sigma, and reporting its per-mode
+    amplitudes under the name ``noise_std`` would be a lie by naming.
+
+    ``None`` rather than a raise: callers who want the numbers want to know
+    they are unavailable, not to guard every read. ``GLSResult.noise_std``
+    and ``Estimate.noise_std`` are both this, which is why neither stores a
+    second copy of the covariance to answer with.
+
+    Returns the ``sigma`` arrays THEMSELVES, so a result built by
+    ``diagonal_from(sigma)`` reports back exactly the arrays it was given --
+    bitwise, not to a tolerance.
+    """
+    if not all(isinstance(value, DiagonalPrecision) for value in precision.values()):
+        return None
+    return {name: value.sigma for name, value in precision.items()}
+
+
 def diagonal_from(noise_std: dict[str, Any]) -> dict[str, DiagonalPrecision]:
     """``{observed: sigma}`` -> ``{observed: Precision}``.
 

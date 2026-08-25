@@ -53,8 +53,8 @@ from jax import lax
 from bayesmith.errors import GraphError, StructureError
 from bayesmith.exact.block import LinearBlock, domain_centre
 from bayesmith.exact.conditioning import tree_norm
-from bayesmith.exact.gaussian import noise_std_at
-from bayesmith.exact.precision import diagonal_from
+from bayesmith.exact.gaussian import noise_std_at, precision_at
+from bayesmith.exact.precision import diagonal_from, per_sample_sigma
 from bayesmith.exact.solve import wiener_solve
 from bayesmith.graph.graph import Graph
 
@@ -192,10 +192,15 @@ class GLSResult(NamedTuple):
     """What a reweighting run produced. A pytree, so it survives ``jit``.
 
     Attributes:
-        noise_std: the converged sigma VALUES -- **the covariance**, and the
-            whole point of the exercise. This loop iterates values, which is
-            why they are what it stores; for the solvers, take
-            :attr:`precision`.
+        precision: the converged covariance as ``{observed: N^-1}`` -- **the
+            covariance**, and the whole point of the exercise. What every
+            consumer of the answer reads.
+
+            This and ``noise_std`` swapped places at increment 5, and the swap
+            went the way it did because a CORRELATED result has no per-sample
+            sigma to derive an operator from, while every result has an
+            operator to derive a sigma from when one exists. One covariance is
+            stored either way; see :attr:`noise_std`.
         solution: the GLS point estimate at that covariance.
         residual: relative CG residual of the final solve. Not an accuracy.
         iterations: reweighting steps taken, the first solve included.
@@ -205,7 +210,7 @@ class GLSResult(NamedTuple):
             fixed point**, and everything conditioned on it inherits that.
     """
 
-    noise_std: dict[str, jax.Array]
+    precision: dict[str, Any]
     solution: dict[str, jax.Array]
     residual: jax.Array
     iterations: jax.Array
@@ -213,34 +218,21 @@ class GLSResult(NamedTuple):
     converged: jax.Array
 
     @property
-    def precision(self) -> dict[str, Any]:
-        """The converged covariance as ``{observed: N^-1}``, for the solvers.
+    def noise_std(self) -> dict[str, jax.Array] | None:
+        """:attr:`precision` as per-sample sigma VALUES, or ``None``.
 
-        **The one place the conversion belongs.** This loop iterates sigma
-        VALUES honestly -- solve at the current sigma, recompute sigma at the
-        new solution -- so values are what it has to store, and an operator
-        has none to iterate. But every consumer of the answer takes an
-        operator: :func:`~bayesmith.exact.solve.wiener_solve`,
-        :func:`~bayesmith.exact.solve.gcr_sample`,
-        :func:`~bayesmith.exact.correct.log_weight` and
-        :func:`~bayesmith.exact.fisher.fisher_information` all do. Converting
-        once here, where the answer is handed on, is what keeps the two
-        vocabularies from meeting at each of those call sites instead.
+        Derived rather than stored, so this result holds ONE covariance and
+        the two spellings cannot drift. For a diagonal covariance it is the
+        very arrays :attr:`precision` was built from -- bitwise, not to a
+        tolerance. For a correlated one it is ``None``, because a stationary
+        covariance has an n-point kernel and no per-sample sigma, and
+        reporting its per-mode amplitudes under this name would be a lie.
 
-        A PROPERTY rather than a field: ``GLSResult`` is a ``NamedTuple`` and
-        therefore a pytree whose leaves are its fields, so a field would put a
-        second copy of the covariance inside every traced result -- and two
-        copies of one covariance is defect B1's shape. Derived on read, it
-        cannot disagree with :attr:`noise_std`.
-
-        Diagonal by construction, because that is what this loop can produce:
-        a correlated covariance has no per-sample sigma for ``sigma_of`` to
-        return. A correlated node reaches the solvers through
-        :func:`~bayesmith.exact.gaussian.precision_at` instead, and
-        ``depends_on_prediction=True`` with a correlated noise is refused
-        upstream until the variance-information term has a correlated form.
+        See :func:`~bayesmith.exact.precision.per_sample_sigma`, which is the
+        one place in the package that asks which implementation a
+        ``Precision`` is.
         """
-        return diagonal_from(self.noise_std)
+        return per_sample_sigma(self.precision)
 
 
 def sigma_from_graph(
@@ -257,6 +249,53 @@ def sigma_from_graph(
         return noise_std_at(graph, {**at, **x})
 
     return sigma_of
+
+
+def precision_from_graph(
+    graph: Graph, at: dict[str, Any]
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """``{name: x} -> {observed: Precision}`` -- the general seam.
+
+    What :func:`sigma_from_graph` is for a diagonal model, for any model the
+    gate accepts. Hand this to :func:`iterative_gls` as ``precision_of=``.
+    """
+
+    def precision_of(x: dict[str, Any]) -> dict[str, Any]:
+        return precision_at(graph, {**at, **x})
+
+    return precision_of
+
+
+def scale_from_graph(
+    graph: Graph, at: dict[str, Any]
+) -> Callable[[dict[str, Any]], dict[str, jax.Array]]:
+    """``{name: x} -> {observed: sqrt(lambda_k)}`` -- the per-MODE amplitude.
+
+    The general counterpart of :func:`sigma_from_graph`, and the descriptor
+    :func:`check_prediction_dependence` should be handed when a node may be
+    correlated. That guard only ever asks whether an array-valued function
+    MOVES; it does not care what the array means, so the caller picks a
+    descriptor that exists for every row.
+
+    ``sqrt(lambda_k)`` is that descriptor. For a diagonal covariance
+    ``lambda_i = sigma_i**2``, so this is the per-sample sigma -- the same
+    quantity ``sigma_from_graph`` returns, to 1.8e-15 rather than bitwise,
+    because it travels through ``exp(1/2 log lambda)``. For a circulant it is
+    the amplitude of each spectral mode, which is what "the covariance moved"
+    means when there is no per-sample sigma to compare.
+
+    :func:`sigma_from_graph` stays and is not replaced: ``iterative_gls``
+    ITERATES sigma values, and a per-mode amplitude is not something it can
+    feed back to a solve. The split is B9 step 4's, one level up.
+    """
+
+    def scale_of(x: dict[str, Any]) -> dict[str, jax.Array]:
+        return {
+            name: jnp.exp(0.5 * value.log_spectrum())
+            for name, value in precision_at(graph, {**at, **x}).items()
+        }
+
+    return scale_of
 
 
 def _dependence_probe(
@@ -403,8 +442,9 @@ def check_prediction_dependence(
 
 def iterative_gls(
     block: LinearBlock,
-    sigma_of: Callable[[dict[str, Any]], dict[str, jax.Array]],
+    sigma_of: Callable[[dict[str, Any]], dict[str, jax.Array]] | None = None,
     *,
+    precision_of: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     depends_on_prediction: bool = True,
     tol: float = 1e-6,
     maxiter: int | None = None,
@@ -421,7 +461,23 @@ def iterative_gls(
 
     Args:
         block: from :func:`bayesmith.exact.linearity.linear_operator`.
-        sigma_of: the seam, from :func:`sigma_from_graph`.
+        sigma_of: the DIAGONAL spelling of the seam, from
+            :func:`sigma_from_graph`. Give this or ``precision_of``, not both.
+            When it is given the result carries a
+            :attr:`GLSResult.noise_std`; when it is not, that field is
+            ``None`` because a correlated covariance has no per-sample sigma.
+        precision_of: the general spelling,
+            ``{name: x} -> {observed: Precision}``, from
+            :func:`~bayesmith.exact.gaussian.precision_at` curried on the
+            graph. **Required for a correlated node.**
+
+            **This loop does not iterate sigma VALUES**, which is worth
+            stating because the B9 notes said it did. Read ``step`` below: the
+            fixed point is in the LATENT -- ``delta`` is
+            ``|updated - latent| / |updated|`` over the block's domain -- and
+            the covariance enters only as the operator each inner solve is
+            weighted by. So the rule can be either spelling, and nothing in
+            the loop needs numbers it can subtract.
         depends_on_prediction: the node's own claim. **Check it first** with
             :func:`check_prediction_dependence` -- this function cannot, being
             jittable.
@@ -488,16 +544,30 @@ def iterative_gls(
             "max_reweights either way, so this configuration would silently get "
             "fewer steps than it asked for."
         )
+    if (sigma_of is None) == (precision_of is None):
+        raise ValueError(
+            "iterative_gls() needs exactly one of sigma_of= and precision_of=, "
+            "which are the diagonal and the general spelling of one rule. "
+            "Neither leaves the loop with no covariance to solve at; both is "
+            "two chances to describe a different one, and the loop cannot "
+            "adjudicate. Pass sigma_from_graph(graph, at) for a diagonal "
+            "model, or a precision_at-based rule for a correlated one."
+        )
+
+    def rule(x: dict[str, Any]) -> dict[str, Any]:
+        # ONE conversion point, and the diagonal spelling goes through it
+        # rather than being special-cased -- so the degenerate case keeps
+        # exercising the same code the correlated one does.
+        return precision_of(x) if sigma_of is None else diagonal_from(sigma_of(x))
+
     if reweight_tol is None:
         epsilon = float(jnp.finfo(jnp.result_type(*jax.tree.leaves(block.offset))).eps)
         reweight_tol = max(REWEIGHT_TOL_EPS * epsilon, tol)
 
-    def solve_at(sigma, guard):
-        # `diagonal_from` here rather than at each caller: this is the one
-        # boundary where a decided sigma becomes the operator the solve reads.
+    def solve_at(noise, guard):
         return wiener_solve(
             block,
-            precision=diagonal_from(sigma),
+            precision=noise,
             tol=tol,
             maxiter=maxiter,
             require_convergence=guard,
@@ -506,10 +576,9 @@ def iterative_gls(
     centre = domain_centre(block)
 
     if not depends_on_prediction:
-        sigma = sigma_of(centre)
-        solution, residual = solve_at(sigma, require_convergence)
+        solution, residual = solve_at(rule(centre), require_convergence)
         return GLSResult(
-            noise_std=sigma,
+            precision=rule(centre),
             solution=solution,
             residual=residual,
             iterations=jnp.asarray(1),
@@ -519,7 +588,7 @@ def iterative_gls(
 
     def step(carry):
         count, latent, _ = carry
-        updated, _ = solve_at(sigma_of(latent), None)
+        updated, _ = solve_at(rule(latent), None)
         change = jax.tree.map(jnp.subtract, updated, latent)
         # Relative to the NEW iterate: relative to the old one, a step that
         # starts near zero reports a huge change forever. The rationale is
@@ -559,17 +628,16 @@ def iterative_gls(
             jnp.logical_or(count < min_reweights, delta > reweight_tol),
         )
 
-    first, _ = solve_at(sigma_of(centre), None)
+    first, _ = solve_at(rule(centre), None)
     count, latent, delta = lax.while_loop(
         unfinished, step, (jnp.asarray(1), first, jnp.asarray(jnp.inf))
     )
 
     # One final solve at the converged covariance, and the only place the
     # conditioning guard runs -- so what it certifies is what is returned.
-    sigma = sigma_of(latent)
-    solution, residual = solve_at(sigma, require_convergence)
+    solution, residual = solve_at(rule(latent), require_convergence)
     return GLSResult(
-        noise_std=sigma,
+        precision=rule(latent),
         solution=solution,
         residual=residual,
         iterations=count,

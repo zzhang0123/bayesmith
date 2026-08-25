@@ -43,7 +43,7 @@ from bayesmith.exact.block import (
 )
 from bayesmith.exact.correct import log_weight
 from bayesmith.exact.gaussian import precision_at
-from bayesmith.exact.gls import iterative_gls, sigma_from_graph
+from bayesmith.exact.gls import iterative_gls, precision_from_graph
 from bayesmith.exact.solve import gcr_sample, wiener_solve
 from bayesmith.graph.graph import Graph
 
@@ -120,7 +120,7 @@ def _precision_at(
         return precision_at(graph, {**at, **domain_centre(block)})
     return iterative_gls(
         block,
-        sigma_from_graph(graph, at),
+        precision_of=precision_from_graph(graph, at),
         depends_on_prediction=True,
         tol=tol,
         maxiter=maxiter,
