@@ -65,7 +65,20 @@ sessions may be able to merge once the evidence layer is out.
 ## What a page must contain
 
 The five headings §二 names, in its order. The P5 pages are the worked
-examples:
+examples.
+
+**One thing NOT to write: a case count, unless the module is finished.**
+Some pages here carry one and some do not, and the asymmetry is a
+measurement rather than an oversight. The P5 pages' counts (17, 17, 10)
+were written in session 3 and are still exact, because nothing touched
+those modules afterwards. `plan.md`'s said 6 and was 7 within hours,
+because its author kept working on the module after writing the page. So
+the rule is about timing, not taste: a count is a safe thing to record only
+once the thing counted has stopped moving, and the four pages written
+during active work say `pytest --collect-only -q` instead. Nothing in this
+repository reads a count out of a page, so none of them can go red.
+
+The five headings:
 
 1. **Fixtures** — reused from rheplicant where possible (they are pinned
    measurements, not fresh guesses), at least one healthy and one that must

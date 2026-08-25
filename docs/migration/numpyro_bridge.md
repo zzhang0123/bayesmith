@@ -4,7 +4,10 @@
 `init_to_declared`, `predict_from_samples`) → `bayesmith.bridge`
 (`to_numpyro`, `nuts`, `predict`).
 
-Test: `tests/crosscheck/test_bridge.py` (6 cases, ~6 s). Measured
+Test: `tests/crosscheck/test_bridge.py`. Case count and runtime are not written
+here: `test_dispatch.py`'s said 6 within hours of being 7, and nothing in
+this repository reads a count out of a page. Ask pytest —
+`pytest tests/crosscheck/test_bridge.py --collect-only -q`. Measured
 2026-08-25.
 
 **This is the last of §四's rows, and closing it opens §六's gate.**

@@ -4,7 +4,10 @@
 `validate`, `forward_fn`, `refuse_stochastic_stages`) → node declarations
 on the graph (`sample`, `det`, `const`, `linear_in`).
 
-Test: `tests/crosscheck/test_parameters.py` (10 cases, 0.9 s). Measured
+Test: `tests/crosscheck/test_parameters.py`. Case count and runtime are not written
+here: `test_dispatch.py`'s said 6 within hours of being 7, and nothing in
+this repository reads a count out of a page. Ask pytest —
+`pytest tests/crosscheck/test_parameters.py --collect-only -q`. Measured
 2026-08-25.
 
 §四 4.2 asks for a **semantic mapping, not a line-by-line port**, and names

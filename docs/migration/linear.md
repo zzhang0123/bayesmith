@@ -3,7 +3,10 @@
 `rheplicant.inference.linear` (`LinearBlock`, `check_linearity`,
 `linear_operator`, `wiener_solve`, `gcr_sample`, `condition_bound`,
 `condition_estimate`) → `bayesmith.exact.block` + `linearity` + `solve`.
-Test: `tests/crosscheck/test_linear.py` (21 cases, ~90 s). Measured
+Test: `tests/crosscheck/test_linear.py`. Case count and runtime are not written
+here: `test_dispatch.py`'s said 6 within hours of being 7, and nothing in
+this repository reads a count out of a page. Ask pytest —
+`pytest tests/crosscheck/test_linear.py --collect-only -q`. Measured
 2026-08-25 against e-RHINO `0c49cae`.
 
 This is §四 4.1's first row and the largest single module in the ledger
