@@ -15,6 +15,11 @@ from bayesmith.evidence.compress import (
     nuisance_prior,
     observed_mask,
 )
+from bayesmith.evidence.diagnostics import (
+    coherent_mode,
+    epoch_chi_square,
+    refuse_undeclared_coherent_error,
+)
 from bayesmith.evidence.factorize import (
     Factorization,
     epoch_leakage,
@@ -40,4 +45,7 @@ __all__ = [
     "epoch_leakage",
     "compress_campaign",
     "epoch_terms",
+    "coherent_mode",
+    "epoch_chi_square",
+    "refuse_undeclared_coherent_error",
 ]
