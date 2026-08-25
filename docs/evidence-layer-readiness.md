@@ -300,7 +300,32 @@ survived — so it has a graph-level fixture (a nuisance the data does not see,
 with a `1e12` prior, since a wide prior alone is accepted when the data
 constrains it) and direct tests for the ordering.
 
-## 9. What is still untouched
+## 9. The diagnostics, including the refusal
+
+`bayesmith.evidence.diagnostics` reads only the stored terms — no graph, no
+prediction, no raw data. `coherent_mode` reports the **detectable** half of a
+common-mode error as a z-score, because what such an error moves is a MEAN,
+and a mean over N epochs is resolved at `sqrt(N)`.
+
+**The load-bearing test is not the detection.** It is that an error of the
+same size, placed inside the design's column space, is invisible — measured on
+the same construction, not on two draws:
+
+| injection | `chi2_z` | the answer |
+|---|---|---|
+| out-of-span, `s = 1.2` | matches `s²/√(2·dof/N)` | unbiased |
+| in-span, `A·bias` | **bitwise the clean value** | displaced by exactly `bias` |
+
+And it gets **worse with more data**: the bias does not shrink while the error
+bar does, so the displacement in units of the posterior width grows as
+`sqrt(N)` — measured at 4× over a 16× longer campaign.
+
+That is why `refuse_undeclared_coherent_error` returns nothing and raises
+instead. A campaign that has not declared this class is not clean, it is
+unexamined, and the two must not read the same. There is no statistic to
+improve.
+
+## 10. What is still untouched
 
 The thousand-epoch opaque-leaf archive, and `diagnostics.py`'s declarative
 refusal of in-span coherent errors, which the spec calls design philosophy
