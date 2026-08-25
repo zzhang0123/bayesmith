@@ -95,6 +95,19 @@ fixed point is the unbiased estimator. The gap is the gradient block, on
 the estimate exit as well as the sampling one, which is why the property is
 better stated of the block type.
 
+**Carried upstream — on a branch, not yet on `main`.** e-RHINO's
+`7f03af1` rewrote `inference/plan.py`'s module docstring around this, with
+both numbers and an attribution back to this test. Measured 2026-08-25:
+that commit is on `track-a-tail`, **unmerged and unpushed**, so a checkout
+of e-RHINO's `main` does not carry it — which is also why the guard below
+can go red for a reason that is nobody's defect — its own words: *"reading it as a
+property of one exit is what left the estimate path unexamined."*
+`test_rheplicants_plan_now_attributes_b1_to_the_block_type` asserts that
+framing is still there, because a docstring is the one kind of claim
+nothing else executes, and that is precisely how `condition_estimate` came
+to open with a paragraph about a different function (§5(a) of
+`linear.md`). The two records now hold each other up.
+
 And the row's ordering warning cannot bite here. A non-linear graph has no
 exact subgraph, so `estimate()` refuses by name and points at `sample()`,
 which goes through NumPyro, whose `Normal(μ, σ)` carries its own `−log σ`.
