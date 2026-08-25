@@ -929,17 +929,24 @@ def test_gls_result_precision_solves_to_the_same_point_its_noise_std_does():
     assert float(direct["w"]) == pytest.approx(float(result.solution["w"]), rel=1e-10)
 
 
-def test_gls_result_precision_is_a_property_and_not_a_pytree_leaf():
-    """Deriving it on read is what keeps ONE copy of the covariance.
+def test_gls_result_stores_one_covariance_and_derives_the_other_spelling():
+    """ONE covariance in the result, and which one is stored is not arbitrary.
 
-    `GLSResult` is a `NamedTuple` and therefore a pytree whose leaves are its
-    fields, so storing the operator would put a second copy of the covariance
-    inside every traced result -- and two copies of one covariance is defect
-    B1's shape, which `precision.py`'s own docstring is written against.
+    This test asserted the opposite arrangement one increment ago --
+    ``noise_std`` the field, ``precision`` a property -- for a reason that
+    still holds: ``GLSResult`` is a ``NamedTuple`` and therefore a pytree
+    whose leaves are its fields, so storing both would put two copies of one
+    covariance inside every traced result, and two copies of one covariance is
+    defect B1's shape.
 
-    Measured as a leaf COUNT rather than by inspecting the class, because
-    what matters is what `jax.tree` sees: a field would show up here whatever
-    it was called.
+    What changed is WHICH way round it can be. A correlated result has no
+    per-sample sigma to derive an operator from, so ``noise_std`` cannot be
+    the stored one; every result has an operator to derive a sigma from when
+    one exists. The invariant survived the increment; the direction did not.
+
+    Measured as a leaf COUNT rather than by inspecting the class, because what
+    matters is what ``jax.tree`` sees: a second field would show up here
+    whatever it was called.
     """
     with jax.enable_x64(True):
         graph = straight_line()
@@ -947,8 +954,81 @@ def test_gls_result_precision_is_a_property_and_not_a_pytree_leaf():
         result = iterative_gls(
             block, sigma_from_graph(graph, {}), depends_on_prediction=False, tol=1e-14
         )
-        leaves = jax.tree.leaves(result)
-        # the five fields' leaves, and not one more
-        assert len(leaves) == len(jax.tree.leaves(tuple(result)))
-        assert "precision" not in result._fields
-        assert result.precision is not None
+        assert "precision" in result._fields
+        assert "noise_std" not in result._fields
+        assert len(jax.tree.leaves(result)) == len(jax.tree.leaves(tuple(result)))
+
+        # ...and the derived spelling is the arrays themselves, BITWISE --
+        # `per_sample_sigma` returns what `diagonal_from` was handed, so a
+        # caller reading `.noise_std` gets its own numbers back rather than a
+        # round trip through the operator.
+        from bayesmith.exact.block import domain_centre
+
+        handed = sigma_from_graph(graph, {})(domain_centre(block))
+        assert set(result.noise_std) == set(handed)
+        for name in handed:
+            assert jnp.array_equal(result.noise_std[name], handed[name])
+
+
+def test_a_correlated_gls_result_reports_no_per_sample_sigma():
+    """``None``, not per-mode amplitudes wearing the wrong name.
+
+    A stationary covariance has an n-point kernel and no per-sample sigma.
+    ``sqrt(lambda_k)`` exists and is the natural per-MODE amplitude, but
+    reporting it as ``noise_std`` would be a lie by naming -- a caller feeding
+    it to ``noise_std_at``-shaped code would get silence, not an error.
+    """
+    import numpy as np
+    import numpyro.distributions as ndist
+
+    from bayesmith import const, det, observe, sample, trace
+    from bayesmith.exact.block import unchecked_operator
+    from bayesmith.exact.gls import precision_from_graph
+    from bayesmith.exact.precision import CirculantPrecision
+
+    size = 8
+    lag = np.minimum(np.arange(size), size - np.arange(size))
+    kernel = jnp.asarray(1.0 * 0.4**lag + 0.5)
+    grid = jnp.linspace(1.0, 4.0, size)
+
+    def model():
+        xs = const("X", grid)
+        w = sample("w", lambda: ndist.Normal(0.0, 5.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe(
+            "d",
+            lambda m: ndist.CirculantNormal(m, kernel),
+            mu,
+            depends_on_prediction=False,
+            obs=2.0 * grid,
+        )
+
+    with jax.enable_x64(True):
+        graph = trace(model)
+        block = unchecked_operator(graph, ("w",), {})
+        result = iterative_gls(
+            block,
+            precision_of=precision_from_graph(graph, {}),
+            depends_on_prediction=False,
+            tol=1e-14,
+        )
+        assert result.noise_std is None
+        assert isinstance(result.precision["d"], CirculantPrecision)
+        assert jnp.allclose(result.precision["d"].first_column, kernel)
+
+
+def test_iterative_gls_needs_exactly_one_spelling_of_the_rule():
+    """Neither leaves it with no covariance; both is two chances to differ."""
+    with jax.enable_x64(True):
+        graph = straight_line()
+        block = linear_operator(graph, ("w",), at={})
+        with pytest.raises(ValueError, match="exactly one of"):
+            iterative_gls(block, depends_on_prediction=False, tol=1e-14)
+        with pytest.raises(ValueError, match="exactly one of"):
+            iterative_gls(
+                block,
+                sigma_from_graph(graph, {}),
+                precision_of=lambda x: diagonal_from(sigma_from_graph(graph, {})(x)),
+                depends_on_prediction=False,
+                tol=1e-14,
+            )

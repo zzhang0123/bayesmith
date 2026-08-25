@@ -68,9 +68,8 @@ from bayesmith.dispatch.execute import (
 )
 from bayesmith.errors import NotGaussian
 from bayesmith.exact.block import domain_centre, unchecked_operator
-from bayesmith.exact.gaussian import gaussian_parts, node_shape
-from bayesmith.exact.gls import MAX_REWEIGHTS, MIN_REWEIGHTS, sigma_from_graph
-from bayesmith.exact.precision import diagonal_from
+from bayesmith.exact.gaussian import gaussian_parts, node_shape, precision_at
+from bayesmith.exact.gls import MAX_REWEIGHTS, MIN_REWEIGHTS
 from bayesmith.exact.solve import condition_bound
 from bayesmith.graph.graph import Graph
 
@@ -170,8 +169,12 @@ def _kappa_at(
     so the centre is what is used, with no fixture here able to tell.
     """
     operator = unchecked_operator(graph, names, at)
-    sigma = sigma_from_graph(graph, at)(domain_centre(operator))
-    return float(condition_bound(operator, precision=diagonal_from(sigma), key=key))
+    # `precision_at`, not `sigma_from_graph` + `diagonal_from`: a conditioning
+    # number is a property of one normal operator, and this site only ever
+    # wanted the operator. Reading it through the sigma producer made the
+    # whole conditioning estimate refuse a correlated node.
+    precision = precision_at(graph, {**at, **domain_centre(operator)})
+    return float(condition_bound(operator, precision=precision, key=key))
 
 
 def working_epsilon(graph: Graph, names: tuple[str, ...], at: dict[str, Any]) -> float:

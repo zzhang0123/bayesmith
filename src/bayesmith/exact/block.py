@@ -36,7 +36,7 @@ from bayesmith.exact.gaussian import (
     check_observed,
     gaussian_parts,
     node_shape,
-    observation_parts,
+    observed_data_and_loc,
 )
 from bayesmith.graph.evaluate import apply_deterministic, evaluate
 from bayesmith.graph.graph import Graph
@@ -343,7 +343,11 @@ def isolate(
     """
 
     def g(x: dict[str, Any]) -> dict[str, jax.Array]:
-        _, loc, _ = observation_parts(graph, evaluate(graph, {**at, **x}))
+        # `observed_data_and_loc`, not `observation_parts`: this needs the
+        # prediction and never the covariance, and reading it through the
+        # three-way walk made the block's own design matrix refuse a
+        # correlated node.
+        _, loc = observed_data_and_loc(graph, evaluate(graph, {**at, **x}))
         return loc
 
     return g
@@ -437,7 +441,7 @@ def unchecked_operator(
     zero = {n: jnp.zeros(domain[n][0], dtype=domain[n][1]) for n in names}
     offset, tangent = jax.linearize(g, zero)
     _, pullback = jax.vjp(g, zero)
-    data, _, _ = observation_parts(graph, evaluate(graph, {**at, **zero}))
+    data, _ = observed_data_and_loc(graph, evaluate(graph, {**at, **zero}))
 
     return LinearBlock(
         names=names,

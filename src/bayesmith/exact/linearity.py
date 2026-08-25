@@ -41,7 +41,7 @@ from bayesmith.exact.block import (
     isolate,
     unchecked_operator,
 )
-from bayesmith.exact.gaussian import noise_std_at
+from bayesmith.exact.gaussian import precision_at
 from bayesmith.graph.graph import Graph
 
 #: Probe magnitudes, as multiples of each latent's declared prior standard
@@ -212,7 +212,7 @@ def _leaf_departures(
     actual: jax.Array,
     baseline: jax.Array,
     predicted: jax.Array,
-    sigma: jax.Array,
+    precision: Any,
     *,
     rtol: float,
     epsilon: float,
@@ -266,7 +266,17 @@ def _leaf_departures(
     # above an SNR of 0.84 in float32, so this criterion could not fire on any
     # model with more signal than noise. See WEIGHTED_FLOOR_FACTOR.
     above_weighted = departure > WEIGHTED_FLOOR_FACTOR * epsilon * magnitude
-    weighted = departure / jnp.abs(sigma)
+    # The WHITENED departure, `|N^-1/2 (actual - predicted)|`, and it is the
+    # same number as before wherever the noise is diagonal: `whiten` divides
+    # by sigma elementwise, so this is `|delta| / |sigma|` BITWISE -- verified
+    # across five decades of sigma. What it buys is a correlated covariance,
+    # for which "in units of sigma" has no elementwise spelling and
+    # "in units of the noise" still does.
+    #
+    # The SIGNED difference is whitened and the abs taken after, because
+    # whitening mixes samples for a correlated N and `abs` first would
+    # destroy the cancellations that mixing depends on.
+    weighted = jnp.abs(precision.whiten(actual - predicted))
     # NaN must count as a FAILURE: `nan > rtol` is False, so a naive
     # comparison reads an unusable probe as evidence of linearity. Each
     # criterion is judged on its OWN finiteness -- sharing one check would let
@@ -291,7 +301,7 @@ def affinity_errors(
     scales: Sequence[float],
     rtol: float | None,
     *,
-    sigma: dict[str, jax.Array],
+    precision: dict[str, Any],
     at_description: str = "the linearisation point",
 ) -> tuple[dict[float, float], list[float], float, dict[float, tuple[float, float]]]:
     """Compare a map against its own linearization at zero, **per element**.
@@ -302,8 +312,12 @@ def affinity_errors(
     codomain.
 
     Args:
-        sigma: ``{observed: scale}`` read at the same point ``zero`` is
-            anchored at. The unit of the second criterion below.
+        precision: ``{observed: N^-1}`` read at the same point ``zero`` is
+            anchored at, from
+            :func:`~bayesmith.exact.gaussian.precision_at`. The unit of the
+            second criterion below, which measures the WHITENED departure --
+            elementwise division by sigma where the noise is diagonal, and
+            still meaningful where it is not.
         at_description: names the point ``zero`` is anchored at -- used only
             by the non-finite-baseline error below, to say where the graph
             broke rather than blaming whichever ``linear_in`` happens to be
@@ -346,7 +360,7 @@ def affinity_errors(
 
     Note:
         ``sigma`` is divided by, not validated here -- :func:`check_linearity`
-        clears it first with :func:`_refuse_unusable_scale`, which names the
+        clears it first with :func:`_refuse_unusable_noise`, which names the
         offending node. Called directly with a zero, negative or non-finite
         scale, this function still refuses, but reports it as curvature.
     """
@@ -391,7 +405,7 @@ def affinity_errors(
                 actual[key],
                 baseline[key],
                 predicted[key],
-                sigma[key],
+                precision[key],
                 rtol=rtol,
                 epsilon=epsilon,
                 tiny=tiny,
@@ -546,12 +560,12 @@ def _warn_unresolved(
     )
 
 
-def _refuse_unusable_scale(sigma: dict[str, jax.Array]) -> None:
-    """Refuse a noise scale the sigma-weighted criterion cannot be stated in.
+def _refuse_unusable_noise(precision: dict[str, Any]) -> None:
+    """Refuse a covariance the weighted criterion cannot be stated in.
 
-    :func:`affinity_errors` measures departure from affinity in units of
-    sigma, so a scale that is zero, negative or non-finite makes that column
-    unreadable. Without this guard the refusal still happens -- the
+    :func:`affinity_errors` measures departure from affinity in units of the
+    noise -- the WHITENED departure -- so a covariance with a zero, negative
+    or non-finite eigenvalue makes that column unreadable. Without this guard the refusal still happens -- the
     finiteness branch catches inf and NaN -- but it is reported as "latent
     'w' is declared linear, but the prediction is not affine in it", which is
     wrong in every word when the model IS affine and the node's scale
@@ -563,11 +577,20 @@ def _refuse_unusable_scale(sigma: dict[str, jax.Array]) -> None:
     produced exactly that message.
 
     A NEGATIVE scale was worse than mis-attributed -- it **passed silently**.
-    The weighted column divides by ``abs(sigma)`` and so cannot tell -0.5
-    from +0.5, while
+    The weighted column takes ``abs`` of the whitened departure and so cannot
+    tell -0.5 from +0.5, while
     :func:`~bayesmith.exact.gaussian.check_gaussian` refuses a non-positive
     scale by name. A guard written only against non-finite values would leave
     that hole open, so the positivity half is load-bearing on its own.
+
+    **The criterion is the SPECTRUM being finite**, which is one test rather
+    than two and covers a correlated covariance for free.
+    :meth:`~bayesmith.exact.precision.Precision.log_spectrum` is
+    ``2 log sigma`` for a diagonal, and ``log`` of a non-positive real is NaN,
+    so ``isfinite(log_spectrum())`` reproduces ``isfinite(sigma) & (sigma >
+    0)`` EXACTLY -- verified on 0.5, 0.0, -2.0, inf and NaN. For a circulant
+    it is the same statement about the eigenvalues, i.e. positive
+    definiteness, which is what makes this one guard rather than two.
 
     This is the mis-attribution class :func:`affinity_errors`'s non-finite
     BASELINE branch and its ``at_description`` argument already exist to
@@ -579,19 +602,20 @@ def _refuse_unusable_scale(sigma: dict[str, jax.Array]) -> None:
     block is built, which is after this. What the two share is the sentence a
     user needs, not the check.
     """
-    # `sigma` comes from `noise_std_at`, a plain dict comprehension over
+    # `precision` comes from `precision_at`, a plain dict comprehension over
     # `graph.observed`, so it carries DECLARATION order rather than JAX's
     # sorted-pytree order. This `sorted` is therefore load-bearing: without
     # it, which node gets named when two are broken depends on declaration
     # order (P3a Task 9's criterion for telling a documenting `sorted` from a
     # guarding one).
-    for name in sorted(sigma):
-        scale = jnp.asarray(sigma[name])
-        if bool(jnp.all(jnp.isfinite(scale) & (scale > 0))):
+    for name in sorted(precision):
+        spectrum = precision[name].log_spectrum()
+        if bool(jnp.all(jnp.isfinite(spectrum))):
             continue
         raise StructureError(
-            f"observed node {name!r} has a scale that is not strictly "
-            f"positive and finite (min {float(jnp.min(scale)):g}), so the "
+            f"observed node {name!r} has a covariance that is not strictly "
+            f"positive definite and finite (smallest eigenvalue "
+            f"{float(jnp.min(jnp.exp(spectrum))):g}), so the "
             "departure from affinity cannot be measured in units of it. "
             "**This is a fault in that node's scale expression, not in any "
             "linear_in declaration** -- the linearity check stops here rather "
@@ -732,15 +756,18 @@ def check_linearity(
                 for position, member in enumerate(ordered)
             }
 
-        sigma = noise_std_at(graph, {**point, **zero})
-        _refuse_unusable_scale(sigma)
+        # `precision_at`, not `noise_std_at`: this criterion needs the noise
+        # as an OPERATOR to whiten by, and the value producer refuses a
+        # correlated node before any covariance is read.
+        precision = precision_at(graph, {**point, **zero})
+        _refuse_unusable_noise(precision)
         errors, failed, used_rtol, columns = affinity_errors(
             g,
             zero,
             probe_at,
             scales,
             rtol,
-            sigma=sigma,
+            precision=precision,
             at_description=where,
         )
         collected[point_index] = errors

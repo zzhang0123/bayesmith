@@ -34,8 +34,8 @@ from bayesmith.errors import ConvergenceError
 from bayesmith.exact.block import domain_centre, unchecked_operator
 from bayesmith.exact.correct import khat, log_weight, self_normalise, unreliable
 from bayesmith.exact.gibbs import assemble
-from bayesmith.exact.gls import iterative_gls, sigma_from_graph
-from bayesmith.exact.precision import diagonal_from
+from bayesmith.exact.gls import iterative_gls, precision_from_graph
+from bayesmith.exact.precision import per_sample_sigma
 from bayesmith.exact.solve import gcr_sample
 from bayesmith.graph.graph import Graph
 
@@ -145,11 +145,9 @@ class Estimate(NamedTuple):
 
     Attributes:
         values: the GLS/Wiener solution, ``{latent: value}``.
-        noise_std: the covariance it was solved at, as per-sample sigma
-            VALUES -- for a prediction-dependent model, the fixed point, so
-            ``noise_std_at(graph, values)`` reproduces it. To draw at that
-            same covariance take :attr:`precision`, which is what
-            ``gcr_sample`` reads.
+        precision: the covariance it was solved at, as ``{observed: N^-1}``
+            -- for a prediction-dependent model, the fixed point. This is what
+            ``gcr_sample`` and ``log_weight`` read.
         converged: always ``True``. ``False`` is not returned; it is raised as
             :class:`~bayesmith.errors.ConvergenceError`, which is the whole
             point of this being the promotion site. Kept as a field because a
@@ -160,23 +158,23 @@ class Estimate(NamedTuple):
     """
 
     values: dict[str, jax.Array]
-    noise_std: dict[str, jax.Array]
+    precision: dict[str, Any]
     converged: bool
     residual: jax.Array
     iterations: jax.Array
 
     @property
-    def precision(self) -> dict[str, Any]:
-        """:attr:`noise_std` as ``{observed: N^-1}``, for the solvers.
+    def noise_std(self) -> dict[str, jax.Array] | None:
+        """:attr:`precision` as per-sample sigma VALUES, or ``None``.
 
-        The same split, and for the same reason, as
-        :attr:`~bayesmith.exact.gls.GLSResult.precision`: the reweighting loop
-        that produced this iterates sigma VALUES, while every consumer of the
-        answer takes an operator. Derived on read rather than stored, so the
-        two cannot disagree and this ``NamedTuple``'s pytree keeps the
-        covariance once.
+        The same shape, and for the same reason, as
+        :attr:`~bayesmith.exact.gls.GLSResult.noise_std`: one covariance is
+        stored, and the spelling that does not always exist is the derived
+        one. ``None`` for a correlated model, which has no per-sample sigma;
+        for a diagonal one these are the arrays themselves, so
+        ``noise_std_at(graph, values)`` reproduces them.
         """
-        return diagonal_from(self.noise_std)
+        return per_sample_sigma(self.precision)
 
 
 def chain_ess(samples: Mapping[str, Any], *, num_chains: int = 1) -> float:
@@ -290,7 +288,10 @@ def run_estimate(
     block = unchecked_operator(plan.graph, names, at)
     result = iterative_gls(
         block,
-        sigma_from_graph(plan.graph, at),
+        # `precision_of`, the general spelling: a correlated node has no
+        # per-sample sigma for `sigma_from_graph` to return, and this is the
+        # entry the dispatcher promises an exact solve through.
+        precision_of=precision_from_graph(plan.graph, at),
         depends_on_prediction=plan.exact.method != "gcr",
         tol=plan.exact.tol if tol is None else tol,
         maxiter=maxiter,
@@ -315,7 +316,7 @@ def run_estimate(
         )
     return Estimate(
         dict(result.solution),
-        dict(result.noise_std),
+        dict(result.precision),
         True,
         result.residual,
         result.iterations,
@@ -431,8 +432,9 @@ def _whole_graph(
         "require_convergence": require_convergence,
     }
     if plan.exact.method == "gcr":
-        sigma = sigma_from_graph(graph, at)(domain_centre(block))
-        draws = _iid_draws(block, diagonal_from(sigma), draw_key, count, **settings)
+        # Operator-only: these draws never read a per-sample sigma.
+        precision = precision_from_graph(graph, at)(domain_centre(block))
+        draws = _iid_draws(block, precision, draw_key, count, **settings)
         return Posterior(
             draws,
             None,
@@ -446,7 +448,7 @@ def _whole_graph(
         )
     fixed = iterative_gls(
         block,
-        sigma_from_graph(graph, at),
+        precision_of=precision_from_graph(graph, at),
         depends_on_prediction=True,
         tol=tol,
         maxiter=maxiter,

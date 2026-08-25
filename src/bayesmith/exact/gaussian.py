@@ -429,6 +429,31 @@ def precision_parts(
     return loc, DiagonalPrecision(sigma=scale)
 
 
+def observed_data_and_loc(
+    graph: Graph, env: dict[str, Any]
+) -> tuple[dict[str, jax.Array], dict[str, jax.Array]]:
+    """``({obs: data}, {obs: loc})`` over every observed node, reading no covariance.
+
+    The two halves of :func:`observation_parts` that have nothing to do with
+    the noise. Split out because ``block.py`` wants exactly these -- ``isolate``
+    takes the ``loc`` and the block build takes the ``data`` -- and reading
+    them through ``observation_parts`` made both walk ``gaussian_parts``,
+    which refuses a correlated node. A block's design matrix and its data do
+    not depend on whether the samples are correlated.
+
+    Both are broadcast to :func:`node_shape`, so the dicts align leaf for leaf
+    and every reduction downstream is one ``jax.tree.map``.
+    """
+    data: dict[str, jax.Array] = {}
+    loc: dict[str, jax.Array] = {}
+    for name in graph.observed:
+        node = graph.node(name)
+        shape = node_shape(graph, node, env)
+        data[name] = jnp.broadcast_to(node.observed, shape)
+        loc[name] = jnp.broadcast_to(_loc_of(graph, node, env), shape)
+    return data, loc
+
+
 def observation_parts(
     graph: Graph, env: dict[str, Any]
 ) -> tuple[dict[str, jax.Array], dict[str, jax.Array], dict[str, jax.Array]]:
@@ -436,17 +461,18 @@ def observation_parts(
 
     All three are broadcast to :func:`node_shape`, so the three dicts align
     leaf for leaf and every reduction downstream is one ``jax.tree.map``.
+
+    The DIAGONAL walk: ``scale`` comes from :func:`gaussian_parts`, so this
+    refuses a correlated node as it always did. The first two dicts are
+    :func:`observed_data_and_loc`, which does not, and callers wanting only
+    those should take them from there.
     """
-    data: dict[str, jax.Array] = {}
-    loc: dict[str, jax.Array] = {}
+    data, loc = observed_data_and_loc(graph, env)
     scale: dict[str, jax.Array] = {}
     for name in graph.observed:
         node = graph.node(name)
-        shape = node_shape(graph, node, env)
-        node_loc, node_scale = gaussian_parts(graph, node, env)
-        data[name] = jnp.broadcast_to(node.observed, shape)
-        loc[name] = jnp.broadcast_to(node_loc, shape)
-        scale[name] = jnp.broadcast_to(node_scale, shape)
+        _, node_scale = gaussian_parts(graph, node, env)
+        scale[name] = jnp.broadcast_to(node_scale, node_shape(graph, node, env))
     return data, loc, scale
 
 

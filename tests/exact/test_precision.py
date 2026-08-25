@@ -10,7 +10,6 @@ import pytest
 import scipy.linalg as sla
 
 from bayesmith import evaluate
-from bayesmith.errors import NotGaussian
 from bayesmith.exact.precision import (
     CirculantPrecision,
     DiagonalPrecision,
@@ -786,13 +785,18 @@ class TestThePositiveDefiniteCheckIsWiredIntoTheBuildPath:
                 )
             assert "not quadratic" in str(second.value)
 
-    def test_a_well_formed_correlated_node_passes_the_probe(self):
+    def test_a_well_formed_correlated_node_passes_the_probe_and_builds(self):
         """The anti-vacuity clause: this refuses kernels, not correlation.
 
         A guard that refused every correlated node would pass both tests
-        above while testing nothing. What stops the block being built here is
-        the block builder's own diagonal-only data and loc walks, which is a
-        LATER stage and a different message -- so the probe itself accepted.
+        above while testing nothing.
+
+        When this was written the block still could not be built -- the
+        builder's data and loc walks went through `observation_parts`, which
+        is diagonal-only -- and this asserted that later `NotGaussian`.
+        Increment 5 removed it, and the guard caught its own assertion going
+        stale, which is the outcome it was written for. It now asserts what
+        replaced it: the probe accepts, AND the block builds.
         """
         from bayesmith.exact.block import unchecked_operator
         from bayesmith.exact.gaussian import check_observed
@@ -804,8 +808,9 @@ class TestThePositiveDefiniteCheckIsWiredIntoTheBuildPath:
             env = evaluate(graph, {"w": jnp.asarray(2.0)})
             errors = check_observed(graph, graph.node("d"), env)
             assert errors["operator"] < 1e-10
-            with pytest.raises(NotGaussian, match="CirculantNormal"):
-                unchecked_operator(graph, ("w",), {})
+            block = unchecked_operator(graph, ("w",), {})
+            assert block.names == ("w",)
+            assert block.data["d"].shape == (size,)
 
 
 class TestTheLogSpectrumIsTheFourthOperation:

@@ -666,20 +666,16 @@ did not make the one-object discipline structural, and was never claimed to.
 and solved.** Three blockers remain, all on the value side, all measured:
 
 1. `linearity.py:735` -- `check_linearity` reads `noise_std_at` for its
-   per-sample UNIT ("departure from affinity in units of scale"). A circulant
-   has one: `sqrt(diag N)`, constant because it is stationary. The `Precision`
-   protocol does not expose it, and adding a fourth operation is a design
-   decision, not a fix.
-2. ~~`block.py:427` -- `unchecked_operator` probes every observed node with
-   `check_gaussian`, the DIAGONAL guard.~~ **Done.** That probe is now
-   `check_observed`, which routes: a `Normal` to `check_gaussian` unchanged,
-   a `CirculantNormal` to `check_positive_definite` and then
-   `check_precision`. See 5.1c.
-3. `block.py:345,434` -- `isolate` and the data walk both go through
-   `observation_parts`, which computes a `scale` neither of them uses.
+   per-sample UNIT.
+2. `block.py:427` -- ~~`unchecked_operator` probes with `check_gaussian`~~
+   **Done, see 5.1c.**
+3. `block.py:345,434` -- `isolate` and the data walk go through
+   `observation_parts`, which computes a `scale` neither uses.
 
 None is large. All three are the value side of the same seam, and each wants
 its own measurement, so they are increment 5 rather than the tail of step 4.
+**Increment 5 landed; see 5.1f, where the count of three turned out to be
+six.**
 
 ### 5.1c `check_positive_definite` has a caller (2026-08-25)
 
@@ -841,6 +837,87 @@ It is therefore **B11's first design decision**, and
 `TestWhatTheEvidenceLayerWillFindHere` in `tests/exact/test_precision.py`
 pins both halves so that whoever writes B11 cannot assume `log_normalizer`
 already made it.
+
+### 5.1f Increment 5: a correlated node, declared and solved (2026-08-25)
+
+The arc B9 was for. `compile()` on a graph whose observed node declares a
+`CirculantNormal` now routes to **GCR exact** and `estimate()` delivers the
+dense Wiener filter's answer.
+
+**The three blockers 5.1b names were six.** Each was found by running the
+path, not by reading it, and each was invisible until the one before it was
+gone:
+
+  ===  ==============================  =====================================
+  #    where                           what it wanted
+  ===  ==============================  =====================================
+  1    `block.py:345,434`              `data` and `loc` without a covariance
+  2    `linearity.py:735`              a per-sample UNIT to measure in
+  3    `classify._is_gaussian`         the capability question's answer
+  4    `classify._sigma_movement`      "does the covariance move?"
+  5    `plan.py::_kappa_at`            the conditioning bound's operator
+  6    `execute::run_estimate`         a covariance rule to iterate at
+  ===  ==============================  =====================================
+
+Blockers 4, 5 and 6 are not in 5.1b's list because nothing could see them
+until 1-3 were fixed. **Counting blockers by reading is not measuring them.**
+
+**What each needed, and what degenerated exactly:**
+
+* **1** -- `observed_data_and_loc`, a walk that reads no covariance.
+  `observation_parts` builds on it and stays the diagonal three-way walk.
+* **2** -- the weighted criterion becomes the WHITENED departure,
+  `|N^-1/2 (actual - predicted)|`. For a diagonal that is `|delta| / |sigma|`
+  **bitwise** -- verified across five decades of sigma -- so no existing
+  linearity verdict moved. The signed difference is whitened and the `abs`
+  taken after, because whitening mixes samples and `abs` first would destroy
+  the cancellations.
+  The guard beside it, `_refuse_unusable_scale`, becomes
+  `_refuse_unusable_noise` and tests `isfinite(log_spectrum())`, which
+  reproduces `isfinite(sigma) & (sigma > 0)` **exactly** -- checked at 0.5,
+  0.0, -2.0, inf and NaN, and the negative case works because `log` of a
+  negative real is NaN. The fourth operation added for the Fisher matrix
+  turned out to supply this guard too.
+* **4** -- `check_prediction_dependence` only ever asks whether an
+  array-valued function MOVES, so the CALLER picks the descriptor.
+  `scale_from_graph` returns `sqrt(lambda_k)`, the per-mode amplitude, which
+  is the per-sample sigma for a diagonal (to 1.8e-15, through
+  `exp(1/2 log lambda)`) and still meaningful when there is none.
+* **6** -- **`iterative_gls` does not iterate sigma VALUES**, which the B9
+  notes said it did. Read `step`: the fixed point is in the LATENT, `delta`
+  is `|updated - latent| / |updated|` over the block's domain, and the
+  covariance enters only as the operator each inner solve is weighted by. So
+  it takes `sigma_of` OR `precision_of` and nothing in the loop needs numbers
+  it can subtract.
+
+**`GLSResult` and `Estimate` inverted, and the invariant survived.** They
+stored `noise_std` with `precision` derived; they now store `precision` with
+`noise_std` derived. The reason for storing exactly one did not change --
+both are `NamedTuple`s and therefore pytrees whose leaves are their fields,
+so storing both would put two copies of one covariance in every traced
+result. What changed is which one CAN be derived: a correlated result has no
+per-sample sigma to build an operator from, while every result has an
+operator to read a sigma off when one exists.
+
+`per_sample_sigma` is that read, and it is the one place in the package that
+asks which implementation a `Precision` is. That question is legitimate
+exactly there: "does this covariance have per-sample sigmas" is a property of
+the model. It returns the `sigma` arrays THEMSELVES, so a diagonal result
+reports back bitwise what it was handed. For a correlated model it returns
+`None` -- not `sqrt(lambda_k)`, which exists but is a per-MODE amplitude and
+would be a lie under that name.
+
+**Measured end to end**, correlated node declared on a graph:
+
+  ==========================  ==================================
+  `linear_operator`            builds (was `NotGaussian`)
+  `wiener_solve`               `0.000e+00` relative vs dense
+  `gcr_sample` variance        within 0.25 % of exact `M^-1`
+  `compile()`                  `GCR exact` (was NUTS)
+  `plan.estimate()`            `8.8e-11` relative vs dense
+  `plan.sample()` variance     ratio 1.019 at 2000 draws
+  `estimate.noise_std`         `None`, honestly
+  ==========================  ==================================
 
 **And B11 is a subsystem, not a row.** Its spec entry lists five numerical
 kernels to preserve exactly (`SqrtInfo`'s `[R|z]` form, the QR fold's

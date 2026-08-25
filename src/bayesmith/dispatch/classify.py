@@ -40,8 +40,15 @@ from bayesmith.exact.block import (
     domain_centre,
     unchecked_operator,
 )
-from bayesmith.exact.gaussian import check_gaussian, gaussian_parts, node_shape
-from bayesmith.exact.gls import check_prediction_dependence, sigma_from_graph
+from bayesmith.exact.gaussian import (
+    check_observed,
+    gaussian_parts,
+    node_shape,
+)
+from bayesmith.exact.gls import (
+    check_prediction_dependence,
+    scale_from_graph,
+)
 from bayesmith.exact.linearity import DEFAULT_AT_POINTS, check_linearity
 from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import wiener_solve
@@ -266,25 +273,25 @@ def _is_gaussian(graph: Graph, name: str, env: dict[str, Any]) -> tuple[bool, st
     ``log_prob`` contradicts the ``loc``/``scale`` read off it -- a broken
     model -- and is deliberately NOT caught here.
 
-    **This asks a CAPABILITY question, and that is why it calls
-    ``check_gaussian`` rather than
-    :func:`~bayesmith.exact.gaussian.check_observed`**, which the build path
-    does. The two are different questions: "is this node's declared density
-    sound?" and "can the exact path solve a block containing it?". For a
-    correlated node the first answer is now yes and the second is still no --
-    the block builder's data and loc walks are diagonal-only -- so accepting
-    it here promises an exact solve that cannot be delivered.
+    **This asks a CAPABILITY question**: not "is this node's declared density
+    sound?" but "can the exact path solve a block containing it?". The two
+    came apart for one increment and the difference is worth keeping in view.
 
-    Measured, by wiring ``check_observed`` here and running the suite: on a
-    well-formed ``CirculantNormal`` graph, ``compile()`` stopped routing to
-    NUTS and raised ``NotGaussian`` from deeper in the block builder instead.
-    All 748 tests stayed green through it, because no fixture compiles a
-    correlated graph -- ``test_a_correlated_graph_still_compiles_to_nuts`` is
-    what closes that, and this comment is what stops the next reader
-    "tidying" the two call sites into one.
+    When ``check_observed`` was first written, wiring it HERE was a
+    regression: a correlated node's density was sound, but the block builder's
+    data and loc walks were still diagonal-only, so accepting it promised an
+    exact solve that could not be delivered. Measured at the time --
+    ``compile()`` on a well-formed ``CirculantNormal`` graph stopped routing
+    to NUTS and raised ``NotGaussian`` from deeper in the builder, and all 748
+    tests stayed green through it because no fixture compiled a correlated
+    graph.
 
-    When the exact path can build a correlated block, this becomes
-    ``check_observed`` and that test changes with it. Not before.
+    Increment 5 closed that gap: ``observed_data_and_loc`` reads no covariance
+    and ``check_linearity`` measures the WHITENED departure, so a correlated
+    block builds. The two questions now have the same answer for both accepted
+    rows, and this calls ``check_observed``. If a THIRD row is ever gated in
+    before the solve path can carry it, they come apart again and this is the
+    line that has to know.
 
     Only the message's FIRST SENTENCE is kept: the rest says which solve is
     not implemented and that this is a verdict rather than a defect, neither
@@ -294,7 +301,7 @@ def _is_gaussian(graph: Graph, name: str, env: dict[str, Any]) -> tuple[bool, st
     wrapper's own leading dot, leaving the user reading "or one wrapped by".
     """
     try:
-        check_gaussian(graph, graph.node(name), env)
+        check_observed(graph, graph.node(name), env)
     except NotGaussian as exc:
         return False, str(exc).partition(". ")[0]
     return True, ""
@@ -506,7 +513,12 @@ def _sigma_movement(
     fixture it reads 2.994e-01 against this function's 1.904e+01, and on
     every other fixture it is dominated too.
     """
-    sigma_of = sigma_from_graph(graph, at)
+    # `scale_from_graph`, not `sigma_from_graph`: this asks only whether the
+    # covariance MOVES, and the per-mode amplitude `sqrt(lambda_k)` is a
+    # descriptor every accepted row has. The sigma producer refuses a
+    # correlated node outright, which made this the LAST thing standing
+    # between a declared correlated noise and a plan.
+    sigma_of = scale_from_graph(graph, at)
     movement = check_prediction_dependence(
         operator, sigma_of, declared=True, rtol=SIGMA_RTOL, key=key
     )

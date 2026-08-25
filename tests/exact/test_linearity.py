@@ -145,10 +145,11 @@ def test_affinity_errors_treats_nan_as_a_failure_in_isolation():
     call this affine. Only the `not finite` branch catches it.
 
     The NaN reaches BOTH criteria here, and each is checked on its own
-    finiteness, so this pins both branches at once: `sigma=1.0` is finite and
-    strictly positive, so `departure / sigma` is NaN only because `departure`
+    finiteness, so this pins both branches at once: a unit `DiagonalPrecision`
+    whitens by 1, so the weighted column is NaN only because the departure
     is.
     """
+    from bayesmith.exact.precision import DiagonalPrecision
 
     def g(x):
         return {"y": jnp.sqrt(x["w"])}
@@ -160,7 +161,12 @@ def test_affinity_errors_treats_nan_as_a_failure_in_isolation():
         return {"w": jnp.asarray(-1.5 * scale)}
 
     errors, failed, _, columns = affinity_errors(
-        g, zero, probe_at, (1.0,), None, sigma={"y": jnp.asarray(1.0)}
+        g,
+        zero,
+        probe_at,
+        (1.0,),
+        None,
+        precision={"y": DiagonalPrecision(sigma=jnp.asarray(1.0))},
     )
     assert not jnp.isfinite(errors[1.0])  # confirms this probe is the clean-NaN case
     assert all(not jnp.isfinite(column) for column in columns[1.0])
