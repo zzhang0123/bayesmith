@@ -9,9 +9,11 @@ that a hand-built graph obeys the same rule.
 from __future__ import annotations
 
 import equinox as eqx
+import jax
+import jax.numpy as jnp
 
 from bayesmith.errors import GraphError
-from bayesmith.graph.nodes import Deterministic, Node, Probabilistic
+from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
 
 
 class Plate(eqx.Module):
@@ -63,6 +65,33 @@ class Graph(eqx.Module):
                         "declared parents before anything checks whether the claim "
                         "is true."
                     )
+            if isinstance(node, Const) and jnp.issubdtype(
+                jnp.asarray(node.value).dtype, jax.dtypes.prng_key
+            ):
+                raise GraphError(
+                    f"node {node.name!r} is a Const holding a PRNG key. A "
+                    "deterministic node that consumes one draws randomness "
+                    "inside the forward model, and inference closes the model "
+                    "over ONE evaluation: the draw is made once and the same "
+                    "frozen field rides every prediction compared against the "
+                    "data. Nothing downstream can tell -- adding a constant "
+                    "field is exactly affine, so check_linearity sees a "
+                    "departure of 0 and identifiability reports full rank. "
+                    "Upstream measured 10.6 sigma of bias with BOTH exits "
+                    "reporting the same error bar to every digit.\n\n"
+                    "Randomness in a graph belongs to a probabilistic node, "
+                    "which carries a density: `sample(...)` gives the same "
+                    "field a log_prob, so it enters the joint distribution "
+                    "instead of hiding in the mean. That is the rule this "
+                    "refusal enforces -- a random node without a density "
+                    "cannot enter the joint.\n\n"
+                    "Blind spot, stated rather than implied: a `fn` that "
+                    "closes over a draw, or a legacy raw-uint32 key, is "
+                    "invisible here, exactly as an operator that draws "
+                    "without declaring it is invisible to rheplicant's "
+                    "`refuse_stochastic_stages`. There is no numerical "
+                    "symptom to find; the declaration is the whole signal."
+                )
             if len(node.plate) > 1:
                 raise GraphError(
                     f"node {node.name!r} is in plates {node.plate}: nested plates "
