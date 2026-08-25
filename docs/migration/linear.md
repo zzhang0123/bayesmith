@@ -105,6 +105,13 @@ was pytest's **usage** error (exit 4), because the runner passed `-k not
 gcr` as three argv items.* Only exit 1 is a test failure. The same trap
 `CLAUDE.md` records for `| tail`, in the other direction.
 
+And a kill is not the same as *your* guard working. Each row above was
+re-run with a runner that parses the junit XML for the failing test NAMES
+and requires the intended one among them — a guard you did not know
+existed can kill the mutation first, leaving the assertion you just wrote
+unevaluated, and no exit code separates those two. All four here were
+killed by the test named against them.
+
 ## 5. Intended differences
 
 **(a) `condition_estimate` is not ported, and its docstring was wrong

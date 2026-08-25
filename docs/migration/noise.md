@@ -160,9 +160,11 @@ the direction of trust is not: here it is checked.
 ## 6. Mutation
 
 Applied to `exact/precision.py` and `exact/gaussian.py`,
-`__pycache__` cleared before each run, and judged on **exit code 1 only**
-— exit 4 is pytest's usage error and reads as a kill. See `linear.md` §4
-for how that was learned.
+`__pycache__` cleared before each run, judged on **exit code 1 only** —
+exit 4 is pytest's usage error and reads as a kill — and on the failing
+test's own NAME, because a guard you did not know existed can kill a
+mutation first and leave your assertion unevaluated. All four below were
+killed by the test named against them. See `linear.md` §4.
 
 | mutation | caught by |
 |---|---|
