@@ -44,6 +44,7 @@ CROSSCHECK = pathlib.Path(__file__).resolve().parent / "crosscheck"
 #: them by. An exact set, checked in both directions -- see the module
 #: docstring.
 PAGED_TODAY = {
+    "linear.py",
     "identifiability.py",
     "sensitivity.py",
     "priors.py",
@@ -188,6 +189,30 @@ def test_every_paged_module_actually_has_a_cross_check_test():
             module,
             files,
         )
+
+
+#: How the README spells small integers. The count in its prose is checked
+#: against the derived one, so the word has to be readable as a number.
+_NUMBER_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+
+def test_the_readme_states_the_derived_number_of_unpaged_modules():
+    """The one number in the index that is not a table, derived not trusted.
+
+    It read "five §四 rows" against a real SIX for a whole session -- prose
+    counting the bullets under it, with nothing to notice when a row was
+    added. The count is now the same set difference the gate itself uses.
+    """
+    text = (MIGRATION / "README.md").read_text(encoding="utf-8")
+    match = re.search(r"\*\*(\w+) §四 modules have neither", text)
+    assert match, "the README no longer states an unpaged-module count"
+    stated = _NUMBER_WORDS.get(match.group(1).lower())
+    assert stated is not None, match.group(1)
+    derived = _spec_module_names() - NOT_A_SINGLE_MODULE - PAGED_TODAY
+    assert stated == len(derived), {"stated": stated, "derived": sorted(derived)}
 
 
 def test_the_readme_points_at_this_test_as_the_authority():
