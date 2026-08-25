@@ -46,6 +46,7 @@ CROSSCHECK = pathlib.Path(__file__).resolve().parent / "crosscheck"
 PAGED_TODAY = {
     "linear.py",
     "noise.py",
+    "parameters.py",
     "identifiability.py",
     "sensitivity.py",
     "priors.py",
