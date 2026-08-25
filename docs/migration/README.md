@@ -6,7 +6,7 @@ Migration spec §二 requires one page per module and gates **all** of §六
 2026-08-25, which is why §六 had never started.
 
 **Do not read the table below as authority.** It is prose, and prose has no
-test. `tests/crosscheck/test_migration_records.py` is the authority: it
+test. `tests/test_migration_records.py` is the authority: it
 derives the module list from the spec's own §四 tables, the page list from
 this directory, and the test list from `tests/crosscheck/`, and fails when
 they disagree. If the table and that test ever disagree, the test is right.

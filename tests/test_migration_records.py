@@ -194,7 +194,18 @@ def test_the_readme_points_at_this_test_as_the_authority():
     """The index's own table is prose. It says so, and names this module --
     if it stops doing either, the table becomes a second copy of a fact,
     which is the failure mode this repository's own docstrings keep
-    warning about."""
+    warning about.
+
+    The path is DERIVED from this file's own location rather than spelled,
+    and that is not decoration. Written as a bare basename, this assertion
+    passed while the README sent the reader to
+    ``tests/crosscheck/test_migration_records.py`` -- the one directory the
+    docstring above explains this gate must not live in, because the autouse
+    ``importorskip`` there would stand it down. A guard matching one shape
+    of a claim reads every other shape as absent, and absent read as pass.
+    """
     text = (MIGRATION / "README.md").read_text(encoding="utf-8")
-    assert "test_migration_records.py" in text
+    here = pathlib.Path(__file__).resolve()
+    root = here.parents[1]
+    assert here.relative_to(root).as_posix() in text, here.relative_to(root)
     assert "prose" in text.lower()
