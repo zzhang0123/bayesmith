@@ -34,7 +34,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from bayesmith.exact.block import LinearBlock, variance_parts
-from bayesmith.exact.solve import _weights, normal_operator
+from bayesmith.exact.solve import _weights, normal_operator, wiener_solve
 from bayesmith.graph.evaluate import log_joint
 from bayesmith.graph.graph import Graph
 
@@ -57,6 +57,97 @@ KHAT_THRESHOLD_CAP: float = 0.7
 #: for ``N = 0`` because ``log10(0)`` is ``-inf``, which would report the
 #: emptiest possible sample as the most reliable one.
 KHAT_MIN_DRAWS: int = 10
+
+
+class FrozenSigmaMismatch(Exception):
+    """``mu`` and ``noise_std`` describe different frozen Gaussians."""
+
+
+def check_frozen_sigma(
+    block: LinearBlock,
+    noise_std: dict[str, Any],
+    mu: dict[str, Any],
+    *,
+    rtol: float = 1e-6,
+    tol: float = 1e-10,
+) -> float:
+    """Verify ``mu`` really is the solution at ``noise_std``.
+
+    Call this ONCE per reweighting run, before the vmap -- not inside
+    :func:`log_weight`, which is vmapped per draw and must stay jittable. Same
+    split as ``gaussian_parts``/``check_gaussian``: the cheap thing traces, the
+    checking thing runs eagerly at the boundary.
+
+    **What it is protecting.** ``log_weight`` takes ``log p`` from the graph's
+    own distributions and ``q``'s operator from the ``noise_std`` dict, in one
+    expression, and its own docstring records ``at`` as "Unverifiable here". If
+    the sigma the draws were made at is not the sigma the weight is computed
+    at, the estimator no longer targets the posterior -- it targets a TILTED
+    distribution. Self-normalised importance sampling is valid for any
+    x-independent proposal, but only when the ``q`` in the weight is the ``q``
+    the draws came from.
+
+    Measured on ``radiometer`` at 4000 draws, freezing at the GLS fixed point,
+    against 1-D quadrature (mean 2.946326, sd 0.046652):
+
+    ==================  =========  ==========  =======
+    draws / weight at   bias / sd  weighted sd  ESS/N
+    ==================  =========  ==========  =======
+    honest / honest        +0.010      0.994x    0.998
+    3x / 3x                -0.010         --     0.459
+    3x draws / honest     +11.235         --     0.000
+    honest draws / 3x      -0.004      0.724x    0.883
+    ==================  =========  ==========  =======
+
+    Both mixed rows are wrong and **only one of them is detectable by anything
+    the package already has**. Drawing wide and weighting narrow blows the
+    estimate up by eleven posterior standard deviations and collapses the ESS
+    to zero, so the existing diagnostic catches it. Drawing narrow and
+    weighting wide leaves the MEAN right, the ESS at a healthy 0.883 -- and the
+    posterior width **30 % too narrow**, saturating at 0.703x by a factor of
+    100. An error bar a third too tight, reported by a run whose every
+    diagnostic looks well. That is the case this function exists for.
+
+    ``mu`` is what betrays the mismatch, because it is solved at the draws'
+    sigma and passed in alongside the weight's. Measured: exactly 0.0 relative
+    difference when they agree, 1.75e-04 when they do not.
+
+    Args:
+        block: the block ``q`` was built for.
+        noise_std: the frozen sigma ``log_weight`` will be given.
+        mu: the centre ``log_weight`` will be given.
+        rtol: relative tolerance on ``mu`` against a fresh solve.
+        tol: CG tolerance for that solve. Tighter than the caller's on
+            purpose -- this is comparing against ``mu``, so its own error must
+            be the smaller of the two.
+
+    Returns:
+        The relative difference, so a caller can report how far off it is.
+
+    Raises:
+        FrozenSigmaMismatch: when it exceeds ``rtol``.
+    """
+    fresh, _ = wiener_solve(
+        block, noise_std=noise_std, tol=tol, require_convergence=None
+    )
+    gap = jnp.sqrt(
+        sum(jnp.sum((jnp.asarray(mu[name]) - fresh[name]) ** 2) for name in fresh)
+    )
+    scale = jnp.sqrt(sum(jnp.sum(fresh[name] ** 2) for name in fresh))
+    relative = float(gap / jnp.maximum(scale, 1e-30))
+    if not relative <= rtol:  # `not <=` so a NaN is refused too
+        raise FrozenSigmaMismatch(
+            f"mu is {relative:.3e} away from the solution at this noise_std, "
+            f"against rtol {rtol:.3e}. The draws were almost certainly made at "
+            "a different sigma than the weight is being computed at, and the "
+            "estimator then targets a TILTED distribution rather than the "
+            "posterior. Note that the ESS will not necessarily warn you: "
+            "measured, the direction that leaves the mean right reports a "
+            "healthy 0.883 while the posterior width comes out 30 % too "
+            "narrow. Pass the same noise_std to wiener_solve, gcr_sample and "
+            "log_weight."
+        )
+    return relative
 
 
 def log_weight(

@@ -609,3 +609,117 @@ def test_a_wrong_frozen_sigma_shows_up_as_ess_and_not_as_bias(count, seed):
     assert ratios["right"][0] > 3.0 * ratios["wrong"][0]
     assert ratios["right"][1] == pytest.approx(1.0, abs=0.20)
     assert ratios["wrong"][1] > 5.0
+
+
+class TestTheFrozenSigmaSeamIsChecked:
+    """`log_weight` takes `log p` from the graph and `q` from the dict.
+
+    Its own docstring records `at` as "Unverifiable here". `mu` is not: it is
+    solved at the DRAWS' sigma and handed in beside the WEIGHT's, so it
+    betrays a mismatch that nothing else in the package can see.
+    """
+
+    @staticmethod
+    def _pieces(factor: float):
+        from bayesmith.exact.gls import iterative_gls, sigma_from_graph
+
+        graph = radiometer()
+        block = unchecked_operator(graph, ("w",), {})
+        honest = iterative_gls(
+            block, sigma_from_graph(graph, {}), tol=1e-8, require_convergence=None
+        ).noise_std
+        return block, honest, {k: v * factor for k, v in honest.items()}
+
+    def test_the_matching_pair_passes(self):
+        from bayesmith.exact.correct import check_frozen_sigma
+
+        block, honest, _ = self._pieces(1.0)
+        mu, _ = wiener_solve(
+            block, noise_std=honest, tol=1e-8, require_convergence=None
+        )
+        assert check_frozen_sigma(block, honest, mu) <= 1e-6
+
+    @pytest.mark.parametrize("factor", [3.0, 1.0 / 3.0])
+    def test_either_direction_of_mismatch_is_refused(self, factor):
+        """BOTH directions, and that is the point.
+
+        One of them (draw wide, weight narrow) is already visible as an ESS
+        collapse. The other is not visible at all -- see the test below -- so a
+        guard that only caught the loud one would leave the silent one exactly
+        as it was.
+        """
+        from bayesmith.exact.correct import FrozenSigmaMismatch, check_frozen_sigma
+
+        block, honest, other = self._pieces(factor)
+        mu, _ = wiener_solve(block, noise_std=other, tol=1e-8, require_convergence=None)
+        with pytest.raises(FrozenSigmaMismatch, match="TILTED"):
+            check_frozen_sigma(block, honest, mu)
+
+    def test_the_silent_direction_really_is_silent_without_this(self):
+        """ANTI-VACUITY, and the measurement that justifies the guard existing.
+
+        Drawing at the honest sigma and weighting at 3x leaves the mean right
+        and the ESS healthy, while the posterior width comes out ~30 % too
+        narrow. If this stopped being true -- if the ESS did start catching it
+        -- the guard would be redundant and this test says so rather than
+        letting it sit there looking useful.
+        """
+        from bayesmith.exact.correct import log_weight, self_normalise
+
+        block, honest, wide = self._pieces(3.0)
+        graph = radiometer()
+        grid = jnp.linspace(-4.0, 12.0, 20001)
+        log_p = jax.vmap(lambda value: log_joint(graph, {"w": value}))(grid)
+        density = np.array(jnp.exp(log_p - jnp.max(log_p)), dtype=float)
+        axis = np.array(grid, dtype=float)
+        density /= np.trapezoid(density, axis)
+        truth = float(np.trapezoid(axis * density, axis))
+        spread = math.sqrt(float(np.trapezoid((axis - truth) ** 2 * density, axis)))
+
+        mu, _ = wiener_solve(
+            block, noise_std=honest, tol=1e-8, require_convergence=None
+        )
+        draws, _ = jax.vmap(
+            lambda key: gcr_sample(
+                block, noise_std=honest, key=key, tol=1e-8, require_convergence=None
+            )
+        )(jax.random.split(jax.random.key(0), 4000))
+        weights, ess = self_normalise(
+            jax.vmap(
+                lambda x: log_weight(graph, block, x, at={}, noise_std=wide, mu=mu)
+            )(draws)
+        )
+        values = np.asarray(draws["w"], dtype=float)
+        found = np.asarray(weights, dtype=float)
+        mean = float((found * values).sum())
+        width = math.sqrt(float((found * (values - mean) ** 2).sum()))
+
+        assert abs(mean - truth) < 0.1 * spread, "the mean is supposed to look fine"
+        assert float(ess) / 4000 > 0.5, "the ESS is supposed to look fine"
+        assert width < 0.85 * spread, (
+            "the posterior width is supposed to be visibly too narrow; if it "
+            f"is not, this guard has lost its justification: {width / spread}"
+        )
+
+    def test_a_non_finite_mu_is_refused_rather_than_compared(self):
+        """`not relative <= rtol`, which `relative > rtol` would not give.
+
+        NaN fails every comparison, so `>` is False and a diverged `mu` would
+        be reported as MATCHING the sigma it is being checked against.
+
+        Third occurrence of this exact gap in one sitting -- the same
+        mutation survived on `CirculantPrecision.__check_init__` and on
+        `check_precision` before it. The lesson is not about this function:
+        every `not value <= tolerance` written here is a deliberate NaN guard,
+        and a deliberate guard with no test is indistinguishable from a typo
+        that happens to read well.
+        """
+        from bayesmith.exact.correct import FrozenSigmaMismatch, check_frozen_sigma
+
+        block, honest, _ = self._pieces(1.0)
+        mu, _ = wiener_solve(
+            block, noise_std=honest, tol=1e-8, require_convergence=None
+        )
+        broken = {name: value * jnp.nan for name, value in mu.items()}
+        with pytest.raises(FrozenSigmaMismatch):
+            check_frozen_sigma(block, honest, broken)
