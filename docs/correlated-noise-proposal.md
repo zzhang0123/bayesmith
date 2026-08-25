@@ -670,14 +670,54 @@ and solved.** Three blockers remain, all on the value side, all measured:
    has one: `sqrt(diag N)`, constant because it is stationary. The `Precision`
    protocol does not expose it, and adding a fourth operation is a design
    decision, not a fix.
-2. `block.py:427` -- `unchecked_operator` probes every observed node with
-   `check_gaussian`, the DIAGONAL guard. The correlated counterpart
-   (`check_precision`) exists and is measured; wiring it is the step.
+2. ~~`block.py:427` -- `unchecked_operator` probes every observed node with
+   `check_gaussian`, the DIAGONAL guard.~~ **Done.** That probe is now
+   `check_observed`, which routes: a `Normal` to `check_gaussian` unchanged,
+   a `CirculantNormal` to `check_positive_definite` and then
+   `check_precision`. See 5.1c.
 3. `block.py:345,434` -- `isolate` and the data walk both go through
    `observation_parts`, which computes a `scale` neither of them uses.
 
 None is large. All three are the value side of the same seam, and each wants
 its own measurement, so they are increment 5 rather than the tail of step 4.
+
+### 5.1c `check_positive_definite` has a caller (2026-08-25)
+
+Split out of `__check_init__` in `296d911` so the class could be traced,
+which left it correct, mutation-checked and called by nothing. Wired into
+`unchecked_operator`'s observed-node probe through a new
+`gaussian.check_observed`, which routes by distribution rather than
+duplicating either guard.
+
+**The ORDER inside it is load-bearing, and it is about the diagnosis rather
+than the verdict.** `check_precision` does refuse an indefinite kernel on its
+own -- but only through NaN propagation. Measured on three indefinite
+kernels, including one whose entries are all positive: numpyro's
+`CirculantNormal.log_prob` returns `nan`, so `check_precision` reports
+`linearity=nan, normalizer=nan`, and its message explains `linearity` as
+"the log-density is not quadratic, so it has no covariance to extract". The
+log-density IS quadratic; the kernel describes no realisable process. A user
+sent to look at their `det` nodes and `linear_in` declarations would be
+looking in the wrong place. `check_positive_definite` runs first and says
+what is actually wrong. Refusing through a NaN is also fragile in a way that
+saying so is not.
+
+**Wiring it at the CLASSIFIER too was a regression, and the suite could not
+see it.** `classify._is_gaussian` asks a different question -- "can the exact
+path solve a block containing this node?" -- and for a correlated node the
+answer is still no, because the block builder's data and loc walks are
+diagonal-only. With `check_observed` there, `compile()` on a well-formed
+`CirculantNormal` graph stopped returning a NUTS plan and raised
+`NotGaussian` from deeper in the builder. **All 748 tests stayed green
+through it**, because nothing in the suite compiles a correlated graph.
+`test_a_correlated_graph_still_compiles_to_nuts_rather_than_raising` is that
+missing test, and `_is_gaussian`'s docstring now says why the two call sites
+are not the same call and must not be tidied into one.
+
+Construction itself still does not validate, and that is not a gap this
+closes: the class has to stay traceable, so
+`test_construction_itself_does_not_validate_and_says_so` stays true for as
+long as the split does.
 
 ### 5.2 Then, in order
 
