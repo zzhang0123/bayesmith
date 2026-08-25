@@ -13,7 +13,7 @@ they disagree. If the table and that test ever disagree, the test is right.
 
 | §四 row | module | cross-check test | page |
 |---|---|---|---|
-| 4.1 | `linear.py` → `exact/block,linearity,solve` | — | — |
+| 4.1 | `linear.py` → `exact/block,linearity,solve` | `test_linear.py` | ✅ |
 | 4.1* | `conditioning.py` → `exact/conditioning` | `test_conditioning.py` | ✅ |
 | 4.1 | `gls.py` → `exact/gls` | `test_noise_logdet.py` (B1 half) | ✅ |
 | 4.1 | `uncertainty.py` (Fisher) → `exact/fisher` | `test_noise_logdet.py` | ✅ |
@@ -37,10 +37,12 @@ cross-check enforcing it.
 
 ## Where the gate actually stands
 
-Seven pages exist; **five §四 rows have neither a cross-check test nor a
-page**, and they are the blocker:
+Eight pages exist; **five §四 modules have neither a cross-check test nor
+a page**, and they are the blocker (the count is asserted against the
+derived one by
+`test_the_readme_states_the_derived_number_of_unpaged_modules`, because it
+was written as "five" against a real six for a whole session):
 
-- `linear.py` → `exact/{block,linearity,solve}` (§四 4.1)
 - `likelihood.py`/`noise.py` → `exact/gaussian` (§四 4.1)
 - `parameters.py` → node declarations (§四 4.2)
 - `noise.py` → probabilistic nodes (§四 4.2) — **ordering**: §五 B9 changes
