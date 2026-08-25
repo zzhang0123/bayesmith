@@ -226,11 +226,46 @@ evaluation point had both running maxima stay at `0.0` and was reported as
 **perfectly epoch-local**. A non-finite sensitivity is now refused by name,
 before any maximum.
 
-## 7. What is still untouched
+## 7. A campaign compresses straight from the graph
 
-The thousand-epoch opaque-leaf archive; the bridge that builds per-epoch
-designs from a graph and feeds them to `compress_epoch`; and
-`diagnostics.py`'s declarative refusal of in-span coherent errors, which the
-spec calls design philosophy rather than implementation.
+`bayesmith.evidence.campaign` is the bridge. Every input `compress_epoch`
+needs is read off the graph:
 
-Nothing is blocked. The numerics are not the reason.
+| what | where it comes from |
+|---|---|
+| the partition | `factorize` — plate membership, then `epoch_leakage` |
+| the designs | one `jacfwd` of the graph's own prediction map |
+| the constant part | that map at zero |
+| the data | the observed node's `obs`, sliced by epoch |
+| the covariance | `precision_at`, sliced by epoch |
+| the nuisance priors | the per-epoch latents' own `dist_fn` |
+
+The last row is the one rheplicant cannot have: its `Factorization` carries
+per-epoch priors separately from the `ParameterSpace` that declares them, and
+"the same space declared twice" is the error class this kills.
+
+`compress_campaign` folds the epochs holding one term at a time, so the
+accumulated statistic does not grow with the campaign. Checked against dense
+Gaussians written from each model by hand — a scalar campaign, a vector
+survivor with a plated covariate, the campaign **evidence** with the survivor
+marginalised too, and a campaign with both a per-epoch offset and a per-epoch
+sigma.
+
+**That last fixture exists because mutation found the gap, not review.**
+Dropping `offset_prediction` and slicing every epoch's covariance at index 0
+both passed the whole file: no earlier model had a constant part in its
+prediction or a sigma that varied between epochs. A real campaign has both.
+
+Two facts about plates were measured on the way: a latent OUTSIDE the epoch
+plate can still have a shape of its own, so domain shapes come from a block
+rather than from plate membership; and an unplated `const` inside a plated
+`det` broadcasts, so a covariate has to be plated too.
+
+## 8. What is still untouched
+
+The thousand-epoch opaque-leaf archive, and `diagnostics.py`'s declarative
+refusal of in-span coherent errors, which the spec calls design philosophy
+rather than implementation.
+
+Nothing is blocked. The numerics are not the reason, and neither is the
+graph.
