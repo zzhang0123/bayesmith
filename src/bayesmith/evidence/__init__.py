@@ -11,6 +11,7 @@ from bayesmith.evidence.campaign import compress_campaign, epoch_terms
 from bayesmith.evidence.compress import (
     compress,
     compress_epoch,
+    epoch_joint,
     nuisance_prior,
     observed_mask,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "marginalise_arrays",
     "compress",
     "compress_epoch",
+    "epoch_joint",
     "nuisance_prior",
     "observed_mask",
     "Factorization",
