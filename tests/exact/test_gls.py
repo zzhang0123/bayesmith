@@ -1032,3 +1032,88 @@ def test_iterative_gls_needs_exactly_one_spelling_of_the_rule():
                 depends_on_prediction=False,
                 tol=1e-14,
             )
+
+
+def test_a_correlated_prediction_dependent_model_finds_the_same_fixed_point():
+    """The composition of B9's last two increments, against a dense loop.
+
+    `45198f9` refused a correlated node claiming `depends_on_prediction=True`;
+    the spectral form of the variance-information term deleted that refusal,
+    and increment 5 opened the graph path. This is the first fixture that
+    needs BOTH, and it is checked against a NumPy fixed-point loop that shares
+    no code with the JAX `while_loop`: solve at the current covariance,
+    recompute the covariance, repeat.
+
+    The kernel carries a FLOOR, and it is load-bearing rather than decorative.
+    Without one the amplitude is `0.04 * mean(mu)**2`, which is exactly zero
+    at the block's own zero -- so every eigenvalue vanishes there and
+    `_refuse_unusable_noise` refuses the whole block with "smallest eigenvalue
+    0". Measured: that model classifies to NUTS, and correctly. The suite's
+    radiometer fixtures carry a floor for the same reason.
+
+    Measured: 1.1e-16 relative, the JAX loop against seven NumPy iterations.
+    """
+    import numpy as np
+    import numpyro.distributions as ndist
+
+    from bayesmith import const, det, observe, sample, trace
+    from bayesmith.dispatch.plan import compile as compile_graph
+
+    size, prior_std, prior_mean, floor = 8, 5.0, 1.0, 0.05
+    lag = np.minimum(np.arange(size), size - np.arange(size))
+    grid = np.linspace(1.0, 4.0, size)
+    data = 2.0 * grid
+
+    def amplitude(mean_prediction):
+        return 0.04 * mean_prediction**2 + floor
+
+    def model():
+        xs = const("X", jnp.asarray(grid))
+        w = sample("w", lambda: ndist.Normal(prior_mean, prior_std))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+
+        def kernel(prediction):
+            amp = amplitude(jnp.mean(prediction))
+            return amp * (0.4**lag) + 0.25 * amp
+
+        observe(
+            "d",
+            lambda m: ndist.CirculantNormal(m, kernel(m)),
+            mu,
+            depends_on_prediction=True,
+            obs=jnp.asarray(data),
+        )
+
+    with jax.enable_x64(True):
+        plan = compile_graph(trace(model))
+        assert plan.blocks[0].method == "gcr+snis", plan.blocks[0].method
+        estimate = plan.estimate()
+        got = float(np.asarray(estimate.values["w"]).reshape(()))
+        # the reweighting really did converge to a CORRELATED covariance
+        from bayesmith.exact.precision import CirculantPrecision
+
+        assert isinstance(estimate.precision["d"], CirculantPrecision)
+        assert estimate.noise_std is None
+
+    def circulant(column):
+        return np.array(
+            [[column[(j - i) % size] for j in range(size)] for i in range(size)]
+        )
+
+    design = grid.reshape(-1, 1)
+    point = prior_mean
+    for iteration in range(200):
+        amp = amplitude((point * grid).mean())
+        inverse = np.linalg.inv(circulant(amp * (0.4**lag) + 0.25 * amp))
+        normal = design.T @ inverse @ design + np.eye(1) / prior_std**2
+        rhs = (
+            design.T @ inverse @ data.reshape(-1, 1)
+            + np.array([[prior_mean]]) / prior_std**2
+        )
+        moved = np.linalg.solve(normal, rhs).item()
+        if abs(moved - point) < 1e-14 * max(abs(moved), 1e-30):
+            point = moved
+            break
+        point = moved
+    assert iteration < 199, "the NumPy reference did not converge"
+    assert got == pytest.approx(point, rel=1e-12)
