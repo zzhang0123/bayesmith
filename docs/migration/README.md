@@ -14,9 +14,9 @@ they disagree. If the table and that test ever disagree, the test is right.
 | §四 row | module | cross-check test | page |
 |---|---|---|---|
 | 4.1 | `linear.py` → `exact/block,linearity,solve` | — | — |
-| 4.1 | `conditioning.py` → `exact/conditioning` | `test_conditioning.py` | — |
-| 4.1 | `gls.py` → `exact/gls` | `test_noise_logdet.py` (B1 half) | — |
-| 4.1 | `uncertainty.py` (Fisher) → `exact/fisher` | `test_noise_logdet.py` | — |
+| 4.1* | `conditioning.py` → `exact/conditioning` | `test_conditioning.py` | ✅ |
+| 4.1 | `gls.py` → `exact/gls` | `test_noise_logdet.py` (B1 half) | ✅ |
+| 4.1 | `uncertainty.py` (Fisher) → `exact/fisher` | `test_noise_logdet.py` | ✅ |
 | 4.1 | `likelihood.py`/`noise.py` → `exact/gaussian` | — | — |
 | 4.2 | `parameters.py` → node declarations | — | — |
 | 4.2 | `noise.py` → probabilistic nodes | — | — |
@@ -25,18 +25,36 @@ they disagree. If the table and that test ever disagree, the test is right.
 | 4.2 | `sensitivity.py` → `diagnose/` | `test_diagnose_sensitivity.py` | ✅ |
 | 4.2 | `priors.py` → `diagnose/` | `test_diagnose_jeffreys.py` | ✅ |
 | 4.2 | `numpyro_bridge.py` → `bridge/` | — | — |
-| (evidence) | `sqrtinfo` | `test_sqrtinfo_agrees.py` | — |
+| 4.3* | `sqrtinfo` (rewritten; kernel preserved per B11) | `test_sqrtinfo_agrees.py` | ✅ |
+
+`*` — has a page but **no source row of its own** in §四, and the test
+records why. `conditioning.py` appears only in the `linear.py` row's
+DESTINATION cell (upstream moved it to `rheplicant.core` so `radio` could
+use it without importing `inference`); `sqrtinfo` belongs to the evidence
+layer, which §四 4.3 marks 不迁移 — rewritten under iron law 2, with its
+numerical kernel required to be preserved exactly and a bitwise
+cross-check enforcing it.
 
 ## Where the gate actually stands
 
-Three of the twelve §四 rows have a page. Four more have a **measured
-cross-check test and no page** — for those the measurement work is done and
-what is missing is the record, which is a smaller job than it looks from
-"docs/migration/ does not exist". The remaining five have neither.
+Seven pages exist; **five §四 rows have neither a cross-check test nor a
+page**, and they are the blocker:
 
-So §六 is still blocked, but the blocker is now a list rather than a
-category. Nothing in `src/rheplicant/inference/` may move until it is
-empty.
+- `linear.py` → `exact/{block,linearity,solve}` (§四 4.1)
+- `likelihood.py`/`noise.py` → `exact/gaussian` (§四 4.1)
+- `parameters.py` → node declarations (§四 4.2)
+- `noise.py` → probabilistic nodes (§四 4.2) — **ordering**: §五 B9 changes
+  this interface, so settle the interface before finalising the module
+- `plan.py`+`engines.py` → dispatch (§四 4.2) — **B1 first**, or the
+  comparison fixes the GLS-type target as the reference
+- `numpyro_bridge.py` → `bridge/` (§四 4.2)
+
+Those are measurement jobs, not writing jobs: each needs fixtures, an
+independent oracle and a refusal comparison before its page can exist.
+
+So §六 is still blocked, on a list rather than a category. Nothing in
+`src/rheplicant/inference/` may move until that list is empty — the two
+exceptions §六 step 1 names are already in e-RHINO's Track A Batch 1.
 
 ## What a page must contain
 

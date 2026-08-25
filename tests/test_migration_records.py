@@ -43,12 +43,41 @@ CROSSCHECK = pathlib.Path(__file__).resolve().parent / "crosscheck"
 #: The §四 rows that have a page today, by the module file rheplicant names
 #: them by. An exact set, checked in both directions -- see the module
 #: docstring.
-PAGED_TODAY = {"identifiability.py", "sensitivity.py", "priors.py"}
+PAGED_TODAY = {
+    "identifiability.py",
+    "sensitivity.py",
+    "priors.py",
+    "conditioning.py",
+    "gls.py",
+    "uncertainty.py",
+    "sqrtinfo.py",
+}
 
 #: Rows whose module column names no single rheplicant file (a group, or a
 #: destination-side note), excluded from the "one page per module" rule
 #: because there is no module to name a page after.
 NOT_A_SINGLE_MODULE = {"likelihood.py"}  # paired with noise.py in one row
+
+#: Pages for modules the §四 ledger does not list, with the reason. Kept as
+#: an explicit exception rather than by loosening the rule that a page must
+#: name something the spec migrates: `sqrtinfo` belongs to the streaming
+#: evidence layer, which §四 4.3 marks 不迁移 (rewritten here under iron law
+#: 2), but §五 B11 requires its numerical KERNEL preserved exactly and a
+#: bitwise cross-check enforces that -- a real comparison, and a record it
+#: should have. An entry here must name a cross-check test that exists;
+#: `test_every_paged_module_actually_has_a_cross_check_test` covers these
+#: too, so the exception buys a page, never a free pass.
+#:
+#: `conditioning.py` is here for a different and more interesting reason,
+#: found by this very check: it appears in §四 4.1 only in a DESTINATION
+#: cell (the `linear.py` row's `exact/block.py linearity.py solve.py
+#: conditioning.py`), never as a source row of its own -- upstream moved it
+#: to `rheplicant.core.conditioning` because `radio` needed it and may not
+#: import `inference`, which is also why §0.1a has to tell the reader to
+#: re-read every other mention. It has its own cross-check and its own
+#: rejected function (`extreme_eigenvalues`), so it earns a page; what it
+#: does not have is a ledger row.
+OUT_OF_LEDGER = {"sqrtinfo.py", "conditioning.py"}
 
 
 def _spec_module_names() -> set[str]:
@@ -86,7 +115,9 @@ def test_every_page_names_a_module_the_spec_actually_migrates():
     migration nobody recorded in the ledger."""
     spec_names = _spec_module_names()
     pages = {p.stem + ".py" for p in MIGRATION.glob("*.md") if p.stem != "README"}
-    assert pages <= spec_names, sorted(pages - spec_names)
+    assert pages <= spec_names | OUT_OF_LEDGER, sorted(
+        pages - spec_names - OUT_OF_LEDGER
+    )
 
 
 def test_the_set_of_paged_modules_is_exactly_what_is_recorded():
@@ -144,7 +175,15 @@ def test_every_paged_module_actually_has_a_cross_check_test():
         # `priors.py`'s test is named for what it tests, `jeffreys`, so the
         # match is on the page's own subject rather than on the filename
         # alone -- recorded here rather than renaming a good test name.
-        aliases = {"priors": ("priors", "jeffreys")}.get(stem, (stem,))
+        aliases = {
+            # Named for what each test's subject IS rather than for the
+            # module it came from -- recorded here rather than renaming
+            # tests whose names are better than the mapping.
+            "priors": ("priors", "jeffreys"),
+            "gls": ("gls", "noise_logdet"),
+            "uncertainty": ("uncertainty", "noise_logdet"),
+            "sqrtinfo": ("sqrtinfo",),
+        }.get(stem, (stem,))
         assert any(any(a in name for a in aliases) for name in files), (
             module,
             files,
