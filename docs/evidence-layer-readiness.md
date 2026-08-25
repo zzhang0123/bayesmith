@@ -90,16 +90,43 @@ must bring its own variance-information term.** Both spellings are pinned in
 
 ---
 
-## 3. What is still untouched
+## 3. The kernel is in. `bayesmith.evidence.sqrtinfo`
 
-Everything B11 actually is. Its ledger row lists five numerical kernels to
-preserve exactly — `SqrtInfo`'s `[R|z]` form, the QR fold's `-1/2 sum rho^2`
-corner, the marginalisation constant `+1/2 n log 2pi - sum log|R_ii| -
-1/2 rho^2`, the masked normalisation above, the thousand-epoch opaque-leaf
-archive — a whole oracle suite to port
-(`tests/evidence/test_streaming_equals_batch.py` plus the per-constant
-nat-cost table), and `diagnostics.py`'s declarative refusal of in-span
-coherent errors, which the spec calls design philosophy rather than
-implementation.
+Three of the five numerical kernels the ledger row names are ported and
+cross-checked **bitwise** against `rheplicant.inference.sqrtinfo`
+(`tests/crosscheck/test_sqrtinfo_agrees.py`, `rtol=0 atol=0`): the `[R|z]`
+form, the QR fold's `-1/2 sum rho^2` corner, and the marginalisation constant
+`+1/2 n log 2pi - sum log|R_ii| - 1/2 rho^2`.
 
-None of it is blocked. None of it is small.
+The oracle throughout is dense NumPy — a log-density as
+`-1/2 (x-m)^T F (x-m)`, an integral by `slogdet` — never one of our own
+routines against another. Every comparison is on the **absolute**
+log-density, because every constant here is invisible in a posterior's shape
+and visible only in the evidence. That is how rheplicant shipped the
+marginalisation constant with `-sum(log std)` missing: the probe that passed
+used unit priors, where the term is exactly zero. Every fixture sweeps the
+prior scale, and one test asserts the gap **is** `n_block * log(std)` at three
+widths and three scales.
+
+Two things measured that rheplicant's own docstring does not say:
+
+* **`marginalise` raises different errors by transform.** `jit` trips the
+  `bool(...)` in the pivot guard and gives `TracerBoolConversionError`;
+  `grad` trips `float(max(pivots))` and gives `ConcretizationTypeError`.
+  Both pinned. `marginalise_arrays` does both cleanly, which is the whole
+  reason the two exist.
+* **The NaN-safe spelling of the pivot guard is a SHAPE, not a live guard.**
+  Rewriting `not all(> floor)` as `any(<= floor)` survives every test,
+  because the finiteness check above refuses every `nan` first. Recorded in
+  the comment with the measurement. The other two constants are convicted:
+  dropping the corner fails 4 tests, dropping the log-pivot term fails 16.
+
+## 4. What is still untouched
+
+The masked normalisation (§1 — B11's first design decision, unmade), the
+thousand-epoch opaque-leaf archive, the streaming layer that would USE this
+kernel, the oracle suite that runs a whole campaign through it, and
+`diagnostics.py`'s declarative refusal of in-span coherent errors, which the
+spec calls design philosophy rather than implementation.
+
+Nothing is blocked. The kernel is no longer the reason.
