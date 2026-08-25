@@ -13,6 +13,11 @@ from bayesmith.evidence.compress import (
     nuisance_prior,
     observed_mask,
 )
+from bayesmith.evidence.factorize import (
+    Factorization,
+    epoch_leakage,
+    factorize,
+)
 from bayesmith.evidence.sqrtinfo import (
     SqrtInfo,
     marginalise,
@@ -27,4 +32,7 @@ __all__ = [
     "compress_epoch",
     "nuisance_prior",
     "observed_mask",
+    "Factorization",
+    "factorize",
+    "epoch_leakage",
 ]
