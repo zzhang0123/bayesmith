@@ -903,3 +903,122 @@ def test_giving_both_rules_is_refused_rather_than_one_silently_winning():
                 },
                 centre=centre,
             )
+
+
+class TestAnObservedNodeWithMoreThanOneAxis:
+    """The design is flattened; the precision keeps ``node_shape``.
+
+    ``_weighted_design`` sits exactly on that seam, and before it reshaped
+    each column back to the node's own shape it broadcast-failed on EVERY
+    observed node with more than one axis -- a ``(8, 8)`` waterfall against a
+    ``(64,)`` design column, straight through ``linear_operator``. Measured,
+    which is why both tests here run the ordinary public path and not a
+    hand-built block.
+    """
+
+    @staticmethod
+    def _waterfall(sigma_rule):
+        """``pred = w * X`` over a (4, 5) grid, one scalar latent."""
+        import numpyro.distributions as dist
+
+        from bayesmith import det, observe, sample, trace
+
+        x_grid = jnp.arange(1.0, 21.0).reshape(4, 5)
+        data = 3.0 * x_grid
+
+        def model():
+            w = sample("w", lambda: dist.Normal(2.0, 4.0))
+            pred = det("pred", lambda v: v * x_grid, w, linear_in=("w",))
+            observe(
+                "d",
+                lambda mu: sigma_rule(mu).to_event(2),
+                pred,
+                obs=data,
+                depends_on_prediction=sigma_rule.depends,
+            )
+
+        return trace(model), x_grid
+
+    def test_a_constant_sigma_waterfall_matches_its_analytic_fisher(self):
+        """``F = sum X_ij^2 / sigma^2`` -- one number, no autodiff in the truth."""
+        import numpyro.distributions as dist
+
+        def rule(mu):
+            return dist.Normal(mu, 0.5)
+
+        rule.depends = False
+        with jax.enable_x64(True):
+            graph, x_grid = self._waterfall(rule)
+            block = linear_operator(graph, ("w",))
+            fisher = fisher_information(
+                block,
+                precision=precision_at(graph, {"w": jnp.asarray(2.0)}),
+                include_prior=False,
+                depends_on_prediction=False,
+            )
+            truth = float(jnp.sum(x_grid**2)) / 0.5**2
+        assert fisher.values.shape == (1, 1)
+        assert float(fisher.values[0, 0]) == pytest.approx(truth, rel=1e-12)
+
+    def test_a_prediction_dependent_waterfall_matches_its_flattened_twin(self):
+        """Same numbers, two layouts: ``(4, 5)`` against ``(20,)``.
+
+        The flattened twin is the layout that always worked, so agreement is
+        the statement that the reshape feeds BOTH halves -- the weighted
+        design and the spectrum curvature -- with the numbers the 1-D path
+        uses. The sigma rule carries a floor because the linearity check's
+        positive-definiteness probe evaluates it where the prediction crosses
+        zero, and refusing ``sigma = 0`` there is that check working.
+        """
+        import numpyro.distributions as dist
+
+        from bayesmith import det, observe, sample, trace
+        from bayesmith.exact.gls import sigma_from_graph
+
+        f = 0.25
+
+        def fisher_of(x_shaped, event_dims):
+            data = 3.0 * x_shaped
+
+            def model():
+                w = sample("w", lambda: dist.Normal(2.0, 4.0))
+                pred = det("pred", lambda v: v * x_shaped, w, linear_in=("w",))
+                observe(
+                    "d",
+                    lambda mu: dist.Normal(mu, f * jnp.abs(mu) + 0.3).to_event(
+                        event_dims
+                    ),
+                    pred,
+                    obs=data,
+                    depends_on_prediction=True,
+                )
+
+            graph = trace(model)
+            block = linear_operator(graph, ("w",), at={})
+            return fisher_information(
+                block,
+                precision=precision_at(graph, {"w": jnp.asarray(2.0)}),
+                include_prior=False,
+                depends_on_prediction=True,
+                sigma_of=sigma_from_graph(graph, {}),
+                centre={"w": jnp.asarray(2.0)},
+            )
+
+        with jax.enable_x64(True):
+            x_grid = jnp.arange(1.0, 21.0).reshape(4, 5)
+            shaped = fisher_of(x_grid, 2)
+            flat = fisher_of(jnp.ravel(x_grid), 1)
+        assert float(shaped.values[0, 0]) == pytest.approx(
+            float(flat.values[0, 0]), rel=1e-12
+        )
+        # The analytic oracle, numpy only, with the two halves separate -- so
+        # a reshape that silently dropped the variance term cannot pass by
+        # matching a twin that dropped it identically.
+        x = np.arange(1.0, 21.0)
+        sigma = f * np.abs(2.0 * x) + 0.3
+        weighted_design = float(np.sum(x**2 / sigma**2))
+        variance_term = 2.0 * float(np.sum((f * x / sigma) ** 2))
+        assert float(shaped.values[0, 0]) == pytest.approx(
+            weighted_design + variance_term, rel=1e-10
+        )
+        assert variance_term > 0.05 * weighted_design

@@ -210,12 +210,26 @@ def _weighted_design(
     written for a residual, and a diagonal implementation broadcasting
     ``(n,)`` against ``(n, k)`` would be right by accident while a circulant
     one -- which FFTs along the last axis -- would be wrong.
+
+    Each column is reshaped to the NODE's own shape before ``apply`` and
+    flattened again after, because a residual is node-shaped and a design
+    column is not: ``dense_operator`` flattens the prediction, while the
+    ``Precision`` read off the graph keeps ``node_shape`` -- ``(8, 8)`` for a
+    waterfall, against a ``(64,)`` column. Handing the flat column straight to
+    ``apply`` broadcast-failed on every observed node with more than one axis,
+    through ``linear_operator`` and all -- measured before this reshape
+    existed, so the pairing is not hypothetical.
     """
     pieces, start = [], 0
     for name in sorted(precision):
-        size = int(np.prod(block.data[name].shape, dtype=int))
+        shape = jnp.shape(block.data[name])
+        size = int(np.prod(shape, dtype=int))
         rows = jax.lax.dynamic_slice(design, (start, 0), (size, design.shape[1]))
-        pieces.append(jax.vmap(precision[name].apply, in_axes=1, out_axes=1)(rows))
+
+        def weighted(column, name=name, shape=shape):
+            return jnp.reshape(precision[name].apply(jnp.reshape(column, shape)), (-1,))
+
+        pieces.append(jax.vmap(weighted, in_axes=1, out_axes=1)(rows))
         start += size
     return jnp.concatenate(pieces, axis=0)
 
