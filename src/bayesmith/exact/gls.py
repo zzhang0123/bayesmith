@@ -54,6 +54,7 @@ from bayesmith.errors import GraphError, StructureError
 from bayesmith.exact.block import LinearBlock, domain_centre
 from bayesmith.exact.conditioning import tree_norm
 from bayesmith.exact.gaussian import noise_std_at
+from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import wiener_solve
 from bayesmith.graph.graph import Graph
 
@@ -191,9 +192,10 @@ class GLSResult(NamedTuple):
     """What a reweighting run produced. A pytree, so it survives ``jit``.
 
     Attributes:
-        noise_std: the converged sigma -- **the covariance**, and the whole
-            point of the exercise. Feed it to ``gcr_sample`` or
-            ``wiener_solve`` as ``noise_std=``.
+        noise_std: the converged sigma VALUES -- **the covariance**, and the
+            whole point of the exercise. This loop iterates values, which is
+            why they are what it stores; for the solvers, take
+            :attr:`precision`.
         solution: the GLS point estimate at that covariance.
         residual: relative CG residual of the final solve. Not an accuracy.
         iterations: reweighting steps taken, the first solve included.
@@ -209,6 +211,36 @@ class GLSResult(NamedTuple):
     iterations: jax.Array
     delta: jax.Array
     converged: jax.Array
+
+    @property
+    def precision(self) -> dict[str, Any]:
+        """The converged covariance as ``{observed: N^-1}``, for the solvers.
+
+        **The one place the conversion belongs.** This loop iterates sigma
+        VALUES honestly -- solve at the current sigma, recompute sigma at the
+        new solution -- so values are what it has to store, and an operator
+        has none to iterate. But every consumer of the answer takes an
+        operator: :func:`~bayesmith.exact.solve.wiener_solve`,
+        :func:`~bayesmith.exact.solve.gcr_sample`,
+        :func:`~bayesmith.exact.correct.log_weight` and
+        :func:`~bayesmith.exact.fisher.fisher_information` all do. Converting
+        once here, where the answer is handed on, is what keeps the two
+        vocabularies from meeting at each of those call sites instead.
+
+        A PROPERTY rather than a field: ``GLSResult`` is a ``NamedTuple`` and
+        therefore a pytree whose leaves are its fields, so a field would put a
+        second copy of the covariance inside every traced result -- and two
+        copies of one covariance is defect B1's shape. Derived on read, it
+        cannot disagree with :attr:`noise_std`.
+
+        Diagonal by construction, because that is what this loop can produce:
+        a correlated covariance has no per-sample sigma for ``sigma_of`` to
+        return. A correlated node reaches the solvers through
+        :func:`~bayesmith.exact.gaussian.precision_at` instead, and
+        ``depends_on_prediction=True`` with a correlated noise is refused
+        upstream until the variance-information term has a correlated form.
+        """
+        return diagonal_from(self.noise_std)
 
 
 def sigma_from_graph(
@@ -461,8 +493,14 @@ def iterative_gls(
         reweight_tol = max(REWEIGHT_TOL_EPS * epsilon, tol)
 
     def solve_at(sigma, guard):
+        # `diagonal_from` here rather than at each caller: this is the one
+        # boundary where a decided sigma becomes the operator the solve reads.
         return wiener_solve(
-            block, noise_std=sigma, tol=tol, maxiter=maxiter, require_convergence=guard
+            block,
+            precision=diagonal_from(sigma),
+            tol=tol,
+            maxiter=maxiter,
+            require_convergence=guard,
         )
 
     centre = domain_centre(block)

@@ -6,7 +6,7 @@ import numpyro.distributions as dist
 import pytest
 from numpyro import handlers
 
-from bayesmith import const, det, evaluate, observe, sample, to_numpyro, trace
+from bayesmith import const, det, evaluate, observe, plate, sample, to_numpyro, trace
 from bayesmith.errors import NotGaussian, StructureError
 from bayesmith.exact.gaussian import (
     check_gaussian,
@@ -444,3 +444,119 @@ def test_a_correlated_node_that_claims_prediction_dependence_is_refused():
         # is refusing the claim rather than the correlation.
         env_ok = evaluate(graph, {"w": jnp.asarray(2.0)})
         assert precision_parts(graph, graph.node("d"), env_ok)[1] is not None
+
+
+# ---------------------------------------------------------------------------
+# B9 step 4: the seam splits. `precision_at` beside `noise_std_at`.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "build, at",
+    [
+        (straight_line, {"w": jnp.asarray(0.0)}),
+        (radiometer, {"w": jnp.asarray(0.0)}),
+        (two_observations, {"w": jnp.asarray(0.0)}),
+        (plated_latent, {"z": jnp.zeros(6)}),
+    ],
+)
+def test_precision_at_agrees_with_diagonal_from_noise_std_at(build, at):
+    """The degeneracy clause: on a diagonal model the two seams are one answer.
+
+    This is what makes `precision_at` a widening rather than a second
+    implementation. Asserted BITWISE on the sigma and on the log-normaliser,
+    not merely to a tolerance -- the diagonal row of `precision_parts` reads
+    the same `distribution.scale` `gaussian_parts` does, so anything short of
+    equality would mean one of them is doing arithmetic the other is not.
+
+    Both halves are checked because they fail independently: a precision
+    broadcast to the wrong shape still applies correctly by broadcasting and
+    only its `log_normalizer` is wrong. See
+    `test_a_plated_scalar_scale_gets_a_full_length_log_normalizer`.
+    """
+    from bayesmith.exact.gaussian import precision_at
+    from bayesmith.exact.precision import diagonal_from
+
+    with jax.enable_x64(True):
+        graph = build()
+        shimmed = diagonal_from(noise_std_at(graph, at))
+        direct = precision_at(graph, at)
+    assert set(shimmed) == set(direct)
+    for name in shimmed:
+        assert direct[name].sigma.shape == shimmed[name].sigma.shape
+        assert jnp.array_equal(direct[name].sigma, shimmed[name].sigma), name
+        assert float(direct[name].log_normalizer()) == float(
+            shimmed[name].log_normalizer()
+        ), name
+
+
+def test_a_plated_scalar_scale_gets_a_full_length_log_normalizer():
+    """A plated node whose `loc` is SCALAR still gets an n-length precision.
+
+    `node_shape`'s own docstring names this shape: a plated node whose
+    `dist_fn` takes no plated parent has a scalar loc and a plate-shaped
+    value. `precision_parts` broadcast its sigma to the LOC's shape until this
+    was measured, which left `DiagonalPrecision.apply` correct -- it
+    broadcasts -- while `log_normalizer` summed ONE term instead of `n`.
+
+    Measured on this fixture at n=6: 0.4515827298 against the correct
+    2.70949626, short by exactly the plate size. That is defect B1's shape --
+    the quadratic form and the log-determinant describing different
+    covariances -- arriving through a broadcast rather than through two
+    objects, and nothing else in the suite could see it because every other
+    fixture's loc is already plate-shaped.
+
+    The ratio is asserted, not the values: it is what identifies the failure
+    as a missing plate rather than as a different covariance.
+    """
+    from bayesmith.exact.gaussian import precision_at
+    from bayesmith.exact.precision import DiagonalPrecision
+
+    n = 6
+
+    def model():
+        obs = plate("obs", n)
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))  # UNPLATED latent
+        observe(  # scalar loc, plate-shaped value
+            "d", lambda w_: dist.Normal(w_, 0.5), w, plate=obs, obs=jnp.arange(float(n))
+        )
+
+    # Every read INSIDE the context: `jax.enable_x64` governs the operation,
+    # not the array, so a float64 sigma whose `log_normalizer` is taken
+    # outside truncates to float32 and the two sides disagree at the eighth
+    # digit -- measured here as 2.709496259689331 against 2.7094963788986206.
+    with jax.enable_x64(True):
+        graph = trace(model)
+        precision = precision_at(graph, {"w": jnp.asarray(0.0)})["d"]
+        scalar = DiagonalPrecision(sigma=jnp.asarray(0.5))
+        assert precision.sigma.shape == (n,)
+        assert float(precision.log_normalizer()) == pytest.approx(
+            n * float(scalar.log_normalizer()), rel=1e-12
+        )
+        # ...and the operator half agrees with the scalar one, which is
+        # exactly why the normaliser is the only place this could have shown
+        # up: `apply` broadcasts and stays right while `log_normalizer` does
+        # not.
+        residual = jnp.linspace(1.0, 2.0, n)
+        assert jnp.allclose(precision.apply(residual), scalar.apply(residual))
+
+
+def test_node_shape_reads_a_correlated_node_without_reading_its_covariance():
+    """A node's value has a shape whatever its samples' correlations are.
+
+    `node_shape` asked `gaussian_parts` for the loc, so SHAPE refused a
+    `CirculantNormal` -- and since `observation_parts`, `noise_std_at`,
+    `check_linearity` and `linear_operator` all reach it, the refusal came
+    from the shape walk rather than from anything about the covariance.
+
+    Both halves: the shape is now readable, and `gaussian_parts` -- the
+    DIAGONAL entry point -- still refuses the same node, so this widened the
+    shape walk and not the gate.
+    """
+    with jax.enable_x64(True):
+        graph, _ = _correlated_graph()
+        node = graph.node("d")
+        env = evaluate(graph, {"w": jnp.asarray(2.0)})
+        assert node_shape(graph, node, env) == (8,)
+        with pytest.raises(NotGaussian, match="CirculantNormal"):
+            gaussian_parts(graph, node, env)

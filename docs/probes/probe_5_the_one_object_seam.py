@@ -4,9 +4,12 @@ The migration spec's load-bearing clause: ONE object must feed `log_joint`,
 `wiener_solve` and `fisher_information`, so the covariance and the likelihood
 cannot disagree.
 
-Today `log_joint` reads the node's own distribution while `wiener_solve` and
-`fisher_information` read a `{observed: sigma}` DICT. This measures how much
-of the discipline is structural and how much is call convention.
+When this probe was first run, `log_joint` read the node's own distribution
+while `wiener_solve` and `fisher_information` read a `{observed: sigma}` DICT,
+and section (c) below recorded that NEITHER `Precision` implementation could
+be passed to a solver at all. Step 4 changed that: the consumers now take
+`precision=`, and section (c) is what says so. Re-run it -- the answers in
+(a) and (c) are supposed to have flipped, and (b) is supposed not to have.
 
 Run:
     cd <worktree> && PYTHONPATH=$PWD/src \
@@ -21,9 +24,13 @@ import numpy as np
 import numpyro.distributions as dist
 
 from bayesmith.exact import fisher, gls, solve
-from bayesmith.exact.gaussian import noise_std_at
+from bayesmith.exact.gaussian import noise_std_at, precision_at
 from bayesmith.exact.linearity import linear_operator
-from bayesmith.exact.precision import CirculantPrecision, DiagonalPrecision
+from bayesmith.exact.precision import (
+    CirculantPrecision,
+    DiagonalPrecision,
+    diagonal_from,
+)
 from bayesmith.graph.evaluate import log_joint
 from bayesmith.graph.trace import const, det, observe, sample, trace
 
@@ -63,10 +70,11 @@ for name, fn in (
 
 print()
 print("  and what the type annotation says the value is:")
-src = inspect.signature(solve.wiener_solve).parameters["noise_std"]
-print(f"    wiener_solve.noise_std : {src.annotation}")
+src = inspect.signature(solve.wiener_solve).parameters["precision"]
+print(f"    wiener_solve.precision : {src.annotation}")
 print(f"    noise_std_at returns   : {type(noise_std_at(graph, {'w': jnp.array(1.0)})['d'])}")
-print("  -> there is no parameter anywhere that accepts a Precision.")
+print(f"    precision_at returns   : {type(precision_at(graph, {'w': jnp.array(1.0)})['d'])}")
+print("  -> BOTH seams exist now, and they are different quantities.")
 
 print()
 print("=" * 78)
@@ -76,21 +84,23 @@ honest = noise_std_at(graph, {"w": jnp.array(0.0)})
 print(f"  the graph's own sigma          : {float(honest['d'][0]):.6f}")
 
 for factor in (1.0, 2.0, 10.0):
-    lied = {"d": honest["d"] * factor}
-    mean, _ = solve.wiener_solve(block, noise_std=lied, require_convergence=None)
+    lied = diagonal_from({"d": honest["d"] * factor})
+    mean, _ = solve.wiener_solve(block, precision=lied, require_convergence=None)
     fish = fisher.fisher_information(
-        block, noise_std=lied, depends_on_prediction=False
+        block, precision=lied, depends_on_prediction=False
     )
     cov = fisher.parameter_covariance(fish)
     lj = float(log_joint(graph, {"w": mean["w"]}))
     print(
-        f"  noise_std x{factor:<5.1f} -> wiener_solve w = {float(mean['w']):+.6f}, "
+        f"  covariance x{factor:<5.1f} -> wiener_solve w = {float(mean['w']):+.6f}, "
         f"posterior sd = {float(cov.std()['w'][0]):.6f}, "
         f"log_joint at that w = {lj:+.4f}"
     )
-print("  Nothing refused. The sigma the solver was weighted by and the sigma")
-print("  the node declares are compared NOWHERE -- the only thing keeping them")
-print("  equal is that the caller passed noise_std_at(graph, ...).")
+print("  Nothing refused -- UNCHANGED by step 4. The covariance the solver was")
+print("  weighted by and the one the node declares are compared NOWHERE; the")
+print("  only thing keeping them equal is that the caller passed the graph's")
+print("  own producer. Widening the TYPE did not make the discipline")
+print("  structural, and it was never claimed to.")
 
 print()
 print("  the one place a cross-check DOES exist (fisher's centre/sigma_of):")
@@ -98,7 +108,7 @@ sigma_of = gls.sigma_from_graph(graph, {})
 try:
     fisher.fisher_information(
         block,
-        noise_std={"d": honest["d"] * 2.0},
+        precision=diagonal_from({"d": honest["d"] * 2.0}),
         sigma_of=sigma_of,
         centre={"w": jnp.array(0.0)},
     )
@@ -119,9 +129,9 @@ for label, obj in (
 ):
     try:
         mean, _ = solve.wiener_solve(
-            block, noise_std={"d": obj}, require_convergence=None
+            block, precision={"d": obj}, require_convergence=None
         )
-        print(f"  {label:<20} accepted -> w = {float(mean['w']):+.6f}  (!!)")
+        print(f"  {label:<20} accepted -> w = {float(mean['w']):+.6f}")
     except Exception as exc:  # noqa: BLE001
         print(f"  {label:<20} REFUSED -> {type(exc).__name__}: "
               f"{str(exc).strip().splitlines()[0][:80]}")

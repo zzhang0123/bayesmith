@@ -13,7 +13,13 @@ from bayesmith.exact.fisher import (
     fisher_information,
     parameter_covariance,
 )
-from bayesmith.exact.gaussian import check_gaussian, gaussian_parts, noise_std_at
+from bayesmith.exact.gaussian import (
+    check_gaussian,
+    gaussian_parts,
+    noise_std_at,
+    precision_at,
+    precision_parts,
+)
 from bayesmith.exact.gls import (
     GLSResult,
     check_prediction_dependence,
@@ -31,6 +37,8 @@ __all__ = [
     "gaussian_parts",
     "check_gaussian",
     "noise_std_at",
+    "precision_parts",
+    "precision_at",
     "wiener_solve",
     "gcr_sample",
     "condition_bound",

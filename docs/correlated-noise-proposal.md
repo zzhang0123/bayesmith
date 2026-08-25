@@ -589,6 +589,96 @@ distinction, which is the same reason the docs guard had to become an AST walk
 -- and the irony of using one here, in a refactor whose entire purpose is to
 stop two vocabularies being confused, is worth recording.
 
+### 5.1b Step 4 landed, per-site (2026-08-25)
+
+Done the way 5.1a prescribes. What the second attempt found that the first
+did not:
+
+* **The census was incomplete and it did not matter.** 104 of the 111 are
+  `noise_std=` KEYWORD arguments; the rest are prose. But
+  `_iid_draws(block, sigma, ...)` in `dispatch/execute.py` passes the noise
+  POSITIONALLY, so no keyword census could see it. It surfaced as
+  `AttributeError: ArrayImpl has no attribute 'apply'` on the first run. That
+  is the argument for step 4 restated: an incomplete plan is survivable
+  precisely because the failure is loud.
+
+* **Only SIX call sites are genuinely mixed** -- far fewer than the first
+  attempt's 93 failures suggested. The difference is that the first attempt
+  converted the PRODUCERS (`noise_std_at` -> `precision_at`), which breaks
+  every value use downstream; keeping `noise_std_at` and adding
+  `precision_at` beside it leaves the value uses untouched by construction.
+  The six, each converted at the call rather than at the variable:
+
+  ==================================  ================================
+  site                                the two uses, together
+  ==================================  ================================
+  `dispatch/classify.py:492`          `_data_informed_point` (operator)
+                                      and `_relative_movement` (values),
+                                      three lines apart
+  `exact/fisher.py`                   weights the design (operator) and
+                                      is checked against `sigma_of`
+                                      (values) -- in one function body
+  `exact/gls.py::iterative_gls`       iterates values, hands on an
+                                      operator: `GLSResult.precision`
+  `tests/exact/test_correct.py:592`   `wrong["d"] / right["d"]`
+                                      elementwise, then both solve
+  `tests/exact/test_correct.py:631`   `{k: v * factor}` -- the wide
+                                      variant is built by SCALING sigma
+  `tests/dispatch/test_acceptance.py` `_dense_at` ravels sigma into the
+                                      analytic posterior, then solves
+  ==================================  ================================
+
+* **`node_shape` was an unlisted blocker, and the spec's claim that the seam
+  is "the only thing standing between a correlated node and the solver" is
+  false.** Measured: `linear_operator` -> `check_linearity` -> `noise_std_at`
+  -> `observation_parts` -> `node_shape` -> `gaussian_parts` -> `NotGaussian`.
+  SHAPE refused a correlated node, before any covariance was read. `loc` is
+  all `node_shape` needs, so it now reads it through `_loc_of`; the gate stays
+  where the covariance is.
+
+* **A live defect in `precision_parts`, found on the way.** It broadcast the
+  diagonal sigma to `loc`'s shape rather than to `node_shape`. For the shape
+  `node_shape`'s own docstring names -- a plated node whose `dist_fn` takes no
+  plated parent, so `loc` is scalar and the value is plated -- `apply` stayed
+  right by broadcasting while `log_normalizer` summed ONE term instead of `n`.
+  Measured at n=6: 0.4515827298 against 2.70949626, short by exactly the plate
+  size. That is defect B1's shape arriving through a broadcast rather than
+  through two objects, and no fixture could see it because every other one's
+  loc is already plate-shaped.
+
+* **The `fisher_information` redundancy check is now operator-vs-operator**,
+  both applied to one fixed probe, because `precision` need not have sigma
+  arrays to compare elementwise. Swept: it is if anything SHARPER than the
+  elementwise check it replaces, refusing a 1e-6 perturbation the old one
+  accepted (`apply` divides by sigma**2, roughly doubling the relative gap).
+
+**What step 4 bought, measured.** A `CirculantPrecision` handed to
+`wiener_solve` now solves to the dense Wiener filter at **1.4e-16** relative,
+against a reference built by `precision.dense` (materialised by application)
+and inverted in NumPy -- sharing no arithmetic with CG. `gcr_sample` at the
+same covariance reproduces the exact posterior variance within Monte-Carlo
+error. `probes/probe_5_the_one_object_seam.py` section (c) recorded that
+NEITHER `Precision` could be passed to a solver at all; re-run it, and both
+are accepted. Section (b) is unchanged and deliberately so: widening the TYPE
+did not make the one-object discipline structural, and was never claimed to.
+
+**What it did NOT buy: a correlated node still cannot be DECLARED on a graph
+and solved.** Three blockers remain, all on the value side, all measured:
+
+1. `linearity.py:735` -- `check_linearity` reads `noise_std_at` for its
+   per-sample UNIT ("departure from affinity in units of scale"). A circulant
+   has one: `sqrt(diag N)`, constant because it is stationary. The `Precision`
+   protocol does not expose it, and adding a fourth operation is a design
+   decision, not a fix.
+2. `block.py:427` -- `unchecked_operator` probes every observed node with
+   `check_gaussian`, the DIAGONAL guard. The correlated counterpart
+   (`check_precision`) exists and is measured; wiring it is the step.
+3. `block.py:345,434` -- `isolate` and the data walk both go through
+   `observation_parts`, which computes a `scale` neither of them uses.
+
+None is large. All three are the value side of the same seam, and each wants
+its own measurement, so they are increment 5 rather than the tail of step 4.
+
 ### 5.2 Then, in order
 
 2. **Split `CirculantPrecision`'s constructor check** into a `check_circulant`
@@ -598,9 +688,13 @@ stop two vocabularies being confused, is worth recording.
    `Normal` -> `DiagonalPrecision` and `CirculantNormal` -> `CirculantPrecision`
    and refusing everything else with the same `NotGaussian` (still a
    classification outcome, still routed to NUTS).
-4. **Rename the seam**: `noise_std_at` -> `precision_at`, `observation_parts`
-   returning `{obs: Precision}`. The 4 `diagonal_from` reach points stop
-   manufacturing and start receiving.
+4. ~~**Rename the seam**: `noise_std_at` -> `precision_at`,
+   `observation_parts` returning `{obs: Precision}`.~~ **Done, but as a SPLIT
+   rather than a rename** -- see 5.1b. `noise_std_at` stays: `iterative_gls`
+   iterates sigma VALUES and an operator has none, so `precision_at` is added
+   beside it. The 4 `diagonal_from` reach points (`solve.py::condition_bound`,
+   `solve.py::_conjugate_solve`, `correct.py::log_weight`,
+   `fisher.py::fisher_information`) do stop manufacturing and start receiving.
 5. **Refuse a correlated node with `depends_on_prediction=True`** until
    `fisher.py`'s variance-information term has a correlated form that has been
    derived AND measured. Refusing is the safe side, in the direction

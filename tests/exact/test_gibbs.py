@@ -45,7 +45,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bayesmith.exact.gaussian import noise_std_at
+from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.gibbs import assemble, gibbs_factory
 from bayesmith.graph.evaluate import log_joint
 from tests.exact.models import (
@@ -58,7 +58,7 @@ from tests.exact.oracle import graph_oracle
 
 #: Where `test_gibbs_fn_uses_the_hmc_sites_it_was_handed` freezes sigma on
 #: `mixed_radiometer`. Stated on BOTH sides of that test -- handed to the
-#: factory as `noise_std=` and to the oracle as `sigma_at=` -- so the two
+#: factory as `precision=` and to the oracle as `sigma_at=` -- so the two
 #: agree on the frozen covariance without either reading the other's choice.
 #: Not 0.0 (the block's prior mean and zero), not 2.6 (`weight`), not 4.2
 #: (`tau`'s prior mean): a value distinct from every parameter in the fixture.
@@ -151,15 +151,15 @@ def test_gibbs_fn_uses_the_hmc_sites_it_was_handed(
     the block ONLY through `w`'s prior width) moves the posterior mean by
     0.008 posterior sd and would need ~60,000 draws. Handing the factory an
     x-independent sigma of the caller's own choosing is a documented use of
-    `noise_std=`, and it is also the claim that correctness does not depend
+    `precision=`, and it is also the claim that correctness does not depend
     on sigma-hat being any good being exercised rather than asserted.
     """
     with jax.enable_x64(True):
         graph = build()
-        noise_std = (
+        precision = (
             None
             if freeze is None
-            else noise_std_at(
+            else precision_at(
                 graph,
                 {
                     latent: jnp.asarray(
@@ -169,7 +169,7 @@ def test_gibbs_fn_uses_the_hmc_sites_it_was_handed(
                 },
             )
         )
-        fn = gibbs_factory(graph, names, tol=1e-10, noise_std=noise_std)
+        fn = gibbs_factory(graph, names, tol=1e-10, precision=precision)
         sigma_at = None if freeze is None else {n: jnp.asarray(freeze) for n in names}
         drawn, predicted = [], []
         for value in values:

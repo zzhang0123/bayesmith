@@ -1,16 +1,18 @@
 """The conjugate solves, against a dense oracle that shares none of them."""
 
 import dataclasses
+import math
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import pytest
 
 from bayesmith.exact.block import domain_zero, variance_parts
-from bayesmith.exact.gaussian import noise_std_at
+from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.linearity import linear_operator
-from bayesmith.exact.precision import diagonal_from
+from bayesmith.exact.precision import CirculantPrecision
 from bayesmith.exact.solve import (
     PRECISION_FLOOR,
     condition_bound,
@@ -30,8 +32,18 @@ from tests.exact.models import (
 from tests.exact.oracle import flat_domain, graph_oracle
 
 
-def _sigma(graph, at):
-    return noise_std_at(graph, at)
+def _precision(graph, at):
+    """Every noise this file hands to a solver, as the OPERATOR it reads.
+
+    Site-by-site verdict for this module: all 25 uses feed `wiener_solve`,
+    `gcr_sample`, `condition_bound` or `normal_operator`, and not one reads a
+    per-sample sigma. So the producer is `precision_at`, not
+    `diagonal_from(noise_std_at(...))` -- which also means these tests
+    exercise the operator seam rather than the shim. The dense oracle builds
+    its own sigma from the graph independently, so the comparison stays
+    between two things that share nothing.
+    """
+    return precision_at(graph, at)
 
 
 def _assert_orderings_agree(oracle, block):
@@ -66,8 +78,8 @@ def test_the_bound_is_lambda_max_times_the_loosest_prior_variance():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        bound = float(condition_bound(block, noise_std=sigma, iterations=80))
+        precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        bound = float(condition_bound(block, precision=precision, iterations=80))
         oracle = graph_oracle(graph, ("a", "b"), at={})
     largest = float(np.linalg.eigvalsh(oracle.precision)[-1])
     loosest_variance = float(np.max(oracle.prior_std**2))
@@ -108,8 +120,8 @@ def test_the_bound_is_never_below_the_true_condition_number(loosened):
             block,
             prior_std={**block.prior_std, "b": block.prior_std["b"] * loosened},
         )
-        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        bound = float(condition_bound(widened, noise_std=sigma, iterations=80))
+        precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        bound = float(condition_bound(widened, precision=precision, iterations=80))
         oracle = graph_oracle(graph, ("a", "b"), at={})
     # `b`'s flat index depends on the oracle's own domain order, not on an
     # assumed position -- derive it rather than hardcoding 1, so a change to
@@ -141,8 +153,8 @@ def test_the_bound_is_loose_when_the_data_constrains_every_direction():
     with jax.enable_x64(True):
         graph = straight_line()
         block = linear_operator(graph, ("w",), at={})
-        sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
-        bound = float(condition_bound(block, noise_std=sigma, iterations=40))
+        precision = _precision(graph, {"w": jnp.asarray(0.0)})
+        bound = float(condition_bound(block, precision=precision, iterations=40))
         oracle = graph_oracle(graph, ("w",), at={})
     assert float(np.linalg.cond(oracle.precision)) == pytest.approx(1.0, rel=1e-9)
     assert bound > 100.0
@@ -162,12 +174,12 @@ def test_the_bound_grows_in_proportion_to_the_loosest_prior_variance():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        tight = float(condition_bound(block, noise_std=sigma, iterations=80))
+        precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        tight = float(condition_bound(block, precision=precision, iterations=80))
         widened = dataclasses.replace(
             block, prior_std={**block.prior_std, "b": block.prior_std["b"] * 100.0}
         )
-        loose = float(condition_bound(widened, noise_std=sigma, iterations=80))
+        loose = float(condition_bound(widened, precision=precision, iterations=80))
     # b's prior variance grows by 1e4 and it was already the loosest (7 vs 5).
     assert loose == pytest.approx(1e4 * tight, rel=1e-2)
 
@@ -182,7 +194,7 @@ def test_the_normal_operator_is_symmetric():
         # Precision objects, not raw 1/sigma**2: `normal_operator` reads the
         # protocol now, so a hand-built weight dict would be testing a shape
         # the solver no longer accepts.
-        weight = diagonal_from(_sigma(graph, {"a": 0.0, "b": 0.0}))
+        weight = _precision(graph, {"a": 0.0, "b": 0.0})
         normal = normal_operator(block, weight, variance_parts(block))
         keys = jax.random.split(jax.random.key(3), 2)
         u = {
@@ -211,7 +223,7 @@ def test_the_normal_operator_reproduces_the_dense_precision_matrix():
         # Precision objects, not raw 1/sigma**2: `normal_operator` reads the
         # protocol now, so a hand-built weight dict would be testing a shape
         # the solver no longer accepts.
-        weight = diagonal_from(_sigma(graph, {"a": 0.0, "b": 0.0}))
+        weight = _precision(graph, {"a": 0.0, "b": 0.0})
         normal = normal_operator(block, weight, variance_parts(block))
         columns = []
         for name in block.names:
@@ -231,7 +243,7 @@ def test_the_normal_operator_sums_over_every_observed_node():
     with jax.enable_x64(True):
         graph = two_observations()
         block = linear_operator(graph, ("w",), at={})
-        weight = diagonal_from(_sigma(graph, {"w": jnp.asarray(0.0)}))
+        weight = _precision(graph, {"w": jnp.asarray(0.0)})
         normal = normal_operator(block, weight, variance_parts(block))
         applied = float(normal({"w": jnp.asarray(1.0)})["w"])
         oracle = graph_oracle(graph, ("w",), at={})
@@ -252,8 +264,8 @@ def test_the_bound_is_tight_when_the_prior_alone_holds_a_direction():
     with jax.enable_x64(True):
         graph = prior_held_direction()
         block = linear_operator(graph, ("tight", "loose"), at={})
-        sigma = _sigma(graph, {"tight": jnp.asarray(0.0), "loose": jnp.asarray(0.0)})
-        bound = float(condition_bound(block, noise_std=sigma, iterations=80))
+        precision = _precision(graph, {"tight": jnp.asarray(0.0), "loose": jnp.asarray(0.0)})
+        bound = float(condition_bound(block, precision=precision, iterations=80))
         oracle = graph_oracle(graph, ("tight", "loose"), at={})
     true_kappa = float(np.linalg.cond(oracle.precision))
     assert bound == pytest.approx(true_kappa, rel=1e-3)
@@ -273,8 +285,8 @@ def test_the_bound_uses_the_loosest_prior_not_the_tightest():
     with jax.enable_x64(True):
         graph = prior_held_direction()
         block = linear_operator(graph, ("tight", "loose"), at={})
-        sigma = _sigma(graph, {"tight": jnp.asarray(0.0), "loose": jnp.asarray(0.0)})
-        bound = float(condition_bound(block, noise_std=sigma, iterations=80))
+        precision = _precision(graph, {"tight": jnp.asarray(0.0), "loose": jnp.asarray(0.0)})
+        bound = float(condition_bound(block, precision=precision, iterations=80))
         oracle = graph_oracle(graph, ("tight", "loose"), at={})
         tightest = float(np.min(oracle.prior_std**2))
         loosest = float(np.max(oracle.prior_std**2))
@@ -357,8 +369,8 @@ def test_wiener_solve_matches_the_dense_oracle():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        got, residual = wiener_solve(block, noise_std=sigma, tol=1e-14)
+        precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        got, residual = wiener_solve(block, precision=precision, tol=1e-14)
         oracle = graph_oracle(graph, ("a", "b"), at={})
     # Assert the ordering agreement rather than relying on both call sites
     # staying in step -- see _assert_orderings_agree's own docstring for why
@@ -373,8 +385,8 @@ def test_wiener_solve_matches_the_oracle_across_two_observed_nodes():
     with jax.enable_x64(True):
         graph = two_observations()
         block = linear_operator(graph, ("w",), at={})
-        sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
-        got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
+        precision = _precision(graph, {"w": jnp.asarray(0.0)})
+        got, _ = wiener_solve(block, precision=precision, tol=1e-14)
         oracle = graph_oracle(graph, ("w",), at={})
     _assert_orderings_agree(oracle, block)
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
@@ -385,8 +397,8 @@ def test_wiener_solve_matches_the_oracle_for_a_plated_block():
     with jax.enable_x64(True):
         graph = plated_latent(n=6)
         block = linear_operator(graph, ("z",), at={})
-        sigma = _sigma(graph, {"z": jnp.zeros(6)})
-        got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
+        precision = _precision(graph, {"z": jnp.zeros(6)})
+        got, _ = wiener_solve(block, precision=precision, tol=1e-14)
         oracle = graph_oracle(graph, ("z",), at={})
     assert got["z"].shape == (6,)
     _assert_orderings_agree(oracle, block)
@@ -397,8 +409,8 @@ def test_a_latent_the_data_never_reaches_comes_back_at_its_prior_mean():
     with jax.enable_x64(True):
         graph = unconstrained_latent()
         block = linear_operator(graph, ("w", "u"), at={})
-        sigma = _sigma(graph, {"w": jnp.asarray(0.0), "u": jnp.asarray(0.0)})
-        got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
+        precision = _precision(graph, {"w": jnp.asarray(0.0), "u": jnp.asarray(0.0)})
+        got, _ = wiener_solve(block, precision=precision, tol=1e-14)
     assert float(got["u"]) == pytest.approx(1.37, rel=1e-6)
 
 
@@ -428,10 +440,10 @@ def test_the_convergence_guard_fires_on_a_deliberately_starved_solve():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         with pytest.raises(Exception, match="did not converge"):
             wiener_solve(
-                block, noise_std=sigma, tol=1e-14, maxiter=1, require_convergence=1e-9
+                block, precision=precision, tol=1e-14, maxiter=1, require_convergence=1e-9
             )
 
 
@@ -440,9 +452,9 @@ def test_disabling_the_guard_returns_the_unconverged_answer_instead():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         got, residual = wiener_solve(
-            block, noise_std=sigma, tol=1e-14, maxiter=1, require_convergence=None
+            block, precision=precision, tol=1e-14, maxiter=1, require_convergence=None
         )
         oracle = graph_oracle(graph, ("a", "b"), at={})
     assert float(residual) > 1e-12
@@ -477,22 +489,22 @@ def test_the_guard_bounds_the_error_not_the_residual():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         loosened = dataclasses.replace(
             block, prior_std={**block.prior_std, "b": jnp.asarray(1e4)}
         )
-        kappa = float(condition_bound(loosened, noise_std=sigma, iterations=80))
+        kappa = float(condition_bound(loosened, precision=precision, iterations=80))
         # Bidirectional confirmation: read the raw residual with the guard
         # OFF, then show the SAME solve, guard ON, raises -- so it is kappa,
         # not the residual, doing the work. A guard computing
         # `error_bound = residual` (mutation 3) could not have raised here,
         # because the residual alone never crosses 1.0.
         _, residual = wiener_solve(
-            loosened, noise_std=sigma, tol=1e-8, maxiter=1, require_convergence=None
+            loosened, precision=precision, tol=1e-8, maxiter=1, require_convergence=None
         )
         with pytest.raises(Exception, match="did not converge"):
             wiener_solve(
-                loosened, noise_std=sigma, tol=1e-8, maxiter=1, require_convergence=1.0
+                loosened, precision=precision, tol=1e-8, maxiter=1, require_convergence=1.0
             )
     assert kappa > 1e6
     assert float(residual) < 1.0
@@ -515,12 +527,12 @@ def test_the_guard_points_at_enable_x64_in_float32():
     """
     graph = two_linear_latents()
     block = linear_operator(graph, ("a", "b"), at={})
-    sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+    precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
     loosened = dataclasses.replace(
         block, prior_std={**block.prior_std, "b": jnp.asarray(1e4)}
     )
     with pytest.raises(Exception, match="enable_x64"):
-        wiener_solve(loosened, noise_std=sigma, require_convergence=1e-3)
+        wiener_solve(loosened, precision=precision, require_convergence=1e-3)
 
 
 def test_the_precision_floor_alone_makes_the_guard_unreachable():
@@ -610,11 +622,11 @@ def test_the_precision_floor_alone_makes_the_guard_unreachable():
     """
     graph = two_linear_latents(n=60, sigma=1.0)
     block = linear_operator(graph, ("a", "b"), at={})
-    sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-    bound = float(condition_bound(block, noise_std=sigma))
+    precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+    bound = float(condition_bound(block, precision=precision))
     epsilon = float(jnp.finfo(jnp.result_type(*jax.tree.leaves(block.offset))).eps)
     _, residual = wiener_solve(
-        block, noise_std=sigma, tol=1e-14, require_convergence=None
+        block, precision=precision, tol=1e-14, require_convergence=None
     )
     residual = float(residual)
     # Confirms the fixture reaches its claimed regime -- robust across the
@@ -627,7 +639,7 @@ def test_the_precision_floor_alone_makes_the_guard_unreachable():
     require_convergence = error_bound / safety
     with pytest.raises(Exception, match="no tol or maxiter will help"):
         wiener_solve(
-            block, noise_std=sigma, tol=1e-14, require_convergence=require_convergence
+            block, precision=precision, tol=1e-14, require_convergence=require_convergence
         )
 
 
@@ -656,16 +668,16 @@ def test_a_non_finite_residual_gets_its_own_message():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         broken = dataclasses.replace(
             block, prior_std={**block.prior_std, "b": jnp.asarray(0.0)}
         )
         _, residual = wiener_solve(
-            broken, noise_std=sigma, tol=1e-14, require_convergence=None
+            broken, precision=precision, tol=1e-14, require_convergence=None
         )
         assert not bool(jnp.isfinite(residual)), float(residual)
         with pytest.raises(Exception, match="non-finite residual"):
-            wiener_solve(broken, noise_std=sigma, tol=1e-14, require_convergence=1e-3)
+            wiener_solve(broken, precision=precision, tol=1e-14, require_convergence=1e-3)
 
 
 def test_the_convergence_guard_is_off_by_default_but_reachable():
@@ -708,7 +720,7 @@ def test_the_convergence_guard_is_off_by_default_but_reachable():
     **What ON cost, at the defaults the function actually ships.** The suite
     never called these functions with their own defaults. Solving all 22
     linear-Gaussian fixtures in ``tests/exact/models.py`` as
-    ``wiener_solve(block, noise_std=sigma)`` -- float32, ``tol=1e-6``,
+    ``wiener_solve(block, precision=precision)`` -- float32, ``tol=1e-6``,
     ``require_convergence=1e-3``:
 
     ====================  ========
@@ -761,10 +773,10 @@ def test_the_convergence_guard_is_off_by_default_but_reachable():
 
     graph = radiometer_group()
     block = linear_operator(graph, ("a", "b"), at={})
-    sigma = _sigma(graph, {"a": jnp.zeros(()), "b": jnp.zeros(())})
+    precision = _precision(graph, {"a": jnp.zeros(()), "b": jnp.zeros(())})
 
     # Off by default: the solve this fixture gets is returned, not refused...
-    got, residual = wiener_solve(block, noise_std=sigma)
+    got, residual = wiener_solve(block, precision=precision)
 
     # ...and it is ACCURATE, which is what makes the refusal below a false
     # one rather than a caught error. Checked against the dense oracle, which
@@ -779,14 +791,14 @@ def test_the_convergence_guard_is_off_by_default_but_reachable():
     # ...but the keyword still works, so this is a default and not a removal.
     # The bound it is judged against is enormous compared to that true error,
     # which is the whole finding: assert the GAP, not just the raising.
-    bound = float(condition_bound(block, noise_std=sigma))
+    bound = float(condition_bound(block, precision=precision))
     assert float(residual) * bound > 1e-3, (float(residual), bound)
     # The refusal is FALSE by a wide margin, and that ratio -- not the mere
     # raising -- is the finding. Measured 2,718x on this fixture; asserted at
     # 1e+03 so ordinary drift cannot flip it but a real change must.
     assert 1e-3 / true_error > 1e3, true_error
     with pytest.raises(Exception, match="enable_x64"):
-        wiener_solve(block, noise_std=sigma, require_convergence=1e-3)
+        wiener_solve(block, precision=precision, require_convergence=1e-3)
 
 
 @pytest.mark.slow
@@ -855,10 +867,10 @@ def test_gcr_draws_have_the_oracle_mean_and_covariance():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = _sigma(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        precision = _precision(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         samples = jax.vmap(
             lambda k: gcr_sample(
-                block, noise_std=sigma, key=k, tol=1e-14, require_convergence=None
+                block, precision=precision, key=k, tol=1e-14, require_convergence=None
             )[0]
         )(jax.random.split(jax.random.key(20), draws))
         oracle = graph_oracle(graph, ("a", "b"), at={})
@@ -896,10 +908,10 @@ def test_a_draw_with_uninformative_data_falls_back_to_the_prior():
     with jax.enable_x64(True):
         graph = straight_line(sigma=1e6, prior_mean=1.75, prior_std=2.0)
         block = linear_operator(graph, ("w",), at={})
-        sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
+        precision = _precision(graph, {"w": jnp.asarray(0.0)})
         samples = jax.vmap(
             lambda k: gcr_sample(
-                block, noise_std=sigma, key=k, tol=1e-14, require_convergence=None
+                block, precision=precision, key=k, tol=1e-14, require_convergence=None
             )[0]["w"]
         )(jax.random.split(jax.random.key(21), draws))
     values = np.asarray(samples)
@@ -928,11 +940,11 @@ def test_the_mean_of_many_draws_is_the_wiener_solution():
     with jax.enable_x64(True):
         graph = two_observations()
         block = linear_operator(graph, ("w",), at={})
-        sigma = _sigma(graph, {"w": jnp.asarray(0.0)})
-        mean, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
+        precision = _precision(graph, {"w": jnp.asarray(0.0)})
+        mean, _ = wiener_solve(block, precision=precision, tol=1e-14)
         samples = jax.vmap(
             lambda k: gcr_sample(
-                block, noise_std=sigma, key=k, tol=1e-14, require_convergence=None
+                block, precision=precision, key=k, tol=1e-14, require_convergence=None
             )[0]["w"]
         )(jax.random.split(jax.random.key(22), draws))
         oracle = graph_oracle(graph, ("w",), at={})
@@ -973,10 +985,10 @@ def test_gcr_draws_have_no_spurious_correlation_across_a_plated_block():
     with jax.enable_x64(True):
         graph = plated_latent(n=6)
         block = linear_operator(graph, ("z",), at={})
-        sigma = _sigma(graph, {"z": jnp.zeros(6)})
+        precision = _precision(graph, {"z": jnp.zeros(6)})
         samples = jax.vmap(
             lambda k: gcr_sample(
-                block, noise_std=sigma, key=k, tol=1e-14, require_convergence=None
+                block, precision=precision, key=k, tol=1e-14, require_convergence=None
             )[0]["z"]
         )(jax.random.split(jax.random.key(31), draws))
         oracle = graph_oracle(graph, ("z",), at={})
@@ -987,3 +999,117 @@ def test_gcr_draws_have_no_spurious_correlation_across_a_plated_block():
     assert np.allclose(cov, oracle.covariance, rtol=0.1, atol=0.05 * spread)
     off_diag = cov[~np.eye(cov.shape[0], dtype=bool)]
     assert np.abs(off_diag).mean() < 0.03 * spread
+
+
+# ---------------------------------------------------------------------------
+# B9 step 4's acceptance: a CORRELATED covariance reaches the solver.
+# ---------------------------------------------------------------------------
+
+
+def _circulant_pieces(size=16, prior_std=5.0, decay=0.6, scale=0.25, floor=0.05):
+    """A block from a DIAGONAL graph, plus a correlated covariance for it.
+
+    The block is built from a diagonal model on purpose. Building one from a
+    correlated GRAPH is a separate, still-open blocker -- `check_linearity`
+    reads `noise_std_at` for its per-sample unit and `block.py` probes every
+    observed node with `check_gaussian`, both of which are the diagonal entry
+    points. What step 4 bought is the SOLVER's side, and that is what this
+    isolates: the operator is what CG consumes, and it never sees the graph.
+    """
+    size_range = np.arange(size)
+    grid = np.linspace(-1.0, 1.0, size)
+    data = 2.0 * grid + np.random.default_rng(3).normal(size=size) * 0.5
+
+    def model():
+        from bayesmith import const, det, observe, sample, trace
+
+        def inner():
+            xs = const("x", jnp.asarray(grid))
+            w = sample("w", lambda: dist.Normal(0.0, prior_std))
+            mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+            observe("d", lambda m: dist.Normal(m, 0.5), mu, obs=jnp.asarray(data))
+
+        return trace(inner)
+
+    lag = np.minimum(size_range, size - size_range)
+    kernel = jnp.asarray(scale * decay**lag + floor)
+    return model(), {"d": CirculantPrecision(first_column=kernel)}, grid, data
+
+
+def test_a_circulant_precision_solves_to_the_dense_wiener_filter():
+    """The acceptance for the whole increment: N^-1 need not be diagonal.
+
+    Before step 4 the solvers took `noise_std=`, a per-sample sigma dict, and
+    `docs/probes/probe_5_the_one_object_seam.py` section (c) recorded that
+    NEITHER `Precision` implementation could be passed to `wiener_solve` at
+    all. Re-run that probe: it is what says this flipped.
+
+    The reference is a dense Wiener filter built from `precision.dense` --
+    materialised by APPLICATION, so it is the operator callers actually get --
+    inverted with NumPy and solved with NumPy. It shares no arithmetic with
+    CG. Measured at n=16: 1.4e-16 relative, i.e. exact.
+
+    Deliberately NOT compared against the diagonal answer: the point is that
+    a correlated covariance gives a DIFFERENT and correct answer, and an
+    assertion that only checked finiteness would pass for the wrong one.
+    """
+    from bayesmith.exact.precision import dense
+
+    # Every JAX operation INSIDE the context. `jax.enable_x64` governs the
+    # OPERATION, not the array: a solve run outside it silently drops to
+    # float32 and misses a rel=1e-12 comparison by eight digits.
+    with jax.enable_x64(True):
+        graph, precision, grid, data = _circulant_pieces()
+        block = linear_operator(graph, ("w",))
+        got, _ = wiener_solve(
+            block, precision=precision, tol=1e-14, require_convergence=None
+        )
+        inverse = np.asarray(dense(precision["d"], grid.size, jnp.float64))
+        # ...and the diagonal answer, so we can show the covariance was read.
+        diagonal, _ = wiener_solve(
+            block,
+            precision=_precision(graph, {"w": jnp.asarray(0.0)}),
+            tol=1e-14,
+            require_convergence=None,
+        )
+
+    design = grid.reshape(-1, 1)
+    normal = design.T @ inverse @ design + np.eye(1) / 25.0
+    reference = np.linalg.solve(normal, design.T @ inverse @ data.reshape(-1, 1)).item()
+    assert np.asarray(got["w"]).item() == pytest.approx(reference, rel=1e-12)
+    assert abs(np.asarray(diagonal["w"]).item() - reference) > 0.1 * abs(reference)
+
+
+def test_a_circulant_precision_draws_at_the_right_posterior_width():
+    """`gcr_sample` needs `whiten`, which is the third operation the spec omits.
+
+    The mean agreeing is not enough: the fluctuation term is `N^-1/2 omega`,
+    a different method of the protocol, and a `whiten` that disagreed with
+    `apply` would leave the mean exactly right and the WIDTH wrong -- the
+    same silent shape `check_frozen_sigma` exists for one level up.
+
+    The band is the Monte-Carlo error of a variance estimate, `sqrt(2/(n-1))`
+    relative, at four sigma -- derived rather than tuned, so a tighter run
+    does not need the number changed.
+    """
+    draws = 20_000
+    with jax.enable_x64(True):
+        graph, precision, grid, _ = _circulant_pieces()
+        block = linear_operator(graph, ("w",))
+
+        def one(key):
+            drawn, _ = gcr_sample(
+                block, precision=precision, key=key, tol=1e-14,
+                require_convergence=None,
+            )
+            return drawn["w"]
+
+        sample_set = np.asarray(jax.vmap(one)(jax.random.split(jax.random.key(0), draws)))
+        from bayesmith.exact.precision import dense
+
+        inverse = np.asarray(dense(precision["d"], grid.size, jnp.float64))
+
+    design = grid.reshape(-1, 1)
+    exact = 1.0 / (design.T @ inverse @ design + np.eye(1) / 25.0).item()
+    band = 4.0 * math.sqrt(2.0 / (draws - 1))
+    assert abs(sample_set.var() / exact - 1.0) < band

@@ -38,7 +38,7 @@ from bayesmith.exact.block import (
     variance_parts,
 )
 from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
-from bayesmith.exact.precision import Precision, diagonal_from, quadratic
+from bayesmith.exact.precision import Precision, quadratic
 
 #: Power-iteration steps for the top of the spectrum. The estimate typically
 #: settles within three; this leaves margin at a fixed cost of
@@ -53,23 +53,6 @@ POWER_ITERATIONS: int = 12
 #: room without admitting a genuinely unconverged solve, whose residual is
 #: orders of magnitude larger.
 PRECISION_FLOOR: float = 10.0
-
-
-def _weights(noise_std: dict[str, Any]) -> dict[str, Precision]:
-    """``{observed: sigma}`` -> ``{observed: N^-1}``.
-
-    Named for what it used to return, because every caller here means "the
-    noise, as the solver consumes it" and renaming would churn call sites for
-    no reader's benefit. What changed is the TYPE: a per-sample weight became
-    a :class:`~bayesmith.exact.precision.Precision`, so the same three uses
-    below -- the quadratic form, ``N^-1 r``, and the whitening draw -- go
-    through an interface a correlated covariance can also satisfy.
-
-    The diagonal path is not special-cased around it: it goes through the
-    same protocol calls, so the degeneracy stays exercised by every solve test
-    in the suite rather than only by ``tests/exact/test_precision.py``.
-    """
-    return diagonal_from(noise_std)
 
 
 def normal_operator(
@@ -158,7 +141,7 @@ def _condition_bound(
 def condition_bound(
     block: LinearBlock,
     *,
-    noise_std: dict[str, Any],
+    precision: dict[str, Precision],
     iterations: int = POWER_ITERATIONS,
     key: jax.Array | None = None,
 ) -> jax.Array:
@@ -177,10 +160,11 @@ def condition_bound(
 
     Args:
         block: from :func:`bayesmith.exact.linearity.linear_operator`.
-        noise_std: ``{observed: sigma}``, as
-            :func:`bayesmith.exact.gaussian.noise_std_at` returns. A decided
-            sigma, not a rule for producing one: a conditioning number belongs
-            to one particular normal operator.
+        precision: ``{observed: N^-1}``, as
+            :func:`bayesmith.exact.gaussian.precision_at` returns, or
+            :func:`~bayesmith.exact.precision.diagonal_from` applied to a
+            sigma dict. A decided operator, not a rule for producing one: a
+            conditioning number belongs to one particular normal operator.
         iterations: power-iteration steps for ``lambda_max``.
         key: PRNG key for the starting vector. Fixed by default, so the bound
             is reproducible.
@@ -194,7 +178,7 @@ def condition_bound(
     """
     return _condition_bound(
         block,
-        _weights(noise_std),
+        precision,
         variance_parts(block),
         jax.random.key(0) if key is None else key,
         iterations,
@@ -210,7 +194,7 @@ def _split_like(key: jax.Array, template: Any) -> Any:
 def _conjugate_solve(
     block: LinearBlock,
     *,
-    noise_std: dict[str, Any],
+    precision: dict[str, Precision],
     tol: float,
     maxiter: int | None,
     key: jax.Array | None,
@@ -222,7 +206,7 @@ def _conjugate_solve(
     the mean uses ``A^T N^-1 (d - offset) + S^-1 m``, a draw adds the two
     fluctuation terms. ``key=None`` selects the mean.
     """
-    weight = _weights(noise_std)
+    weight = precision
     prior_variance = variance_parts(block)
     residual_data = jax.tree.map(jnp.subtract, block.data, block.offset)
     zero = domain_zero(block)
@@ -360,8 +344,8 @@ def _conjugate_solve(
             "wiener_solve/gcr_sample produced a non-finite residual. That is not "
             "a convergence problem and no tol or maxiter affects it: the normal "
             "operator or the right-hand side is already non-finite before CG "
-            "starts. The usual causes are a sigma of zero somewhere in "
-            "noise_std, a prior_std of zero, or a prediction that already "
+            "starts. The usual causes are a zero somewhere in the precision's "
+            "own covariance, a prior_std of zero, or a prediction that already "
             "overflowed at the point the block was built. check_gaussian "
             "refuses a non-positive sigma at block-build time, so a non-finite "
             "residual here points at the prediction or the arithmetic, not at "
@@ -401,7 +385,7 @@ def _conjugate_solve(
 def wiener_solve(
     block: LinearBlock,
     *,
-    noise_std: dict[str, Any],
+    precision: dict[str, Precision],
     tol: float = 1e-6,
     maxiter: int | None = None,
     require_convergence: float | None = None,
@@ -414,13 +398,22 @@ def wiener_solve(
 
     Args:
         block: from :func:`bayesmith.exact.linearity.linear_operator`.
-        noise_std: ``{observed: sigma}``, from
-            :func:`bayesmith.exact.gaussian.noise_std_at`. A sigma that has
-            already been decided -- a conjugate solve has no prediction to
-            evaluate a rule at, the prediction being what it solves for. For a
-            prediction-dependent noise model see
+        precision: ``{observed: N^-1}``, from
+            :func:`bayesmith.exact.gaussian.precision_at`, or
+            :func:`~bayesmith.exact.precision.diagonal_from` applied to what
+            :func:`bayesmith.exact.gaussian.noise_std_at` returns. A decided
+            operator -- a conjugate solve has no prediction to evaluate a rule
+            at, the prediction being what it solves for. For a prediction-
+            dependent noise model see
             :func:`bayesmith.exact.gls.iterative_gls`, which finds the fixed
-            point and hands the result back here.
+            point and hands the result back here as
+            :attr:`~bayesmith.exact.gls.GLSResult.precision`.
+
+            **An operator, not a sigma.** CG only ever needs ``N^-1 r`` and
+            ``r^T N^-1 r``, so a correlated covariance costs nothing
+            structural here -- which is the whole point of taking the noise
+            as a :class:`~bayesmith.exact.precision.Precision` rather than as
+            per-sample values that presuppose independent samples.
         tol: CG tolerance -- a bound on the relative RESIDUAL, which is not
             the same as accuracy. See the note below.
         maxiter: CG iteration cap. ``None`` lets JAX choose.
@@ -478,7 +471,7 @@ def wiener_solve(
     """
     return _conjugate_solve(
         block,
-        noise_std=noise_std,
+        precision=precision,
         tol=tol,
         maxiter=maxiter,
         key=None,
@@ -489,7 +482,7 @@ def wiener_solve(
 def gcr_sample(
     block: LinearBlock,
     *,
-    noise_std: dict[str, Any],
+    precision: dict[str, Precision],
     key: jax.Array,
     tol: float = 1e-6,
     maxiter: int | None = None,
@@ -511,8 +504,13 @@ def gcr_sample(
 
     Args:
         block: from :func:`bayesmith.exact.linearity.linear_operator`.
-        noise_std: ``{observed: sigma}``, exactly as for
-            :func:`wiener_solve`.
+        precision: ``{observed: N^-1}``, exactly as for
+            :func:`wiener_solve`. This is the consumer that needs
+            :meth:`~bayesmith.exact.precision.Precision.whiten`: the
+            fluctuation term is ``N^-1/2 omega``, which
+            :meth:`~bayesmith.exact.precision.Precision.apply` and
+            :meth:`~bayesmith.exact.precision.Precision.log_normalizer`
+            cannot build between them.
         key: PRNG key. ``vmap`` over split keys for many independent draws.
         tol: CG tolerance -- a bound on the residual, not on the accuracy.
         maxiter: CG iteration cap.
@@ -531,7 +529,7 @@ def gcr_sample(
     """
     return _conjugate_solve(
         block,
-        noise_std=noise_std,
+        precision=precision,
         tol=tol,
         maxiter=maxiter,
         key=key,

@@ -127,6 +127,22 @@ def _checked_loc(node: Node, loc: Any) -> jax.Array:
     return found
 
 
+def _loc_of(graph: Graph, node: Node, env: dict[str, Any]) -> jax.Array:
+    """``node``'s ``loc``, with no opinion about its covariance.
+
+    Split out of :func:`gaussian_parts` because :func:`node_shape` needs only
+    this. Reading the shape through ``gaussian_parts`` made SHAPE refuse a
+    correlated node -- measured: a ``CirculantNormal`` observation stopped in
+    ``node_shape`` -> ``gaussian_parts``, so ``observation_parts``,
+    ``noise_std_at``, ``check_linearity`` and ``linear_operator`` all raised
+    ``NotGaussian`` before any covariance was read. A node's value has a shape
+    whatever its samples' correlations are; the gate belongs where the
+    covariance is read, which is :func:`gaussian_parts` and
+    :func:`precision_parts`, and observed nodes still meet ``check_gaussian``.
+    """
+    return _checked_loc(node, unwrap(apply_probabilistic(graph, node, env)).loc)
+
+
 def node_shape(graph: Graph, node: Node, env: dict[str, Any]) -> tuple[int, ...]:
     """Shape of ``node``'s VALUE.
 
@@ -142,7 +158,7 @@ def node_shape(graph: Graph, node: Node, env: dict[str, Any]) -> tuple[int, ...]
     domain is a different space from the one NUTS samples --
     ``test_node_shape_agrees_with_the_numpyro_bridge`` pins it.
     """
-    loc, _ = gaussian_parts(graph, node, env)
+    loc = _loc_of(graph, node, env)
     shapes: list[tuple[int, ...]] = [jnp.shape(loc)]
     if node.plate:
         shapes.append((graph.plate_size(node.plate[0]),))
@@ -323,7 +339,15 @@ def precision_parts(
             "This is a classification outcome, not a defect in the model."
         )
     loc = _checked_loc(node, distribution.loc)
-    scale = jnp.broadcast_to(jnp.asarray(distribution.scale), jnp.shape(loc))
+    # To :func:`node_shape`, not to ``loc``'s shape. A plated node whose
+    # ``dist_fn`` takes no plated parent has a SCALAR loc and a plate-shaped
+    # value, and a ``DiagonalPrecision`` built at the scalar would still
+    # ``apply`` correctly by broadcasting while its ``log_normalizer`` summed
+    # ONE term instead of ``n`` -- a log-determinant short by a factor of the
+    # plate size, which is defect B1's shape exactly.
+    scale = jnp.broadcast_to(
+        jnp.asarray(distribution.scale), node_shape(graph, node, env)
+    )
     return loc, DiagonalPrecision(sigma=scale)
 
 
@@ -359,3 +383,43 @@ def noise_std_at(graph: Graph, values: dict[str, Any]) -> dict[str, jax.Array]:
     """
     _, _, scale = observation_parts(graph, evaluate(graph, values))
     return scale
+def precision_at(graph: Graph, values: dict[str, Any]) -> dict[str, Any]:
+    """``{obs: Precision}`` with the latents at ``values`` -- the OPERATOR seam.
+
+    The counterpart of :func:`noise_std_at`, and deliberately **not** its
+    replacement. The seam SPLITS rather than renames, because the two sides
+    are different quantities and only one of them generalises:
+
+    ==============  ==============================  =========================
+    seam            what it produces                who needs it
+    ==============  ==============================  =========================
+    ``precision_at``  ``N^-1`` as an operator       the solve, the density,
+                                                    the information
+    ``noise_std_at``  per-sample sigma VALUES       ``iterative_gls``'s
+                                                    reweighting, the
+                                                    linearity check's unit
+    ==============  ==============================  =========================
+
+    ``iterative_gls`` iterates sigma values -- solve at the current sigma,
+    recompute sigma at the new solution, repeat -- and an operator has none to
+    iterate. Renaming ``noise_std_at`` to this would have left that loop with
+    nothing to say, which is why B9's step 4 is a split and not the rename its
+    own text describes.
+
+    A ``Precision`` is what a correlated node can supply and a sigma dict is
+    not, so this is the producer a ``CirculantNormal`` observation reaches the
+    solver through. For a diagonal model the two agree by construction, and
+    ``test_precision_at_agrees_with_diagonal_from_noise_std_at`` pins that:
+    this is not a second implementation of the diagonal case, it is
+    :func:`precision_parts` over the same nodes ``observation_parts`` walks.
+
+    Traceable and **unchecked**, like the parts it is built from. Pair it with
+    :func:`check_gaussian` (diagonal) or
+    :func:`~bayesmith.exact.precision.check_precision` (either), which run
+    eagerly at the boundary.
+    """
+    env = evaluate(graph, values)
+    return {
+        name: precision_parts(graph, graph.node(name), env)[1]
+        for name in graph.observed
+    }

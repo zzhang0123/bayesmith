@@ -194,7 +194,7 @@ def _weighted_design(
 def fisher_information(
     block: LinearBlock,
     *,
-    noise_std: dict[str, Any],
+    precision: dict[str, Any],
     include_prior: bool = True,
     depends_on_prediction: bool = True,
     sigma_of: Any = None,
@@ -219,8 +219,17 @@ def fisher_information(
 
     Args:
         block: from :func:`bayesmith.exact.linearity.linear_operator`.
-        noise_std: ``{observed: sigma}``, from
-            :func:`bayesmith.exact.gaussian.noise_std_at`.
+        precision: ``{observed: N^-1}``, from
+            :func:`bayesmith.exact.gaussian.precision_at`, or
+            :func:`~bayesmith.exact.precision.diagonal_from` applied to
+            :func:`bayesmith.exact.gaussian.noise_std_at`. **This function
+            reads the noise in BOTH vocabularies and they are not the same
+            argument**: the operator weights the design, while ``sigma_of``
+            supplies the per-sample VALUES whose log-derivative is the
+            variance's own information. A dict of ``Precision`` objects has no
+            per-sample sigma to differentiate, and a dict of sigmas is not an
+            operator a correlated covariance can satisfy -- which is why B9's
+            step 4 splits this seam rather than renaming it.
         include_prior: add ``S^-1``, making the result the posterior precision
             rather than the likelihood's information. Default ``True``,
             because that is the quantity every other exit in this package
@@ -236,22 +245,27 @@ def fisher_information(
         sigma_of: the ``{name: x} -> {observed: sigma}`` seam, from
             :func:`~bayesmith.exact.gls.sigma_from_graph` -- the same one
             :func:`~bayesmith.exact.gls.iterative_gls` iterates. The decided
-            ``noise_std`` cannot supply this: a dict has no derivative.
+            ``precision`` cannot supply this: an operator has no
+            per-sample sigma, and a decided dict has no derivative.
             Passing it for a genuinely constant sigma is harmless and costs
             one ``jacfwd``, because the term is then exactly ``0.0``.
-        centre: the domain point ``noise_std`` was read at, i.e. the point the
+        centre: the domain point ``precision`` was read at, i.e. the point the
             curvature is taken at. Checked against ``sigma_of(centre)`` rather
             than trusted, because the two are redundant by construction and an
             unchecked redundancy is how a covariance ends up weighted at one
-            point and curved at another.
+            point and curved at another. The check compares the two as
+            OPERATORS -- both applied to one fixed probe -- rather than
+            comparing sigma arrays, because ``precision`` need not have sigma
+            arrays to compare.
 
     Raises:
         ValueError: if ``depends_on_prediction`` is True and no rule is given.
-        ValueError: if ``noise_std`` is not what ``sigma_of(centre)`` produces.
+        ValueError: if ``precision`` is not the operator ``sigma_of(centre)``
+            implies.
     """
     spans, _ = _spans(block)
     design = dense_operator(block)
-    values = design.T @ _weighted_design(block, design, diagonal_from(noise_std))
+    values = design.T @ _weighted_design(block, design, precision)
     if depends_on_prediction and (sigma_of is None or centre is None):
         raise ValueError(
             "fisher_information() was told the noise depends on the prediction "
@@ -259,22 +273,42 @@ def fisher_information(
             "variance's own information, 2 (dlog sigma/dx)^T (dlog sigma/dx), "
             "and the error bar it implies is too WIDE rather than too narrow, "
             "which reads as safe. Pass sigma_of=sigma_from_graph(graph, at) "
-            "and centre= the point noise_std was read at; or, if the sigma "
+            "and centre= the point the precision was read at; or, if the sigma "
             "really is constant, pass depends_on_prediction=False. "
             "check_prediction_dependence() settles which, and this function "
-            "cannot -- a decided noise_std dict has no derivative."
+            "cannot -- a decided precision has no derivative."
         )
     if sigma_of is not None and centre is not None:
-        implied = sigma_of(centre)
-        for name in sorted(noise_std):
+        implied = diagonal_from(sigma_of(centre))
+        for name in sorted(precision):
+            # Compared as OPERATORS, on one fixed probe, rather than as sigma
+            # arrays: `precision` is an interface and a correlated
+            # implementation has no per-sample sigma to line up. For a
+            # diagonal pair this is not weaker than the elementwise
+            # comparison it replaces -- `apply` divides the probe by sigma**2
+            # elementwise, so the same n numbers are still being compared, and
+            # a probe drawn rather than constant is what keeps that true for
+            # an implementation that mixes samples.
+            probe = jax.random.normal(
+                jax.random.key(0),
+                jnp.shape(block.data[name]),
+                jnp.asarray(block.data[name]).dtype,
+            )
             if not np.allclose(
-                np.asarray(noise_std[name]), np.asarray(implied[name]), rtol=1e-6
+                np.asarray(precision[name].apply(probe)),
+                np.asarray(implied[name].apply(probe)),
+                rtol=1e-6,
             ):
                 raise ValueError(
-                    f"noise_std[{name!r}] is not what sigma_of produces at "
-                    "centre, so the weighting and the curvature would be taken "
-                    "at different points. Pass the centre noise_std was "
-                    "actually read at."
+                    f"precision[{name!r}] is not the operator sigma_of implies "
+                    "at centre, so the weighting and the curvature would be "
+                    "taken at different points. Pass the centre the precision "
+                    "was actually read at. (A CORRELATED precision reaches "
+                    "this too: sigma_of produces per-sample sigmas, whose "
+                    "diagonal operator no off-diagonal covariance matches. "
+                    "The correlated form of the variance-information term is "
+                    "not derived yet, and precision_parts refuses that "
+                    "combination upstream.)"
                 )
         values = values + 2.0 * _log_sigma_curvature(block, sigma_of, centre, spans)
     if include_prior:

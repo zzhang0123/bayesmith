@@ -54,6 +54,7 @@ __all__ = [
     "iterative_gls",
     "sigma_from_graph",
     "noise_std_at",
+    "precision_at",
     "fisher_information",
     "parameter_covariance",
     # errors
@@ -106,6 +107,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "iterative_gls": ("bayesmith.exact.gls", "iterative_gls"),
     "sigma_from_graph": ("bayesmith.exact.gls", "sigma_from_graph"),
     "noise_std_at": ("bayesmith.exact.gaussian", "noise_std_at"),
+    "precision_at": ("bayesmith.exact.gaussian", "precision_at"),
     "fisher_information": ("bayesmith.exact.fisher", "fisher_information"),
     "parameter_covariance": ("bayesmith.exact.fisher", "parameter_covariance"),
 }

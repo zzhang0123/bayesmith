@@ -34,7 +34,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from bayesmith.exact.block import LinearBlock, variance_parts
-from bayesmith.exact.solve import _weights, normal_operator, wiener_solve
+from bayesmith.exact.solve import normal_operator, wiener_solve
 from bayesmith.graph.evaluate import log_joint
 from bayesmith.graph.graph import Graph
 
@@ -60,18 +60,18 @@ KHAT_MIN_DRAWS: int = 10
 
 
 class FrozenSigmaMismatch(Exception):
-    """``mu`` and ``noise_std`` describe different frozen Gaussians."""
+    """``mu`` and ``precision`` describe different frozen Gaussians."""
 
 
 def check_frozen_sigma(
     block: LinearBlock,
-    noise_std: dict[str, Any],
+    precision: dict[str, Any],
     mu: dict[str, Any],
     *,
     rtol: float = 1e-6,
     tol: float = 1e-10,
 ) -> float:
-    """Verify ``mu`` really is the solution at ``noise_std``.
+    """Verify ``mu`` really is the solution at ``precision``.
 
     Call this ONCE per reweighting run, before the vmap -- not inside
     :func:`log_weight`, which is vmapped per draw and must stay jittable. Same
@@ -79,10 +79,10 @@ def check_frozen_sigma(
     checking thing runs eagerly at the boundary.
 
     **What it is protecting.** ``log_weight`` takes ``log p`` from the graph's
-    own distributions and ``q``'s operator from the ``noise_std`` dict, in one
+    own distributions and ``q``'s operator from the ``precision`` dict, in one
     expression, and its own docstring records ``at`` as "Unverifiable here". If
-    the sigma the draws were made at is not the sigma the weight is computed
-    at, the estimator no longer targets the posterior -- it targets a TILTED
+    the covariance the draws were made at is not the covariance the weight is
+    computed at, the estimator no longer targets the posterior -- it targets a TILTED
     distribution. Self-normalised importance sampling is valid for any
     x-independent proposal, but only when the ``q`` in the weight is the ``q``
     the draws came from.
@@ -114,7 +114,10 @@ def check_frozen_sigma(
 
     Args:
         block: the block ``q`` was built for.
-        noise_std: the frozen sigma ``log_weight`` will be given.
+        precision: the frozen ``{observed: N^-1}`` ``log_weight`` will be
+            given -- the OPERATOR, not the sigma it may have been built from.
+            What must match between the draws and the weight is the covariance
+            ``q`` was formed at, and that is this object.
         mu: the centre ``log_weight`` will be given.
         rtol: relative tolerance on ``mu`` against a fresh solve.
         tol: CG tolerance for that solve. Tighter than the caller's on
@@ -128,7 +131,7 @@ def check_frozen_sigma(
         FrozenSigmaMismatch: when it exceeds ``rtol``.
     """
     fresh, _ = wiener_solve(
-        block, noise_std=noise_std, tol=tol, require_convergence=None
+        block, precision=precision, tol=tol, require_convergence=None
     )
     gap = jnp.sqrt(
         sum(jnp.sum((jnp.asarray(mu[name]) - fresh[name]) ** 2) for name in fresh)
@@ -137,14 +140,14 @@ def check_frozen_sigma(
     relative = float(gap / jnp.maximum(scale, 1e-30))
     if not relative <= rtol:  # `not <=` so a NaN is refused too
         raise FrozenSigmaMismatch(
-            f"mu is {relative:.3e} away from the solution at this noise_std, "
+            f"mu is {relative:.3e} away from the solution at this precision, "
             f"against rtol {rtol:.3e}. The draws were almost certainly made at "
             "a different sigma than the weight is being computed at, and the "
             "estimator then targets a TILTED distribution rather than the "
             "posterior. Note that the ESS will not necessarily warn you: "
             "measured, the direction that leaves the mean right reports a "
             "healthy 0.883 while the posterior width comes out 30 % too "
-            "narrow. Pass the same noise_std to wiener_solve, gcr_sample and "
+            "narrow. Pass the same precision to wiener_solve, gcr_sample and "
             "log_weight."
         )
     return relative
@@ -156,20 +159,21 @@ def log_weight(
     x: dict[str, Any],
     *,
     at: dict[str, Any],
-    noise_std: dict[str, Any],
+    precision: dict[str, Any],
     mu: dict[str, Any],
 ) -> jax.Array:
     """``log p(x, z, d) - log q(x)``, up to a constant common to every draw.
 
-    ``q = N(mu, M^-1)`` with ``M = A^T N^-1 A + S^-1`` at the FROZEN sigma, so
+    ``q = N(mu, M^-1)`` with ``M = A^T N^-1 A + S^-1`` at the FROZEN
+    covariance, so
 
         log w = log_joint(graph, {**at, **x}) + 1/2 (x-mu)^T M (x-mu) + C ,
         C = -1/2 log det M + (n/2) log 2pi .
 
-    ``C`` is dropped. It is identical for every draw **because sigma is frozen
-    at a value that does not depend on x**: ``noise_std`` is a decided dict,
-    not a rule, so ``M`` -- and therefore ``log det M`` -- is the same operator
-    for every draw this function is called on. Both consumers cancel it:
+    ``C`` is dropped. It is identical for every draw **because the covariance
+    is frozen at a value that does not depend on x**: ``precision`` is a
+    decided operator, not a rule, so ``M`` -- and therefore ``log det M`` -- is
+    the same operator for every draw this function is called on. Both consumers cancel it:
     self-normalisation because ``softmax`` is shift-invariant, an MH ratio
     because it takes a difference.
 
@@ -195,8 +199,8 @@ def log_weight(
             built. **Unverifiable here** -- a ``LinearBlock`` does not record
             the ``at`` it was built at, so passing a different one silently
             weights draws against a ``q`` from a different conditional.
-        noise_std: the FROZEN ``{observed: sigma}`` that ``q`` was drawn at --
-            for a prediction-dependent model, ``GLSResult.noise_std``. Not
+        precision: the FROZEN ``{observed: N^-1}`` that ``q`` was drawn at --
+            for a prediction-dependent model, ``GLSResult.precision``. Not
             recomputed at ``x``: recomputing it is precisely the dependence
             this weight exists to correct, and doing it here would put the
             correction on both sides and cancel it.
@@ -212,7 +216,7 @@ def log_weight(
         ``len(block.names)`` times the cost -- a five-member block paid five
         JVP/VJP pairs to use one leaf of each.
     """
-    operator = normal_operator(block, _weights(noise_std), variance_parts(block))
+    operator = normal_operator(block, precision, variance_parts(block))
     delta = jax.tree.map(jnp.subtract, x, mu)
     pushed = operator(delta)
     quadratic = 0.5 * sum(jnp.sum(delta[name] * pushed[name]) for name in delta)

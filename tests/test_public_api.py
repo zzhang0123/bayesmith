@@ -68,6 +68,7 @@ def test_every_exact_name_resolves_and_is_the_same_object_as_its_module_s():
         "iterative_gls": gls.iterative_gls,
         "sigma_from_graph": gls.sigma_from_graph,
         "noise_std_at": gaussian.noise_std_at,
+        "precision_at": gaussian.precision_at,
         "fisher_information": fisher.fisher_information,
         "parameter_covariance": fisher.parameter_covariance,
     }
@@ -136,6 +137,8 @@ def test_the_exact_subpackage_s_own_all_reexports_the_right_object():
         "gaussian_parts": gaussian.gaussian_parts,
         "check_gaussian": gaussian.check_gaussian,
         "noise_std_at": gaussian.noise_std_at,
+        "precision_parts": gaussian.precision_parts,
+        "precision_at": gaussian.precision_at,
         "wiener_solve": solve.wiener_solve,
         "gcr_sample": solve.gcr_sample,
         "condition_bound": solve.condition_bound,
