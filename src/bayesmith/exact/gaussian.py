@@ -294,6 +294,22 @@ def precision_parts(
     distribution = unwrap(apply_probabilistic(graph, node, env))
     circulant = getattr(dist, "CirculantNormal", None)
     if circulant is not None and isinstance(distribution, circulant):
+        if node.depends_on_prediction:
+            raise NotGaussian(
+                f"node {node.name!r} declares a CORRELATED noise AND "
+                "depends_on_prediction=True, which the exact path refuses "
+                "until the variance's own information has a correlated form "
+                "that has been derived and MEASURED. When sigma depends on "
+                "the prediction the Fisher matrix carries a second term, "
+                "1/2 tr(N^-1 dN N^-1 dN); the factor exact/fisher.py applies "
+                "-- (1 + 2 f^2) -- was derived for a DIAGONAL N and there is "
+                "no reason to expect it to survive off-diagonal terms. "
+                "Running anyway would return a Cramer-Rao bound that is "
+                "silently wrong, which is worse than routing to NUTS. Declare "
+                "depends_on_prediction=False if the covariance really is "
+                "fixed, and check that claim with "
+                "gls.check_prediction_dependence."
+            )
         loc = _checked_loc(node, distribution.loc)
         return loc, CirculantPrecision(
             first_column=jnp.asarray(distribution.covariance_row)

@@ -301,7 +301,13 @@ def _correlated_graph(size: int = 8, weight: float = 2.0, decay: float = 0.4):
         xs = const("X", x)
         w = sample("w", lambda: dist.Normal(0.0, 5.0))
         mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
-        observe("d", lambda m: dist.CirculantNormal(m, kernel), mu, obs=data)
+        observe(
+            "d",
+            lambda m: dist.CirculantNormal(m, kernel),
+            mu,
+            depends_on_prediction=False,
+            obs=data,
+        )
 
     return trace(model), kernel
 
@@ -386,3 +392,55 @@ def test_a_distribution_neither_gate_row_covers_is_still_a_routing_outcome():
     env = evaluate(graph, {"w": jnp.asarray(0.0)})
     with pytest.raises(NotGaussian, match="StudentT"):
         precision_parts(graph, graph.node("d"), env)
+
+
+def test_a_correlated_node_that_claims_prediction_dependence_is_refused():
+    """The safe side, and the reason is a gap in a DERIVATION, not in code.
+
+    When sigma depends on the prediction the Fisher matrix carries a second
+    term, ``1/2 tr(N^-1 dN N^-1 dN)``. `exact/fisher.py` applies it as the
+    clean factor ``(1 + 2 f^2)``, and that factor was derived for a DIAGONAL
+    N -- the trace of a product of diagonal matrices. Nothing says it survives
+    off-diagonal terms, and nobody has derived or measured what replaces it.
+
+    Running anyway would produce a Cramer-Rao bound that is silently wrong.
+    Refusing routes the model to NUTS, which handles it correctly. That is the
+    same direction `fisher_information`'s own default already chose when it
+    made `depends_on_prediction` a claim the caller must make rather than a
+    default it could quietly get wrong.
+
+    This is a refusal to be DELETED, not maintained: when the correlated form
+    exists and has been measured, this raise goes, and this test with it.
+    """
+    from bayesmith.exact.gaussian import precision_parts
+
+    with jax.enable_x64(True):
+        graph, _ = _correlated_graph()
+        # the same model, but claiming the covariance tracks the prediction
+        import numpy as _np
+
+        lag = _np.minimum(_np.arange(8), 8 - _np.arange(8))
+        kernel = jnp.asarray(1.0 * 0.4**lag + 0.5)
+        x = jnp.linspace(1.0, 4.0, 8)
+
+        def model():
+            xs = const("X", x)
+            w = sample("w", lambda: dist.Normal(0.0, 5.0))
+            mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+            observe(
+                "d",
+                lambda m: dist.CirculantNormal(m, kernel),
+                mu,
+                depends_on_prediction=True,
+                obs=2.0 * x,
+            )
+
+        dependent = trace(model)
+        env = evaluate(dependent, {"w": jnp.asarray(2.0)})
+        with pytest.raises(NotGaussian, match="1 \\+ 2 f\\^2"):
+            precision_parts(dependent, dependent.node("d"), env)
+
+        # ...and the SAME kernel with the claim withdrawn is accepted, so this
+        # is refusing the claim rather than the correlation.
+        env_ok = evaluate(graph, {"w": jnp.asarray(2.0)})
+        assert precision_parts(graph, graph.node("d"), env_ok)[1] is not None
