@@ -65,9 +65,10 @@ from bayesmith.dispatch.classify import block_at
 from bayesmith.dispatch.plan import CONVERGENCE_TARGET, chain_ess, kappa_upper
 from bayesmith.exact.block import unchecked_operator
 from bayesmith.exact.correct import log_weight, self_normalise
-from bayesmith.exact.gaussian import noise_std_at
-from bayesmith.exact.gibbs import _sigma_at, gibbs_factory
+from bayesmith.exact.gaussian import precision_at
+from bayesmith.exact.gibbs import _precision_at, gibbs_factory
 from bayesmith.exact.gls import iterative_gls, sigma_from_graph
+from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import gcr_sample, wiener_solve
 from bayesmith.graph.evaluate import log_joint
 from tests.exact.models import (
@@ -292,12 +293,12 @@ def test_the_frozen_sigma_proposal_is_wrong_and_the_accept_step_is_what_fixes_it
         graph = steep_radiometer()
         truth, spread, axis, density = quadrature(graph, "w", -4.0, 8.0, 4001)
         block = unchecked_operator(graph, ("w",), {})
-        sigma = _sigma_at(graph, block, {}, "gcr+mh", 1e-10, None)
+        precision = _precision_at(graph, block, {}, "gcr+mh", 1e-10, None)
         keys = jax.random.split(jax.random.key(seed), draws)
 
         raw, _ = jax.vmap(
             lambda one: gcr_sample(
-                block, noise_std=sigma, key=one, tol=1e-10, require_convergence=None
+                block, precision=precision, key=one, tol=1e-10, require_convergence=None
             )
         )(keys)
         proposal = np.asarray(raw["w"], dtype=float)
@@ -361,10 +362,10 @@ def _multi_step(weights, seed, count, tol=1e-8):
     graph = sigma_functional_block(weights=weights, n=MULTI_N)
     outside = {name: jnp.asarray(value) for name, value in MULTI_OUTSIDE.items()}
     block = unchecked_operator(graph, MULTI, outside)
-    sigma = _sigma_at(graph, block, outside, "gcr+mh", tol, None)
+    precision = _precision_at(graph, block, outside, "gcr+mh", tol, None)
     start, _ = jax.vmap(
         lambda one: gcr_sample(
-            block, noise_std=sigma, key=one, tol=tol, require_convergence=None
+            block, precision=precision, key=one, tol=tol, require_convergence=None
         )
     )(jax.random.split(jax.random.key(seed + 1_000), count))
     step = gibbs_factory(graph, MULTI, tol=tol, method="gcr+mh")
@@ -619,10 +620,14 @@ def test_weighted_moments_agree_at_tight_tolerances_and_move_at_a_loose_one(
             require_convergence=None,
         ).noise_std
         oracle = graph_oracle(graph, names, at=at)
+        # `sigma` is read BOTH ways here: `_dense_at` ravels it into the
+        # analytic posterior's own sigma vector (values), and the solve needs
+        # the operator. Converting the variable would break the oracle.
         reference, _, _ = _dense_at(oracle, graph, sigma)
 
+        precision = diagonal_from(sigma)
         solution, _ = wiener_solve(
-            block, noise_std=sigma, tol=tol, require_convergence=None
+            block, precision=precision, tol=tol, require_convergence=None
         )
         error = float(
             np.max(np.abs(flat_domain(solution, names) - reference))
@@ -630,11 +635,13 @@ def test_weighted_moments_agree_at_tight_tolerances_and_move_at_a_loose_one(
         )
         draws, _ = jax.vmap(
             lambda one: gcr_sample(
-                block, noise_std=sigma, key=one, tol=tol, require_convergence=None
+                block, precision=precision, key=one, tol=tol, require_convergence=None
             )
         )(jax.random.split(jax.random.key(seed), count))
         log_weights = jax.vmap(
-            lambda x: log_weight(graph, block, x, at=at, noise_std=sigma, mu=solution)
+            lambda x: log_weight(
+                graph, block, x, at=at, precision=precision, mu=solution
+            )
         )(draws)
         ess = float(self_normalise(log_weights)[1]) / count
 
@@ -967,7 +974,7 @@ def test_the_derived_tol_delivers_its_target_at_every_extreme(build, kwargs):
     zero = {name: jnp.zeros_like(block.prior_mean[name]) for name in names}
     solution, _ = wiener_solve(
         block,
-        noise_std=noise_std_at(graph, {**at, **zero}),
+        precision=precision_at(graph, {**at, **zero}),
         tol=plan.exact.tol,
         require_convergence=None,
     )

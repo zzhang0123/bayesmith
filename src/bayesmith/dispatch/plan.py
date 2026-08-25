@@ -70,6 +70,7 @@ from bayesmith.errors import NotGaussian
 from bayesmith.exact.block import domain_centre, unchecked_operator
 from bayesmith.exact.gaussian import gaussian_parts, node_shape
 from bayesmith.exact.gls import MAX_REWEIGHTS, MIN_REWEIGHTS, sigma_from_graph
+from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import condition_bound
 from bayesmith.graph.graph import Graph
 
@@ -170,7 +171,7 @@ def _kappa_at(
     """
     operator = unchecked_operator(graph, names, at)
     sigma = sigma_from_graph(graph, at)(domain_centre(operator))
-    return float(condition_bound(operator, noise_std=sigma, key=key))
+    return float(condition_bound(operator, precision=diagonal_from(sigma), key=key))
 
 
 def working_epsilon(graph: Graph, names: tuple[str, ...], at: dict[str, Any]) -> float:

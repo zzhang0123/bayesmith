@@ -31,8 +31,9 @@ from bayesmith.exact.correct import (
     self_normalise,
     unreliable,
 )
-from bayesmith.exact.gaussian import noise_std_at
+from bayesmith.exact.gaussian import noise_std_at, precision_at
 from bayesmith.exact.gls import iterative_gls, sigma_from_graph
+from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import gcr_sample, wiener_solve
 from bayesmith.graph.evaluate import log_joint
 from tests.exact.models import (
@@ -137,13 +138,13 @@ def test_log_weight_equals_log_p_minus_log_q_against_a_dense_gaussian():
     with jax.enable_x64(True):
         graph = radiometer()
         block = unchecked_operator(graph, ["w"])
-        sigma = noise_std_at(graph, {"w": jnp.asarray(0.0)})
+        precision = precision_at(graph, {"w": jnp.asarray(0.0)})
         oracle = graph_oracle(graph, ["w"])
         mu = {"w": jnp.asarray(oracle.mean[0])}
         draws = jnp.asarray([0.4, 1.1, 2.7])
 
         got = jax.vmap(
-            lambda x: log_weight(graph, block, {"w": x}, at={}, noise_std=sigma, mu=mu)
+            lambda x: log_weight(graph, block, {"w": x}, at={}, precision=precision, mu=mu)
         )(draws)
 
         precision = oracle.precision[0, 0]
@@ -189,7 +190,7 @@ def test_the_documented_constant_makes_the_weight_the_log_evidence():
         graph = plated_and_scalar_latents()
         names = ("z", "w")
         block = unchecked_operator(graph, names)
-        sigma = noise_std_at(graph, domain_zero(block))
+        precision = precision_at(graph, domain_zero(block))
         oracle = graph_oracle(graph, names)
         dimension = oracle.mean.size
         mu = {"z": jnp.asarray(oracle.mean[:-1]), "w": jnp.asarray(oracle.mean[-1])}
@@ -209,7 +210,7 @@ def test_the_documented_constant_makes_the_weight_the_log_evidence():
                     block,
                     {name: mu[name] + offset[name] for name in mu},
                     at={},
-                    noise_std=sigma,
+                    precision=precision,
                     mu=mu,
                 )
             )
@@ -277,12 +278,12 @@ def test_the_quadratic_is_half_delta_M_delta_on_every_block_shape(
         graph = builder()
         at = {name: jnp.asarray(value) for name, value in at.items()}
         block = unchecked_operator(graph, names, at)
-        sigma = noise_std_at(graph, {**at, **domain_zero(block)})
+        precision = precision_at(graph, {**at, **domain_zero(block)})
         oracle = graph_oracle(graph, names, at=at)
         mu, draw = _mu_and_draw(block)
 
         quadratic = float(
-            log_weight(graph, block, draw, at=at, noise_std=sigma, mu=mu)
+            log_weight(graph, block, draw, at=at, precision=precision, mu=mu)
         ) - float(log_joint(graph, {**at, **draw}))
         delta = flat_domain(draw, block.names) - flat_domain(mu, block.names)
 
@@ -509,17 +510,23 @@ def _snis_at(graph, names, sigma, key, count, tol=1e-8):
     Spelled out here rather than driven through `InferencePlan.sample` because
     the whole point is to choose the freeze point, which `sample` -- correctly
     -- does not expose: it always uses the GLS fixed point.
+
+    Takes sigma VALUES, not an operator, because its callers compare the two
+    candidate sigmas elementwise before handing them here -- `wrong["d"] /
+    right["d"]` is how they establish that one really is the wrong freeze
+    point. The conversion belongs at the solve, and happens once.
     """
     at = {}
     block = unchecked_operator(graph, names, at)
-    mu, _ = wiener_solve(block, noise_std=sigma, tol=tol, require_convergence=None)
+    precision = diagonal_from(sigma)
+    mu, _ = wiener_solve(block, precision=precision, tol=tol, require_convergence=None)
     draws, _ = jax.vmap(
         lambda one: gcr_sample(
-            block, noise_std=sigma, key=one, tol=tol, require_convergence=None
+            block, precision=precision, key=one, tol=tol, require_convergence=None
         )
     )(jax.random.split(key, count))
     log_weights = jax.vmap(
-        lambda x: log_weight(graph, block, x, at=at, noise_std=sigma, mu=mu)
+        lambda x: log_weight(graph, block, x, at=at, precision=precision, mu=mu)
     )(draws)
     weights, ess = self_normalise(log_weights)
     return (
@@ -536,7 +543,7 @@ def test_a_wrong_frozen_sigma_shows_up_as_ess_and_not_as_bias(count, seed):
     Both halves are load-bearing and they pull in opposite directions.
     Self-normalised importance sampling is valid for ANY x-independent
     proposal, so a sigma-hat that is merely bad -- a reweighting stopped
-    short, a hand-supplied `noise_std=`, the GLS fixed point of a slightly
+    short, a hand-supplied `precision=`, the GLS fixed point of a slightly
     different model -- must still give the right answer. What it costs is
     effective sample size, and that is the only diagnostic that can see it.
     A guard that read the moments alone would report a wrong sigma-hat as
@@ -625,17 +632,22 @@ class TestTheFrozenSigmaSeamIsChecked:
 
         graph = radiometer()
         block = unchecked_operator(graph, ("w",), {})
+        # `.noise_std` and not `.precision`: the wide variant is built by
+        # SCALING sigma, which is arithmetic an operator cannot do. Both are
+        # converted on the way out, where they stop being numbers and start
+        # being the covariance a solve reads.
         honest = iterative_gls(
             block, sigma_from_graph(graph, {}), tol=1e-8, require_convergence=None
         ).noise_std
-        return block, honest, {k: v * factor for k, v in honest.items()}
+        wide = {k: v * factor for k, v in honest.items()}
+        return block, diagonal_from(honest), diagonal_from(wide)
 
     def test_the_matching_pair_passes(self):
         from bayesmith.exact.correct import check_frozen_sigma
 
         block, honest, _ = self._pieces(1.0)
         mu, _ = wiener_solve(
-            block, noise_std=honest, tol=1e-8, require_convergence=None
+            block, precision=honest, tol=1e-8, require_convergence=None
         )
         assert check_frozen_sigma(block, honest, mu) <= 1e-6
 
@@ -651,7 +663,7 @@ class TestTheFrozenSigmaSeamIsChecked:
         from bayesmith.exact.correct import FrozenSigmaMismatch, check_frozen_sigma
 
         block, honest, other = self._pieces(factor)
-        mu, _ = wiener_solve(block, noise_std=other, tol=1e-8, require_convergence=None)
+        mu, _ = wiener_solve(block, precision=other, tol=1e-8, require_convergence=None)
         with pytest.raises(FrozenSigmaMismatch, match="TILTED"):
             check_frozen_sigma(block, honest, mu)
 
@@ -677,16 +689,16 @@ class TestTheFrozenSigmaSeamIsChecked:
         spread = math.sqrt(float(np.trapezoid((axis - truth) ** 2 * density, axis)))
 
         mu, _ = wiener_solve(
-            block, noise_std=honest, tol=1e-8, require_convergence=None
+            block, precision=honest, tol=1e-8, require_convergence=None
         )
         draws, _ = jax.vmap(
             lambda key: gcr_sample(
-                block, noise_std=honest, key=key, tol=1e-8, require_convergence=None
+                block, precision=honest, key=key, tol=1e-8, require_convergence=None
             )
         )(jax.random.split(jax.random.key(0), 4000))
         weights, ess = self_normalise(
             jax.vmap(
-                lambda x: log_weight(graph, block, x, at={}, noise_std=wide, mu=mu)
+                lambda x: log_weight(graph, block, x, at={}, precision=wide, mu=mu)
             )(draws)
         )
         values = np.asarray(draws["w"], dtype=float)
@@ -718,7 +730,7 @@ class TestTheFrozenSigmaSeamIsChecked:
 
         block, honest, _ = self._pieces(1.0)
         mu, _ = wiener_solve(
-            block, noise_std=honest, tol=1e-8, require_convergence=None
+            block, precision=honest, tol=1e-8, require_convergence=None
         )
         broken = {name: value * jnp.nan for name, value in mu.items()}
         with pytest.raises(FrozenSigmaMismatch):

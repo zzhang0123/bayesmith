@@ -24,7 +24,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bayesmith.exact.gaussian import noise_std_at
+from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.linearity import linear_operator
 from bayesmith.exact.solve import condition_bound, gcr_sample, wiener_solve
 from tests.exact.models import (
@@ -45,8 +45,8 @@ def test_a_plate_of_any_size_matches_the_oracle(size):
     with jax.enable_x64(True):
         graph = wide_plate(size=size)
         block = linear_operator(graph, ("z",), at={})
-        sigma = noise_std_at(graph, {"z": jnp.zeros(size)})
-        got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
+        sigma = precision_at(graph, {"z": jnp.zeros(size)})
+        got, _ = wiener_solve(block, precision=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("z",), at={})
     assert block.shape["z"] == (size,)
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
@@ -73,8 +73,8 @@ def test_a_very_wide_plate_still_solves_and_stays_finite():
     with jax.enable_x64(True):
         graph = wide_plate(size=size, tau=tau, sigma=sigma)
         block = linear_operator(graph, ("z",), at={})
-        noise = noise_std_at(graph, {"z": jnp.zeros(size)})
-        got, residual = wiener_solve(block, noise_std=noise, tol=1e-12)
+        noise = precision_at(graph, {"z": jnp.zeros(size)})
+        got, residual = wiener_solve(block, precision=noise, tol=1e-12)
         data = np.asarray(block.data["d"])
     shrinkage = tau**2 / (tau**2 + sigma**2)
     assert np.all(np.isfinite(np.asarray(got["z"])))
@@ -105,11 +105,11 @@ def test_a_wide_plate_s_draws_match_the_closed_form_mean_variance_and_zero_corre
     with jax.enable_x64(True):
         graph = wide_plate(size=size, tau=tau, sigma=sigma)
         block = linear_operator(graph, ("z",), at={})
-        noise = noise_std_at(graph, {"z": jnp.zeros(size)})
+        noise = precision_at(graph, {"z": jnp.zeros(size)})
         data = np.asarray(block.data["d"])
         samples = jax.vmap(
             lambda k: gcr_sample(
-                block, noise_std=noise, key=k, tol=1e-12, require_convergence=None
+                block, precision=noise, key=k, tol=1e-12, require_convergence=None
             )[0]["z"]
         )(jax.random.split(jax.random.key(41), draws))
     flat = np.asarray(samples)
@@ -139,9 +139,9 @@ def test_the_solve_matches_the_oracle_across_six_orders_of_prior_width(prior_std
     with jax.enable_x64(True):
         graph = straight_line(prior_std=prior_std, prior_mean=1.75)
         block = linear_operator(graph, ("w",), at={})
-        sigma = noise_std_at(graph, {"w": jnp.asarray(0.0)})
+        sigma = precision_at(graph, {"w": jnp.asarray(0.0)})
         got, _ = wiener_solve(
-            block, noise_std=sigma, tol=1e-14, require_convergence=None
+            block, precision=sigma, tol=1e-14, require_convergence=None
         )
         oracle = graph_oracle(graph, ("w",), at={})
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-7)
@@ -152,9 +152,9 @@ def test_the_solve_matches_the_oracle_across_six_orders_of_noise(sigma):
     with jax.enable_x64(True):
         graph = straight_line(sigma=sigma, prior_std=2.0, prior_mean=1.75)
         block = linear_operator(graph, ("w",), at={})
-        noise = noise_std_at(graph, {"w": jnp.asarray(0.0)})
+        noise = precision_at(graph, {"w": jnp.asarray(0.0)})
         got, _ = wiener_solve(
-            block, noise_std=noise, tol=1e-14, require_convergence=None
+            block, precision=noise, tol=1e-14, require_convergence=None
         )
         oracle = graph_oracle(graph, ("w",), at={})
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-7)
@@ -170,8 +170,8 @@ def test_any_number_of_observed_nodes_matches_the_oracle(count):
     with jax.enable_x64(True):
         graph = many_observations(count=count)
         block = linear_operator(graph, ("w",), at={})
-        sigma = noise_std_at(graph, {"w": jnp.asarray(0.0)})
-        got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
+        sigma = precision_at(graph, {"w": jnp.asarray(0.0)})
+        got, _ = wiener_solve(block, precision=sigma, tol=1e-14)
         oracle = graph_oracle(graph, ("w",), at={})
     assert len(block.offset) == count
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
@@ -196,10 +196,10 @@ def test_any_number_of_observed_nodes_gcr_sample_matches_the_oracle_at_the_high_
     with jax.enable_x64(True):
         graph = many_observations(count=5)
         block = linear_operator(graph, ("w",), at={})
-        sigma = noise_std_at(graph, {"w": jnp.asarray(0.0)})
+        sigma = precision_at(graph, {"w": jnp.asarray(0.0)})
         samples = jax.vmap(
             lambda k: gcr_sample(
-                block, noise_std=sigma, key=k, tol=1e-14, require_convergence=None
+                block, precision=sigma, key=k, tol=1e-14, require_convergence=None
             )[0]["w"]
         )(jax.random.split(jax.random.key(42), draws))
         oracle = graph_oracle(graph, ("w",), at={})
@@ -245,12 +245,12 @@ def test_two_exactly_collinear_parents_are_solved_jointly_and_kappa_says_so():
     with jax.enable_x64(True):
         graph = collinear_pair(prior_std=3.0)
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        got, _ = wiener_solve(block, noise_std=sigma, tol=1e-14)
-        kappa = float(condition_bound(block, noise_std=sigma, iterations=80))
+        sigma = precision_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        got, _ = wiener_solve(block, precision=sigma, tol=1e-14)
+        kappa = float(condition_bound(block, precision=sigma, iterations=80))
         oracle = graph_oracle(graph, ("a", "b"), at={})
         single = linear_operator(graph, ("a",), at={"b": jnp.asarray(0.0)})
-        single_kappa = float(condition_bound(single, noise_std=sigma, iterations=80))
+        single_kappa = float(condition_bound(single, precision=sigma, iterations=80))
     assert np.allclose(flat_domain(got, block.names), oracle.mean, rtol=1e-8)
     assert kappa > 100.0
     # The per-block view is not remotely near 1 (it is not data-blind), but
@@ -288,10 +288,10 @@ def test_two_exactly_collinear_parents_gcr_sample_matches_the_oracle_covariance(
     with jax.enable_x64(True):
         graph = collinear_pair(prior_std=3.0)
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        sigma = precision_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         samples = jax.vmap(
             lambda k: gcr_sample(
-                block, noise_std=sigma, key=k, tol=1e-14, require_convergence=None
+                block, precision=sigma, key=k, tol=1e-14, require_convergence=None
             )[0]
         )(jax.random.split(jax.random.key(43), draws))
         oracle = graph_oracle(graph, ("a", "b"), at={})

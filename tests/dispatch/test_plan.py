@@ -42,6 +42,7 @@ from bayesmith.dispatch.plan import (
 from bayesmith.errors import StructureError
 from bayesmith.exact.block import domain_centre, unchecked_operator
 from bayesmith.exact.gls import sigma_from_graph
+from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import condition_bound
 from tests.dispatch.test_classify import (
     three_member_constant_sigma,
@@ -102,7 +103,7 @@ def measured_kappa(graph, names) -> float:
     at = block_at(graph, names)
     operator = unchecked_operator(graph, names, at)
     sigma = sigma_from_graph(graph, at)(domain_centre(operator))
-    return float(condition_bound(operator, noise_std=sigma))
+    return float(condition_bound(operator, precision=diagonal_from(sigma)))
 
 
 def _ancestor_width(width_of_tau, *, tau_loc, tau_scale, n=6, sigma=0.5, seed=8):

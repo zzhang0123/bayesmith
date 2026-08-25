@@ -27,7 +27,7 @@ import pytest
 from bayesmith import evaluate, observe, sample, trace
 from bayesmith.errors import StructureError
 from bayesmith.exact.block import unchecked_operator
-from bayesmith.exact.gaussian import check_gaussian, noise_std_at
+from bayesmith.exact.gaussian import check_gaussian, precision_at
 from bayesmith.exact.gls import iterative_gls, sigma_from_graph
 from bayesmith.exact.linearity import check_linearity
 from bayesmith.exact.solve import condition_bound, wiener_solve
@@ -227,14 +227,14 @@ def test_the_convergence_guard_flips_at_require_convergence_over_kappa():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = unchecked_operator(graph, ("a", "b"), at={})
-        sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        kappa = float(condition_bound(block, noise_std=sigma, iterations=80))
+        sigma = precision_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        kappa = float(condition_bound(block, precision=sigma, iterations=80))
 
         # CG on a 2-parameter system reaches machine precision in 2 steps, so
         # maxiter -- not tol -- is what sets the residual here. Measure the
         # bound the guard will compute, with the guard itself switched off.
         _, residual = wiener_solve(
-            block, noise_std=sigma, tol=1e-14, maxiter=1, require_convergence=None
+            block, precision=sigma, tol=1e-14, maxiter=1, require_convergence=None
         )
         bound = float(residual) * kappa
         assert bound > 0.0, "fixture no longer leaves a measurable residual"
@@ -243,7 +243,7 @@ def test_the_convergence_guard_flips_at_require_convergence_over_kappa():
         with pytest.raises(Exception, match="did not converge"):
             wiener_solve(
                 block,
-                noise_std=sigma,
+                precision=sigma,
                 tol=1e-14,
                 maxiter=1,
                 require_convergence=bound / 2.0,
@@ -253,7 +253,7 @@ def test_the_convergence_guard_flips_at_require_convergence_over_kappa():
         # always raised.
         wiener_solve(
             block,
-            noise_std=sigma,
+            precision=sigma,
             tol=1e-14,
             maxiter=1,
             require_convergence=bound * 2.0,
@@ -303,16 +303,16 @@ def test_the_unreachable_branch_flips_at_bound_times_eps_over_require_convergenc
     """
     graph = two_linear_latents()
     block = unchecked_operator(graph, ("a", "b"), at={})
-    sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+    sigma = precision_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
     starved = dataclasses.replace(
         block, prior_std={**block.prior_std, "b": jnp.asarray(1e4, dtype=jnp.float32)}
     )
-    kappa = float(condition_bound(starved, noise_std=sigma, iterations=80))
+    kappa = float(condition_bound(starved, precision=sigma, iterations=80))
     epsilon = float(jnp.finfo(jnp.float32).eps)
     beta = kappa * epsilon
 
     _, residual = wiener_solve(
-        starved, noise_std=sigma, tol=1e-14, maxiter=1, require_convergence=None
+        starved, precision=sigma, tol=1e-14, maxiter=1, require_convergence=None
     )
     error_bound = float(residual) * kappa
     assert beta < error_bound, "fixture no longer leaves a bound*eps < error_bound gap"
@@ -322,7 +322,7 @@ def test_the_unreachable_branch_flips_at_bound_times_eps_over_require_convergenc
     with pytest.raises(Exception, match="enable_x64"):
         wiener_solve(
             starved,
-            noise_std=sigma,
+            precision=sigma,
             tol=1e-14,
             maxiter=1,
             require_convergence=beta / 2.0,
@@ -333,7 +333,7 @@ def test_the_unreachable_branch_flips_at_bound_times_eps_over_require_convergenc
     with pytest.raises(Exception, match="did not converge"):
         wiener_solve(
             starved,
-            noise_std=sigma,
+            precision=sigma,
             tol=1e-14,
             maxiter=1,
             require_convergence=beta * 2.0,

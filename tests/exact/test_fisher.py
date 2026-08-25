@@ -11,8 +11,9 @@ from bayesmith.exact.fisher import (
     fisher_information,
     parameter_covariance,
 )
-from bayesmith.exact.gaussian import noise_std_at
+from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.linearity import linear_operator
+from bayesmith.exact.precision import diagonal_from
 from tests.exact.models import (
     plated_and_scalar_latents,
     plated_latent,
@@ -38,8 +39,8 @@ def test_fisher_with_the_prior_is_the_posterior_precision():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        fisher = fisher_information(block, noise_std=sigma, depends_on_prediction=False)
+        precision = precision_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        fisher = fisher_information(block, precision=precision, depends_on_prediction=False)
         oracle = graph_oracle(graph, ("a", "b"), at={})
     assert fisher.kind == "posterior_precision"
     assert np.allclose(np.asarray(fisher.values), oracle.precision, rtol=1e-8)
@@ -50,10 +51,10 @@ def test_fisher_without_the_prior_is_the_likelihood_alone_and_says_so():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        precision = precision_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         fisher = fisher_information(
             block,
-            noise_std=sigma,
+            precision=precision,
             include_prior=False,
             depends_on_prediction=False,
         )
@@ -67,9 +68,9 @@ def test_parameter_covariance_matches_the_oracle():
     with jax.enable_x64(True):
         graph = two_observations()
         block = linear_operator(graph, ("w",), at={})
-        sigma = noise_std_at(graph, {"w": jnp.asarray(0.0)})
+        precision = precision_at(graph, {"w": jnp.asarray(0.0)})
         covariance = parameter_covariance(
-            fisher_information(block, noise_std=sigma, depends_on_prediction=False)
+            fisher_information(block, precision=precision, depends_on_prediction=False)
         )
         oracle = graph_oracle(graph, ("w",), at={})
     assert covariance.kind == "covariance"
@@ -81,8 +82,8 @@ def test_a_flat_matrix_block_is_addressable_by_latent_name():
     with jax.enable_x64(True):
         graph = plated_latent(n=6)
         block = linear_operator(graph, ("z",), at={})
-        sigma = noise_std_at(graph, {"z": jnp.zeros(6)})
-        fisher = fisher_information(block, noise_std=sigma, depends_on_prediction=False)
+        precision = precision_at(graph, {"z": jnp.zeros(6)})
+        fisher = fisher_information(block, precision=precision, depends_on_prediction=False)
     assert fisher.names == ("z",)
     assert fisher.spans == ((0, 6),)
     assert fisher.block("z").shape == (6, 6)
@@ -259,8 +260,8 @@ def test_fisher_information_matches_the_oracle_when_sorted_order_reverses_declar
     with jax.enable_x64(True):
         graph = two_observations_reverse_sorted_names()
         block = linear_operator(graph, ("w",), at={})
-        sigma = noise_std_at(graph, {"w": jnp.asarray(0.0)})
-        fisher = fisher_information(block, noise_std=sigma, depends_on_prediction=False)
+        precision = precision_at(graph, {"w": jnp.asarray(0.0)})
+        fisher = fisher_information(block, precision=precision, depends_on_prediction=False)
         oracle = graph_oracle(graph, ("w",), at={})
     assert fisher.kind == "posterior_precision"
     assert np.allclose(np.asarray(fisher.values), oracle.precision, rtol=1e-8)
@@ -291,8 +292,8 @@ def test_fisher_information_matches_the_oracle_with_heterogeneous_member_sizes()
     with jax.enable_x64(True):
         graph = plated_and_scalar_latents(n=4)
         block = linear_operator(graph, ("z", "w"), at={})
-        sigma = noise_std_at(graph, {"z": jnp.zeros(4), "w": jnp.asarray(0.0)})
-        fisher = fisher_information(block, noise_std=sigma, depends_on_prediction=False)
+        precision = precision_at(graph, {"z": jnp.zeros(4), "w": jnp.asarray(0.0)})
+        fisher = fisher_information(block, precision=precision, depends_on_prediction=False)
         oracle = graph_oracle(graph, ("z", "w"), at={})
     assert fisher.spans == ((0, 4), (4, 5))
     assert fisher.block("z").shape == (4, 4)
@@ -316,8 +317,8 @@ def test_std_refuses_a_precision():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
-        fisher = fisher_information(block, noise_std=sigma, depends_on_prediction=False)
+        precision = precision_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        fisher = fisher_information(block, precision=precision, depends_on_prediction=False)
         with pytest.raises(ValueError, match="not an error bar"):
             fisher.std()
         assert parameter_covariance(fisher).std()["a"].shape == (1,)
@@ -335,9 +336,9 @@ def test_parameter_covariance_refuses_a_covariance():
     with jax.enable_x64(True):
         graph = two_linear_latents()
         block = linear_operator(graph, ("a", "b"), at={})
-        sigma = noise_std_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
+        precision = precision_at(graph, {"a": jnp.asarray(0.0), "b": jnp.asarray(0.0)})
         covariance = parameter_covariance(
-            fisher_information(block, noise_std=sigma, depends_on_prediction=False)
+            fisher_information(block, precision=precision, depends_on_prediction=False)
         )
     with pytest.raises(ValueError, match="was handed a covariance"):
         parameter_covariance(covariance)
@@ -540,7 +541,14 @@ def test_a_precision_that_is_not_finite_is_refused_rather_than_inverted(bad):
 
 
 def _radiometer_pieces(kappa: float, floor: float = 1e-9):
-    """``(block, sigma_of, centre, noise_std)`` for a prediction-dependent model."""
+    """``(block, sigma_of, centre, precision)`` for a prediction-dependent model.
+
+    The last element is the OPERATOR -- what weights the design -- while
+    ``sigma_of`` stays the rule producing sigma VALUES, whose log-derivative
+    is the variance's own information. These tests are precisely about the
+    relationship between those two, which is why the conversion is written
+    out here rather than hidden: they are not the same argument.
+    """
     from bayesmith.exact.gls import sigma_from_graph
     from tests.exact.models import radiometer
 
@@ -548,7 +556,7 @@ def _radiometer_pieces(kappa: float, floor: float = 1e-9):
     block = linear_operator(graph, ("w",), at={})
     centre = {"w": jnp.asarray(3.0)}
     sigma_of = sigma_from_graph(graph, {})
-    return block, sigma_of, centre, sigma_of(centre)
+    return block, sigma_of, centre, diagonal_from(sigma_of(centre))
 
 
 @pytest.mark.parametrize("kappa", [0.05, 0.5, 1.0])
@@ -563,16 +571,16 @@ def test_the_variance_term_supplies_exactly_one_plus_two_f_squared(kappa):
     accident.
     """
     with jax.enable_x64(True):
-        block, sigma_of, centre, noise_std = _radiometer_pieces(kappa)
+        block, sigma_of, centre, precision = _radiometer_pieces(kappa)
         first = fisher_information(
             block,
-            noise_std=noise_std,
+            precision=precision,
             include_prior=False,
             depends_on_prediction=False,
         )
         both = fisher_information(
             block,
-            noise_std=noise_std,
+            precision=precision,
             include_prior=False,
             sigma_of=sigma_of,
             centre=centre,
@@ -591,30 +599,34 @@ def test_claiming_prediction_dependence_without_the_rule_is_refused():
     constant and mean it.
     """
     with jax.enable_x64(True):
-        block, _, _, noise_std = _radiometer_pieces(0.5)
+        block, _, _, precision = _radiometer_pieces(0.5)
         with pytest.raises(ValueError) as caught:
-            fisher_information(block, noise_std=noise_std, include_prior=False)
+            fisher_information(block, precision=precision, include_prior=False)
     message = str(caught.value)
     assert "sigma_of" in message and "depends_on_prediction" in message
     assert "check_prediction_dependence" in message
 
 
 def test_a_sigma_that_does_not_come_from_the_point_it_is_paired_with_is_refused():
-    """``noise_std`` and ``centre`` must describe the same place.
+    """``precision`` and ``centre`` must describe the same place.
 
-    They are redundant by construction -- ``noise_std == sigma_of(centre)`` --
-    and redundancy that is never compared is how a covariance gets weighted at
-    one point and curved at another. ``exact/correct.py`` records the same
+    They are redundant by construction -- ``precision`` is the operator
+    ``sigma_of(centre)`` implies -- and redundancy that is never compared is
+    how a covariance gets weighted at one point and curved at another. The
+    comparison is between the two as OPERATORS, on one probe, because a
+    ``Precision`` need not have sigma arrays to line up elementwise; measured,
+    that is if anything slightly SHARPER than the elementwise check it
+    replaced, refusing a 1e-6 perturbation the old one accepted. ``exact/correct.py`` records the same
     hazard as UNVERIFIABLE there, because a ``LinearBlock`` does not remember
     the ``at`` it was built with. Here it is verifiable, so it is verified.
     """
     with jax.enable_x64(True):
-        block, sigma_of, centre, noise_std = _radiometer_pieces(0.5)
-        elsewhere = sigma_of({"w": jnp.asarray(7.0)})
+        block, sigma_of, centre, precision = _radiometer_pieces(0.5)
+        elsewhere = diagonal_from(sigma_of({"w": jnp.asarray(7.0)}))
         with pytest.raises(ValueError, match="centre"):
             fisher_information(
                 block,
-                noise_std=elsewhere,
+                precision=elsewhere,
                 include_prior=False,
                 sigma_of=sigma_of,
                 centre=centre,
@@ -623,7 +635,7 @@ def test_a_sigma_that_does_not_come_from_the_point_it_is_paired_with_is_refused(
         assert (
             fisher_information(
                 block,
-                noise_std=noise_std,
+                precision=precision,
                 include_prior=False,
                 sigma_of=sigma_of,
                 centre=centre,
@@ -651,13 +663,13 @@ def test_a_constant_sigma_rule_contributes_exactly_zero():
         centre = {"w": jnp.asarray(2.5)}
         without = fisher_information(
             block,
-            noise_std=sigma_of(centre),
+            precision=diagonal_from(sigma_of(centre)),
             include_prior=False,
             depends_on_prediction=False,
         )
         with_rule = fisher_information(
             block,
-            noise_std=sigma_of(centre),
+            precision=diagonal_from(sigma_of(centre)),
             include_prior=False,
             sigma_of=sigma_of,
             centre=centre,
@@ -668,11 +680,12 @@ def test_a_constant_sigma_rule_contributes_exactly_zero():
 def test_the_weighted_design_is_ready_for_a_correlated_precision():
     """``N^-1 A`` must be right for a covariance that couples samples.
 
-    ``fisher_information`` still converts a decided ``noise_std`` dict into
-    diagonal precisions, because nothing upstream can yet DECLARE a
-    correlated noise on a graph node -- that is the noise layer's own work.
-    What this pins is that the machinery underneath is already correct when
-    one arrives, so the remaining step is a declaration rather than a
+    ``fisher_information`` now RECEIVES a ``{observed: Precision}`` rather
+    than manufacturing diagonal ones from a sigma dict, so a correlated
+    covariance reaches this function. What still cannot arrive is a correlated
+    noise DECLARED on a graph node, because the block cannot be built from one
+    yet. What this pins is that the machinery underneath is already correct
+    when one does, so the remaining step is a declaration rather than a
     rewrite.
 
     It also pins the reason for the ``vmap`` over columns. A diagonal

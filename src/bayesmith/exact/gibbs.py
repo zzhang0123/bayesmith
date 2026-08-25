@@ -42,7 +42,7 @@ from bayesmith.exact.block import (
     unchecked_operator,
 )
 from bayesmith.exact.correct import log_weight
-from bayesmith.exact.gaussian import noise_std_at
+from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.gls import iterative_gls, sigma_from_graph
 from bayesmith.exact.solve import gcr_sample, wiener_solve
 from bayesmith.graph.graph import Graph
@@ -83,20 +83,26 @@ def _prior_centre(graph: Graph) -> dict[str, jax.Array]:
             "its own prior, and a latent with no loc has no centre. Either pass "
             "sigma_rebuild=True, so sigma is rebuilt from `at` inside the sweep "
             "and the non-Gaussian latent's value comes from NUTS, or pass an "
-            "explicit noise_std=."
+            "explicit precision=."
         ) from exc
     return {name: env[name] for name in graph.latents}
 
 
-def _sigma_at(
+def _precision_at(
     graph: Graph,
     block: LinearBlock,
     at: dict[str, Any],
     method: str,
     tol: float,
     maxiter: int | None,
-) -> dict[str, jax.Array]:
-    """The frozen ``{observed: sigma}``, as a function of ``at`` ALONE.
+) -> dict[str, Any]:
+    """The frozen ``{observed: N^-1}``, as a function of ``at`` ALONE.
+
+    The OPERATOR side of the seam throughout: nothing in this module reads a
+    per-sample sigma, it only ever hands the noise to ``gcr_sample``,
+    ``wiener_solve`` and ``log_weight``. So the conversion happens once, here,
+    where the frozen covariance is decided -- not at each of those four call
+    sites, which is where two vocabularies would meet.
 
     That it does not see the block's current value is the whole correctness
     argument of :func:`_mh_step`, so it is enforced by this function's
@@ -111,7 +117,7 @@ def _sigma_at(
     that gets **accepted**.
     """
     if method == "gcr":
-        return noise_std_at(graph, {**at, **domain_centre(block)})
+        return precision_at(graph, {**at, **domain_centre(block)})
     return iterative_gls(
         block,
         sigma_from_graph(graph, at),
@@ -119,17 +125,17 @@ def _sigma_at(
         tol=tol,
         maxiter=maxiter,
         require_convergence=None,
-    ).noise_std
+    ).precision
 
 
-def _hoisted_sigma(
+def _hoisted_precision(
     graph: Graph,
     names: tuple[str, ...],
     method: str,
     tol: float,
     maxiter: int | None,
-) -> dict[str, jax.Array]:
-    """Sigma evaluated ONCE, at the graph's prior centre, outside the sweep.
+) -> dict[str, Any]:
+    """The covariance evaluated ONCE, at the graph's prior centre, outside the sweep.
 
     What ``sigma_rebuild=False`` buys. The block is rebuilt here too, at the
     outside latents' prior centres, and with ``probe_gaussian`` left ON --
@@ -140,7 +146,7 @@ def _hoisted_sigma(
     centre = _prior_centre(graph)
     at = {name: value for name, value in centre.items() if name not in set(names)}
     block = unchecked_operator(graph, names, at=at)
-    return _sigma_at(graph, block, at, method, tol, maxiter)
+    return _precision_at(graph, block, at, method, tol, maxiter)
 
 
 def gibbs_factory(
@@ -151,7 +157,7 @@ def gibbs_factory(
     method: str = "gcr",
     sigma_rebuild: bool = False,
     maxiter: int | None = None,
-    noise_std: Mapping[str, Any] | None = None,
+    precision: Mapping[str, Any] | None = None,
 ) -> Callable[..., dict[str, jax.Array]]:
     """Build the callable ``HMCGibbs`` invokes once per sweep.
 
@@ -171,7 +177,7 @@ def gibbs_factory(
         method: one of :data:`GIBBS_METHODS`. ``"gcr"`` for a genuine
             conditional draw; ``"gcr+mh"`` when sigma depends on the block
             itself and the frozen-sigma draw is only a PROPOSAL.
-        sigma_rebuild: recompute ``noise_std`` inside the sweep, at the
+        sigma_rebuild: recompute the covariance inside the sweep, at the
             current ``at``. Required whenever any observed node's scale has a
             latent ancestor -- including one OUTSIDE the block, which
             :func:`~bayesmith.exact.gls.check_prediction_dependence` cannot
@@ -184,12 +190,15 @@ def gibbs_factory(
             structural, not numeric; a movement probe is precisely what
             cannot see it.
         maxiter: CG iteration cap, passed to every solve in the sweep.
-        noise_std: an x-independent sigma of the caller's own choosing, used
-            verbatim in place of everything above. **Correctness does not
-            depend on this being any good** -- see :func:`_mh_step`; a worse
-            sigma costs acceptance rate, not validity. Useful when the GLS
-            fixed point is too expensive to recompute every sweep, or when a
-            deliberately loose sigma is wanted.
+        precision: an x-independent ``{observed: N^-1}`` of the caller's own
+            choosing, used verbatim in place of everything above.
+            **Correctness does not depend on this being any good** -- see
+            :func:`_mh_step`; a worse covariance costs acceptance rate, not
+            validity. Useful when the GLS fixed point is too expensive to
+            recompute every sweep, or when a deliberately loose covariance is
+            wanted. Build one with
+            :func:`~bayesmith.exact.precision.diagonal_from` from a sigma
+            dict, or take :attr:`~bayesmith.exact.gls.GLSResult.precision`.
 
     Returns:
         A function taking ``rng_key``, ``gibbs_sites`` and ``hmc_sites``
@@ -201,8 +210,9 @@ def gibbs_factory(
 
     Raises:
         ValueError: if ``method`` is not in :data:`GIBBS_METHODS`.
-        NotGaussian: if sigma must be hoisted (``sigma_rebuild=False``,
-            no ``noise_std``) and some latent has no prior centre to hoist at.
+        NotGaussian: if the covariance must be hoisted
+            (``sigma_rebuild=False``, no ``precision``) and some latent has no
+            prior centre to hoist at.
     """
     names = tuple(names)
     if method not in GIBBS_METHODS:
@@ -212,11 +222,11 @@ def gibbs_factory(
             "'gcr+mh' corrects a frozen-sigma proposal -- the two differ by a "
             "Metropolis accept step, so a typo silently buys or skips one."
         )
-    frozen: dict[str, jax.Array] | None = None
-    if noise_std is not None:
-        frozen = dict(noise_std)
+    frozen: dict[str, Any] | None = None
+    if precision is not None:
+        frozen = dict(precision)
     elif not sigma_rebuild:
-        frozen = _hoisted_sigma(graph, names, method, tol, maxiter)
+        frozen = _hoisted_precision(graph, names, method, tol, maxiter)
 
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         # `hmc_sites` arrives POST-processed, so it carries the graph's
@@ -224,15 +234,15 @@ def gibbs_factory(
         # the latents, which is also what `_validated_at` will accept.
         at = {k: v for k, v in hmc_sites.items() if k in graph.latents}
         block = unchecked_operator(graph, names, at=at, probe_gaussian=False)
-        sigma = (
+        noise = (
             frozen
             if frozen is not None
-            else _sigma_at(graph, block, at, method, tol, maxiter)
+            else _precision_at(graph, block, at, method, tol, maxiter)
         )
         if method == "gcr":
             draw, _ = gcr_sample(
                 block,
-                noise_std=sigma,
+                precision=noise,
                 key=rng_key,
                 tol=tol,
                 maxiter=maxiter,
@@ -240,7 +250,7 @@ def gibbs_factory(
             )
             return {name: draw[name] for name in names}
         return _mh_step(
-            graph, block, gibbs_sites, at, sigma, rng_key, tol, maxiter, names
+            graph, block, gibbs_sites, at, noise, rng_key, tol, maxiter, names
         )
 
     return gibbs_fn
@@ -251,7 +261,7 @@ def _mh_step(
     block: LinearBlock,
     current: Mapping[str, Any],
     at: dict[str, Any],
-    sigma: dict[str, Any],
+    precision: dict[str, Any],
     key: jax.Array,
     tol: float,
     maxiter: int | None,
@@ -278,13 +288,13 @@ def _mh_step(
     proposal is then genuinely independent of ``x``, ``M' = M`` exactly, the
     constant cancels for real, and the cost drops from 3 CG solves to 2 --
     the forward mean and the draw, with both densities being quadratic forms
-    costing one operator application each. :func:`_sigma_at` has no ``x``
+    costing one operator application each. :func:`_precision_at` has no ``x``
     parameter for that reason.
 
     A consequence worth stating: **correctness does not depend on sigma-hat
     being any good.** Any x-independent choice gives a valid chain; the
     quality of sigma-hat sets only the acceptance rate. That converts a
-    correctness risk into a performance knob, and it is why ``noise_std=``
+    correctness risk into a performance knob, and it is why ``precision=``
     can be handed in from outside without a caveat.
 
     Sigma must also NOT be taken from the previously accepted ``x``: that
@@ -302,11 +312,11 @@ def _mh_step(
     """
     propose_key, accept_key = jax.random.split(key)
     mu, _ = wiener_solve(
-        block, noise_std=sigma, tol=tol, maxiter=maxiter, require_convergence=None
+        block, precision=precision, tol=tol, maxiter=maxiter, require_convergence=None
     )
     draw, _ = gcr_sample(
         block,
-        noise_std=sigma,
+        precision=precision,
         key=propose_key,
         tol=tol,
         maxiter=maxiter,
@@ -315,8 +325,8 @@ def _mh_step(
     proposed = {name: draw[name] for name in names}
     now = {name: current[name] for name in names}
     log_alpha = log_weight(
-        graph, block, proposed, at=at, noise_std=sigma, mu=mu
-    ) - log_weight(graph, block, now, at=at, noise_std=sigma, mu=mu)
+        graph, block, proposed, at=at, precision=precision, mu=mu
+    ) - log_weight(graph, block, now, at=at, precision=precision, mu=mu)
     take = jnp.log(jax.random.uniform(accept_key)) < log_alpha
     # `jnp.where` rather than a Python branch: `take` is traced. A rejection
     # returns `now` BITWISE, which is what lets a test read the acceptance
@@ -332,7 +342,7 @@ def assemble(
     method: str = "gcr",
     sigma_rebuild: bool = False,
     maxiter: int | None = None,
-    noise_std: Mapping[str, Any] | None = None,
+    precision: Mapping[str, Any] | None = None,
     num_warmup: int = 1000,
     num_samples: int = 2000,
     num_chains: int = 1,
@@ -347,7 +357,7 @@ def assemble(
     ``mcmc.get_extra_fields()`` afterwards.
 
     Args:
-        graph, names, tol, method, sigma_rebuild, maxiter, noise_std: passed
+        graph, names, tol, method, sigma_rebuild, maxiter, precision: passed
             straight to :func:`gibbs_factory`.
         num_warmup, num_samples, num_chains, progress_bar: ``MCMC``'s own.
         chain_method: ``"sequential"`` or ``"parallel"``. Both were run
@@ -392,7 +402,7 @@ def assemble(
             method=method,
             sigma_rebuild=sigma_rebuild,
             maxiter=maxiter,
-            noise_std=noise_std,
+            precision=precision,
         ),
         gibbs_sites=list(names),
     )

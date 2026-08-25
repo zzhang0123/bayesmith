@@ -212,7 +212,7 @@ class TestTheFisherMatricesAgreeWhereBothPackagesClaimTo:
         from rheplicant.inference.uncertainty import fisher_information as theirs
 
         from bayesmith.exact.fisher import fisher_information as ours
-        from bayesmith.exact.gaussian import noise_std_at
+        from bayesmith.exact.gaussian import precision_at
         from bayesmith.exact.linearity import linear_operator
         from tests.exact.models import straight_line
         from tests.exact.oracle import graph_oracle
@@ -223,7 +223,7 @@ class TestTheFisherMatricesAgreeWhereBothPackagesClaimTo:
             block = linear_operator(graph, ("w",), at={})
             mine = ours(
                 block,
-                noise_std=noise_std_at(graph, {"w": jnp.asarray(weight)}),
+                precision=precision_at(graph, {"w": jnp.asarray(weight)}),
                 include_prior=False,
                 # Declared, not defaulted: this model's sigma really is
                 # constant, and saying so is now how the second term is
@@ -271,6 +271,7 @@ class TestTheRadiometerCorrectionAgrees:
         from bayesmith.exact.fisher import fisher_information as ours
         from bayesmith.exact.gls import sigma_from_graph
         from bayesmith.exact.linearity import linear_operator
+        from bayesmith.exact.precision import diagonal_from
         from tests.exact.models import radiometer
         from tests.exact.oracle import graph_oracle
 
@@ -281,7 +282,7 @@ class TestTheRadiometerCorrectionAgrees:
         mine = float(
             ours(
                 block,
-                noise_std=sigma_of(centre),
+                precision=diagonal_from(sigma_of(centre)),
                 include_prior=False,
                 sigma_of=sigma_of,
                 centre=centre,
@@ -313,6 +314,7 @@ class TestTheRadiometerCorrectionAgrees:
         from bayesmith.exact.fisher import fisher_information as ours
         from bayesmith.exact.gls import sigma_from_graph
         from bayesmith.exact.linearity import linear_operator
+        from bayesmith.exact.precision import diagonal_from
         from tests.exact.models import radiometer
 
         with jax.enable_x64(True):
@@ -323,7 +325,7 @@ class TestTheRadiometerCorrectionAgrees:
             first = float(
                 ours(
                     block,
-                    noise_std=sigma_from_graph(graph, {})(centre),
+                    precision=diagonal_from(sigma_from_graph(graph, {})(centre)),
                     include_prior=False,
                     depends_on_prediction=False,
                 ).values[0, 0]

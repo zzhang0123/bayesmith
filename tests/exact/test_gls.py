@@ -15,6 +15,7 @@ from bayesmith.exact.gls import (
     sigma_from_graph,
 )
 from bayesmith.exact.linearity import linear_operator
+from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import wiener_solve
 from tests.exact.models import (
     contrast_sigma_pair,
@@ -41,7 +42,9 @@ def test_a_constant_sigma_converges_in_one_step():
         )
         direct, _ = wiener_solve(
             block,
-            noise_std=sigma_from_graph(graph, {})({"w": jnp.asarray(0.0)}),
+            precision=diagonal_from(
+                sigma_from_graph(graph, {})({"w": jnp.asarray(0.0)})
+            ),
             tol=1e-14,
         )
     assert int(result.iterations) == 1
@@ -887,3 +890,65 @@ def test_the_fixed_point_is_the_unbiased_estimator_not_the_gls_biased_one(kappa)
         f"sum u^2/sum u={biased} -- it has moved toward the log-det-dropped "
         "estimator, which this function's freezing is what avoids."
     )
+
+
+# ---------------------------------------------------------------------------
+# B9 step 4: the boundary where sigma VALUES become the operator, once.
+# ---------------------------------------------------------------------------
+
+
+def test_gls_result_precision_solves_to_the_same_point_its_noise_std_does():
+    """`.precision` is the operator `.noise_std` describes, and it is derived.
+
+    The property exists so the conversion happens ONCE, where the answer is
+    handed on, rather than at each of the four consumers that take an
+    operator. Two things have to hold for that to be safe:
+
+    * it agrees with converting `.noise_std` by hand -- bitwise, since it IS
+      that conversion;
+    * a solve at it lands where a solve at the sigma lands, which is the
+      claim any caller actually relies on.
+
+    Both, because the first alone would still pass if `diagonal_from` were
+    wrong and the second alone would not notice a second stored copy drifting.
+    """
+    with jax.enable_x64(True):
+        graph = radiometer(kappa=KAPPA, floor=FLOOR)
+        block = linear_operator(graph, ("w",), at={})
+        result = iterative_gls(
+            block, sigma_from_graph(graph, {}), tol=1e-14, reweight_tol=1e-10
+        )
+        by_hand = diagonal_from(result.noise_std)
+        from_property = result.precision
+        assert set(by_hand) == set(from_property)
+        for name in by_hand:
+            assert jnp.array_equal(from_property[name].sigma, by_hand[name].sigma)
+        direct, _ = wiener_solve(
+            block, precision=from_property, tol=1e-14, require_convergence=None
+        )
+    assert float(direct["w"]) == pytest.approx(float(result.solution["w"]), rel=1e-10)
+
+
+def test_gls_result_precision_is_a_property_and_not_a_pytree_leaf():
+    """Deriving it on read is what keeps ONE copy of the covariance.
+
+    `GLSResult` is a `NamedTuple` and therefore a pytree whose leaves are its
+    fields, so storing the operator would put a second copy of the covariance
+    inside every traced result -- and two copies of one covariance is defect
+    B1's shape, which `precision.py`'s own docstring is written against.
+
+    Measured as a leaf COUNT rather than by inspecting the class, because
+    what matters is what `jax.tree` sees: a field would show up here whatever
+    it was called.
+    """
+    with jax.enable_x64(True):
+        graph = straight_line()
+        block = linear_operator(graph, ("w",), at={})
+        result = iterative_gls(
+            block, sigma_from_graph(graph, {}), depends_on_prediction=False, tol=1e-14
+        )
+        leaves = jax.tree.leaves(result)
+        # the five fields' leaves, and not one more
+        assert len(leaves) == len(jax.tree.leaves(tuple(result)))
+        assert "precision" not in result._fields
+        assert result.precision is not None

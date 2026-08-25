@@ -43,6 +43,7 @@ from bayesmith.exact.block import (
 from bayesmith.exact.gaussian import check_gaussian, gaussian_parts, node_shape
 from bayesmith.exact.gls import check_prediction_dependence, sigma_from_graph
 from bayesmith.exact.linearity import DEFAULT_AT_POINTS, check_linearity
+from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import wiener_solve
 from bayesmith.graph.evaluate import apply_deterministic, apply_probabilistic
 from bayesmith.graph.graph import Graph
@@ -404,7 +405,7 @@ def _relative_movement(
 
 
 def _data_informed_point(
-    operator: LinearBlock, noise_std: dict[str, jax.Array]
+    operator: LinearBlock, precision: dict[str, Any]
 ) -> dict[str, jax.Array] | None:
     """Where this block's posterior actually sits: one Wiener solve.
 
@@ -423,7 +424,7 @@ def _data_informed_point(
     ``None`` comes back if it is not, leaving the prior-scale probes as the
     whole measurement.
     """
-    solution, _ = wiener_solve(operator, noise_std=noise_std, require_convergence=None)
+    solution, _ = wiener_solve(operator, precision=precision, require_convergence=None)
     finite = all(bool(jnp.all(jnp.isfinite(value))) for value in solution.values())
     return solution if finite else None
 
@@ -490,7 +491,11 @@ def _sigma_movement(
         operator, sigma_of, declared=True, rtol=SIGMA_RTOL, key=key
     )
     baseline = sigma_of(domain_centre(operator))
-    solution = _data_informed_point(operator, baseline)
+    # `baseline` is read BOTH ways here, three lines apart: as the OPERATOR
+    # the probe solve is weighted by, and as the sigma VALUES the movement is
+    # measured against below. Converting the variable would break the second;
+    # the conversion belongs at the call that wants an operator.
+    solution = _data_informed_point(operator, diagonal_from(baseline))
     if solution is None:
         return movement
     at_the_data = _relative_movement(baseline, sigma_of(solution))

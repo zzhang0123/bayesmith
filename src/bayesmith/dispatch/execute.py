@@ -35,6 +35,7 @@ from bayesmith.exact.block import domain_centre, unchecked_operator
 from bayesmith.exact.correct import khat, log_weight, self_normalise, unreliable
 from bayesmith.exact.gibbs import assemble
 from bayesmith.exact.gls import iterative_gls, sigma_from_graph
+from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import gcr_sample
 from bayesmith.graph.graph import Graph
 
@@ -144,10 +145,11 @@ class Estimate(NamedTuple):
 
     Attributes:
         values: the GLS/Wiener solution, ``{latent: value}``.
-        noise_std: the covariance it was solved at -- for a
-            prediction-dependent model, the fixed point, so
-            ``noise_std_at(graph, values)`` reproduces it. Feed it back to
-            ``gcr_sample`` to draw at the same covariance.
+        noise_std: the covariance it was solved at, as per-sample sigma
+            VALUES -- for a prediction-dependent model, the fixed point, so
+            ``noise_std_at(graph, values)`` reproduces it. To draw at that
+            same covariance take :attr:`precision`, which is what
+            ``gcr_sample`` reads.
         converged: always ``True``. ``False`` is not returned; it is raised as
             :class:`~bayesmith.errors.ConvergenceError`, which is the whole
             point of this being the promotion site. Kept as a field because a
@@ -162,6 +164,19 @@ class Estimate(NamedTuple):
     converged: bool
     residual: jax.Array
     iterations: jax.Array
+
+    @property
+    def precision(self) -> dict[str, Any]:
+        """:attr:`noise_std` as ``{observed: N^-1}``, for the solvers.
+
+        The same split, and for the same reason, as
+        :attr:`~bayesmith.exact.gls.GLSResult.precision`: the reweighting loop
+        that produced this iterates sigma VALUES, while every consumer of the
+        answer takes an operator. Derived on read rather than stored, so the
+        two cannot disagree and this ``NamedTuple``'s pytree keeps the
+        covariance once.
+        """
+        return diagonal_from(self.noise_std)
 
 
 def chain_ess(samples: Mapping[str, Any], *, num_chains: int = 1) -> float:
@@ -360,7 +375,7 @@ def _swept(
 
 def _iid_draws(
     block: Any,
-    sigma: dict[str, Any],
+    precision: dict[str, Any],
     key: jax.Array,
     count: int,
     *,
@@ -368,7 +383,7 @@ def _iid_draws(
     maxiter: int | None,
     require_convergence: float | None,
 ) -> dict[str, jax.Array]:
-    """``count`` independent GCR draws at one frozen sigma.
+    """``count`` independent GCR draws at one frozen covariance.
 
     ``vmap`` over split keys rather than a loop: the fluctuation enters the
     right-hand side only, so every draw is the same solve at a different ``b``
@@ -379,7 +394,7 @@ def _iid_draws(
     draws, _ = jax.vmap(
         lambda one: gcr_sample(
             block,
-            noise_std=sigma,
+            precision=precision,
             key=one,
             tol=tol,
             maxiter=maxiter,
@@ -417,7 +432,7 @@ def _whole_graph(
     }
     if plan.exact.method == "gcr":
         sigma = sigma_from_graph(graph, at)(domain_centre(block))
-        draws = _iid_draws(block, sigma, draw_key, count, **settings)
+        draws = _iid_draws(block, diagonal_from(sigma), draw_key, count, **settings)
         return Posterior(
             draws,
             None,
@@ -437,10 +452,13 @@ def _whole_graph(
         maxiter=maxiter,
         require_convergence=require_convergence,
     )
-    draws = _iid_draws(block, fixed.noise_std, draw_key, count, **settings)
+    # `fixed.precision` at BOTH, from one GLSResult: the draws and the weight
+    # must be at the same covariance or the estimator targets a tilted
+    # distribution -- see `check_frozen_sigma`, which measures that.
+    draws = _iid_draws(block, fixed.precision, draw_key, count, **settings)
     weights = jax.vmap(
         lambda x: log_weight(
-            graph, block, x, at=at, noise_std=fixed.noise_std, mu=fixed.solution
+            graph, block, x, at=at, precision=fixed.precision, mu=fixed.solution
         )
     )(draws)
     ess = float(self_normalise(weights)[1])
