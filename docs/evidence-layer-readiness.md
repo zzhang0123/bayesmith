@@ -160,12 +160,42 @@ respectively).
 `kappa(R) = sqrt(kappa(F))` is asserted at a thousand epochs, which is the
 property the square-root form exists for.
 
-## 5. What is still untouched
+## 5. The per-epoch fold integrates nuisances
 
-The thousand-epoch opaque-leaf archive, the layer that decides WHICH latents
-are folded per epoch and which survive (§2 — the factorization), the
-`Factorization`-to-graph bridge, and `diagnostics.py`'s declarative refusal
-of in-span coherent errors, which the spec calls design philosophy rather
-than implementation.
+`compress_epoch` is the streaming analysis in one call: compress the epoch
+over BOTH the survivors and its own nuisances, append the nuisances' prior
+rows, and marginalise them. What comes back is a term over the survivors
+alone, and folding those across a campaign is `SqrtInfo.combine`.
 
-Nothing is blocked. Neither the kernel nor the compressor is the reason.
+The prior rows go in **before** the marginalisation, and that is not a
+convenience: a per-epoch nuisance is integrated exactly once, so a prior
+arriving later has nowhere to be applied — and without one the block need not
+constrain itself, which makes the integral divergent. `marginalise` refuses
+that rather than returning the large plausible number finite arithmetic gives.
+
+The oracle shares nothing with the implementation, not even its shape. The
+marginal of a linear-Gaussian epoch has a closed form,
+
+    d | x_g  ~  N(A_g x_g + A_n m_n + c,  N + A_n S_n A_n^T)
+
+evaluated with a materialised covariance and `numpy.linalg` — no QR, no
+pivots, no offset arithmetic in common. A whole campaign of per-epoch
+nuisances is checked against **one** dense Gaussian with every nuisance
+integrated jointly, so the E separate per-epoch constants have to sum to the
+single joint one.
+
+**And the reason every fixture sweeps the prior scale is now an executable
+fact.** The nuisance prior's normalisation is `-sum(log std) - (n/2) log 2pi`
+and the first half is exactly zero at `std = 1`. Mutation: removing it fails
+7 tests — and **none** of them when the sweep is narrowed to `prior_std =
+1.0`. That is rheplicant's historical blind spot reproduced on demand.
+
+## 6. What is still untouched
+
+The thousand-epoch opaque-leaf archive; the layer that decides WHICH latents
+are folded per epoch and which survive (§2 — the factorization, where the
+spec's derivation claim is two-thirds true); and `diagnostics.py`'s
+declarative refusal of in-span coherent errors, which the spec calls design
+philosophy rather than implementation.
+
+Nothing is blocked. The numerics are not the reason.
