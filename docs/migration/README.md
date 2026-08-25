@@ -20,7 +20,7 @@ they disagree. If the table and that test ever disagree, the test is right.
 | 4.1 | `likelihood.py`/`noise.py` → `exact/gaussian` | `test_gaussian.py` | ✅ `noise.md` |
 | 4.2 | `parameters.py` → node declarations | `test_parameters.py` | ✅ |
 | 4.2 | `noise.py` → probabilistic nodes | `test_gaussian.py` | ✅ `noise.md` |
-| 4.2 | `plan.py`+`engines.py` → dispatch | — | — |
+| 4.2 | `plan.py`+`engines.py` → dispatch | `test_dispatch.py` | ✅ `plan.md` |
 | 4.2 | `identifiability.py` → `diagnose/` | `test_diagnose_identifiability.py` | ✅ |
 | 4.2 | `sensitivity.py` → `diagnose/` | `test_diagnose_sensitivity.py` | ✅ |
 | 4.2 | `priors.py` → `diagnose/` | `test_diagnose_jeffreys.py` | ✅ |
@@ -37,17 +37,15 @@ cross-check enforcing it.
 
 ## Where the gate actually stands
 
-Ten pages exist; **three §四 modules have neither a cross-check test nor
-a page** (two rows — `plan.py` and `engines.py` share one), and they are the blocker (the count is asserted against the
-derived one by
+Eleven pages exist; **one §四 module has neither a cross-check test nor
+a page**, and it is the whole of what still blocks §六 (the count is
+asserted against the derived one by
 `test_the_readme_states_the_derived_number_of_unpaged_modules`, because it
 was written as "five" against a real six for a whole session):
 
-- `plan.py`+`engines.py` → dispatch (§四 4.2) — **B1 first**, or the
-  comparison fixes the GLS-type target as the reference
 - `numpyro_bridge.py` → `bridge/` (§四 4.2)
 
-Those are measurement jobs, not writing jobs: each needs fixtures, an
+That is a measurement job, not a writing job: it needs fixtures, an
 independent oracle and a refusal comparison before its page can exist.
 
 So §六 is still blocked, on a list rather than a category. Nothing in
