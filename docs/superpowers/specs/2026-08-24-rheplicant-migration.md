@@ -351,7 +351,16 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
 >   API 就是这边的面，rheplicant 的 C19 检查改调 bayesmith；(b) 在
 >   rheplicant 的 config 层加一个真正的 run kind，消费 bayesmith 的
 >   `prior_sensitivity`；(c) 等 bayesmith 有第二个消费者时再谈 config 层。
->   **需要 owner 拍板，写之前先定。**
+>
+> **【owner 已拍板 2026-08-25：取 (c)。】** 暂不动 config 层。与 D1 的建议
+> 一致（config 语法留在 `rheplicant.config`），理由也一样：把语法搬进一个
+> 通用推断库，要么被迫通用化、要么两处重复，而现在**只有一个消费者**——
+> 没有任何东西能告诉我们哪些部分是通用的。等 bayesmith 有第二个消费者时
+> 重估。
+>
+> 因此 **B12 到此为止，无代码可写**：B3 已完成（§八 第 5 步），rheplicant
+> 侧的受控检查 C19 保持原样，bayesmith 侧的面就是 `diagnose/sensitivity.py`
+> 的 Python API。
 
 ---
 
@@ -423,7 +432,8 @@ e-RHINO 侧装 bayesmith——但那会让 rheplicant 依赖一个 0.0.0 版包�
    包 + 120 个本地测试 + 三份 cross-check 页；rtol 常数重测、B3 修复、
    `fisher._weighted_design` 顺带修了一个真缺陷（二维观测节点上广播失败）。
 6. **P6 = B11 流式证据重写**。
-7. **B10、B12**，然后 §六的 rheplicant 收尾。
+7. **B10**，然后 §六的 rheplicant 收尾。**B12 已于 2026-08-25 由
+   owner 拍板取 (c)（不动 config 层），无代码可写**——见 §五 B12 的批注。
 
 ---
 
