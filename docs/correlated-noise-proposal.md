@@ -552,6 +552,43 @@ Acceptance for that increment, in this package's idiom:
 * the normaliser check and the operator check must each fail alone on the A/B
   pair (both were measured to be individually blind to it, §3.3).
 
+### 5.1a Step 4's cost, attempted and measured (2026-08-25)
+
+Step 4 below reads as a rename. It is not, and the attempt was reverted rather
+than half-landed. Measured before starting: **111 call sites** pass
+`noise_std=` (19 in `src/`, 92 in `tests/`), 77 of them the single expression
+`noise_std=sigma`.
+
+What makes it more than a rename is that **tests use a producer's output two
+ways**, and both are legitimate:
+
+* as an OPERATOR, fed to a solver;
+* as sigma VALUES -- arithmetic (`sigma ** 2`), elementwise comparison against
+  an oracle, assertions about how sigma moves with a latent.
+
+A blanket conversion of the producers therefore breaks the second use. The
+attempt did exactly that and the failures name it precisely: 51 x
+`TypeError: unsupported operand ** on DiagonalPrecision`, 27 x
+`AttributeError: ArrayImpl has no attribute 'apply'`, 15 x a stale
+`noise_std` reference, spread over eight test files.
+
+Two things are worth keeping from the attempt:
+
+1. **The failure mode is loud, which makes the migration safe to do
+   mechanically.** A raw sigma dict has no `.apply` and a `Precision` has no
+   `** 2`; nothing fails silently. That is not luck -- it is what having two
+   incompatible types buys, and it is the argument for step 4 rather than for
+   type-punning `noise_std=` into meaning both.
+2. **`GLSResult.precision`** is the right shape for the GLS boundary: the loop
+   iterates sigma values honestly, and the conversion belongs once where its
+   answer is handed on, not at each call site.
+
+**The correct order is per-site, not a sweep**: for each of the 111, decide
+whether that expression is an operator or a value. A regex cannot make that
+distinction, which is the same reason the docs guard had to become an AST walk
+-- and the irony of using one here, in a refactor whose entire purpose is to
+stop two vocabularies being confused, is worth recording.
+
 ### 5.2 Then, in order
 
 2. **Split `CirculantPrecision`'s constructor check** into a `check_circulant`
