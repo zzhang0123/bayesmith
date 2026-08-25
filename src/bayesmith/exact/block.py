@@ -33,6 +33,7 @@ import jax.numpy as jnp
 from bayesmith.errors import GraphError, NotGaussian
 from bayesmith.exact.gaussian import (
     check_gaussian,
+    check_observed,
     gaussian_parts,
     node_shape,
     observation_parts,
@@ -425,7 +426,12 @@ def unchecked_operator(
     env, domain = _env_before(graph, names, at, probe_gaussian=probe_gaussian)
     if probe_gaussian:
         for observed in graph.observed:
-            check_gaussian(graph, graph.node(observed), env)
+            # `check_observed`, not `check_gaussian`: an observed node's
+            # covariance need not be diagonal, and for a correlated one this
+            # is where `check_positive_definite` runs -- eagerly, before any
+            # kernel is traced. `_env_before` above keeps `check_gaussian`
+            # for block MEMBERS, whose priors are diagonal by construction.
+            check_observed(graph, graph.node(observed), env)
 
     g = isolate(graph, names, at)
     zero = {n: jnp.zeros(domain[n][0], dtype=domain[n][1]) for n in names}

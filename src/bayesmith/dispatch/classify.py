@@ -266,6 +266,26 @@ def _is_gaussian(graph: Graph, name: str, env: dict[str, Any]) -> tuple[bool, st
     ``log_prob`` contradicts the ``loc``/``scale`` read off it -- a broken
     model -- and is deliberately NOT caught here.
 
+    **This asks a CAPABILITY question, and that is why it calls
+    ``check_gaussian`` rather than
+    :func:`~bayesmith.exact.gaussian.check_observed`**, which the build path
+    does. The two are different questions: "is this node's declared density
+    sound?" and "can the exact path solve a block containing it?". For a
+    correlated node the first answer is now yes and the second is still no --
+    the block builder's data and loc walks are diagonal-only -- so accepting
+    it here promises an exact solve that cannot be delivered.
+
+    Measured, by wiring ``check_observed`` here and running the suite: on a
+    well-formed ``CirculantNormal`` graph, ``compile()`` stopped routing to
+    NUTS and raised ``NotGaussian`` from deeper in the block builder instead.
+    All 748 tests stayed green through it, because no fixture compiles a
+    correlated graph -- ``test_a_correlated_graph_still_compiles_to_nuts`` is
+    what closes that, and this comment is what stops the next reader
+    "tidying" the two call sites into one.
+
+    When the exact path can build a correlated block, this becomes
+    ``check_observed`` and that test changes with it. Not before.
+
     Only the message's FIRST SENTENCE is kept: the rest says which solve is
     not implemented and that this is a verdict rather than a defect, neither
     of which belongs in a one-line dispatch reason. Split on ``". "`` and not

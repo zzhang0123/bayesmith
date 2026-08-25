@@ -272,6 +272,85 @@ def check_gaussian(
     return errors
 
 
+def check_observed(
+    graph: Graph, node: Node, env: dict[str, Any], *, rtol: float | None = None
+) -> dict[Any, float]:
+    """Probe an observed node's declared density, whichever covariance it has.
+
+    The eager guard the build path runs, and the router between the two:
+
+    ===================  ==================================================
+    distribution         what is run
+    ===================  ==================================================
+    ``Normal``           :func:`check_gaussian` -- unchanged, five offsets
+                         against the ``(loc, scale)`` read off it
+    ``CirculantNormal``  :func:`~bayesmith.exact.precision.\
+                         check_positive_definite`, THEN
+                         :func:`~bayesmith.exact.precision.check_precision`
+    ===================  ==================================================
+
+    **The order is load-bearing, and it was measured.** ``check_precision``
+    does refuse an indefinite kernel on its own -- but only through NaN
+    propagation, and it names the wrong cause. Measured on three indefinite
+    kernels, including one whose entries are all positive: numpyro's own
+    ``CirculantNormal.log_prob`` returns ``nan``, so ``check_precision``
+    reports ``linearity=nan, normalizer=nan``, and its message explains
+    ``linearity`` as "the log-density is not quadratic, so it has no
+    covariance to extract". The log-density IS quadratic; the kernel simply
+    describes no realisable process. A user sent to look at their ``det``
+    nodes and ``linear_in`` declarations would be looking in the wrong place.
+    :func:`~bayesmith.exact.precision.check_positive_definite` says what is
+    actually wrong, so it goes first.
+
+    Refusing through a NaN is also fragile in a way that saying so is not: it
+    holds only for as long as ``log_prob`` keeps returning ``nan`` rather
+    than, say, clamping.
+
+    Args:
+        graph, node, env: the node under test and the values its parents take.
+        rtol: passed to whichever guard runs. Both default it the same way,
+            to ``1e3 * eps`` of ``loc``'s dtype.
+
+    Returns:
+        Whatever the guard that ran returns -- ``{offset: error}`` from
+        :func:`check_gaussian`, ``{"operator"/"normalizer"/"linearity":
+        error}`` from :func:`~bayesmith.exact.precision.check_precision`.
+        The two are different measurements and are deliberately not squashed
+        into one shape; every caller in this package discards them and reads
+        the exception instead.
+
+    Raises:
+        NotGaussian: for a distribution neither row accepts, exactly as
+            before -- still a classification outcome, not a fault.
+        StructureError: from :func:`check_gaussian`.
+        ValueError: from
+            :func:`~bayesmith.exact.precision.check_positive_definite`, when
+            the kernel is not a realisable autocovariance.
+        PrecisionMismatch: from
+            :func:`~bayesmith.exact.precision.check_precision`.
+    """
+    from bayesmith.exact.precision import (
+        CirculantPrecision,
+        check_positive_definite,
+        check_precision,
+    )
+
+    distribution = unwrap(apply_probabilistic(graph, node, env))
+    circulant = getattr(dist, "CirculantNormal", None)
+    if circulant is None or not isinstance(distribution, circulant):
+        return check_gaussian(graph, node, env, rtol=rtol)
+
+    loc, precision = precision_parts(graph, node, env)
+    assert isinstance(precision, CirculantPrecision)  # the only correlated row
+    check_positive_definite(precision)
+    return check_precision(
+        distribution,
+        precision,
+        jnp.broadcast_to(loc, node_shape(graph, node, env)),
+        rtol=rtol,
+    )
+
+
 def precision_parts(
     graph: Graph, node: Node, env: dict[str, Any]
 ) -> tuple[jax.Array, Any]:

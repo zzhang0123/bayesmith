@@ -9,10 +9,13 @@ import numpy as np
 import pytest
 import scipy.linalg as sla
 
+from bayesmith import evaluate
+from bayesmith.errors import NotGaussian
 from bayesmith.exact.precision import (
     CirculantPrecision,
     DiagonalPrecision,
     Precision,
+    PrecisionMismatch,
     dense,
     log_density,
     quadratic,
@@ -183,10 +186,16 @@ class TestTheContractRefusesWhatItCannotDescribe:
         """Nobody should read the class and assume building one is safe.
 
         The check moved OUT of ``__check_init__`` (see the next test for why),
-        so an indefinite kernel now constructs happily. That is a real hazard
-        and the reason ``check_positive_definite`` exists as a named, callable
-        thing rather than an implicit one -- this pins the hazard so the
-        docstring cannot quietly stop being true.
+        so an indefinite kernel still constructs happily. That is a real
+        hazard and the reason ``check_positive_definite`` exists as a named,
+        callable thing rather than an implicit one -- this pins the hazard so
+        the docstring cannot quietly stop being true.
+
+        It now HAS a caller, which is a different claim and a different test:
+        ``TestThePositiveDefiniteCheckIsWiredIntoTheBuildPath`` below covers
+        the build path. Construction staying permissive is not a gap that
+        wiring closes -- the class must remain traceable, so this stays true
+        for as long as the split does.
         """
         with jax.enable_x64(True):
             built = CirculantPrecision(first_column=jnp.asarray([1.0, -0.9, 0.8, -0.9]))
@@ -683,3 +692,117 @@ class TestCheckPrecisionSeparatesWhatTheScalarProbeCannot:
             )
             with pytest.raises(PrecisionMismatch):
                 check_precision(node, broken, loc)
+
+
+class TestThePositiveDefiniteCheckIsWiredIntoTheBuildPath:
+    """B9 step 4's explicit obligation: the check has a caller now.
+
+    Split out of ``__check_init__`` in ``296d911`` so the class could be
+    traced, which left it correct, mutation-checked and called by nothing.
+    """
+
+    @staticmethod
+    def _graph(kernel, n=4):
+        import numpyro.distributions as ndist
+
+        from bayesmith import const, det, observe, sample, trace
+
+        grid = jnp.linspace(1.0, 4.0, n)
+
+        def model():
+            xs = const("X", grid)
+            w = sample("w", lambda: ndist.Normal(0.0, 5.0))
+            mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+            observe(
+                "d",
+                lambda m: ndist.CirculantNormal(m, kernel),
+                mu,
+                depends_on_prediction=False,
+                obs=2.0 * grid,
+            )
+
+        return trace(model)
+
+    @pytest.mark.parametrize(
+        "label, kernel",
+        [
+            ("all entries positive", [1.0, 1.5, 1.0, 1.5]),
+            ("alternating", [1.0, -0.9, 0.8, -0.9]),
+        ],
+    )
+    def test_an_indefinite_kernel_is_refused_when_the_block_is_built(
+        self, label, kernel
+    ):
+        """The hazard the docstring names, now caught where a kernel enters.
+
+        `unchecked_operator` probes every observed node before it linearises
+        anything, and that probe is `check_observed`, which runs
+        `check_positive_definite` for a correlated node. Both fixtures are
+        refused: the all-positive one matters most, since reading the kernel's
+        own entries rather than its SPECTRUM would let it through.
+        """
+        from bayesmith.exact.block import unchecked_operator
+
+        with jax.enable_x64(True):
+            graph = self._graph(jnp.asarray(kernel))
+            with pytest.raises(ValueError, match="positive definite"):
+                unchecked_operator(graph, ("w",), {})
+
+    def test_the_positive_definite_check_runs_before_the_density_comparison(self):
+        """Order, and it is about the DIAGNOSIS rather than the verdict.
+
+        `check_precision` also refuses an indefinite kernel -- but only
+        through NaN propagation, and it names the wrong cause. Measured on
+        three indefinite kernels: numpyro's `CirculantNormal.log_prob` returns
+        `nan`, so `check_precision` reports `linearity=nan, normalizer=nan`
+        and its message explains `linearity` as "the log-density is not
+        quadratic, so it has no covariance to extract". The log-density IS
+        quadratic. A user sent to look at their `det` nodes and `linear_in`
+        declarations would be looking in the wrong place.
+
+        So this asserts which message comes out, not merely that one does.
+        """
+        from bayesmith.exact.gaussian import check_observed
+        from bayesmith.exact.precision import check_precision
+
+        with jax.enable_x64(True):
+            kernel = jnp.asarray([1.0, 1.5, 1.0, 1.5])
+            graph = self._graph(kernel)
+            env = evaluate(graph, {"w": jnp.asarray(2.0)})
+            with pytest.raises(ValueError, match="autocovariance kernel") as caught:
+                check_observed(graph, graph.node("d"), env)
+            assert "positive definite" in str(caught.value)
+            assert "not quadratic" not in str(caught.value)
+
+            # ...and the guard it precedes really would have misdiagnosed it,
+            # so the ordering is load-bearing rather than tidy.
+            import numpyro.distributions as ndist
+
+            with pytest.raises(PrecisionMismatch, match="linearity=nan") as second:
+                check_precision(
+                    ndist.CirculantNormal(jnp.zeros(4), kernel),
+                    CirculantPrecision(first_column=kernel),
+                    jnp.zeros(4),
+                )
+            assert "not quadratic" in str(second.value)
+
+    def test_a_well_formed_correlated_node_passes_the_probe(self):
+        """The anti-vacuity clause: this refuses kernels, not correlation.
+
+        A guard that refused every correlated node would pass both tests
+        above while testing nothing. What stops the block being built here is
+        the block builder's own diagonal-only data and loc walks, which is a
+        LATER stage and a different message -- so the probe itself accepted.
+        """
+        from bayesmith.exact.block import unchecked_operator
+        from bayesmith.exact.gaussian import check_observed
+
+        size = 8
+        lag = np.minimum(np.arange(size), size - np.arange(size))
+        with jax.enable_x64(True):
+            graph = self._graph(jnp.asarray(1.0 * 0.4**lag + 0.5), n=size)
+            env = evaluate(graph, {"w": jnp.asarray(2.0)})
+            errors = check_observed(graph, graph.node("d"), env)
+            assert errors["operator"] < 1e-10
+            with pytest.raises(NotGaussian, match="CirculantNormal"):
+                unchecked_operator(graph, ("w",), {})
