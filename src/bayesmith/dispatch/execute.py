@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import jax
 import numpy as np
-from numpyro.diagnostics import effective_sample_size
+from numpyro.diagnostics import effective_sample_size, split_gelman_rubin
 
 from bayesmith.bridge.numpyro_bridge import nuts as nuts_draws
 from bayesmith.dispatch.classify import block_at
@@ -129,6 +129,13 @@ class Posterior(NamedTuple):
             to annotate rather than substitute.
         reason: why that, in the plan's own words, including the measured
             Kish ESS/N wherever the floor fired.
+        diagnostics: per-site split r-hat and ESS -- see
+            :func:`chain_diagnostics` -- on the paths that ran a CHAIN, and
+            ``None`` on the paths that did not. ``None`` is abstention rather
+            than endorsement, and here it is a stronger statement than usual:
+            the ``gcr`` and ``gcr+snis`` paths draw independently, so r-hat
+            has no referent at all on them. Reporting a number would invent
+            one. Read :attr:`ess`, which is always there.
     """
 
     samples: dict[str, jax.Array]
@@ -138,6 +145,7 @@ class Posterior(NamedTuple):
     unreliable: bool
     method: str
     reason: str
+    diagnostics: Mapping[str, SiteDiagnostic] | None = None
 
 
 class Estimate(NamedTuple):
@@ -209,6 +217,248 @@ def chain_ess(samples: Mapping[str, Any], *, num_chains: int = 1) -> float:
         measured = np.asarray(effective_sample_size(grouped), dtype=float)
         worst = min(worst, float(np.where(np.isfinite(measured), measured, 1.0).min()))
     return worst
+
+
+CHAIN_ESS_FLOOR: float = 100.0
+"""Per-coordinate ESS below which convergence cannot be CERTIFIED at all.
+
+Not the same object as :data:`SNIS_ESS_FLOOR`, which is a floor on a ratio for
+importance weights. This is an absolute count, and it exists because of a
+measurement that overturned the design it was added to.
+
+**The r-hat ceiling has no power on its own, and the failure is systematic.**
+``1 + C/ESS`` is calibrated under the null, where a low ESS means a chain that
+mixes slowly while sampling the target. Under the alternative a low ESS means
+a chain that is STUCK -- and a displaced chain drives ESS down faster than it
+drives r-hat up, so the ceiling rises to meet the very statistic it should be
+rejecting. Measured on two chains of 200 draws displaced by a separation, at
+2000 coordinates, AR(1) rho in {0, 0.9, 0.99}: **all fifteen cells sneak
+through**. At separation 8 and rho 0.99 the chains are visibly in different
+places, r-hat is **9.25** -- and ESS is **1.02**, so the ceiling is **12.3**
+and forgives it. The worse the failure, the more the ceiling forgives.
+
+So the order matters and is not interchangeable: **ESS is gated first, and
+r-hat is only asked where ESS can support an answer.** Every one of those
+fifteen cells has ESS at most 19.9, so the floor catches all of them, and a
+coordinate at ESS 100 has a ceiling of 1.115 -- a bound tight enough to be a
+test. A converged chain below the floor is not slandered by this: it is
+genuinely under-sampled, and "you do not have enough draws" is the true
+statement about it.
+
+100 is the field's usual recommendation (Vehtari et al. 2021) and is adopted
+rather than invented; what is measured here is that it is sufficient for the
+failures above, which is the part that could have been wrong.
+"""
+
+#: ``C`` in ``r_hat_ceiling``, at one coordinate: the measured maximum of
+#: ``(r_hat_99 - 1) * ESS`` across 27 null cells, 11.46, rounded up.
+_R_HAT_C1 = 11.5
+
+#: How ``C`` grows per decade of coordinates, and where it stops. Measured
+#: maxima: 11.46 at P=1, 14.44 at P=10, 18.76 at P=100, 22.61 at P=1000,
+#: 22.99 at P=10000 -- a little under 4 per decade, saturating near 23.
+_R_HAT_PER_DECADE = 3.9
+_R_HAT_C_CAP = 23.0
+
+
+def _constant(coordinates: int) -> float:
+    """``C`` alone, so the scalar ceiling and the array path cannot disagree.
+
+    Spelled once. Two copies of one formula is the defect this package has
+    spent the most time repairing, and a constant is no exception to it.
+    """
+    return min(
+        _R_HAT_C1 + _R_HAT_PER_DECADE * math.log10(max(coordinates, 1)),
+        _R_HAT_C_CAP,
+    )
+
+
+class SiteDiagnostic(NamedTuple):
+    """One site's convergence, judged at its worst coordinate.
+
+    Attributes:
+        r_hat: split r-hat at the coordinate that decided the verdict, or
+            ``inf`` where numpyro returned a non-finite value. See
+            :func:`chain_diagnostics` for why ``inf`` and not ``nan``.
+        ess: effective sample size at that same coordinate. The pair is
+            reported together because neither means anything alone -- the
+            ceiling r-hat is judged against is a function of this number.
+        ceiling: ``r_hat_ceiling(ess, total coordinates in the report)``.
+        converged: whether ``r_hat`` is within ``ceiling``.
+        worst: index of the deciding coordinate, ``()`` for a scalar site.
+            The attribution is the point: the pre-existing scalar reported the
+            worst number in the whole posterior and never said where it came
+            from, and "which element of a 64-element site" is a different
+            morning's work each time.
+        reason: empty where ``converged``, and otherwise which of the two
+            checks failed. They are different problems with different
+            remedies -- too little information is answered by sampling
+            longer, chains that disagree by finding out why -- and a single
+            boolean cannot tell a caller which one they have.
+    """
+
+    r_hat: float
+    ess: float
+    ceiling: float
+    converged: bool
+    worst: tuple[int, ...]
+    reason: str
+
+
+def r_hat_ceiling(ess: float, *, coordinates: int = 1) -> float:
+    """The largest split r-hat a CONVERGED chain of this ESS plausibly shows.
+
+    **A constant threshold on r-hat is not a well-posed test**, which is the
+    finding that shaped this function, and it is stronger than the migration
+    spec's warning that the per-parameter form needs its own argument.
+    Split r-hat's null distribution is governed by how much independent
+    information the chain holds, so the same constant is a coin flip at one
+    end of the ESS range and a no-op at the other.
+
+    Measured with 4000 independent coordinates per cell over 27 cells --
+    chains in {1, 2, 4}, draws in {200, 800, 3200}, AR(1) rho in
+    {0, 0.5, 0.9}, so ESS from 14.8 to 12693:
+
+    * ``r_hat_99 - 1`` scales as ``ESS ** -1.05``: a straight ``1 / ESS``.
+    * ``(r_hat_99 - 1) * ESS`` stays within 4.87 to 11.46 while ESS moves by a
+      factor of 860. That product is the stable quantity, so it is the one
+      pinned, and the ceiling is derived from it.
+    * A fixed **1.05** fires on **45.9 %** of converged chains at ESS 15, and
+      **0.0 %** at ESS 12693. 1.01 fires on 69.9 % and 0.0 %. Neither constant
+      is a test at both ends.
+
+    To reproduce: draw ``(chains, draws, 4000)`` standard normals, optionally
+    filtered to AR(1) with ``x[t] = rho x[t-1] + sqrt(1-rho^2) e[t]``, and take
+    ``split_gelman_rubin`` and ``effective_sample_size`` over the coordinate
+    axis. Coordinates are independent, so the family-wise quantile over ``P``
+    of them is the per-coordinate quantile at ``0.99 ** (1/P)`` -- exact, and
+    far cheaper than simulating each ``P``.
+
+    Args:
+        ess: the effective sample size AT the coordinate being judged, not a
+            summary over the site. Mixing coordinates here would compare one
+            coordinate's r-hat against another's information.
+        coordinates: how many coordinates the report covers in total. Reporting
+            the worst of ``P`` inflates the null, so the ceiling rises with
+            ``P`` -- otherwise the alarm rate grows with the size of the model
+            rather than with its health. Measured to saturate near 23, and
+            capped there: an unbounded term would make a large model
+            unfalsifiable.
+    """
+    return 1.0 + _constant(coordinates) / ess
+
+
+def chain_diagnostics(
+    samples: Mapping[str, Any], *, num_chains: int = 1
+) -> dict[str, SiteDiagnostic]:
+    """Per-parameter split r-hat and ESS, judged coordinate by coordinate.
+
+    What B7 asks for. :func:`chain_ess` already reduced ESS to one number by
+    MIN over everything, which is the right reduction for a scalar gate and
+    the wrong one for a diagnosis: it reports the worst number in the whole
+    posterior and cannot say which site, let alone which coordinate, produced
+    it. This reports both, per site, and names the coordinate.
+
+    **A non-finite r-hat becomes ``inf``, and that is load-bearing.** numpyro
+    returns ``nan`` for a coordinate that never moved -- measured, on a site
+    held bitwise constant. ``nan > ceiling`` is ``False``, so the most
+    unconverged parameter it is possible to have would pass a naive comparison
+    silently. ``inf`` is both the honest value for a chain carrying no
+    information and the one that survives the comparison. Note the direction
+    differs from :func:`chain_ess`, which maps a non-finite ESS to ``1.0``:
+    both choices push the same way, toward the answer that does not flatter
+    the chain.
+
+    Args:
+        samples: ``{site: draws}`` with the draw axis LEADING and chains
+            already concatenated along it, as ``MCMC.get_samples()`` returns.
+        num_chains: how many chains that axis holds. Unstacked before the
+            estimator sees it -- handing concatenated chains to split r-hat as
+            one long chain hides exactly the between-chain disagreement the
+            statistic exists to find.
+
+    Raises:
+        ValueError: if any site carries fewer than 4 draws per chain, which
+            numpyro's ``split_gelman_rubin`` refuses with a bare
+            ``AssertionError``. A library assertion is not a diagnosis.
+    """
+    grouped: dict[str, Any] = {}
+    for name, draws in samples.items():
+        values = np.asarray(draws)
+        block = values.reshape((num_chains, -1, *values.shape[1:]))
+        if block.shape[1] < 4:
+            raise ValueError(
+                f"site {name!r} has {block.shape[1]} draws per chain; split "
+                f"r-hat needs at least 4 draws. Sample for longer, or read "
+                f"`ess` alone."
+            )
+        grouped[name] = block
+
+    total = sum(
+        int(np.prod(block.shape[2:], dtype=int)) for block in grouped.values()
+    ) or 1
+
+    report: dict[str, SiteDiagnostic] = {}
+    for name, block in grouped.items():
+        r = np.atleast_1d(np.asarray(split_gelman_rubin(block), dtype=float))
+        e = np.atleast_1d(np.asarray(effective_sample_size(block), dtype=float))
+        shape = block.shape[2:]
+        # `inf` wherever either statistic is unusable, so the worst coordinate
+        # is chosen on a comparison that a nan would have silently won.
+        usable = np.isfinite(r) & np.isfinite(e) & (e > 0.0)
+        safe_e = np.where(usable, e, 1.0)
+        ceiling = np.where(usable, 1.0 + _constant(total) / safe_e, np.inf)
+        # Two failures, ranked so the WORST coordinate is the one reported.
+        # `starved` outranks `disagree` because it is checked first: where
+        # there is too little information, r-hat's verdict is not evidence
+        # either way -- see CHAIN_ESS_FLOOR for the fifteen cells that
+        # measured what happens when it is trusted anyway.
+        starved = ~usable | (e < CHAIN_ESS_FLOOR)
+        excess = np.where(usable, (r - 1.0) / (ceiling - 1.0), np.inf)
+        rank = np.where(starved, np.inf, excess)
+        flat = int(np.argmax(rank))
+        worst = tuple(int(i) for i in np.unravel_index(flat, shape)) if shape else ()
+        if starved[flat]:
+            reason = (
+                f"effective sample size {float(safe_e[flat]) if usable[flat] else 0.0:.1f} "
+                f"is below {CHAIN_ESS_FLOOR:.0f}; convergence cannot be "
+                f"established at this coordinate, whatever r-hat says"
+            )
+        elif excess[flat] > 1.0:
+            reason = (
+                f"split r-hat {float(r[flat]):.4f} exceeds {float(ceiling[flat]):.4f}, "
+                f"the ceiling for an effective sample size of {float(e[flat]):.1f}"
+            )
+        else:
+            reason = ""
+        report[name] = SiteDiagnostic(
+            r_hat=float(r[flat]) if usable[flat] else math.inf,
+            ess=float(e[flat]) if usable[flat] else 0.0,
+            ceiling=float(ceiling[flat]),
+            converged=not reason,
+            worst=worst,
+            reason=reason,
+        )
+    return report
+
+
+def _diagnostics_or_none(
+    samples: Mapping[str, Any], num_chains: int
+) -> dict[str, SiteDiagnostic] | None:
+    """:func:`chain_diagnostics`, or ``None`` where it cannot be computed.
+
+    A run too short for split r-hat is not a reason to fail a sample that
+    otherwise succeeded -- the draws are still the draws, and :attr:`ess` still
+    describes them. So the refusal :func:`chain_diagnostics` raises is caught
+    HERE and nowhere else: a caller asking for diagnostics directly gets the
+    error and the diagnosis in it, while a caller who merely sampled gets
+    ``None`` and the abstention that :class:`Posterior` documents.
+    """
+    try:
+        return chain_diagnostics(samples, num_chains=num_chains)
+    except ValueError:
+        return None
+
 
 
 def run_sample(
@@ -341,7 +591,10 @@ def _nuts_posterior(
     """
     samples = _latents_only(nuts_draws(graph, key, **chain), graph)
     ess = chain_ess(samples, num_chains=chain["num_chains"])
-    return Posterior(samples, None, ess, None, False, "nuts", reason)
+    return Posterior(
+        samples, None, ess, None, False, "nuts", reason,
+        _diagnostics_or_none(samples, chain["num_chains"]),
+    )
 
 
 def _swept(
@@ -370,7 +623,8 @@ def _swept(
     samples = _latents_only(mcmc.get_samples(), plan.graph)
     ess = chain_ess(samples, num_chains=chain["num_chains"])
     return Posterior(
-        samples, None, ess, None, False, plan.exact.method, plan._execution()
+        samples, None, ess, None, False, plan.exact.method, plan._execution(),
+        _diagnostics_or_none(samples, chain["num_chains"]),
     )
 
 
