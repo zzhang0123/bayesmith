@@ -1,0 +1,121 @@
+# Run the cross-checks against rheplicant, automatically.
+#
+# §六 step 2 was rewritten on 2026-08-26 to "two packages that stand on their
+# own and agree". That decision moved these tests from a TRANSITIONAL check --
+# verify the port, then delete the original -- to the only long-term guarantee
+# that the two implementations have not drifted. A transitional check can be
+# run by hand once. A standing guarantee cannot.
+#
+# Until 2026-08-26 this workflow was impossible: rheplicant had to come from a
+# local checkout. Both packages being installable by URL is what made it
+# writable, which is a second thing the release bought.
+#
+# ON INJECTION SAFETY. This workflow interpolates nothing. Outside this
+# paragraph, which names it in order to say so, the expression syntax appears
+# nowhere in the file, in a `run:` block or outside one. Nor does it read any
+# event data: no titles, bodies, comments, branch names or commit messages.
+# Every value it uses is a literal written here or something a command it ran
+# printed. Keep it that way: an expression substituted into a `run:` block is
+# evaluated before the shell ever sees it, which is the entire vulnerability
+# class, and `pull_request` from a public fork is exactly where it bites.
+#
+# TWO FAILURE MODES THIS FILE EXISTS TO CLOSE, neither of which is a red test:
+#
+#   1. The suite SKIPS. `tests/crosscheck/conftest.py` calls importorskip, so
+#      without rheplicant every test in the directory stands down and pytest
+#      exits 0. Its own skip reason says "THIS IS NOT A PASS" in capitals,
+#      which helps a human reading the log and does nothing at all for CI.
+#      So the count is read out of the junit XML, and a run that compared
+#      nothing fails here.
+#
+#   2. It compares against the WRONG rheplicant. This is the subtler one and
+#      the project has already paid for it: two cross-repository guards were
+#      green only because the editable install happened to sit on an unmerged
+#      branch, and nothing in reach proved which ref the text came from.
+#      PyPI is not the answer either -- rheplicant's released 0.2.0 is 385
+#      commits and 70k lines behind its main at the SAME version number, so
+#      installing by name would compare against something no developer runs.
+#      This installs from main by URL and prints the resolved commit, so the
+#      log always answers "which rheplicant was this".
+#
+# `--no-deps` is not a shortcut: it is §0.1's recorded, measured decision.
+# rheplicant declares limTOD, which drags in some seventy-eight transitive
+# packages and re-solves jax and numpy against a second set of constraints,
+# while the layer being compared imports fine without it because the sky
+# engines load limTOD lazily.
+
+name: Cross-check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  crosscheck:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install this package and its dev group
+        run: |
+          uv venv --python 3.12
+          uv pip install -e . --group dev
+
+      - name: Install rheplicant from main, and say which commit that is
+        run: |
+          uv pip install --no-deps \
+            "rheplicant @ git+https://github.com/RHINO-Experiment/rheplicant@main"
+          uv run python - <<'PY'
+          import pathlib, rheplicant
+          print("rheplicant version :", rheplicant.__version__)
+          print("rheplicant located :", pathlib.Path(rheplicant.__file__).parent)
+          PY
+          # The resolved commit, asked of git rather than of the package: the
+          # version string did not move across those 385 commits, so it cannot
+          # answer the question.
+          git ls-remote https://github.com/RHINO-Experiment/rheplicant.git main
+
+      - name: Cross-check
+        run: uv run python -m pytest tests/crosscheck --junit-xml=crosscheck.xml
+
+      # A green pytest here means "nothing failed", which a directory that
+      # skipped itself entirely also produces. This is the half that tells the
+      # two apart, and it is the whole reason the step above writes XML.
+      - name: The cross-checks must have actually compared something
+        if: always()
+        run: |
+          uv run python - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          root = ET.parse("crosscheck.xml").getroot()
+          suite = root[0] if root.tag == "testsuites" else root
+          a = suite.attrib
+          tests, skipped = int(a["tests"]), int(a["skipped"])
+          passed = tests - skipped - int(a["failures"]) - int(a["errors"])
+          print(f"collected={tests} passed={passed} skipped={skipped} "
+                f"failed={a['failures']} errors={a['errors']}")
+          if passed == 0:
+              sys.exit("no cross-check compared anything: rheplicant did not "
+                       "import, so the directory stood down and pytest still "
+                       "exited 0. THIS IS NOT A PASS.")
+          if skipped:
+              names = [tc.get("name") for tc in suite.iter("testcase")
+                       if any(c.tag == "skipped" for c in tc)]
+              print("skipped:", names)
+              sys.exit("a cross-check skipped; the guarantee has a hole in it "
+                       "and the names are above.")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crosscheck-report
+          path: crosscheck.xml

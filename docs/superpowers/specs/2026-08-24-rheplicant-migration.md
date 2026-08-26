@@ -372,13 +372,53 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
    列入 Track A 的 Batch 1：B1 的 `plan.py` docstring 补写（它今天只写了
    conjugate 块的冻结-σ 情形，应补上 gradient 块同样不含 logdet），以及 B4 的
    一行修复。任何指向 bayesmith 的 docstring 指针也算例外。
-2. 然后 `inference/` 转薄壳（重导出 + `DeprecationWarning`，或设计文档附录一
-   验证过的 `sys.modules` 别名），config 的 18 个 run kind 改指 bayesmith。
-   注意 `optimize` 依赖 `calibrate.py`——见 D1。
+2. **【owner 已拍板 2026-08-26：本步骤重写为「两个包各自成立、互相比对」。】**
 
-   > **【实测 2026-08-26：本步骤按字面写法做不了，而且原因是结构性的，不是
-   > 工作量问题。发布阻塞已解除（bayesmith 0.1.0 已上 PyPI），所以卡住它的
-   > 不再是依赖，是下面这两条。】**
+   原文是「`inference/` 转薄壳（重导出 + `DeprecationWarning`，或设计文档附录
+   一验证过的 `sys.modules` 别名），config 的 18 个 run kind 改指 bayesmith」。
+   **两半都不做**，各有各的理由：18 个 run kind 是 D1 取 (a) 已经决定不动；
+   薄壳是实测做不了，且在**能**做的地方有害——证据保留在下面的实测记录里。
+
+   **新形态，三条：**
+
+   - **(a)** `src/rheplicant/inference/` 保持为**这台仪器自己的**贝叶斯层。
+     不转薄壳、不重导出、不加 `DeprecationWarning`、**不废弃**。
+   - **(b)** bayesmith 保持为**不含射电天文的通用包**。
+   - **(c)** 两边重叠的能力靠 **cross-check 保持一致**，而不是靠共用实现。
+
+   **这条决定最重要的后果是它改变了 cross-check 的地位，而这一点很容易被
+   漏掉。** 原本 cross-check 是**过渡性**的——「验证移植是对的，然后删掉原
+   件」；现在原件不删，于是它成了两份实现之间**唯一的长期保证**。过渡性的
+   检查可以手工跑一次就算数，长期保证不行。
+
+   **由此产生步骤 2 剩下的唯一实质工作：让 cross-check 能自动跑。** 今天跑
+   不了——`tests/crosscheck/` 在没有 rheplicant checkout 时**静默 skip**（实
+   测：publish workflow 那次运行里 120 个 skip），而**会 skip 的守卫不是会
+   通过的守卫**。这笔学费 rheplicant 已经付过：`test_readme_counts.py` 在缺
+   两个包的机器上 skip 了好几周，后面藏着三个真失败。
+
+   能解决它的条件恰好是这次发布带来的：**rheplicant 和 bayesmith 现在都在
+   PyPI 上**，所以 CI 里一条 `pip install rheplicant` 就能让 cross-check 真
+   的跑起来，而这在 2026-08-26 之前不可能。
+
+   - **(d)** 双向 docstring 指针。rheplicant 侧已加在
+     `inference/__init__.py` 的模块 docstring（e-RHINO `7acf995`）：写明有
+     这个兄弟包、重叠部分是**被比对**而不是被取代、这边没有任何东西被废弃、
+     以及该拿哪一个（模型是这台仪器就用这边，不是就用那边）。
+
+   **什么会推翻这条决定**：bayesmith 出现**第二个消费者**。理由与 D1、B12
+   一字不差——只有一个消费者时，没有任何东西能告诉我们哪些部分是通用的。
+   届时「一份实现」重新变成一个值得问的问题，而那时要造的是**适配层**
+   （pipeline + `ParameterSpace` → `Graph`），不是薄壳，并且它会以同样的方式
+   让 cross-check 失效，所以需要单独拍板。
+
+   ---
+
+   **以下是促成这次重写的实测记录，保留而非删除**，因为「薄壳做不到」这件事
+   看起来完全像是没人动手而已，下一个读到原文的人会重新开始做它：
+
+   > **【实测 2026-08-26。发布阻塞已解除（bayesmith 0.1.0 已上 PyPI），所以
+   > 卡住薄壳的不再是依赖，是下面这两条，而且都是结构性的、不是工作量。】**
    >
    > **(一) 两边的 API 根本不对应。** `rheplicant.inference.__all__` 有 **99**
    > 个名字，bayesmith 全仓库（顶层 + 七个子模块的 `__all__`）合起来 **77**
