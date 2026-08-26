@@ -38,7 +38,28 @@ three scales before any exact solve is allowed to use it.
 
 ## Status
 
-Early development. Design: [`docs/superpowers/specs/2026-08-23-bayesmith-design.md`](docs/superpowers/specs/2026-08-23-bayesmith-design.md).
+**0.1.0, the first release.** Published so other packages can depend on it by
+name. Alpha in the classifier's sense: the API may still move.
+
+Implemented and tested, 1163 tests: the graph core with plates and joint
+log-density; the NumPyro bridge, so any graph is runnable through NUTS;
+structural dispatch with the linear-Gaussian exact solves; exact enumeration of
+discrete latents; streaming evidence as square-root information factors; and
+graph diagnostics for identifiability, prior sensitivity and linearity.
+
+**Two things the page above describes that 0.1.0 does not do yet.** Stated here
+because a front page is a claim, and finding out afterwards is worse than
+reading it now:
+
+- **Enumeration is not dispatcher-selected.** `bayesmith.exact.discrete`
+  computes the exact marginal and the posterior marginals over declared
+  discrete latents, and reads the `Discrete(n)` support declaration to do it —
+  but `classify` does not yet route a discrete subgraph to it. The
+  `block 1  {z}  enumerate 4 states` line above is therefore a design sketch
+  rather than a transcript; call the module directly.
+- **Forward-backward is not implemented**, so a chain of `T` discrete latents
+  costs `n ** T` by enumeration rather than `T * n**2`. Enumeration refuses
+  past a budget rather than hanging, and names the count it would have visited.
 
 ## License
 

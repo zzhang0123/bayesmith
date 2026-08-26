@@ -8,6 +8,7 @@ method -- exact where a subgraph permits one, NUTS where it does not.
 from __future__ import annotations
 
 import importlib
+import importlib.metadata as _metadata
 from typing import Any
 
 from bayesmith.errors import (
@@ -145,6 +146,14 @@ _LAZY_SUBMODULES = (
     "diagnose",
     "errors",
 )
+
+
+#: The installed distribution's version, READ from the installed metadata
+#: rather than written here. Two spellings of one version is the defect this
+#: package has spent the most effort repairing, and a release number is the
+#: worst candidate for a second copy: it changes on exactly the commit where
+#: everyone is busy doing something else.
+__version__ = _metadata.version("bayesmith")
 
 
 def __getattr__(name: str) -> Any:

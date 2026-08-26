@@ -4,14 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bayesmith"
-version = "0.0.0"
+version = "0.1.0"
 description = "A graph of operators is a Bayesian model; its structure chooses the inference."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Zheng Zhang" }]
+license-files = ["LICENSE"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
@@ -27,6 +28,9 @@ dependencies = [
     # through NUTS, because that is what the exact paths are verified against.
     "numpyro>=0.15",
 ]
+
+[project.urls]
+Repository = "https://github.com/zzhang0123/bayesmith"
 
 [dependency-groups]
 dev = [
@@ -69,6 +73,38 @@ dev = [
 # Without it that one fixture skips loudly and says so; the identifiability
 # and Jeffreys cross-checks need only rheplicant.
 crosscheck = []
+
+[tool.hatch.build.targets.sdist]
+# What a user or a distro packager needs to rebuild and verify this package,
+# and nothing else. `docs/` here is internal working material -- plans, specs,
+# handoff notes, probe scripts, cross-check records -- not user documentation,
+# and 16 of those files carry absolute paths under a developer's home
+# directory. An sdist is published permanently and is indexed; excluding them
+# is reversible in a way that uploading them is not.
+include = [
+    "src",
+    "tests",
+    # The cross-check record pages, because `tests/test_migration_records.py`
+    # ships and asserts against them: an sdist whose own test suite cannot
+    # pass is a worse artefact than one that omits the tests. Checked clean of
+    # absolute paths, unlike `docs/superpowers/` and `docs/probes/`.
+    "docs/migration",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "pyproject.toml",
+]
+# Two REPOSITORY-governance tests, not package tests: they parse the internal
+# migration spec and assert that planning documents agree with each other.
+# Shipping them is what would force shipping `docs/superpowers/`, and an sdist
+# whose suite fails out of the box is worse than one that omits four checks
+# nobody outside this repository can act on. Measured: with these two out and
+# `docs/migration` in, a clean-venv install of the sdist runs its own suite
+# green.
+exclude = [
+    "tests/test_migration_records.py",
+    "tests/crosscheck/test_spec_claims.py",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bayesmith"]
