@@ -375,6 +375,52 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
 2. 然后 `inference/` 转薄壳（重导出 + `DeprecationWarning`，或设计文档附录一
    验证过的 `sys.modules` 别名），config 的 18 个 run kind 改指 bayesmith。
    注意 `optimize` 依赖 `calibrate.py`——见 D1。
+
+   > **【实测 2026-08-26：本步骤按字面写法做不了，而且原因是结构性的，不是
+   > 工作量问题。发布阻塞已解除（bayesmith 0.1.0 已上 PyPI），所以卡住它的
+   > 不再是依赖，是下面这两条。】**
+   >
+   > **(一) 两边的 API 根本不对应。** `rheplicant.inference.__all__` 有 **99**
+   > 个名字，bayesmith 全仓库（顶层 + 七个子模块的 `__all__`）合起来 **77**
+   > 个，**交集只有 24 个（24 %）**，另外 **75 个 bayesmith 连同名的东西都
+   > 没有**（`ParameterSpace`、`Latent`、`Bind`、`Likelihood`、`NoiseModel`、
+   > 两个 calibrator、NPE 那一族……）。而且**连那 24 个的签名也不兼容**，因为
+   > 两边是两套范式——rheplicant 是 pipeline + `ParameterSpace`，bayesmith 是
+   > `Graph`：
+   >
+   > | | rheplicant | bayesmith |
+   > |---|---|---|
+   > | `fisher_information` | `(forward: Callable, params, noise_std, …)` | `(block: LinearBlock, *, precision, …)` |
+   > | `identifiability` | `(space, pipeline, state_template, …)` | `(graph, *, names, at, rtol)` |
+   > | `wiener_solve` | `(block, observed, *, noise_std, prior_std, …)` | `(block, *, precision, tol, …)` |
+   >
+   > 重导出这些等于把每一个调用点都打断。**「薄壳」这个词假设 bayesmith 是
+   > rheplicant 的超集，而本文其余部分从来没打算造那个东西**：§四 4.1 的表头
+   > 写的是「已有**对应物**」，那一列的标题是「**必须一致的内容**」，里面每
+   > 一条都是数值一致（逐元素到 roundoff、同样的守卫、同一个不动点）。
+   > `docs/migration/` 十三页里没有一页声称过 API 兼容。
+   >
+   > **(二) 少数真能对上的地方，重导出会让 cross-check 变成永远不会失败的
+   > 测试——这条比 (一) 更要命。** `SqrtInfo`、`marginalise`、
+   > `marginalise_arrays` 三个的签名和字段两边**完全一致**，看起来正是可以
+   > 薄壳的那一小块。但 `tests/crosscheck/test_sqrtinfo_agrees.py` 干的事
+   > 就是 `SqrtInfo(**kwargs)` 和 `TheirSqrtInfo(**kwargs)` 各造一个然后比。
+   > 一旦 rheplicant 那个变成本仓库这个的重导出，`TheirSqrtInfo is SqrtInfo`,
+   > 这条测试就是拿 X 和 X 比，**再也不可能红**。
+   >
+   > 也就是说：**薄壳越是容易做的地方，它毁掉的东西越多**。迁移的最后一步
+   > 会把迁移自己的质量机制悄悄拆掉，而拆掉的方式恰好是这个项目反复记录的
+   > 那一种——一个不再能失败的守卫。
+   >
+   > **建议把步骤 2 重写成它实际该是的样子。** 证据指向的终局不是「一个包
+   > 吸收另一个」，而是**两个包各自成立、互相比对**——这与 D1 取 (a)、B12 取
+   > (c) 是同一个判断（只有一个消费者时不要为了搬而搬），只是那两条是对
+   > config 层说的，这条是对 `inference/` 说的。真要走「一份实现」，需要的是
+   > 一层**适配器**（pipeline + `ParameterSpace` → `Graph`），那既不是薄壳，
+   > 也会同样让 cross-check 失效，且需要 owner 单独拍板。
+   >
+   > 步骤 1 已经允许的「指向 bayesmith 的 docstring 指针」不受影响，已加在
+   > `rheplicant/inference/__init__.py` 的模块 docstring 上。
 3. **一个可能的红利**：rheplicant 的两个 pytest session 之所以存在，是因为证据层
    要 float64 而其余测试断言的拒绝只有 float32 才触发，且 `jax_enable_x64` 是
    进程全局的。证据层迁出后两个 session 可能重新合一——届时重估
