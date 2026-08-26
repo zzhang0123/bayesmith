@@ -432,6 +432,13 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
 > `inference/` 仍以今天的实现工作，在场时改指它。(ii) 意味着两份实现并存一
 > 段时间，正是 §一 铁律想避免的；(i) 意味着步骤 2 的排期取决于一次发布。
 > **在此之前不要开始步骤 2。**
+>
+> 一条与这个选择有关的事实，只记不判（2026-08-26 实测）：本仓库 `README.md` 的
+> §Status 仍写「Early development」，版本仍是 `0.0.0`，而四条头条能力的模块都在、
+> 都不小——`exact/precision.py` 451 行、`evidence/campaign.py` 408 行、
+> `diagnose/sensitivity.py` 816 行、`bridge/numpyro_bridge.py` 205 行，1127 个测试
+> 全绿。README 低报了现状，而「要不要发布」恰好卡在这一点上。发布与否是 owner 的
+> 决定，这里不替它做；写下来只是让做这个决定的人手边有这个数。
 
 **D2 — `conditioning.py` 是否随贝叶斯层迁走？** e-RHINO 的
 `radio/filters/skyspace.py` 需要幂迭代式条件数估计来实现 Track A 的 A8.2
