@@ -429,6 +429,14 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
    （pipeline + `ParameterSpace` → `Graph`），不是薄壳，并且它会以同样的方式
    让 cross-check 失效，所以需要单独拍板。
 
+   > **【已触发并拍板 2026-08-26：owner 亲自引用本条件。】** 当日 rheplicant
+   > 成为 bayesmith 的第一个包级消费者（`pyproject.toml` 声明
+   > `bayesmith>=0.2`，`partition.py`/`loglinear.py` 运行时 import），owner
+   > 裁决走「一份实现」路线：造适配层、未迁移的全部迁移、cross-check 按预告
+   > 的方式换防。执行计划与后续裁决的家：
+   > `2026-08-26-one-implementation.md`（本目录）。上面的实测记录继续有效
+   > ——它说明的是薄壳为什么不行，而新计划做的正是它点名的适配器。
+
    ---
 
    **以下是促成这次重写的实测记录，保留而非删除**，因为「薄壳做不到」这件事
