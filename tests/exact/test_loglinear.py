@@ -96,6 +96,14 @@ class TestScenarioReading:
         with pytest.raises(NotLogLinear) as caught:
             log_space(_graph("additive"))
         assert "CONSTANT" in str(caught.value)
+        # This graph has ONE observed node, so what escapes is the
+        # graph-level verdict and the node's own reason is in `per_node`.
+        # Asserted here rather than assumed: the outer refusal is all a
+        # caller ever sees from `log_space`, so a per-node reason that
+        # survived only inside the message would be a reason nobody can act
+        # on -- the exact shape G11 removes.
+        assert caught.value.reason == "no_node_qualifies"
+        assert caught.value.per_node == {"d": "noise_additive"}
 
     def test_a_fractional_level_above_the_threshold_is_refused_by_name(self):
         with pytest.raises(NotLogLinear) as caught:
@@ -103,6 +111,12 @@ class TestScenarioReading:
         message = str(caught.value)
         assert str(FIRST_ORDER_MAX_FRACTIONAL) in message
         assert "LogNormal" in message  # the remedy: the exact route has no threshold
+        # The MEASURED level travels with the refusal. Without it a caller
+        # cannot tell "just over the line, tighten the noise declaration"
+        # from "nowhere near, this model is not multiplicative at all", and
+        # the two call for opposite responses.
+        assert caught.value.reason == "no_node_qualifies"
+        assert caught.value.per_node == {"d": "fractional_too_large"}
 
     def test_the_lognormal_route_has_no_threshold(self):
         """The same fractional level that refused above is accepted here --
@@ -115,6 +129,12 @@ class TestScenarioReading:
         with pytest.raises(NotLogLinear) as caught:
             log_space(_graph("multiplicative", observed=observed))
         assert "non-positive" in str(caught.value)
+        # Distinguished from `prediction_not_positive`, which reads much the
+        # same in prose and blames the opposite thing: there the model is
+        # wrong, here the data is. This one escapes un-wrapped, because the
+        # data check runs AFTER the scenario was read successfully.
+        assert caught.value.reason == "data_not_positive"
+        assert caught.value.node == "d"
 
     def test_a_mixed_graph_transforms_per_node_and_records_the_skip(self):
         """One additive and one multiplicative observation: the transform

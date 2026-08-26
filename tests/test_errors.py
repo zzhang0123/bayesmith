@@ -75,6 +75,6 @@ def test_catching_not_gaussian_does_not_also_catch_structure_error():
 
     with pytest.raises(NotGaussian):
         try:
-            raise NotGaussian("this node is a Gamma")
+            raise NotGaussian("this node is a Gamma", reason="not_normal")
         except StructureError:  # pragma: no cover - must not be taken
             pass

@@ -327,7 +327,14 @@ def _prior_moments(
                 "in log x, not in x. Reading any of them as (m, s) would "
                 "report a smooth pull the declared density does not apply. "
                 "Sample the graph with NUTS, which honours the density as "
-                f"written, or exclude {name!r} with names=."
+                f"written, or exclude {name!r} with names=.",
+                reason=error.reason,
+                node=name,
+                # Carried through from the inner refusal: the type that was
+                # actually found is the one fact this outer message does not
+                # restate, and re-deriving it here would be a second reading
+                # of the same distribution.
+                found=error.found,
             ) from error
         shape_full = node_shape(graph, node, env)
         locations.append(jnp.ravel(jnp.broadcast_to(loc, shape_full)))

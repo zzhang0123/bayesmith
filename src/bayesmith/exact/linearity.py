@@ -30,7 +30,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 
-from bayesmith.errors import StructureError
+from bayesmith.errors import AffinityRefused, StructureError
 from bayesmith.exact.block import (
     LinearBlock,
     _env_before,
@@ -499,7 +499,7 @@ def _refuse_affinity(
         f"{scale:g}x -> {relative:.2e} | {weighted:.2e}"
         for scale, (relative, weighted) in columns.items()
     )
-    raise StructureError(
+    raise AffinityRefused(
         f"{subject}: departure from its own linearization is too large at "
         f"{failed} times each latent's declared prior width, evaluated at "
         f"{where}. Two criteria, per element, over the elements clearing the "
@@ -512,7 +512,18 @@ def _refuse_affinity(
         "refused this claim, and `with jax.enable_x64(True):` is what settles "
         "it. Either drop the linear_in declaration, or re-parameterize "
         "so the model really is affine there. For a group that is only "
-        "pairwise affine, split it into separate blocks and alternate."
+        "pairwise affine, split it into separate blocks and alternate.",
+        names=names,
+        at=where,
+        # Split rather than passed as pairs: a consumer reading one criterion
+        # should not have to know the other exists, and rheplicant's probe --
+        # the first consumer across the seam -- has no weighted counterpart
+        # to read at all.
+        errors={scale: relative for scale, (relative, _) in columns.items()},
+        weighted={scale: weight for scale, (_, weight) in columns.items()},
+        rtol=used_rtol,
+        weighted_rtol=WEIGHTED_RTOL,
+        failed=tuple(failed),
     )
 
 

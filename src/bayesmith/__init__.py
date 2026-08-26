@@ -12,6 +12,9 @@ import importlib.metadata as _metadata
 from typing import Any
 
 from bayesmith.errors import (
+    NOT_GAUSSIAN_REASONS,
+    NOT_LOG_LINEAR_REASONS,
+    AffinityRefused,
     BayesmithError,
     ConvergenceError,
     GraphError,
@@ -75,9 +78,15 @@ __all__ = [
     "GraphError",
     "TraceError",
     "StructureError",
+    "AffinityRefused",
     "ConvergenceError",
     "NotGaussian",
     "NotLogLinear",
+    # the refusal vocabularies, exported because a consumer that branches on
+    # `reason` should compare against the package's own spelling rather than
+    # keep a second copy of the strings
+    "NOT_GAUSSIAN_REASONS",
+    "NOT_LOG_LINEAR_REASONS",
 ]
 
 # Every public name above except the six error classes is resolved lazily,

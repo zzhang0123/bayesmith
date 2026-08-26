@@ -188,7 +188,9 @@ def _refuse_bad_data(name: str, observed: jax.Array) -> None:
             "as PASSING the affinity check -- so this is refused here, on "
             "concrete values, rather than propagated. A model whose data can "
             "genuinely reach zero is not log-Gaussian; one whose bad samples "
-            "are unobserved should drop or impute them before the transform."
+            "are unobserved should drop or impute them before the transform.",
+            reason="data_not_positive",
+            node=name,
         )
 
 
@@ -275,7 +277,10 @@ def _read_scenario(
             f"observed node {node.name!r} returns "
             f"{type(found).__name__}; the log-space route reads a "
             "multiplicative Normal -- Normal(mu, f mu) -- or a LogNormal. "
-            "Anything else has no log-Gaussian reading to transform to."
+            "Anything else has no log-Gaussian reading to transform to.",
+            reason="not_gaussian_family",
+            node=node.name,
+            found=type(found).__name__,
         )
 
     shape = node_shape(graph, node, first)
@@ -293,7 +298,9 @@ def _read_scenario(
             "the latents between two points of their own priors, so whether "
             "its scale tracks the prediction cannot be measured -- and a "
             "block whose prediction ignores the latents has nothing for any "
-            "exact method, log-space or otherwise, to solve."
+            "exact method, log-space or otherwise, to solve.",
+            reason="prediction_static",
+            node=node.name,
         )
     if not (bool(jnp.all(loc_1 > 0)) and bool(jnp.all(loc_2 > 0))):
         raise NotLogLinear(
@@ -301,7 +308,9 @@ def _read_scenario(
             "positive at points of the latents' own priors, so log of it "
             "does not exist where inference would run. A log-linear model "
             "predicts exp(affine), which is positive everywhere -- a sign "
-            "change says this model is not one."
+            "change says this model is not one.",
+            reason="prediction_not_positive",
+            node=node.name,
         )
 
     ratio_1 = scale_1 / loc_1
@@ -328,7 +337,14 @@ def _read_scenario(
             "the prediction, so it is neither additive nor multiplicative "
             "and no log-space Gaussian describes it"
         )
-        raise NotLogLinear(f"observed node {node.name!r}: {why}.")
+        raise NotLogLinear(
+            f"observed node {node.name!r}: {why}.",
+            # The same branch that chose the sentence chooses the reason, so
+            # the two cannot disagree -- which they would if the reason were
+            # re-derived from `constant` a second time further down.
+            reason="noise_additive" if constant else "noise_neither",
+            node=node.name,
+        )
 
     worst = float(jnp.max(ratio_1))
     if worst > FIRST_ORDER_MAX_FRACTIONAL:
@@ -343,7 +359,10 @@ def _read_scenario(
             "61 kHz channel at 1 s -- reaching this refusal by observing is "
             "not possible, so a noise declaration is mis-specified. Declare "
             "the noise LogNormal if it really is log-Gaussian; that route is "
-            "exact and has no threshold."
+            "exact and has no threshold.",
+            reason="fractional_too_large",
+            node=node.name,
+            fractional=worst,
         )
     return "multiplicative", ratio_1
 
@@ -377,6 +396,12 @@ def log_space(graph: Graph) -> LogSpace:
     kind: dict[str, str] = {}
     fractional: dict[str, jax.Array] = {}
     skipped: dict[str, str] = {}
+    # The per-node REASONS, kept beside their sentences. Collapsing the two
+    # into one string is the shape G11 exists to remove: the graph-level
+    # refusal below is the only thing a caller ever sees here, so a per-node
+    # verdict that survives only inside its own prose is a verdict the caller
+    # would have to parse back out.
+    skipped_reasons: dict[str, str] = {}
     nodes: list[Any] = []
     for node in graph.nodes:
         if not (isinstance(node, Probabilistic) and node.observed is not None):
@@ -386,6 +411,7 @@ def log_space(graph: Graph) -> LogSpace:
             scenario, ratio = _read_scenario(graph, node, first, second)
         except NotLogLinear as refused:
             skipped[node.name] = str(refused)
+            skipped_reasons[node.name] = refused.reason
             nodes.append(node)
             continue
         _refuse_bad_data(node.name, node.observed)
@@ -400,7 +426,13 @@ def log_space(graph: Graph) -> LogSpace:
         raise NotLogLinear(
             "no observed node of this graph has a log-Gaussian reading, so "
             "there is no log space to transform to. Per node: "
-            + "; ".join(f"{name}: {why}" for name, why in sorted(skipped.items()))
+            + "; ".join(f"{name}: {why}" for name, why in sorted(skipped.items())),
+            reason="no_node_qualifies",
+            # No `node=`: this verdict is about the graph. The per-node
+            # reasons stay readable as data, which is what a caller deciding
+            # "fix one node, or give up on log space" actually needs -- the
+            # sentences are in the message above, for whoever is reading.
+            per_node=skipped_reasons,
         )
     return LogSpace(
         graph=Graph(nodes=tuple(nodes), plates=graph.plates),
@@ -450,7 +482,8 @@ def check_log_linearity(
         raise NotLogLinear(
             "log(prediction) is not affine in "
             f"{sorted(tuple(names) if not isinstance(names, str) else (names,))}: "
-            f"{refused}"
+            f"{refused}",
+            reason="log_not_affine",
         ) from refused
 
 
@@ -485,7 +518,8 @@ def log_linear_operator(
         raise NotLogLinear(
             "log(prediction) is not affine in "
             f"{sorted(tuple(names) if not isinstance(names, str) else (names,))}: "
-            f"{refused}"
+            f"{refused}",
+            reason="log_not_affine",
         ) from refused
     return unchecked_operator(ls.graph, names, at), ls
 

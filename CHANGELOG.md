@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+**A refusal a caller must act on now carries its evidence as data (G11).**
+`AffinityRefused` is new -- a subclass of `StructureError`, so every existing
+`except StructureError` keeps catching it -- and it carries the probe's own
+numbers: `errors` and `weighted` per scale with the passing probes included
+(the trend across scales is the diagnostic), the two tolerances actually used,
+and the scales that failed. `NotGaussian` and `NotLogLinear` now name their
+verdict in a required `reason` field, drawn from the closed vocabularies
+`NOT_GAUSSIAN_REASONS` and `NOT_LOG_LINEAR_REASONS`, alongside `node`, `found`,
+the measured `fractional` level, and per-node reasons for a graph-level
+refusal. Before this, the numbers were rendered into a sentence and dropped,
+so the only way for a consumer to read them was to parse prose.
+
+Breaking for anyone constructing these three directly: `reason` is required,
+and an unknown one is refused where it is written. Raising them from library
+code is unaffected in behaviour -- same classes, same messages, same catch
+semantics.
+
 ## 0.2.0 — 2026-08-26
 
 The factor partition and log space. `dispatch.factor` derives as many exact

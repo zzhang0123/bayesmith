@@ -103,7 +103,10 @@ def gaussian_parts(
             "linear-Gaussian path needs a diagonal Normal (a Normal, or one "
             "wrapped by .to_event(...)). A MultivariateNormal with a dense "
             "covariance is a different solve and is not implemented. This is a "
-            "classification outcome, not a defect in the model."
+            "classification outcome, not a defect in the model.",
+            reason="not_normal",
+            node=node.name,
+            found=type(distribution).__name__,
         )
     return _checked_loc(node, distribution.loc), jnp.broadcast_to(
         jnp.asarray(distribution.scale), jnp.shape(jnp.asarray(distribution.loc))
@@ -431,7 +434,10 @@ def precision_parts(
             "linear-Gaussian path reads a Normal (diagonal) or a "
             "CirculantNormal (stationary, periodic). A MultivariateNormal with "
             "a dense covariance is a different solve and is not implemented. "
-            "This is a classification outcome, not a defect in the model."
+            "This is a classification outcome, not a defect in the model.",
+            reason="not_normal",
+            node=node.name,
+            found=type(distribution).__name__,
         )
     loc = _checked_loc(node, distribution.loc)
     # To :func:`node_shape`, not to ``loc``'s shape. A plated node whose

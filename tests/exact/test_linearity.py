@@ -9,7 +9,12 @@ import numpyro.distributions as dist
 import pytest
 
 from bayesmith import sample, trace
-from bayesmith.errors import GraphError, NotGaussian, StructureError
+from bayesmith.errors import (
+    AffinityRefused,
+    GraphError,
+    NotGaussian,
+    StructureError,
+)
 from bayesmith.exact.block import unchecked_operator
 from bayesmith.exact.linearity import (
     DEFAULT_SCALES,
@@ -427,6 +432,55 @@ def test_the_refusal_reports_both_criteria_and_both_thresholds():
     assert "rtol=" in message
     assert "weighted_rtol=" in message
     assert "relative" in message and "sigma-weighted" in message
+
+
+def test_the_refusal_carries_those_numbers_as_data_not_only_as_prose():
+    """The message says it; the payload lets a consumer act on it (G11).
+
+    Same claim as the test above, one level down. That one reads the rendered
+    sentence, which is right for a human; this reads the attributes, which is
+    what the adapter in the sibling repository turns into rheplicant's
+    ``LinearityRefused(errors=, rtol=, failed=)`` without parsing anything.
+
+    The assertion is the guard's own DEFINITION checked against the payload --
+    a scale is in ``failed`` exactly when it exceeded at least one of the two
+    tolerances -- rather than a pinned table of numbers. A pinned table would
+    have to be re-pinned whenever the fixture moved, and would say nothing
+    about whether the payload describes the same disjunction the code
+    evaluates.
+    """
+    with pytest.raises(AffinityRefused) as raised:
+        check_linearity(quadratic_claim(), ("w",), at={})
+    refused = raised.value
+
+    assert refused.names == ("w",)
+    assert set(refused.errors) == set(refused.weighted) == set(DEFAULT_SCALES)
+    assert set(refused.failed) <= set(refused.errors)
+    for scale in refused.errors:
+        exceeded = (
+            refused.errors[scale] > refused.rtol
+            or refused.weighted[scale] > refused.weighted_rtol
+        )
+        assert exceeded == (scale in refused.failed), scale
+
+
+def test_the_payload_shows_which_criterion_fired_at_each_scale():
+    """One number per probe would read as a broken guard at the small scale.
+
+    Measured on this fixture: at 0.001x the departure is worth 3.4e-05 sigma,
+    comfortably UNDER ``weighted_rtol``, while the relative departure is 1.0
+    -- so that probe is refused by one criterion and cleared by the other.
+    A payload carrying a single error per scale would show a reader the
+    passing number beside a refusal, which is the confusion the two-column
+    message was written to avoid; the attributes have to preserve it too.
+    """
+    with pytest.raises(AffinityRefused) as raised:
+        check_linearity(quadratic_claim(), ("w",), at={})
+    refused = raised.value
+    small = min(refused.errors)
+    assert refused.weighted[small] < refused.weighted_rtol
+    assert refused.errors[small] > refused.rtol
+    assert small in refused.failed
 
 
 def test_the_per_element_denominator_sees_a_faint_lie_the_noise_cannot():

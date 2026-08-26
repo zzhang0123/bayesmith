@@ -83,7 +83,9 @@ def _prior_centre(graph: Graph) -> dict[str, jax.Array]:
             "its own prior, and a latent with no loc has no centre. Either pass "
             "sigma_rebuild=True, so sigma is rebuilt from `at` inside the sweep "
             "and the non-Gaussian latent's value comes from NUTS, or pass an "
-            "explicit precision=."
+            "explicit precision=.",
+            reason="no_centre",
+            node=exc.node,
         ) from exc
     return {name: env[name] for name in graph.latents}
 

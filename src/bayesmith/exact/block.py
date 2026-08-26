@@ -232,7 +232,9 @@ def _refuse_internal_ancestry(graph: Graph, names: tuple[str, ...]) -> None:
                 "of another's value, so the pair is not JOINTLY Gaussian however "
                 "Normal each one is on its own -- and a conjugate solve over the "
                 "pair would return a confident posterior for a model nobody "
-                "declared. Put them in separate blocks and alternate."
+                "declared. Put them in separate blocks and alternate.",
+                reason="jointly_dependent",
+                node=member,
             )
 
 
