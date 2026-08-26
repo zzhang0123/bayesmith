@@ -397,9 +397,26 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
    通过的守卫**。这笔学费 rheplicant 已经付过：`test_readme_counts.py` 在缺
    两个包的机器上 skip 了好几周，后面藏着三个真失败。
 
-   能解决它的条件恰好是这次发布带来的：**rheplicant 和 bayesmith 现在都在
-   PyPI 上**，所以 CI 里一条 `pip install rheplicant` 就能让 cross-check 真
-   的跑起来，而这在 2026-08-26 之前不可能。
+   能解决它的条件恰好是这次发布带来的：两个包现在都能按 URL 装上，所以
+   cross-check 可以在 CI 里真的跑起来，而这在 2026-08-26 之前不可能。
+
+   **已落地（2026-08-26，`.github/workflows/crosscheck.yml`）：123 passed / 0
+   skipped / 0 failed**，在 Linux runner 上、对着 rheplicant 的 **main**。三
+   条设计决定各自有实测理由：
+
+   - **装 main 而不是装 PyPI。** rheplicant 发布的 0.2.0 落后它自己的 main
+     **385 个提交、七万行**，而版本号一模一样——按名字装等于对着一个没有开发
+     者在跑的东西比对。workflow 因此打印解析出的 commit，让日志永远能回答
+     「这次比的是哪个 rheplicant」。
+   - **`--no-deps`**，沿用 §0.1 的实测决定。
+   - **必须证明它真的比过东西。** `tests/crosscheck/conftest.py` 的
+     `importorskip` 在 rheplicant 缺席时让整个目录站下来而 pytest 仍退出 0，
+     所以 job 从 junit XML 读计数，比过 0 个就红。
+
+   第一次在笔记本以外跑就抓到两件事：一条 cross-check 在 runner 上拿到
+   `nan` 的 ESS（链卡得比断言所能表达的还彻底，而 `nan < 10` 是 False），以
+   及 11 条因缺 `rhino-cal-jax` 而 skip 的 sensitivity 行。两者都已修，后者
+   靠把那个可选依赖也装上。
 
    - **(d)** 双向 docstring 指针。rheplicant 侧已加在
      `inference/__init__.py` 的模块 docstring（e-RHINO `7acf995`）：写明有
