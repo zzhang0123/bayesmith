@@ -50,6 +50,23 @@ pre-commit), and `c2a0605` shows formatting here has been applied per file
 behind a waiver rather than swept. If it is ever swept, **pass the 31 file
 names, not `src/ tests/`** — `ruff format --check` prints them.
 
+## A zsh glob can turn "it ran and found nothing" into "it never ran"
+
+`ls LICENSE* COPYING* 2>/dev/null || echo "(none)"` prints `(none)` **whenever
+either pattern fails to match**, because zsh's default `nomatch` aborts the
+whole command rather than passing the pattern through as bash would. The `||`
+branch then fires and reads exactly like a finding.
+
+Measured, and it cost something: a release audit reported that this repository
+had no LICENSE file. It has had one since `ba8c7b5`. The file was then
+overwritten with byte-identical text, so nothing was lost -- by luck, not by
+care. A differently worded licence would have been destroyed by a check that
+was reporting on a command that never ran.
+
+Same shape as the two traps above: a result that cannot distinguish "absent"
+from "the command did not happen". Glob one pattern per `ls`, or use `find`,
+which has no opinion about patterns that match nothing.
+
 ## Two habits this repository rewards
 
 **A decision's answer belongs on the line that asks the question.** Cross-repo
