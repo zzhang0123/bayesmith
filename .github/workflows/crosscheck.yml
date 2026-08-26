@@ -84,6 +84,19 @@ jobs:
           # answer the question.
           git ls-remote https://github.com/RHINO-Experiment/rheplicant.git main
 
+      # Measured: without this, eleven cross-checks skip saying "the tour twin
+      # cannot be built". They are the sensitivity rows, so skipping them is a
+      # real hole rather than a tidy-up. It is not on PyPI and lives on a
+      # branch, which is why it is a URL; --no-deps for the same reason as
+      # above. Best effort: if the branch moves or the build breaks, the job
+      # continues and the skip guard below reports the hole instead of hiding
+      # it, which is better than a red job nobody can act on.
+      - name: Install the optional twin dependency, if it will install
+        continue-on-error: true
+        run: |
+          uv pip install --no-deps \
+            "rhino-cal-jax @ git+https://github.com/RHINO-Experiment/rhino-cal@feat/rhino-cal-jax"
+
       - name: Cross-check
         run: uv run python -m pytest tests/crosscheck --junit-xml=crosscheck.xml
 
@@ -106,12 +119,25 @@ jobs:
               sys.exit("no cross-check compared anything: rheplicant did not "
                        "import, so the directory stood down and pytest still "
                        "exited 0. THIS IS NOT A PASS.")
-          if skipped:
-              names = [tc.get("name") for tc in suite.iter("testcase")
-                       if any(c.tag == "skipped" for c in tc)]
-              print("skipped:", names)
-              sys.exit("a cross-check skipped; the guarantee has a hole in it "
-                       "and the names are above.")
+          # Fail on a skip THE GATE CAUSED, report any other. An earlier
+          # version of this failed on any skip at all, which is precisely the
+          # bug tests/test_evidence_session.py records having already made and
+          # fixed upstream: it broke on an optional extra that had nothing to
+          # do with the gate. The predicate wanted is "no skip the gate
+          # caused", so the gate's own reason is what gets searched for.
+          GATE = "nothing in this directory compared"
+          gated, other = [], []
+          for tc in suite.iter("testcase"):
+              for k in tc:
+                  if k.tag == "skipped":
+                      (gated if GATE in (k.get("message") or "") else other
+                       ).append(tc.get("name"))
+          if other:
+              print(f"{len(other)} skipped for reasons unrelated to the gate "
+                    f"(an optional dependency, typically): {other}")
+          if gated:
+              sys.exit("the rheplicant gate fired: these compared nothing, and "
+                       f"a skip is not a pass -- {gated}")
           PY
 
       - uses: actions/upload-artifact@v4

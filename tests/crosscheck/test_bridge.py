@@ -16,6 +16,8 @@ of the three turned out to be reachable failures.
 
 from __future__ import annotations
 
+import math
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -60,10 +62,25 @@ def _needle_graph():
 
 
 def _rhat_and_ess(samples, name):
+    """r-hat and ESS, with a non-finite ESS read as the WORST case.
+
+    numpyro returns ``nan`` for a chain that never moved, and ``nan < 10.0``
+    is ``False`` -- so an assertion that a badly-initialised chain mixes
+    badly is failed by the chain mixing as badly as it is possible to mix.
+    Measured: on arm64 macOS the needle posterior's default init gives a
+    small finite ESS here, and on the x86_64 CI runner it gives ``nan``.
+
+    1.0 rather than 0.0 or an exception, because that is already this
+    package's convention: :func:`~bayesmith.dispatch.execute.chain_ess` fixes
+    a non-finite ESS at 1.0, on the grounds that one draw's worth of
+    information is the least a non-empty sample can carry. Inventing a second
+    rule for the same quantity is how the two drift.
+    """
     stacked = np.asarray(samples[name]).reshape(CHAINS, -1)
+    ess = float(effective_sample_size(stacked))
     return (
         float(np.max(split_gelman_rubin(stacked))),
-        float(effective_sample_size(stacked)),
+        ess if math.isfinite(ess) else 1.0,
     )
 
 
