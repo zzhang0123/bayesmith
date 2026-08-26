@@ -327,9 +327,19 @@ improve.
 
 ## 10. What is still untouched
 
-The thousand-epoch opaque-leaf archive, and `diagnostics.py`'s declarative
-refusal of in-span coherent errors, which the spec calls design philosophy
-rather than implementation.
+The thousand-epoch opaque-leaf archive. That is the whole list.
+
+This section also named `diagnostics.py`'s declarative refusal of in-span
+coherent errors, which section 9 — four paragraphs above — describes as
+shipped and explains the reasoning for. It is shipped:
+`refuse_undeclared_coherent_error` lives in `evidence/diagnostics.py`, is
+exported from the package, and is covered by
+`tests/evidence/test_diagnostics.py`. Corrected 2026-08-26.
+
+A page that contradicts itself across two adjacent sections is worse than
+either half would be alone. Whichever one a reader believes, the other is
+evidence that they have misread the document, so the usual repair — read more
+carefully — makes it worse rather than better.
 
 Nothing is blocked. The numerics are not the reason, and neither is the
 graph.

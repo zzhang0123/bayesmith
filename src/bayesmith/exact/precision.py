@@ -38,6 +38,23 @@ than being offered under a name that implies exactness.
 Circulant is also the right model for the physics that motivated this:
 1/f drift and atmospheric correlation are stationary, and a periodic
 boundary is the honest statement of "stationary on this stretch".
+
+**Nothing in this module is exported, and that is the design rather than an
+oversight.** :func:`~bayesmith.exact.gaussian.precision_at` is the seam a
+caller touches: it builds the object from the graph at a point, and the three
+consumers above take it from there. A user declares correlated noise by
+declaring the DISTRIBUTION -- numpyro's ``CirculantNormal`` is the case B9 was
+built for -- not by constructing a :class:`CirculantPrecision` and handing it
+in. So the protocol and its implementations are machinery, and
+``bayesmith.exact.__all__`` says so by leaving them out.
+
+Written down because omission is a poor way to say anything. An absent export
+is indistinguishable from a forgotten one, and this one was read as forgotten
+by a reviewer who had no way to tell -- the same shape as every other entry in
+this repository that exists only as a gap. If a caller ever does need to
+implement :class:`Precision` themselves, a Toeplitz kernel being the obvious
+candidate and the paragraph above saying why it is not this class, then the
+protocol becomes public API and this is the paragraph to revisit, on purpose.
 """
 
 from __future__ import annotations
