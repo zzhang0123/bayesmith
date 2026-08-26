@@ -83,3 +83,32 @@ class NotGaussian(BayesmithError, TypeError):
     so an ``except ValueError`` around a modelling call sees the broken-model
     case and not the ordinary not-conjugate one.
     """
+
+
+class NotLogLinear(BayesmithError, TypeError):
+    """No log-linear route exists here -- for one of a NAMED set of reasons.
+
+    Purely descriptive and deliberately blameless, exactly as
+    :class:`NotGaussian` is: most models have no log-linear structure, and a
+    dispatcher that asked and heard "no" routes the block to NUTS and moves
+    on. The message always says WHICH reason, because they call for different
+    responses:
+
+    * the observation's noise is additive, so log space would not simplify
+      anything -- it would just state a different likelihood;
+    * the noise is multiplicative but its fractional level exceeds
+      :data:`~bayesmith.exact.loglinear.FIRST_ORDER_MAX_FRACTIONAL`, so the
+      first-order log-space equivalence is no longer good to the tolerance
+      this package promises;
+    * the prediction, or the data, is not strictly positive, so there is no
+      log to take -- and ``log`` of a non-positive value is a NaN that would
+      READ AS PASSING every ``departure > rtol`` comparison downstream, which
+      is why this refuses eagerly instead;
+    * ``log`` of the prediction is not affine in the latents asked about --
+      the log-space counterpart of an ordinary linearity refusal.
+
+    The same MRO argument as :class:`NotGaussian`'s applies against making
+    this a subclass of :class:`StructureError`: a dispatcher probing for
+    log-linearity must be able to catch "no" without also swallowing "your
+    graph is broken".
+    """

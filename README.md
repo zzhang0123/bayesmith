@@ -36,14 +36,27 @@ Declarations such as `linear_in` are *claims about the model*, not hints, so
 they are **checked rather than trusted**: a node declared linear is probed at
 three scales before any exact solve is allowed to use it.
 
+## Worked examples
+
+[`docs/factor-partition-examples.md`](docs/factor-partition-examples.md) walks
+two models from declaration to auto-partitioned sampling -- three factors
+three routes, then a hierarchy where the ancestry rule earns its keep. Every
+printout there was produced by running the code shown, and the partitions are
+pinned by ``tests/dispatch/test_factor.py``.
+
 ## Status
 
-**0.1.0, the first release.** Published so other packages can depend on it by
-name. Alpha in the classifier's sense: the API may still move.
+**0.2.0.** Published so other packages can depend on it by name -- and one
+now does: rheplicant's auto-partition and log-space seams import
+`dispatch.factor.first_fit` and `exact.loglinear` from here, which is what
+the 0.2 floor names. Alpha in the classifier's sense: the API may still move.
 
-Implemented and tested, 1163 tests: the graph core with plates and joint
+Implemented and tested, 1205 tests: the graph core with plates and joint
 log-density; the NumPyro bridge, so any graph is runnable through NUTS;
-structural dispatch with the linear-Gaussian exact solves; exact enumeration of
+structural dispatch with the linear-Gaussian exact solves; the FACTOR
+partition -- as many exact blocks as the model has factors, grouped by
+pairwise probe, with log-space blocks discovered rather than declared
+(`factor_partition`, `sample_factors`, `log_space`); exact enumeration of
 discrete latents; streaming evidence as square-root information factors; and
 graph diagnostics for identifiability, prior sensitivity and linearity.
 

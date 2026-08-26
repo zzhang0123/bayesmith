@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0 — 2026-08-26
+
+The factor partition and log space. `dispatch.factor` derives as many exact
+blocks as the model has factors — pairwise joint-linearity probes, coloured by
+`first_fit` — where `partition` finds one block by declaration and drops a
+multilinear model whole to NUTS; `sample_factors` sweeps the result, pure
+Gibbs when everything is closed-form and through `HMCGibbs` when a remainder
+needs NUTS. `exact.loglinear` takes a graph to log space as a graph-to-graph
+transform, reading each observed node's scenario by probe — multiplicative
+Gaussian (`Normal(mu, f mu)`, first-order with the `f^2/2` shift and a
+measured `f <= 0.06` refusal) or log-Gaussian (`LogNormal`, exact, no
+threshold) — after which every stock consumer runs unchanged and the noise
+genuinely stops depending on the prediction. `NotLogLinear` joins the error
+family as the blameless "no log route here" verdict. The grouping rule and
+the transform arithmetic are imported by rheplicant rather than re-spelled
+there, which is what the 0.2 floor in its pyproject names.
+
 ## 0.1.0 — 2026-08-26
 
 First release. Published so that downstream packages can declare a dependency

@@ -57,7 +57,7 @@ def test_every_exact_name_resolves_and_is_the_same_object_as_its_module_s():
     the module, or a wrapper, would pass a name check and fail here.
     """
     import bayesmith
-    from bayesmith.exact import fisher, gaussian, gls, linearity, solve
+    from bayesmith.exact import fisher, gaussian, gls, linearity, loglinear, solve
 
     expected = {
         "linear_operator": linearity.linear_operator,
@@ -71,6 +71,13 @@ def test_every_exact_name_resolves_and_is_the_same_object_as_its_module_s():
         "precision_at": gaussian.precision_at,
         "fisher_information": fisher.fisher_information,
         "parameter_covariance": fisher.parameter_covariance,
+        # The log-space family: the four callables are top-level names; the
+        # two constants and LogSpace live one level down, on bayesmith.exact,
+        # and the subpackage guard below is what pins those.
+        "check_log_linearity": loglinear.check_log_linearity,
+        "log_linear_operator": loglinear.log_linear_operator,
+        "log_space": loglinear.log_space,
+        "multiplicative_log_data": loglinear.multiplicative_log_data,
     }
     for name, target in expected.items():
         assert getattr(bayesmith, name) is target, name
@@ -127,7 +134,15 @@ def test_the_exact_subpackage_s_own_all_reexports_the_right_object():
     this test is what closes that gap.
     """
     import bayesmith.exact as exact_pkg
-    from bayesmith.exact import block, fisher, gaussian, gls, linearity, solve
+    from bayesmith.exact import (
+        block,
+        fisher,
+        gaussian,
+        gls,
+        linearity,
+        loglinear,
+        solve,
+    )
 
     expected = {
         "LinearBlock": block.LinearBlock,
@@ -150,6 +165,13 @@ def test_the_exact_subpackage_s_own_all_reexports_the_right_object():
         "dense_operator": fisher.dense_operator,
         "fisher_information": fisher.fisher_information,
         "parameter_covariance": fisher.parameter_covariance,
+        "FIRST_ORDER_MAX_FRACTIONAL": loglinear.FIRST_ORDER_MAX_FRACTIONAL,
+        "LOG_DEFAULT_SCALES": loglinear.LOG_DEFAULT_SCALES,
+        "LogSpace": loglinear.LogSpace,
+        "check_log_linearity": loglinear.check_log_linearity,
+        "log_linear_operator": loglinear.log_linear_operator,
+        "log_space": loglinear.log_space,
+        "multiplicative_log_data": loglinear.multiplicative_log_data,
     }
     # Every name this dict claims to cover really is declared, in both
     # directions -- so a name added to __all__ and forgotten here, or vice

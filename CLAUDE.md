@@ -17,7 +17,7 @@ a hope.
 cat run.exit
 ```
 
-Measured: **1127 passed, 0 skipped, 0 failed** in about 112 s at `-n 4`.
+Measured: **1205 passed, 0 skipped, 0 failed** in about 140 s at `-n 4`.
 
 **Do not add `-q`.** `pyproject.toml` already carries `addopts = "-q"`, so a
 second one makes it `-qq` and **the summary line disappears entirely** — no

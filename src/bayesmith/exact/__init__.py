@@ -27,6 +27,15 @@ from bayesmith.exact.gls import (
     sigma_from_graph,
 )
 from bayesmith.exact.linearity import check_linearity, linear_operator
+from bayesmith.exact.loglinear import (
+    FIRST_ORDER_MAX_FRACTIONAL,
+    LOG_DEFAULT_SCALES,
+    LogSpace,
+    check_log_linearity,
+    log_linear_operator,
+    log_space,
+    multiplicative_log_data,
+)
 from bayesmith.exact.solve import condition_bound, gcr_sample, wiener_solve
 
 __all__ = [
@@ -50,4 +59,11 @@ __all__ = [
     "dense_operator",
     "fisher_information",
     "parameter_covariance",
+    "FIRST_ORDER_MAX_FRACTIONAL",
+    "LOG_DEFAULT_SCALES",
+    "LogSpace",
+    "check_log_linearity",
+    "log_linear_operator",
+    "log_space",
+    "multiplicative_log_data",
 ]

@@ -16,6 +16,7 @@ from bayesmith.errors import (
     ConvergenceError,
     GraphError,
     NotGaussian,
+    NotLogLinear,
     StructureError,
     TraceError,
 )
@@ -42,6 +43,8 @@ __all__ = [
     "log_joint",
     # inference
     "compile",
+    "factor_partition",
+    "sample_factors",
     "Posterior",
     "Estimate",
     "to_numpyro",
@@ -50,6 +53,10 @@ __all__ = [
     # exact
     "linear_operator",
     "check_linearity",
+    "check_log_linearity",
+    "log_linear_operator",
+    "log_space",
+    "multiplicative_log_data",
     "wiener_solve",
     "gcr_sample",
     "condition_bound",
@@ -70,6 +77,7 @@ __all__ = [
     "StructureError",
     "ConvergenceError",
     "NotGaussian",
+    "NotLogLinear",
 ]
 
 # Every public name above except the six error classes is resolved lazily,
@@ -108,6 +116,12 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "predict": ("bayesmith.bridge.numpyro_bridge", "predict"),
     "linear_operator": ("bayesmith.exact.linearity", "linear_operator"),
     "check_linearity": ("bayesmith.exact.linearity", "check_linearity"),
+    "check_log_linearity": ("bayesmith.exact.loglinear", "check_log_linearity"),
+    "log_linear_operator": ("bayesmith.exact.loglinear", "log_linear_operator"),
+    "log_space": ("bayesmith.exact.loglinear", "log_space"),
+    "multiplicative_log_data": ("bayesmith.exact.loglinear", "multiplicative_log_data"),
+    "factor_partition": ("bayesmith.dispatch.factor", "factor_partition"),
+    "sample_factors": ("bayesmith.dispatch.factor", "sample_factors"),
     "wiener_solve": ("bayesmith.exact.solve", "wiener_solve"),
     "gcr_sample": ("bayesmith.exact.solve", "gcr_sample"),
     "condition_bound": ("bayesmith.exact.solve", "condition_bound"),

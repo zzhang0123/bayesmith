@@ -14,6 +14,13 @@ from bayesmith.dispatch.classify import (
     partition,
     prior_environment,
 )
+from bayesmith.dispatch.factor import (
+    FACTOR_METHODS,
+    FactorPlan,
+    factor_partition,
+    first_fit,
+    sample_factors,
+)
 
 __all__ = [
     "partition",
@@ -21,4 +28,9 @@ __all__ = [
     "block_at",
     "prior_environment",
     "SIGMA_RTOL",
+    "FACTOR_METHODS",
+    "FactorPlan",
+    "factor_partition",
+    "first_fit",
+    "sample_factors",
 ]
