@@ -1,0 +1,127 @@
+# Publish to PyPI via Trusted Publishing.
+#
+# No API token exists anywhere in this setup -- not in repository secrets, not
+# on a laptop, not in a keyring. GitHub mints a short-lived OIDC token for this
+# workflow and PyPI verifies it against a publisher registered once. A secret
+# that does not exist cannot leak, be committed, or need rotating.
+#
+# ONE-TIME SETUP on PyPI (https://pypi.org/manage/account/publishing/):
+#
+#     PyPI Project Name:  bayesmith
+#     Owner:              zzhang0123
+#     Repository name:    bayesmith
+#     Workflow name:      publish.yml
+#     Environment name:   pypi          <- must match `environment:` below
+#
+# The environment name is optional on PyPI's form but is set here, so set it
+# there too. Filling one side and leaving the other blank is the failure this
+# comment exists to prevent: it surfaces as an opaque OIDC rejection at upload
+# time, long after the tag is pushed and immutable.
+#
+# TO PUBLISH: push a tag `vX.Y.Z`. To publish a tag that already exists --
+# v0.1.0 was tagged before this workflow was written -- use the "Run workflow"
+# button, which is what `workflow_dispatch` is here for.
+#
+# ON INJECTION SAFETY. This workflow reads no attacker-controllable event data:
+# no issue or PR titles, no bodies, no comments, no commit messages. The single
+# piece of context it consumes is the tag name, and it is passed through `env:`
+# and expanded by the shell rather than interpolated into the script by the
+# expression engine -- so a tag named `$(...)` or with embedded quotes is data,
+# never code. Keep it that way: any `${{ ... }}` written directly inside a
+# `run:` block is substituted before the shell sees it, which is the whole
+# vulnerability class.
+
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: {}          # nothing by default; each job asks for what it needs
+
+jobs:
+  # Build and TEST in one job, so the artifacts that get published are the same
+  # bytes the tests ran against. Building here and testing in a separate job
+  # would exercise a different build of the same commit -- a weaker claim, and
+  # the kind nobody notices is weaker.
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      # The interpreter is pinned on `uv venv` rather than through the action's
+      # inputs: uv fetches a managed 3.12 if the runner has none, and that
+      # behaviour is one this repository can check locally. An action input
+      # nobody here has exercised is a first-run failure waiting for the worst
+      # possible moment, which is the tag push.
+      - name: Build the distributions
+        run: |
+          uv venv --python 3.12
+          uv pip install build
+          uv run python -m build
+
+      # The tag and pyproject's version are two spellings of one number, and
+      # they drift on exactly the commit where everyone is busy with something
+      # else. PyPI filenames are immutable, so publishing 0.1.0 from a tag that
+      # reads v0.2.0 is not something a later commit can repair: that version
+      # is spent. Compared here, before anything is uploaded.
+      - name: The tag must agree with the built version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG_NAME: ${{ github.ref_name }}   # via env, never inlined into run
+        run: |
+          built=$(ls dist/*.tar.gz | sed -E 's|.*/bayesmith-(.*)\.tar\.gz|\1|')
+          tagged="${TAG_NAME#v}"
+          echo "built=${built}  tag=${tagged}"
+          if [ "$built" != "$tagged" ]; then
+            echo "::error::tag ${tagged} does not match built version ${built}."
+            echo "::error::Fix pyproject.toml or the tag. Do not publish this."
+            exit 1
+          fi
+
+      # Do not publish an untested artifact. The suite is installed from the
+      # BUILT wheel rather than run against the working tree, so what is
+      # exercised is what would be uploaded -- a source-tree run passes happily
+      # even when the packaging has excluded a module.
+      - name: Test the built wheel
+        run: |
+          uv venv --python 3.12 .testenv
+          uv pip install --python .testenv/bin/python dist/*.whl \
+            pytest pytest-xdist hypothesis
+          .testenv/bin/python -m pytest -n 4
+        # tests/crosscheck skips without a rheplicant checkout. That is
+        # expected here, and those tests say so in their own skip reasons.
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # A named environment is where required reviewers and tag protection
+    # attach, and it is the second half of the trusted-publisher match. Keep
+    # the name in step with PyPI's form.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/bayesmith
+    permissions:
+      # The whole point: this, and nothing else. The build job does not get it,
+      # because a job that compiles code has no business holding a credential
+      # that can publish.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # No `password:` line. That absence is the feature.
