@@ -22,7 +22,7 @@ committed. If a tool here needs `AGENTS.md`, the ruling to revisit is that one
 cat run.exit
 ```
 
-Measured: **1228 passed, 0 skipped, 0 failed** in about 153 s at `-n 4`.
+Measured: **1235 passed, 0 skipped, 0 failed** in about 154 s at `-n 4`.
 
 **Do not add `-q`.** `pyproject.toml` already carries `addopts = "-q"`, so a
 second one makes it `-qq` and **the summary line disappears entirely** — no

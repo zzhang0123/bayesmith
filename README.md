@@ -51,7 +51,7 @@ now does: rheplicant's auto-partition and log-space seams import
 `dispatch.factor.first_fit` and `exact.loglinear` from here, which is what
 the 0.2 floor names. Alpha in the classifier's sense: the API may still move.
 
-Implemented and tested, 1228 tests: the graph core with plates and joint
+Implemented and tested, 1235 tests: the graph core with plates and joint
 log-density; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR
 partition -- as many exact blocks as the model has factors, grouped by

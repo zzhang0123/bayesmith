@@ -47,6 +47,7 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 
+from bayesmith.distributions import ComplexNormal
 from bayesmith.errors import NotGaussian, StructureError
 from bayesmith.graph.evaluate import apply_probabilistic, evaluate
 from bayesmith.graph.graph import Graph
@@ -87,21 +88,28 @@ def gaussian_parts(
     Traceable and **unchecked** -- pair it with :func:`check_gaussian`, which
     runs once on concrete values before any trace is opened.
 
+    A :class:`~bayesmith.distributions.ComplexNormal` is read the same way:
+    its ``loc`` is complex and its ``scale`` real, and the scale is the width
+    of EACH part. Everything downstream splits the latent into its real
+    degrees of freedom, so nothing here needs to know more than that -- see
+    :func:`~bayesmith.exact.block.real_parts`.
+
     Raises:
         NotGaussian: if the distribution is not a (possibly ``Independent``-
-            wrapped) ``Normal``. The *type* is static under tracing, so this
-            refusal is safe to make inside a trace. It is a **classification
-            outcome, not a fault**: P3b's dispatcher catches it and routes the
-            block to NUTS.
+            wrapped) ``Normal`` or ``ComplexNormal``. The *type* is static
+            under tracing, so this refusal is safe to make inside a trace. It
+            is a **classification outcome, not a fault**: P3b's dispatcher
+            catches it and routes the block to NUTS.
         StructureError: if ``loc`` has an integer dtype. That one IS a fault --
             a conjugate solve differentiates through ``loc``.
     """
     distribution = unwrap(apply_probabilistic(graph, node, env))
-    if not isinstance(distribution, dist.Normal):
+    if not isinstance(distribution, (dist.Normal, ComplexNormal)):
         raise NotGaussian(
             f"node {node.name!r} returns {type(distribution).__name__}; the exact "
-            "linear-Gaussian path needs a diagonal Normal (a Normal, or one "
-            "wrapped by .to_event(...)). A MultivariateNormal with a dense "
+            "linear-Gaussian path needs a diagonal Normal (a Normal, one "
+            "wrapped by .to_event(...), or a ComplexNormal). A "
+            "MultivariateNormal with a dense "
             "covariance is a different solve and is not implemented. This is a "
             "classification outcome, not a defect in the model.",
             reason="not_normal",
@@ -265,13 +273,27 @@ def check_gaussian(
     if rtol is None:
         rtol = 1e3 * float(jnp.finfo(loc.dtype).eps)
 
+    # A complex node is probed in BOTH parts and predicted as the two
+    # independent Gaussians it is. Displacing only the real part would leave
+    # the imaginary half's density unexercised -- a subclass that dropped it
+    # entirely would pass every probe.
+    complex_node = isinstance(distribution, ComplexNormal)
+
     errors: dict[float, float] = {}
     for offset in PROBE_OFFSETS:
-        probe = loc + offset * scale
+        probe = loc + offset * scale * ((1 + 1j) if complex_node else 1)
         actual = jnp.broadcast_to(distribution.log_prob(probe), shape)
-        predicted = (
-            -0.5 * ((probe - loc) / scale) ** 2 - jnp.log(scale) - 0.5 * _LOG_2PI
-        )
+        if complex_node:
+            residual = (probe - loc) / scale
+            predicted = (
+                -0.5 * (jnp.real(residual) ** 2 + jnp.imag(residual) ** 2)
+                - 2.0 * jnp.log(scale)
+                - _LOG_2PI
+            )
+        else:
+            predicted = (
+                -0.5 * ((probe - loc) / scale) ** 2 - jnp.log(scale) - 0.5 * _LOG_2PI
+            )
         # Elementwise, and floored at 1.0 so a probe landing where the
         # log-density happens to be ~0 does not divide by it.
         departure = jnp.abs(actual - predicted) / jnp.maximum(jnp.abs(predicted), 1.0)

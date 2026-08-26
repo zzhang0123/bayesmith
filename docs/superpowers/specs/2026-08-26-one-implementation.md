@@ -278,6 +278,17 @@ config 侧引用)。
   `wiener_solve`/`gcr_sample` 接受复 latent,均值路径经 `_real_parts`
   约定与两半恒等式测试;矩验收随 P1 例 2。全量(vmap、log 空间、Fisher
   的复数面)随 Wave B。
+  **【owner 已拍板 2026-08-26:声明路径提进最小面。】** 起因是实测而非推测:
+  求解面做完后发现**复 latent 在 Graph 里根本无法声明**——`block.dtype` 取自
+  线性化域、域取自先验抽样,而 numpyro 无任何分布抽出复数。于是本行原本的
+  「最小面」与它自己的验收标准(P1 例 2:**经适配器**解出复数 alm)之间缺一段
+  路,因为适配器交出的是 `Graph`。裁决取 (a):把声明路径**提进最小面**,而不是
+  归 G9 全量、让一个先决的验收晚于依赖它的波次。**范围随之明确为三件**:
+  (1) 复 latent 可声明(其先验按 re/im 两个实分量解释,每半携带
+  `scale**2`,与 `variance_parts` 的复制约定同一句话);(2) 建块路径接受它,
+  产出复 dtype、复 `prior_mean`、实 `prior_std`;(3) 线性检查在复域上可跑。
+  **仍属 G9 全量(Wave B)**:`diagnose` 族对复 latent 的拒绝、`exact.correct`
+  的 SNIS 权重、vmap、log 空间、Fisher 的复数面。
 - **G10 分区执行面完形**(D14 范围):在 `sample_factors` 上加
   (i) per-sweep 回调(χ² 轨迹、identifiability 节奏、块残差),
   (ii) sweep 形 estimate,(iii) 声明分区入口(绕探测与政策门,文档化

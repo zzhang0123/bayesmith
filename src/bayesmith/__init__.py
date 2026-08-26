@@ -87,6 +87,8 @@ __all__ = [
     # keep a second copy of the strings
     "NOT_GAUSSIAN_REASONS",
     "NOT_LOG_LINEAR_REASONS",
+    # declarations numpyro has none of
+    "ComplexNormal",
 ]
 
 # Every public name above except the six error classes is resolved lazily,
@@ -110,6 +112,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "NodeRef": ("bayesmith.graph.trace", "NodeRef"),
     "PlateRef": ("bayesmith.graph.trace", "PlateRef"),
     "Graph": ("bayesmith.graph.graph", "Graph"),
+    "ComplexNormal": ("bayesmith.distributions", "ComplexNormal"),
     "Plate": ("bayesmith.graph.graph", "Plate"),
     "Node": ("bayesmith.graph.nodes", "Node"),
     "Const": ("bayesmith.graph.nodes", "Const"),

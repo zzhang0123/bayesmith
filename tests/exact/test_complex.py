@@ -22,23 +22,31 @@ The reference here is dense linear algebra built from the block's own
 ``forward`` by pushing real basis vectors through it -- it shares no code with
 the solver, forms the 4x4 normal equations explicitly, and inverts them.
 
-Not in scope, and measured to be so (see the record page): a complex latent
-cannot yet be DECLARED in a graph, because a numpyro distribution samples
-real. These blocks are hand-built, which `LinearBlock` is a plain frozen
-dataclass in order to allow.
+The declaration route is here too, since the owner ruled it INTO this minimal
+surface: `ComplexNormal` is what a graph states a complex prior with, because
+every numpyro distribution samples real and the block reads its dtype off the
+prior's `loc`. The hand-built blocks below stay -- they exercise the solver
+without a graph in the way -- and `TestTheDeclarationRoute` walks the whole
+chain a caller actually uses.
 """
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as ndist
 import pytest
 
+from bayesmith import det, observe, sample, trace
+from bayesmith.distributions import ComplexNormal
+from bayesmith.errors import StructureError
 from bayesmith.exact.block import (
     LinearBlock,
     domain_zero,
     real_parts,
     variance_parts,
 )
+from bayesmith.exact.gaussian import check_gaussian, precision_at
+from bayesmith.exact.linearity import linear_operator
 from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import gcr_sample, wiener_solve
 
@@ -145,8 +153,8 @@ def dense_posterior():
     return covariance @ rhs, covariance
 
 
-def _as_parts(latent) -> np.ndarray:
-    value = np.asarray(latent["a"])
+def _as_parts(latent, name: str = "a") -> np.ndarray:
+    value = np.asarray(latent[name])
     return np.concatenate([np.real(value), np.imag(value)]).astype(np.float64)
 
 
@@ -318,3 +326,175 @@ class TestTheDrawPath:
 
         got = np.cov(draws, rowvar=False)
         np.testing.assert_allclose(got, expected_covariance, rtol=0.2, atol=0.02)
+
+
+def sky_model():
+    """The chain a caller writes: a complex prior, a real prediction, real data.
+
+    Deliberately the SAME model the hand-built block encodes, `OFFSET` and
+    all -- so one dense reference serves both routes and the comparison says
+    the two agree, rather than that each agrees with a reference of its own.
+    Measured while writing this: dropping `OFFSET` here left the graph solving
+    a different problem and the two answers differed by 0.16, which reads
+    exactly like a solver bug.
+    """
+
+    def model():
+        alm = sample("alm", lambda: ComplexNormal(PRIOR_MEAN, PRIOR_STD))
+        mu = det(
+            "mu", lambda a: jnp.real(DESIGN @ a) + OFFSET, alm, linear_in=("alm",)
+        )
+        observe("d", lambda m: ndist.Normal(m, NOISE_STD), mu, obs=DATA)
+
+    return trace(model)
+
+
+class TestTheDistribution:
+    def test_the_two_parts_are_independent_gaussians_of_equal_width(self):
+        """The density, against two `Normal`s written out separately.
+
+        The class computes it from the parts rather than from
+        `abs(value - loc)**2`; this compares against the thing that convention
+        is supposed to mean, which the magnitude form would not distinguish
+        from a circularly-symmetric reading with a different normalisation.
+        """
+        prior = ComplexNormal(PRIOR_MEAN, PRIOR_STD)
+        value = jnp.array([1.25 - 0.5j, -0.25 + 1.75j], dtype=jnp.complex64)
+        expected = ndist.Normal(
+            jnp.real(PRIOR_MEAN), PRIOR_STD
+        ).log_prob(jnp.real(value)) + ndist.Normal(
+            jnp.imag(PRIOR_MEAN), PRIOR_STD
+        ).log_prob(jnp.imag(value))
+        np.testing.assert_allclose(
+            np.asarray(prior.log_prob(value)), np.asarray(expected), rtol=1e-6
+        )
+
+    def test_the_variance_property_is_the_total_of_both_parts(self):
+        """`2 * scale**2`, and the docstring says which. A reader taking it for
+        one part's variance is the sqrt(2) this whole convention is about."""
+        prior = ComplexNormal(PRIOR_MEAN, PRIOR_STD)
+        np.testing.assert_allclose(
+            np.asarray(prior.variance), np.full((2,), 2.0 * PRIOR_STD**2), rtol=1e-6
+        )
+
+    def test_draws_are_complex_and_carry_scale_in_each_part(self):
+        prior = ComplexNormal(PRIOR_MEAN, PRIOR_STD)
+        draws = prior.sample(jax.random.key(1), (8192,))
+        assert jnp.iscomplexobj(draws) and draws.shape == (8192, 2)
+        real = np.asarray(jnp.real(draws))
+        imag = np.asarray(jnp.imag(draws))
+        # Each half, separately, at `scale` -- not the magnitude at `scale`,
+        # which is what a halved convention would produce.
+        np.testing.assert_allclose(real.std(axis=0), PRIOR_STD, rtol=0.05)
+        np.testing.assert_allclose(imag.std(axis=0), PRIOR_STD, rtol=0.05)
+        np.testing.assert_allclose(
+            real.mean(axis=0), np.real(np.asarray(PRIOR_MEAN)), atol=0.05
+        )
+        np.testing.assert_allclose(
+            imag.mean(axis=0), np.imag(np.asarray(PRIOR_MEAN)), atol=0.05
+        )
+
+
+class TestTheDeclarationRoute:
+    def test_the_block_reads_the_complex_prior_off_the_graph(self):
+        block = linear_operator(sky_model(), ("alm",))
+        assert block.dtype["alm"] == jnp.complex64
+        assert block.shape["alm"] == (2,)
+        np.testing.assert_allclose(
+            np.asarray(block.prior_mean["alm"]), np.asarray(PRIOR_MEAN), rtol=1e-6
+        )
+        # Real, and the width of EACH part -- so `variance_parts` duplicating
+        # it is the same statement the distribution makes.
+        assert not jnp.iscomplexobj(block.prior_std["alm"])
+        np.testing.assert_allclose(np.asarray(block.prior_std["alm"]), PRIOR_STD)
+
+    def test_the_graph_route_reaches_the_dense_reference(self):
+        """The whole chain: declaration, linearity check, block, solve.
+
+        `linear_operator`, not `unchecked_operator` -- the `linear_in` claim is
+        probed on the complex latent too, so this also pins that the linearity
+        machinery runs in the complex domain rather than being skipped there.
+        """
+        graph = sky_model()
+        block = linear_operator(graph, ("alm",))
+        solution, residual = wiener_solve(
+            block,
+            precision=precision_at(graph, {"alm": PRIOR_MEAN}),
+            tol=1e-10,
+            maxiter=200,
+        )
+        expected, _ = dense_posterior()
+        assert float(residual) < 1e-5
+        np.testing.assert_allclose(
+            _as_parts(solution, "alm"), expected, rtol=2e-4, atol=2e-6
+        )
+
+    def test_a_lying_log_prob_is_refused_even_for_a_complex_node(self):
+        """The Gaussianity probe has to reach the imaginary half.
+
+        A subclass that keeps `loc` and `scale` and changes the density is
+        exactly what `check_gaussian` exists for, and the complex branch would
+        be worthless if it only displaced the real part: this liar is correct
+        on the real half and wrong on the imaginary one, so a probe that never
+        moves the imaginary part accepts it.
+        """
+
+        class HalfHonest(ComplexNormal):
+            def log_prob(self, value):
+                real = (jnp.real(value) - jnp.real(self.loc)) / self.scale
+                imag = (jnp.imag(value) - jnp.imag(self.loc)) / self.scale
+                return (
+                    -0.5 * (real**2 + 7.0 * imag**2)
+                    - 2.0 * jnp.log(self.scale)
+                    - float(np.log(2.0 * np.pi))
+                )
+
+        def model():
+            alm = sample("alm", lambda: HalfHonest(PRIOR_MEAN, PRIOR_STD))
+            mu = det(
+                "mu", lambda a: jnp.real(DESIGN @ a) + OFFSET, alm, linear_in=("alm",)
+            )
+            observe("d", lambda m: ndist.Normal(m, NOISE_STD), mu, obs=DATA)
+
+        graph = trace(model)
+        with pytest.raises(StructureError, match="log_prob"):
+            check_gaussian(graph, graph.node("alm"), {})
+
+    @pytest.mark.slow
+    def test_nuts_reaches_the_same_posterior_through_the_reparameterisation(self):
+        """The package's standing rule, kept rather than exempted.
+
+        `to_numpyro` emits a complex latent as two real sites plus the
+        deterministic that recombines them, because HMC steps in real
+        unconstrained space. Without that, this graph would qualify for an
+        exact method and NOT for NUTS -- and NUTS is what the exact paths are
+        checked against, so the exception would have removed the oracle
+        exactly where a new solve path most needed one.
+        """
+        from bayesmith.bridge.numpyro_bridge import nuts
+
+        graph = sky_model()
+        draws = nuts(graph, jax.random.key(0), num_warmup=500, num_samples=2000)
+        assert {"alm", "alm__re", "alm__im"} <= set(draws)
+        assert jnp.iscomplexobj(draws["alm"])
+
+        expected, covariance = dense_posterior()
+        got = np.asarray(draws["alm"])
+        mean = np.concatenate([np.real(got).mean(axis=0), np.imag(got).mean(axis=0)])
+
+        # The standard error must come from the EFFECTIVE sample size, not the
+        # draw count. Measured while writing this: dividing by 2000 puts two
+        # of the four components at ~10 sigma from a posterior the exact solve
+        # and NUTS actually agree on to three decimals -- NUTS draws are
+        # autocorrelated, so the naive error bar is too small and the test
+        # would have failed for being wrong about statistics rather than about
+        # the code.
+        from numpyro.diagnostics import effective_sample_size
+
+        chains = np.stack(
+            [np.asarray(draws["alm__re"]), np.asarray(draws["alm__im"])], axis=-1
+        )[None]
+        ess = effective_sample_size(chains).reshape(-1, order="F")
+        assert np.all(ess > 100), ess
+        standard_error = np.sqrt(np.diag(covariance) / ess)
+        np.testing.assert_array_less(np.abs((mean - expected) / standard_error), 4.0)

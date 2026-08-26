@@ -34,10 +34,19 @@ every existing caller reads unchanged. A complex member's prior variance is
 duplicated across its two halves: each carries `prior_std**2`, so the latent's
 total prior variance is `2 * prior_std**2`.
 
-Not yet: a complex latent cannot be DECLARED in a graph, because no numpyro
-distribution samples complex -- these blocks are hand-built. The diagnose
-family still refuses complex latents, and `exact.correct.log_weight` (SNIS)
-still indexes in the domain.
+`ComplexNormal` is how a graph declares one, because every numpyro
+distribution samples real and a block reads its dtype off the prior's `loc`.
+Its two parts are independent and equally wide, so `scale` is the width of
+EACH -- the same statement `variance_parts` makes by duplicating it.
+`to_numpyro` emits a complex latent as two real sites plus the deterministic
+that recombines them, so NUTS still runs on every graph an exact method
+accepts, which is what those paths are checked against; the graph's own name
+still carries the complex value. An observed or plated complex node is refused
+by name rather than emitted untested.
+
+Not yet, and registered rather than left in a docstring: the diagnose family
+still refuses complex latents, `exact.correct.log_weight` (SNIS) still indexes
+in the domain, and vmap, log space and the Fisher surface are untouched.
 
 ## 0.2.0 — 2026-08-26
 

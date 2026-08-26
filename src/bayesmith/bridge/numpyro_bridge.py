@@ -14,8 +14,10 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpyro
+import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
+from bayesmith.distributions import ComplexNormal
 from bayesmith.graph.evaluate import apply_deterministic, apply_probabilistic
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
@@ -41,7 +43,9 @@ def to_numpyro(graph: Graph) -> Callable[[], dict[str, Any]]:
                 )
             elif isinstance(node, Probabilistic):
                 distribution = apply_probabilistic(graph, node, env)
-                if node.plate:
+                if isinstance(distribution, ComplexNormal):
+                    env[node.name] = _complex_site(node, distribution)
+                elif node.plate:
                     name = node.plate[0]
                     with numpyro.plate(name, graph.plate_size(name)):
                         env[node.name] = numpyro.sample(
@@ -54,6 +58,50 @@ def to_numpyro(graph: Graph) -> Callable[[], dict[str, Any]]:
         return env
 
     return model
+
+
+def _complex_site(node: Any, distribution: ComplexNormal) -> jax.Array:
+    """A complex latent as two real sites plus the deterministic that joins them.
+
+    HMC's transforms are defined on real unconstrained space, so a sampler
+    cannot step in C. Reparameterising here is what keeps this module's
+    opening claim true -- *a graph that qualifies for an exact method always
+    also qualifies for NUTS* -- rather than leaving one node type as a
+    standing exception to it. The exact path for a complex latent splits into
+    the same two real degrees of freedom
+    (:func:`~bayesmith.exact.block.real_parts`), so the two routes are
+    reparameterised the same way and stay comparable, which is the whole point
+    of NUTS being the oracle.
+
+    The graph's own name still carries the complex value, as a
+    ``numpyro.deterministic``: posterior samples come back keyed by node name
+    like every other node, and the two real sites are visible beside it under
+    suffixed names for anyone reading diagnostics per degree of freedom.
+
+    An observed complex node would need the value split too, and nothing
+    declares one yet -- refused by name rather than silently sampled as a
+    latent, which is what the ``obs=`` argument being dropped would amount to.
+    """
+    if node.observed is not None:
+        raise NotImplementedError(
+            f"node {node.name!r} is an OBSERVED ComplexNormal. The exact paths "
+            "read complex LATENTS; a complex observation would have to split "
+            "its data as well as its density, and nothing declares one yet. "
+            "Refused here rather than sampled as if it were latent."
+        )
+    if node.plate:
+        raise NotImplementedError(
+            f"complex latent {node.name!r} is plated. The two real sites would "
+            "each need the plate, and no fixture exercises it yet -- refused "
+            "rather than emitted untested."
+        )
+    real = numpyro.sample(
+        f"{node.name}__re", dist.Normal(jnp.real(distribution.loc), distribution.scale)
+    )
+    imag = numpyro.sample(
+        f"{node.name}__im", dist.Normal(jnp.imag(distribution.loc), distribution.scale)
+    )
+    return numpyro.deterministic(node.name, real + 1j * imag)
 
 
 def nuts(

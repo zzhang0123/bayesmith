@@ -213,7 +213,11 @@ def test_a_non_gaussian_refusal_keeps_its_first_sentence_whole():
     """
     reason = partition(student_t_likelihood()).reason
     assert "returns StudentT" in reason
-    assert "wrapped by .to_event(...))" in reason
+    assert "wrapped by .to_event(...)" in reason
+    # The sentence grew a third accepted type when complex latents landed, and
+    # it has to survive the same truncation for the same reason: it is the
+    # other actionable thing the sentence says.
+    assert "ComplexNormal)" in reason
     # Still one sentence, not the whole message: the following two sentences
     # are about a solve that is not implemented and about this being a verdict
     # rather than a defect, and neither belongs in a one-line dispatch reason.
