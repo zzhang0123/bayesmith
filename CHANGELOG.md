@@ -19,6 +19,26 @@ and an unknown one is refused where it is written. Raising them from library
 code is unaffected in behaviour -- same classes, same messages, same catch
 semantics.
 
+**A complex latent solves in its real degrees of freedom (G9, minimal
+surface).** `wiener_solve` and `gcr_sample` accept a block with complex
+members: `exact.block.real_parts` splits each into `(re, im)` and the solve
+runs there, joining back at the boundary so a caller never learns the
+representation. Sky `alm` coefficients are complex while the data they
+predict is real, so the map between them is R-linear and not C-linear -- CG
+over C would minimise a different objective, the objective having no complex
+derivative to descend.
+
+`normal_operator`, `domain_zero` and `variance_parts` now speak that
+real-degrees-of-freedom space. For an all-real block it IS the domain, so
+every existing caller reads unchanged. A complex member's prior variance is
+duplicated across its two halves: each carries `prior_std**2`, so the latent's
+total prior variance is `2 * prior_std**2`.
+
+Not yet: a complex latent cannot be DECLARED in a graph, because no numpyro
+distribution samples complex -- these blocks are hand-built. The diagnose
+family still refuses complex latents, and `exact.correct.log_weight` (SNIS)
+still indexes in the domain.
+
 ## 0.2.0 — 2026-08-26
 
 The factor partition and log space. `dispatch.factor` derives as many exact

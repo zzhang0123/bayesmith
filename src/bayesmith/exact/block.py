@@ -84,9 +84,80 @@ class LinearBlock:
     prior_std: dict[str, jax.Array]
 
 
+def is_complex(dtype: Any) -> bool:
+    """Whether a declared latent dtype is complex."""
+    return bool(jnp.issubdtype(dtype, jnp.complexfloating))
+
+
+def real_parts(block: LinearBlock) -> tuple[Callable, Callable]:
+    """Convert between the block's DOMAIN and its real degrees of freedom.
+
+    A complex member is carried as ``(real, imag)``; a real one is left alone,
+    NOT wrapped in a one-element tuple -- there would be nothing to unwrap it
+    back from, and a uniform wrapper would only move the asymmetry somewhere
+    less visible.
+
+    Not bookkeeping pedantry. Every prediction here is real, so the map from
+    complex coefficients to data is **R-linear but not C-linear**, and a
+    Krylov method run over C would be minimising a different objective. The
+    split makes the vector space the one the posterior actually lives on.
+
+    It also keeps this module's adjoint story true rather than merely
+    convenient. :func:`~bayesmith.exact.solve.normal_operator` and
+    ``_conjugate_solve``'s ``pair_with`` both take ``jax.grad`` of a real
+    pairing, and their docstrings say that in a real domain that gradient and
+    the VJP pullback are the same map, with no conjugate-transpose convention
+    to disagree about. JAX returns the CONJUGATE gradient for a complex input,
+    so that sentence would have quietly become false the day a complex latent
+    arrived. Splitting first means the gradient is always taken over real
+    leaves and the sentence stays true -- the alternative was to keep the
+    solve in C and carry a conjugation convention through every one of them.
+
+    The treedef is what every ``jax.tree.map`` in the solver aligns against,
+    so exact invertibility is the one property that must hold:
+    ``join(split(x)) is x`` element-wise, pinned by
+    ``tests/exact/test_complex.py``.
+
+    Returns:
+        ``(split, join)``. ``split`` maps ``{name: array}`` (complex where
+        declared) to ``{name: array | (re, im)}``; ``join`` inverts it.
+    """
+    complexity = {n: is_complex(block.dtype[n]) for n in block.names}
+
+    def split(x: dict[str, Any]) -> dict[str, Any]:
+        return {
+            n: (jnp.real(x[n]), jnp.imag(x[n])) if complexity[n] else x[n]
+            for n in block.names
+        }
+
+    def join(parts: dict[str, Any]) -> dict[str, Any]:
+        return {
+            n: (parts[n][0] + 1j * parts[n][1]) if complexity[n] else parts[n]
+            for n in block.names
+        }
+
+    return split, join
+
+
 def domain_zero(block: LinearBlock) -> dict[str, jax.Array]:
-    """A zero of the block's domain."""
-    return {n: jnp.zeros(block.shape[n], dtype=block.dtype[n]) for n in block.names}
+    """A zero of the block's real degrees of freedom.
+
+    In PARTS space, not the domain: this seeds the solver's working vector and
+    the power iteration, both of which live where :func:`real_parts` puts
+    them. For an all-real block the two spaces are the same thing, which is
+    why every caller predating complex support reads unchanged.
+    """
+    return {
+        n: (
+            (
+                jnp.zeros(block.shape[n], dtype=jnp.finfo(block.dtype[n]).dtype),
+                jnp.zeros(block.shape[n], dtype=jnp.finfo(block.dtype[n]).dtype),
+            )
+            if is_complex(block.dtype[n])
+            else jnp.zeros(block.shape[n], dtype=block.dtype[n])
+        )
+        for n in block.names
+    }
 
 
 def domain_centre(block: LinearBlock) -> dict[str, jax.Array]:
@@ -107,8 +178,22 @@ def variance_parts(block: LinearBlock) -> dict[str, jax.Array]:
     member's variance lands on the leaf its own parameters live on, so
     ``x / variance`` inside a ``jax.tree.map`` IS ``S^-1 x`` with no indices
     to get wrong.
+
+    Laid out over the REAL degrees of freedom, so it aligns with
+    :func:`domain_zero` and with the solver's working vector. A complex
+    member's variance is therefore **duplicated across its real and imaginary
+    parts**, which is what ``prior_std`` means for one: each part carries
+    ``prior_std**2``, so the complex latent has total prior variance
+    ``2 * prior_std**2``. That is the convention rheplicant's ``gcr_sample``
+    documents, and the two must agree digit for digit or the seam reports a
+    factor of sqrt(2) as a physics result.
     """
-    return {n: jnp.asarray(block.prior_std[n]) ** 2 for n in block.names}
+
+    def one(name: str) -> Any:
+        variance = jnp.asarray(block.prior_std[name]) ** 2
+        return (variance, variance) if is_complex(block.dtype[name]) else variance
+
+    return {n: one(n) for n in block.names}
 
 
 def largest_variance(prior_variance: dict[str, jax.Array]) -> jax.Array:

@@ -35,6 +35,7 @@ from bayesmith.exact.block import (
     domain_centre,
     domain_zero,
     largest_variance,
+    real_parts,
     variance_parts,
 )
 from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
@@ -58,15 +59,26 @@ PRECISION_FLOOR: float = 10.0
 def normal_operator(
     block: LinearBlock, weight: dict[str, Precision], prior_variance: dict[str, Any]
 ) -> Callable[[dict[str, Any]], dict[str, jax.Array]]:
-    """``x -> (A^T N^-1 A + S^-1) x`` over the block's domain.
+    """``x -> (A^T N^-1 A + S^-1) x`` over the block's REAL degrees of freedom.
 
     Never forms ``N``, which is why a non-diagonal covariance costs nothing
     structural here: CG only ever needs the quadratic form, and
     :func:`~bayesmith.exact.precision.quadratic` is it.
+
+    The argument and the result live in PARTS space (see
+    :func:`~bayesmith.exact.block.real_parts`), which is the block's domain
+    exactly when every member is real -- so every caller predating complex
+    support is unaffected. For a complex member it is ``(re, im)``, and the
+    ``jax.grad`` below therefore always differentiates a real function of real
+    leaves. That is what keeps the gradient an honest transpose: JAX hands
+    back the CONJUGATE gradient for a complex input, so taking this derivative
+    in the domain would silently introduce a conjugation the rest of the solve
+    does not account for.
     """
+    _, join = real_parts(block)
 
     def half_chi2(parts: dict[str, Any]) -> jax.Array:
-        pushed = block.forward(parts)
+        pushed = block.forward(join(parts))
         return 0.5 * sum(quadratic(weight[name], pushed[name]) for name in pushed)
 
     def normal(parts: dict[str, Any]) -> dict[str, jax.Array]:
@@ -207,10 +219,14 @@ def _conjugate_solve(
     fluctuation terms. ``key=None`` selects the mean.
     """
     weight = precision
+    split, join = real_parts(block)
     prior_variance = variance_parts(block)
     residual_data = jax.tree.map(jnp.subtract, block.data, block.offset)
     zero = domain_zero(block)
-    centre = domain_centre(block)
+    # `domain_centre` speaks the DOMAIN -- it is the prior's mean, a latent
+    # value -- while everything below this line is in parts space. Split once,
+    # here, rather than letting the two representations meet further down.
+    centre = split(domain_centre(block))
 
     def pair_with(vector):
         """``A^T vector``, as the gradient of a real pairing.
@@ -233,7 +249,7 @@ def _conjugate_solve(
         """
 
         def pairing(parts):
-            pushed = block.forward(parts)
+            pushed = block.forward(join(parts))
             return sum(jnp.sum(pushed[name] * vector[name]) for name in pushed)
 
         return jax.grad(pairing)(zero)
@@ -379,7 +395,9 @@ def _conjugate_solve(
             "maxiter to match, or strengthen the prior. condition_bound() "
             "reports the bound.",
         )
-    return solution, residual
+    # Back to the DOMAIN. Callers -- and the graph -- speak latent values, so
+    # parts space stops at this line and a complex member comes out complex.
+    return join(solution), residual
 
 
 def wiener_solve(

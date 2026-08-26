@@ -88,6 +88,12 @@
   一侧(无 `Σ log σ`);bayesmith NUTS 走全密度,且**无** gradient-MAP
   对应物(G2 承接)。(a) 两出口采全密度(正确侧;数字重测+changelog);
   (b) 适配器复刻 GLS 味势。*建议 (a)*;Wave B 先决因此含 G2。
+  **【owner 已拍板 2026-08-26:取 (a),两出口采全密度。】** gradient 块的
+  sample 与 estimate 都带 `Σ log σ`。三个后果:(1) rheplicant 侧钉住这两个
+  出口的数字**全部重测**并写 changelog——按铁律 4(iv) 的「接受为修正」,不
+  放宽容差;(2) Wave B 的先决因此**确实含 G2**(`bayesmith.fit` 承接
+  gradient-MAP 出口,今日 bayesmith 无对应物);(3) 与 D8 的 (iv) 同批落地
+  ——两者都是「目标密度改为全密度」的同一件事,分开做会让同一批数字重测两次。
 - **D8 — 预测依赖 σ 的共轭扫描语义。** 实测事实:`gibbs_factory` 的
   `method="gcr"` 把 σ 冻在**先验中心**(`_precision_at` 无 x 可传——该
   签名正是 `_mh_step` 正确性的执行机制),不是 rheplicant 的逐 sweep 当前
@@ -98,6 +104,14 @@
   (bayesmith 的既有设计答案,目标全密度,顺带解决此路径的 D7;`Draws`
   面须决定长 `log_weights/ess/khat` 或包装重采样)。*建议:切换期 (i')
   保数值连续;(iv) 与 D7 同批裁决为语义升级项。*
+  **【owner 已拍板 2026-08-26:分期,先 (i') 后 (iv)。】** 切换期走 G12,
+  经声明分区路径暴露 `sample_factors` rebuild 分支的既有语义,精确复刻今日
+  行为,保数值连续;注记**必须**写成「近似声明:历史依赖核,非严格不变」,
+  不得写成正确性证明。随后 (iv) gcr+snis 作为语义升级项**与 D7 同批**落地
+  ——目标全密度,顺带解决此路径的 D7。升级批开工前需回答一个未决子项:
+  `Draws` 面是长出 `log_weights/ess/khat`,还是包装重采样。**分期的退场
+  条件写在这里,以免「切换期」变成永久**:(i') 的近似声明在 (iv) 落地当批
+  撤除;若 (iv) 被推迟,推迟本身进登记簿而不是留在这一行。
 - **D9 — float32 政策(diagnose 族 + 条件数天花板)。**
   `refuse_ambient_float32` 同门管 identifiability 与 prior_sensitivity;
   config 消费者:run kind `identifiability` 与检查 C13/C19(float32 主
@@ -134,6 +148,10 @@
   factor_partition 的探测与 movement 政策门,接受外给块表,伴随文档化的
   「你声明你负责」语义)。G10 = 在 `sample_factors` 上补齐这三件,
   **不另起执行器**。
+  **【owner 已拍板 2026-08-26:三件全做,范围如上。】** (i)(ii)(iii) 都在
+  `sample_factors` 上补齐,不另起执行器,也不缩到子集。因此 P1 例 6/10 的
+  **完整形态**(梯度块 estimate、每 sweep 诊断)确实在 Wave B 验收,而 P1
+  只验今日 `sample_factors` 可执行的那部分——两处已如此写,此处确认。
 - **D15 — `condition_estimate` 与 `condition` kind。** (a) 依一份实现
   裁决重访 conditioning.md 的拒绝,移植为显式标注「measured-κ,不可作
   守卫」的诊断(**G14**);(b) kind 换 condition_bound 语义(数字动,
@@ -149,6 +167,11 @@
 - **D17 — 分区/对数发现探针(auto_blocks)的家。** Pipeline 探针 vs 图侧
   探针。**裁决协议**:同 fixture 集(含极端 f、边界仿射、及 D16 第五轴的
   亮暗混合模型)双跑 diff 判决,逐例一致才换,不一致逐个裁决。
+  **【owner 已拍板 2026-08-26:先跑裁决协议,再按结果定家。】** 不直接留守
+  也不直接换。协议是**先决**而非事后核对:双跑 diff 必须在 Wave B 切
+  `linear`/`plan` 之前跑完,因为 D17 是那一波的条件先决(「若换探针」)。
+  逐例一致才换;任何不一致都是一条新裁决,逐个上登记簿,不得整体表决。
+  协议的证据链写进该波执行页,格式照 §四 五节。
 - **D18 — G9(复数域)的家,P1 开工前拍板。** (a) bayesmith exact 原生
   支持复 latent(移植 `_real_parts` 拆分与实内积伴随约定及两半恒等式
   测试);(b) 适配器侧 re/im 重参数化为两个实节点 + det 重组,bayesmith
@@ -295,8 +318,8 @@ config 侧引用)。
   `uncertainty` 全模块(propagate/push_forward 经 G7;`as_noise_model`
   留守;容器与 `_named_spans` 留守,文件不整删;`parameter_covariance`
   新拒绝按 D9 附带处理)。
-- **Wave B(求解与计划;先决 D7+D8+D14+G1+**G2**+G9+G10+G12
-  (+D17 若换探针))**:`linear` 求解面、`gls`(D19 已拍)、
+- **Wave B(求解与计划;先决 ~~D7+D8+D14~~ **四门已拍 2026-08-26** +G1+
+  **G2**+G9+G10+G12,外加 **D17 的双跑 diff 协议先跑完**)**:`linear` 求解面、`gls`(D19 已拍)、
   `plan`+`engines`(验证与词汇留守,执行经 G10)、`noise`/`likelihood`
   工厂化。linear 探针助手在 D17 落定前不删。config 侧钉内部件的三个测试
   (`MIN_DRAWS` 等常量、`SamplingPlan` 源文本 pin)本波显式重谈,走登记
@@ -374,7 +397,7 @@ config 侧引用)。
 | P1 适配器 + 十例 + 文案清单 + 接缝 CI 建立 | 2–3 | P2a、~~D19~~ 已拍 |
 | P2 余项:G1/G2/G7/G9 全量/G10/G12/G13/G14 | 7–11 | 各 D 项 |
 | P3 Wave A | 2–3 | P1+D9+D16+G7+G11+G13 |
-| P3 Wave B | 3–5 | D7/D8/D14(+D17 若换探针)+G1/G2/G9/G10/G12 |
+| P3 Wave B | 3–5 | ~~D7/D8/D14~~ 已拍 + D17 协议先跑 + G1/G2/G9/G10/G12 |
 | P3 Wave C(+G4/G5 实现) | 3–4 | G2/G4/G5+R2 清单 |
 | P3 Wave D(+G3/G6 实现) | 4–6 | D12+G3+G6 |
 | P4–P7 收尾 | 3–4 | 各波 |
