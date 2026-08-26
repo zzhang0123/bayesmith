@@ -446,9 +446,30 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
 `(x, None)`——不是忘了检查，是无从读起）。若 `conditioning.py` 迁走，radio 侧
 需要一个 core 级等价物或自含实现。**A8.2 动手前必须先定。**
 
-> **【owner 已拍板 2026-08-26：不迁走，但附一条件。】** `conditioning.py`
-> 留在 rheplicant——A8.2 因此**现在就可以动手**，radio 侧不必先等一个 core
-> 级等价物。
+> **【更正 2026-08-26，在同日的裁决之后：本条问题本身是坏的，而且早就有人
+> 发现了。】** 上面这条 D2 问「`conditioning.py` 是否随贝叶斯层迁走」，前提是
+> `SkySpaceFilter` 用得到它。用不到，而且不可能用到：分层是 `core ← radio ←
+> inference`，由 `tests/core/test_layering.py` 强制，`radio/` 一行也不能 import
+> `inference/`。而且 `conditioning.py` 根本不在 `inference/` 里——它在
+> **`core/conditioning.py`**，贝叶斯层迁走时压根不动它。所以 **A8.2 从来没有被
+> D2 卡住**，本行「A8.2 动手前必须先定」是空的。
+>
+> **A8.2 也已经做完了**：`radio/filters/skyspace.py` 带 `require_convergence:
+> float | None`，在 `__check_init__` 里校验，模块 docstring 写明「残差不是精度」
+> 并经 `rheplicant.core.conditioning` 以 `kappa * residual` 定界。2026-08-26 用
+> 变异确认了这个守卫仍然会红：把判据从 `residual * kappa` 改成 `residual`，
+> `test_a_small_residual_does_not_certify_the_answer` 与
+> `test_the_two_verdicts_are_different_verdicts` 立刻失败（退出码 1）。那个
+> `kappa *` 是承重的，不是装饰。
+>
+> **这条被重复裁决，是「一个决策只有一个家」这条规则自己的漏洞。** e-RHINO 的
+> `PROPOSAL_MERGED.md` 已在 **2026-08-25** 记下「D2 — RESOLVED: the question was
+> malformed」，理由与上面一致。但 D2 的「家」被宣告在本文，于是本文继续挂着一个
+> 已死的问题，而更正住在另一个仓库里。**规则说了决策住哪儿，没说它的解答住
+> 哪儿**——于是家里留着问题，答案在外面，下一个人（本次就是）照着家里那份重新
+> 裁决了一遍。补法不是再加一条规则，是让解答回到问题的那一行去。
+>
+> 下面这条同日的裁决保留，因为它问的是另一件事，与前提无关：
 >
 > 条件是这条裁决里真正新的部分：**若其中的能力对贝叶斯问题是普遍适用的，
 > bayesmith 实现自己的一份。** 注意这不是「迁移」的另一种拼法，两者的验收
