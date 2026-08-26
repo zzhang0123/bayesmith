@@ -276,7 +276,14 @@ def test_slogdet_and_cholesky_both_return_plausible_numbers_on_the_singular_bloc
         # property; the digit is not.
         assert float(jnp.min(pivots)) > 0.0, "a non-positive pivot means cholesky failed"
         assert float(jnp.min(pivots)) == pytest.approx(9.755e-05, rel=0.5)
-        assert float(jnp.sum(jnp.log(pivots))) == pytest.approx(6.566517, abs=5e-6)
+        # The SAME quantity as `0.5 * logabsdet` above, by the identity
+        # log det = 2 sum log pivot -- computed down a different route, so the
+        # two need not agree to the digit and measurably do not: 6.420496 vs
+        # 6.566517 on arm64, while on x86_64 both land on 6.444212. That the
+        # gap between the routes is itself platform-dependent is the clearest
+        # statement available that neither number is a contract. Same band,
+        # same centre, for the same reason.
+        assert float(jnp.sum(jnp.log(pivots))) == pytest.approx(6.43, abs=1.2)
 
 
 def test_the_eigh_route_floors_the_singular_block_to_effectively_zero():
