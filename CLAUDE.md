@@ -10,6 +10,11 @@ project has spent the most time repairing — six copies of one measurement went
 stale on a day none of them was edited. One file, or a test; not two files and
 a hope.
 
+One did appear, byte-identical to this file, and made the sentence above false
+by existing. The owner ruled on 2026-08-26 that it be deleted rather than
+committed. If a tool here needs `AGENTS.md`, the ruling to revisit is that one
+-- and the price of keeping it is the identity test, not a good intention.
+
 ## Running the tests
 
 ```bash
@@ -66,6 +71,34 @@ was reporting on a command that never ran.
 Same shape as the two traps above: a result that cannot distinguish "absent"
 from "the command did not happen". Glob one pattern per `ls`, or use `find`,
 which has no opinion about patterns that match nothing.
+
+## On release day the index has three answers, and two are stale
+
+A green `publish.yml` run is a record, not the index. Measured within one
+minute of tagging v0.2.0, all three asked about the same package:
+
+| asked | answered | what it actually is |
+|---|---|---|
+| `pypi.org/pypi/bayesmith/json` | only 0.1.0 | the JSON API's cache, minutes behind |
+| `pypi.org/simple/bayesmith/` | 0.1.0 **and** 0.2.0 | the table pip resolves against |
+| `uv pip install 'bayesmith>=0.2'` | "unsatisfiable" | uv's LOCAL index cache |
+
+Two of the three said the release had not happened. It had -- the upload step
+had already logged both files. `--refresh` made uv install 0.2.0 immediately,
+and the JSON API caught up on its own.
+
+Same family as the zsh glob above: a result that cannot distinguish "absent"
+from "this lookup did not really happen". The cost here is worse than a wrong
+audit line, because the obvious reaction to "the release did not appear" is
+to re-push the tag -- and a tag that has already published is immutable, so
+that road only adds damage.
+
+**Ask `/simple/`, or resolve once with `--refresh`.** The strongest check is
+the one a consumer performs: install the floor into a throwaway venv, then
+look inside the installed package for the module the floor exists for. A
+source-tree run passes happily when packaging has excluded a file, which is
+why `publish.yml` tests the built wheel and why this check reads the wheel's
+files rather than the repository's.
 
 ## Two habits this repository rewards
 

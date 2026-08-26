@@ -382,6 +382,10 @@ config 侧引用)。
 
 ## 附录 A — 接缝变异探针(起始清单,2026-08-26 会话手工示范)
 
+> **两条都已按 §六 五行协议实跑,双双击杀**(P0 批次,证据与逐条判据见
+> `2026-08-26-wave-P0.md` §四(ii))。下面各行的「指名红」是登记的期望值,
+> 不是跑过的记录——每波扩充本清单时,新增行同样先登记后实跑。
+
 1. **first_fit**:bayesmith `dispatch/factor.py`
    `if all(compatible(name, member) ...)` → `if True:`;指名红:e-RHINO
    `test_auto_partition.py::TestTheMultilinearSplit::test_the_coupled_factor_gets_a_block_of_its_own`
@@ -418,5 +422,11 @@ P1 交付物,census 后回填(格式:match= 模式 | 今日抛出处 | 切换后
   {`src/rheplicant/inference/partition.py`,
   `src/rheplicant/inference/loglinear.py`,
   `tests/inference/test_auto_partition.py`,
-  `tests/inference/test_loglinear.py`};**排除**根目录八份未跟踪评审/交接
-  草稿(另行裁决去留,不随本程序入库)。
+  `tests/inference/test_loglinear.py`};**排除**根目录**九**份未跟踪评审/
+  交接草稿(另行裁决去留,不随本程序入库)。
+  - **九份,不是八份**(实测 `git status --porcelain | grep -c '^??'`):
+    `CODE_REVIEW_REPORT.md`、`HANDOVER.md`、`NEXT_SESSION_PROMPT.md`、
+    `PROPOSAL_BAYESMITH.md`、`PROPOSAL_MERGED.md`、`PROPOSAL_RHEPLICANT.md`、
+    `PROPOSAL_bayesmith_bayesian.md`、`PROPOSAL_rheplicant_nonbayesian.md`、
+    `REVIEW_REPORT.md`。与上一条一样是「没人核过的计数」——本附录两个数字
+    都错了同一种错,所以下一波开工时,这里的每个数字都当待测量处理。
