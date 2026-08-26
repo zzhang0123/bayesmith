@@ -120,7 +120,11 @@ def rheplicant_verdict(case: Case) -> Any:
             Bind(name, into=_selector(name)) for name in case.names
         ],
     )
-    blocks = auto_blocks(space, pipeline, _state())
+    # `noise=` since 2026-08-27: a log-conjugate block is a claim about the
+    # likelihood, so rheplicant's partition now asks the same question of the
+    # noise that bayesmith's always did. Before it, this probe's fourth and
+    # sixth cases disagreed for that reason alone.
+    blocks = auto_blocks(space, pipeline, _state(), noise=case.noise)
     # The ENGINE is derived by SamplingPlan, not carried on Block -- a derived
     # block has `engine is None`, and reading that field directly maps every
     # one of them to whatever the default arm of a lookup says. Measured: it
@@ -194,9 +198,19 @@ class Case:
     linear: dict[str, bool]
     data: Any
     sigma: Any
+    noise: Any
 
 
-def case(label, why, fn, spec, *, sigma=1.0, data=None) -> Case:
+def case(label, why, fn, spec, *, sigma=1.0, noise=None, data=None) -> Case:
+    """``sigma`` is the bayesmith side's; ``noise`` is rheplicant's twin of it.
+
+    Two spellings of one noise, because the packages take it differently -- a
+    ``dist_fn`` on the observed node there, a ``NoiseModel`` object here. They
+    are asserted to describe the same thing by construction and by the
+    fixtures' own labels; a mismatch would be this probe comparing two models
+    again, which its module docstring is about.
+    """
+    from rheplicant.inference.noise import HomoscedasticNoise
     names = tuple(spec)
     init = {n: spec[n][0] for n in names}
     prior_mean = {n: spec[n][1] for n in names}
@@ -214,6 +228,7 @@ def case(label, why, fn, spec, *, sigma=1.0, data=None) -> Case:
         linear=linear,
         data=truth if data is None else data,
         sigma=sigma,
+        noise=HomoscedasticNoise(sigma=float(sigma)) if noise is None else noise,
     )
 
 
@@ -286,6 +301,7 @@ def cases() -> list[Case]:
             log_gain,
             log_spec,
             sigma=lambda m: 0.004 * jnp.abs(m),
+            noise=Multiplicative(0.004),
         ),
         case(
             "log_gain_multiplicative_f_large",
@@ -293,6 +309,7 @@ def cases() -> list[Case]:
             log_gain,
             log_spec,
             sigma=lambda m: 0.3 * jnp.abs(m),
+            noise=Multiplicative(0.3),
         ),
         case(
             "boundary_affine",
