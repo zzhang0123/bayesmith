@@ -609,11 +609,25 @@ class TestPrecision:
         """What the refusal protects, measured rather than asserted.
 
         Computed in single precision the null direction of the basis model
-        surfaces at ~3.117e-8 of the largest singular value -- ABOVE the
-        default 1e-8 rtol -- so the same rank test would report the
-        degenerate model as fully identified (rank 17 of 17). In float64
-        the same number is ~7.5e-17. This runs OUTSIDE any x64 context, by
-        hand, because the diagnostic itself refuses to.
+        surfaces ABOVE the default 1e-8 rtol, so the same rank test would
+        report the degenerate model as fully identified (rank 17 of 17). In
+        float64 the same number is ~7.5e-17. This runs OUTSIDE any x64
+        context, by hand, because the diagnostic itself refuses to.
+
+        **The magnitude is BLAS-dependent and is therefore not pinned.**
+        Measured: 3.117e-08 on arm64 macOS (Accelerate), 2.216e-08 on x86_64
+        Linux (the GitHub runner) -- a 29 % spread, which is what single
+        precision on a near-singular matrix is worth across two vendors'
+        libraries. An earlier version of this test pinned the first of those
+        to 1 %, which passed on the machine it was measured on and failed
+        everywhere else; it was caught by the release workflow refusing to
+        publish, not by anyone reading it.
+
+        What is asserted instead is the property the docstring above states,
+        and the whole property: the value clears the rtol, and it clears it
+        by less than a decade -- so a fix that pushed the null direction back
+        down to float64's ~1e-17 would still fail here, which is the failure
+        this test exists to notice.
         """
         graph = basis_graph(0.0)  # built float32, matching the ambient dtype
         values = latent_values(graph, None)
@@ -623,7 +637,7 @@ class TestPrecision:
         spectrum = jnp.linalg.svd(jacobian / norms, compute_uv=False)
         single = float(spectrum[-1] / spectrum[0])
         assert single > DEFAULT_RANK_RTOL, single
-        assert single == pytest.approx(3.116759e-08, rel=1e-2)
+        assert single < 10 * DEFAULT_RANK_RTOL, single
         assert int(jnp.sum(spectrum > DEFAULT_RANK_RTOL * spectrum[0])) == 17
 
         # ... while the x64 run of the same model reports the truth.

@@ -235,10 +235,22 @@ def test_slogdet_and_cholesky_both_return_plausible_numbers_on_the_singular_bloc
     ``1.281e+08`` -- 1.7e-17 relative -- and the SIGN of that roundoff
     decides whether ``slogdet`` reports ``-inf`` or a finite number and
     whether ``cholesky`` returns NaN or a factor. Here it lands positive
-    and both succeed, to the same digits rheplicant measured on its own
-    spelling of the fixture. If this ever fails on another platform's BLAS,
-    the roundoff sign flipped and the claim is unchanged: neither routine
+    and both succeed. If this ever fails on another platform's BLAS, the
+    roundoff sign flipped and the claim is unchanged: neither routine
     RAISES, so neither is a guard.
+
+    **The magnitudes are therefore not pinned tightly, and the reason is
+    arithmetic rather than caution.** ``logabsdet`` is a sum of log
+    eigenvalues, so it carries ``log`` of that roundoff-sized null
+    eigenvalue: a mere factor of two in it moves ``0.5 * logabsdet`` by
+    0.35. Measured 6.420496 on arm64 macOS and 6.444212 on x86_64 Linux,
+    which is the null eigenvalue differing by about 5 %. An earlier version
+    pinned the first to ``abs=5e-6`` -- a tolerance five orders of magnitude
+    tighter than the quantity is reproducible to -- and it passed only on
+    the machine it was written on. The bands below admit a full decade of
+    roundoff swing, which is what the quantity is actually worth, while
+    still failing on ``-inf``, on a sign flip, or on a genuinely different
+    matrix.
     """
     with jax.enable_x64(True):
         matrix = _singular_information()
@@ -248,7 +260,10 @@ def test_slogdet_and_cholesky_both_return_plausible_numbers_on_the_singular_bloc
             "on this platform. The claim under test -- that slogdet does not "
             "RAISE on a singular matrix -- still holds."
         )
-        assert float(0.5 * logabsdet) == pytest.approx(6.420496, abs=5e-6)
+        # Centre = the arm64 measurement; the band admits a decade of
+        # roundoff in the null eigenvalue (log(10)/2 = 1.15).
+        assert jnp.isfinite(logabsdet), "slogdet returned -inf on a singular matrix"
+        assert float(0.5 * logabsdet) == pytest.approx(6.43, abs=1.2)
 
         factor = jnp.linalg.cholesky(matrix)
         assert bool(jnp.all(jnp.isfinite(factor))), (
@@ -256,7 +271,11 @@ def test_slogdet_and_cholesky_both_return_plausible_numbers_on_the_singular_bloc
             "platform. It still did not raise."
         )
         pivots = jnp.diag(factor)
-        assert float(jnp.min(pivots)) == pytest.approx(9.755e-05, rel=1e-3)
+        # The smallest pivot is the square root of that same roundoff, so it
+        # moves by half the relative swing. Positive and of this order is the
+        # property; the digit is not.
+        assert float(jnp.min(pivots)) > 0.0, "a non-positive pivot means cholesky failed"
+        assert float(jnp.min(pivots)) == pytest.approx(9.755e-05, rel=0.5)
         assert float(jnp.sum(jnp.log(pivots))) == pytest.approx(6.566517, abs=5e-6)
 
 
