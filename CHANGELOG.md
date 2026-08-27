@@ -27,6 +27,54 @@ nor the latent's own size raises instead of wrapping.
 
 ### Added
 
+**G5: `bayesmith.amortize` -- a posterior fitted to simulations rather than
+evaluated from a likelihood.** `NeuralPosterior`, `train_posterior`,
+`TrainingHistory`, `MIN_SCALE`. A conditional Gaussian mixture over the latent
+vector, an MLP from a summary of the data to its weights, means and scales,
+and a hand-rolled Adam that maximises the mean `log q(theta | x)` over a bank
+of pairs drawn from the joint.
+
+**The simulator is not here, and that is the decision rather than the omission
+(D42).** Of the four public pieces upstream, three take only arrays and one
+takes a parameter space, a pipeline and a noise model; the seam is readable
+off the signatures rather than chosen. Drawing `(theta, x)` means generating
+data, and for a multiplicative instrument model the generative law and the
+density differ by an absolute value and a floor -- so a node's `dist_fn`
+pressed into service as a simulator would silently swap one for the other.
+Every entry point here is array-level and takes no `Graph`.
+
+**Single precision is accepted, unlike `reduced_basis` and `diagnose.local`.**
+Those refuse it because a rank verdict or a Gram matrix sits underneath the
+rounding. Nothing here returns a verdict, and float32 is the precision such a
+network is normally trained in.
+
+**A diverged run has two outcomes and only one is refused (D43).** Measured at
+a thousand times the working rate: with a held-out split the best-step
+selection keeps the last finite parameters, so a usable estimator comes back
+and the divergence is recorded in `history.validation` and in a `best_step`
+that has collapsed to 1. With `validation_fraction=0.0` the parameters
+themselves are NaN, and every later `log_prob` and `sample` returns NaN,
+correctly shaped, from an object that looks like any other posterior. That one
+is refused, by `eqx.error_if` on the parameters, on the same reasoning as
+`minimize`'s. Non-finite entries in the history are left in place: they are the
+only record that anything happened.
+
+A **negative** `min_scale` is refused at construction. It is subtracted from a
+strictly positive softplus, so a sufficiently negative component gets a
+negative scale and `log(scale)` is NaN for every query while the network's
+parameters stay finite -- which is why the guard above cannot reach it. A
+**zero** floor is NOT refused: softplus never reaches zero, and a deliberately
+collapsible bank trains to a finite density with or without it. There is no
+failure there to refuse.
+
+**The over-fitting numbers this module documents were re-measured rather than
+carried over, and the mechanism changed.** The upstream implementation blames
+the step count -- 0.88 of the exact width at 1500 steps, 0.60 at 4000. Measured
+here on the linear-Gaussian problem the tests use: 8192 pairs at 4000 steps
+comes back at **1.002**, while 512 pairs at 8000 steps comes back at **0.271**
+with its training loss still improving. Over-fitting arrives when capacity
+outruns the bank, not when the step count rises.
+
 **G3: `evidence.chain` -- the recursion that integrates a linked nuisance out
 exactly.** `LinearGaussianTransition`, `HyperTransition`,
 `ornstein_uhlenbeck`, `chain_marginal`, `chain_log_likelihood`, `smooth`.

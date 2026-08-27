@@ -56,7 +56,7 @@ still move -- 0.3.0 made `reason` required on `NotGaussian` and
 `NotLogLinear`, and 0.4.0 tightens two precision refusals, each breaking for
 a caller who was relying on the wrong answer.
 
-Implemented and tested, 1269 tests: the graph core with plates and joint
+Implemented and tested, 1473 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every
 route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR
@@ -66,7 +66,7 @@ pairwise probe, with log-space blocks discovered rather than declared
 discrete latents; streaming evidence as square-root information factors; and
 graph diagnostics for identifiability, prior sensitivity and linearity.
 
-**Two things the page above describes that 0.1.0 does not do yet.** Stated here
+**Two things the page above describes that this release does not do yet.** Stated here
 because a front page is a claim, and finding out afterwards is worse than
 reading it now:
 

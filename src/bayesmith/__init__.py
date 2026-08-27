@@ -102,6 +102,11 @@ __all__ = [
     "check_loss_sense",
     "MINIMIZE",
     "MAXIMIZE",
+    # amortize
+    "NeuralPosterior",
+    "train_posterior",
+    "TrainingHistory",
+    "MIN_SCALE",
     # errors
     "BayesmithError",
     "GraphError",
@@ -205,6 +210,10 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "check_loss_sense": ("bayesmith.optimize", "check_loss_sense"),
     "MINIMIZE": ("bayesmith.optimize", "MINIMIZE"),
     "MAXIMIZE": ("bayesmith.optimize", "MAXIMIZE"),
+    "NeuralPosterior": ("bayesmith.amortize", "NeuralPosterior"),
+    "train_posterior": ("bayesmith.amortize", "train_posterior"),
+    "TrainingHistory": ("bayesmith.amortize", "TrainingHistory"),
+    "MIN_SCALE": ("bayesmith.amortize", "MIN_SCALE"),
 }
 
 # Subpackages reachable as `bayesmith.<name>` after a bare `import bayesmith`,
