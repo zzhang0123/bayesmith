@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D29;拍板后回填本行)
+## 二、裁决登记簿(D7–D31;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -488,6 +488,48 @@
   Cramér–Rao 界错了却不说,比不给更糟,而这正是 D9 原文把它列为功课的原因。
   **落地在 `uncertainty` 的下一步**(本步只做 `fisher_information`)。
   证据链:`2026-08-27-wave-A-uncertainty-fisher.md`。
+  **【已落地 2026-08-27】** 范围**重量了一遍**而不是继承:65 次求逆、3 次被拒、
+  κ 逐个相同,切换后实跑恰好红那三条,无附带损伤。三条按分诊第二列改写为 float64,
+  各带一条 `dtype == float64` 的兄弟断言——**没有它,加宽哪天悄悄失效,三条会以完全
+  相同的方式通过**。证据链:`2026-08-27-wave-A-uncertainty-covariance.md` §一、§二。
+
+- **D30 — 远端 `parameter_covariance` 的拒绝穿什么异常类(切 `uncertainty` 后半时新增)。**
+  远端对**两件事**抛**裸 `ValueError`**:条件数超天花板,以及「你给的已经是一个协方差」。
+  本模块承诺的是 `StateValidationError`(它自己的 8 条既有拒绝、`FlatMatrix.sigma`、
+  `propagate_covariance` 的两条来源守卫都是)。一个穿着远端词汇的 `ValueError` 到达
+  rheplicant 的出口,正是 D27 对那个裸 `AssertionError` 说过的形状。
+  **【本次委托下自定,2026-08-27:门面按类捕获并以本包的类重抛,`from` 原异常;
+  计划未预见此点,按「保守的一侧」规则自选。】** 三条理由:
+  1. **窄而不宽。** `parameter_covariance` 是本模块**唯一到不了图**的委托——它只调
+     `jnp.linalg.cond`/`inv` 与 `condition_ceiling`,所以 `translate` 认识的三族
+     `BayesmithError` **在这条路上一条都不可能出现**,`except ValueError` 因此不会
+     吞掉一个结构性拒绝。**不**扩宽 `translate` 去认 `ValueError`:那会把远端内部
+     真正的 bug 变成一条拒绝。
+  2. **信息不丢。** `from refusal` 保留原异常,守卫**两半都钉**——只钉类的守卫会被
+     一个丢掉测量的实现满足,只钉消息的会被一个穿错类的实现满足。
+  3. **另外两条路不存在。** 在门面里自己算一遍条件数就是第二份实现;改远端抛
+     `BayesmithError` 是一次破坏性的已发布表面变更,要一次发版(铁律 5)。
+  **同批收下的一条新拒绝**(铁律 4(iv)「接受为修正」):**再求一次逆**今天回来贴着
+  `kind='covariance'` 而它已经是一个精度;**代价实测为零**(65 次调用里 0 次)。
+  证据链:`2026-08-27-wave-A-uncertainty-covariance.md` §五。
+
+- **D31 — `propagate_covariance` 切还是留,以及它合成的两样(同上批次新增)。**
+  上一批写的是「先量再决定,大概率与 `predict_from_samples` 同一结论(留守)」。
+  **量完之后结论相反**,按「委托不是空白支票」处置并在此点名。
+  **【本次委托下自定,2026-08-27:`propagate_covariance` 切,`push_forward` 留守。】**
+  判据不是「有没有 jax 调用」,是**里面有没有一个有名字的统计方法**:
+  `push_forward` 是 `jax.vmap(forward)`,一个 map,零贝叶斯数值;
+  `propagate_covariance` 是 **delta 方法**——一次雅可比、一个二次型、一个线性化近似,
+  而远端实现的是同一个,留着它就是把一个有名字的算法留下第二份实现。
+  **数值连续性**:旧公式与委托后逐比特相同,float32/float64 各两条路线,`rel diff = 0`。
+  **合成的两样(数据 + 噪声)**:图要它们,delta 方法两样都读不到。合法性照 D22 的规矩
+  **量而不是论证**——造三遍(σ=1 / σ=1e4 / 数据 +1e3)逐比特比较,外加一条基线非退化的
+  兄弟断言;变异 U7(让远端真的按精度加权)把这两条打红。
+  **同批收下的一条新拒绝**:交给它一个**精度**今天返回一个有限、形状正确、**错了整整
+  一个平方**的误差棒;**代价实测为零**(23 次调用里 0 次)。该拒绝**复用
+  `FlatMatrix.sigma` 已在用的 `_PRECISION_KINDS`**——一张表两个调用方,不是第二份
+  实现——并住在**缝前**,因为图缝之后它会穿上 `ParameterSpaceError` 到达。
+  证据链:`2026-08-27-wave-A-uncertainty-covariance.md` §三、§四、§五。
 
 ## 三、P1 — 适配器基石
 
@@ -640,6 +682,13 @@ config 侧引用)。
   `uncertainty` 全模块(propagate/push_forward 经 G7;`as_noise_model`
   留守;容器与 `_named_spans` 留守,文件不整删;`parameter_covariance`
   新拒绝按 D9 附带处理)。
+  **【已完成 2026-08-27,本行两处按实测更正】**(1) `push_forward` **不经 G7**,
+  留守——它是 `jax.vmap(forward)`,零贝叶斯数值,与 `predict_from_samples` 同一
+  理由(**D31**);`propagate_covariance` 照本行经 G7 切了。(2) `numpyro_bridge`
+  与 `uncertainty` **各只切了一半**,按契约留守其余,因此两者都**不在 `SWITCHED`
+  里**且 cross-check **保留**——先例见 `2026-08-27-wave-A-numpyro-bridge.md` §五,
+  而 `uncertainty` 这一侧「还能不能失败」是**变异量出来的**(U6),不是推的。
+  证据链:`2026-08-27-wave-A-uncertainty-covariance.md`。
 - **Wave B(求解与计划;先决 ~~D7+D8+D14~~ **四门已拍 2026-08-26** +G1+
   **G2**+G9+G10+G12,外加 **D17 的双跑 diff 协议先跑完**)**:`linear` 求解面、`gls`(D19 已拍)、
   `plan`+`engines`(验证与词汇留守,执行经 G10)、`noise`/`likelihood`
@@ -878,12 +927,31 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 零。文件里没有任何东西分得出来。补了两条(每个方向一条),读的是 `is_observed`
 而不是值本身。
 
+### Wave A / `uncertainty` 后半(2026-08-27,7/7 击杀,**两条跨仓**)
+
+详情见 `2026-08-27-wave-A-uncertainty-covariance.md` §七。**U6 与 U7 不是普通的变异,
+它们是本批两条判据各自的检验**:U6 问「一个门面在一侧的 cross-check 还能不能失败」
+(能——所以文件不退役),U7 问「合成的噪声与数据真的够不到答案吗」(够不到——所以
+D31 的合法性是量出来的)。
+
+| # | 变异 | 仓 | 判决 | 指名红 |
+|---|---|---|---|---|
+| U1 | 远端的 `ValueError` 不再翻译成本包的类 | e-RHINO | KILLED(5) | `test_the_refusal_wears_this_packages_class_and_keeps_the_original` 等五条 |
+| U2 | `_REMOTE_KIND` 忘掉 `posterior_covariance` 也是协方差 | e-RHINO | KILLED(1) | `test_a_posterior_covariance_is_refused_by_the_same_rule` |
+| U3 | 过缝矩阵用协方差自己的布局而非 params 的 | e-RHINO | KILLED(1) | `test_the_matching_covariance_propagates`(**既有测试**,按铁律 2「指认既有等价物」记账) |
+| U4 | `propagate_covariance` 不再拒绝精度 | e-RHINO | KILLED(1) | `test_a_precision_is_refused_rather_than_propagated` |
+| U5 | 远端在**加 jitter 之前**量条件数 | **bayesmith** | KILLED(1) | `test_jitter_is_measured_after_it_is_applied` |
+| U6 | 信息图忽略调用方的噪声模型 | e-RHINO | KILLED(4) | **bayesmith** `test_noise_logdet.py` 的常数 σ 一条 + 三个 f 的 radiometer |
+| U7 | 远端的 delta 方法按精度加权 | **bayesmith** | KILLED(6) | 含 `test_the_synthetic_sigma_and_data_do_not_move_the_report` |
+
 ## 附录 B — 拒绝文案清单
 
 > **P1 交付物,已回填(2026-08-27)。** 实测:`tests/inference/` 下共
-> **244** 个 `pytest.raises(..., match=...)` 站点。按抛出的异常类:
-> `ParameterSpaceError` **178**、`StateValidationError` **58**、
+> **250** 个 `pytest.raises(..., match=...)` 站点。按抛出的异常类:
+> `ParameterSpaceError` **178**、`StateValidationError` **64**、
 > `RuntimeError` **4**、`Exception` **3**、`TypeError` **1**。
+> (244 → 250 随 `uncertainty` 后半:D29 的天花板 + D30 的类 + D31 的精度拒绝,
+> 全部由守卫报数。)
 >
 > **这一行在 2026-08-27 一整天里是错的,而它今天又变对了,这比一直错更值得写下来。**
 > G1 接线退役了一条拒绝(241 → 240)并改了 `CENSUS` 的 pin,**没有改这里**;D27
@@ -1310,18 +1378,24 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 
 </details>
 
-<details><summary><code>test_uncertainty.py</code> — 8 条</summary>
+<details><summary><code>test_uncertainty.py</code> — 14 条(2026-08-27 由 `_sites()` 重生成)</summary>
 
 | 行 | 类 | `match=` |
 |---|---|---|
-| 49 | `StateValidationError` | `flags` |
-| 121 | `StateValidationError` | `no trainable` |
-| 152 | `StateValidationError` | `param_cov` |
-| 165 | `StateValidationError` | `structure` |
-| 262 | `StateValidationError` | `parameter_covariance` |
-| 268 | `StateValidationError` | `no parameter named` |
-| 276 | `StateValidationError` | `not named` |
-| 290 | `StateValidationError` | `Complex parameters` |
+| 51 | `StateValidationError` | `flags` |
+| 123 | `StateValidationError` | `no trainable` |
+| 154 | `StateValidationError` | `param_cov` |
+| 167 | `StateValidationError` | `structure` |
+| 181 | `StateValidationError` | `not a covariance` |
+| 364 | `StateValidationError` | `parameter_covariance` |
+| 370 | `StateValidationError` | `no parameter named` |
+| 378 | `StateValidationError` | `not named` |
+| 392 | `StateValidationError` | `Complex parameters` |
+| 429 | `StateValidationError` | `condition number` |
+| 450 | `StateValidationError` | `condition number` |
+| 465 | `StateValidationError` | `enable_x64` |
+| 517 | `StateValidationError` | `covariance` |
+| 545 | `StateValidationError` | `covariance` |
 
 </details>
 
