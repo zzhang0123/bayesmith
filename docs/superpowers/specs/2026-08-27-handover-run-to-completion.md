@@ -41,7 +41,9 @@
 
 ## 二、当前状态(2026-08-27 实测,先复核再信)
 
-- **bayesmith** `eb69414`,已推送;**0.3.0 在 PyPI 上**(simple 索引已见 wheel
+- **bayesmith** `70e390f`,已推送(P1 批次的最后一条是 CI floor 的棘轮上调,
+  所以这个哈希比记录页里引的 `eb69414` 晚一条——**照例先 `git -C … log -1`
+  复核再信**);**0.3.0 在 PyPI 上**(simple 索引已见 wheel
   与 sdist);套件 **1235 passed / 0 skipped**;`ruff check src/ tests/ examples/`
   干净。
 - **e-RHINO** `647a2ed`,已推送;套件两阶段跑
