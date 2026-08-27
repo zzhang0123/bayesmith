@@ -145,6 +145,17 @@ def test_the_exact_subpackage_s_own_all_reexports_the_right_object():
     )
 
     expected = {
+        # The affinity check's own vocabulary, advertised when the sibling
+        # package adopted these criteria (D16, 2026-08-27): the CONSTANTS and
+        # the Unresolved TYPE are imported there rather than respelled, so
+        # both sides read one statement of each number and `isinstance` means
+        # the same thing across the seam.
+        "DEFAULT_SCALES": linearity.DEFAULT_SCALES,
+        "DEFAULT_AT_POINTS": linearity.DEFAULT_AT_POINTS,
+        "RELATIVE_FLOOR_FACTOR": linearity.RELATIVE_FLOOR_FACTOR,
+        "WEIGHTED_FLOOR_FACTOR": linearity.WEIGHTED_FLOOR_FACTOR,
+        "WEIGHTED_RTOL": linearity.WEIGHTED_RTOL,
+        "Unresolved": linearity.Unresolved,
         "LinearBlock": block.LinearBlock,
         "unchecked_operator": block.unchecked_operator,
         "linear_operator": linearity.linear_operator,
