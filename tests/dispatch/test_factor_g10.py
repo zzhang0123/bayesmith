@@ -538,17 +538,33 @@ class TestG12SigmaFrozenAtTheBlocksCurrentValue:
 
         module.precision_at = spy
         try:
-            sample_factors(graph, plan, jax.random.key(3), num_warmup=0,
-                           num_samples=4)
+            drawn = sample_factors(graph, plan, jax.random.key(3),
+                                   num_warmup=0, num_samples=4)
         finally:
             module.precision_at = real
 
-        # Two blocks per sweep, four sweeps, plus none hoisted.
+        # Two blocks per sweep, four sweeps; neither block is hoisted.
         assert len(seen) == 8
-        # Every call carries both latents -- the block's own included.
         assert all(set(row) == {"a", "b"} for row in seen)
-        # And the values move: a hoisted covariance would repeat one point.
-        assert len({(row["a"], row["b"]) for row in seen}) > 1
+
+        # The assertion that matters, and the one the first version of this
+        # test could not make. Mutation W8 substituted each block's PRIOR
+        # CENTRE for its own current value in the rebuilt precision, and this
+        # test passed: the OTHER latent was still moving, so "both names are
+        # present" and "the points differ" were both still true. A guard whose
+        # fixture cannot tell right from plausibly-wrong is the recurring
+        # defect here, and it survived a mutation to prove it.
+        #
+        # Calls alternate block a, block b, per sweep. In sweep k the call for
+        # block a must see a = that block's draw from sweep k-1, and the call
+        # for block b must see a = the draw JUST taken in sweep k and b = its
+        # own from sweep k-1.
+        a_draws = [float(v) for v in drawn["a"]]
+        b_draws = [float(v) for v in drawn["b"]]
+        for k in range(1, 4):
+            assert seen[2 * k]["a"] == pytest.approx(a_draws[k - 1], rel=1e-12)
+            assert seen[2 * k + 1]["a"] == pytest.approx(a_draws[k], rel=1e-12)
+            assert seen[2 * k + 1]["b"] == pytest.approx(b_draws[k - 1], rel=1e-12)
 
     def test_gcr_plus_mh_is_refused_at_construction_with_its_own_reason(self):
         """Not the generic unknown-method message: a caller reaching for
