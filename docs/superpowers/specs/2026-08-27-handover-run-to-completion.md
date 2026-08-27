@@ -1,8 +1,8 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-27(第十次改写)· 交接自 **S6 结清、G13 接线、Wave A 模块 3
-> `priors`** 完成之后的会话。
+> **日期**:2026-08-27(第十一次改写)· 交接自 **S6 结清、G13 接线、Wave A 模块 3
+> `priors`、以及 `numpyro_bridge` 的先决测量(D26/D27)** 完成之后的会话。
 
 ---
 
@@ -33,9 +33,10 @@
 
 1. **计划本体**:`docs/superpowers/specs/2026-08-26-one-implementation.md`
    ——终局形态、七条铁律、登记簿 **D7–D25**、缺口 G1–G14、四波切换、附录 A/B/C。
-2. 本程序至今的**十六份**执行记录,同目录。**最近四份最要紧,按序读**:
+2. 本程序至今的**十七份**执行记录,同目录。**最近五份最要紧,按序读**:
    `2026-08-27-wave-A-sensitivity.md`、`2026-08-27-wave-A-s6-widened.md`、
-   `2026-08-27-wave-A-g13-wiring.md`、`2026-08-27-wave-A-priors.md`。
+   `2026-08-27-wave-A-g13-wiring.md`、`2026-08-27-wave-A-priors.md`、
+   `2026-08-27-numpyro-bridge-measurements.md`(**下一批的开工清单在它的 §三**)。
    其余:`2026-08-26-wave-P0.md`、`2026-08-26-wave-P2a.md`、
    `2026-08-27-d17-protocol.md`、`2026-08-27-d16-five-axes.md`、
    `2026-08-27-wave-P1.md`、`2026-08-27-wave-P2-G1.md`、`2026-08-27-wave-P2-G13.md`、
@@ -55,19 +56,21 @@
   crosscheck 收集数 **97**(实测)。**上一版这里写 119,已过期一批**:sensitivity 那份退役时没有改,jeffreys 这批又退一份。这个数没有守卫,所以每次都要重量。CHANGELOG `Unreleased`
   段**为空**——G1/G13/G7/D9 都在 0.4.0 里,而今天三个批次**没有动 bayesmith 的
   `src/`**(`git log v0.4.0..HEAD -- src/` 为空),所以铁律 5 一直满足。
-- **e-RHINO** 见 `git log`,已推送。两阶段套件 **10082 passed / 534 skipped**
-  exit 0(351.8 s,`-n 4 --ignore=tests/gui/e2e`)加 **21 passed** exit 0
+- **e-RHINO** 见 `git log`,已推送。两阶段套件 **10084 passed / 534 skipped**
+  exit 0(335.3 s,`-n 4 --ignore=tests/gui/e2e`)加 **21 passed** exit 0
   (`tests/gui/e2e -n 2`);x64 接缝会话 **31 passed / 1 xfailed** exit 0。
-  README 计数 **10636**(由守卫报数);coverage floor `fail_under = 89` 未动。
+  README 计数 **10638**(由守卫报数);拒绝普查 **241**;coverage floor
+  `fail_under = 89` 未动。
   bayesmith 地板 **`>=0.4`**。
 - 两仓互为 editable 安装;两个跨仓 workflow 并行(`crosscheck.yml`、`seam.yml`)。
 - e-RHINO 根目录九份未跟踪评审/交接草稿:**不动**(附录 C 明令,且已 gitignore)。
 
 **已完成**:P0、P2a、D17 协议、D16 四条轴、P1、**P2 余项的 G1/G13/G7/D9**、
 **0.4.0 发布**、**Wave A 开工批**、**模块 1 `identifiability`**、**G1 接线**、
-**模块 2 `sensitivity`**、**S6 结清**、**G13 接线**、**模块 3 `priors`**。
+**模块 2 `sensitivity`**、**S6 结清**、**G13 接线**、**模块 3 `priors`**、
+**`numpyro_bridge` 的先决测量(D26/D27)与其清单第 1 项**。
 
-**登记簿 D7–D25 全部有裁决,只有 D23 例外**(见 §三)。
+**登记簿 D7–D27 全部有裁决,只有 D23 例外**(见 §三)。
 
 ## 三、至今各批留下的几件事(下一位会先撞到)
 
@@ -85,19 +88,25 @@
    的那一批**必须同批改写它**,否则 D24 的布局声明会失去它唯一的对照。
    测试自己的 docstring 里写了这句,但**从 `uncertainty` 那边 grep 不到**——这正是
    「限制要有解除条件」那条教训的形状,所以也写在这里。
-4. **`to_numpyro_model` 的站点名是保持面,而 `to_graph` 的内部节点名不同。**
-   本包用 `"prediction"` 与 `"obs"`(可由 `obs_name=` 改);`to_graph` 用
-   `__mu__` / `__data__`。直接委托给 `bayesmith.to_numpyro` 会改站点名,而
-   `predict_from_samples` 读它们。**先量再决定**,大概率是一条新登记项。
-   这是 `numpyro_bridge` 那一批的第一个设计问题。
+4. **站点名与被抽样的 sigma 都已裁决**(D26、D27),不必再量。要读的是
+   `2026-08-27-numpyro-bridge-measurements.md`:D26 的实测是「改名只红一条」,
+   而保住它便宜;D27 的实测是「图能表达一个 latent sigma,不需要新的远端表面」。
 5. **`exact/fisher.py` 的模块 docstring 里写着 `propagate_covariance` 与
    `push_forward`「are P5」**,而计划 §四 把它们放在 **G7**。过期的排期注记,
    开工时顺手改掉即可,不必上登记簿——但要在记录页里点名。
 
+6. **附录 B 的总数曾经错了一整天,而它今天又碰巧变对了。** G1 接线把它从 241 改到
+   240 却没改附录;D27 的拒绝又加回一条。**逐文件清单已由 `_sites()` 重生成,
+   这个总数也应当照做**,而不是手抄——附录 B 的表头写着这句。
+
 ## 四、剩余工作(按计划 §九 的顺序)
 
 1. **Wave A 还剩两个模块**:`numpyro_bridge`、`uncertainty`。
-   - `numpyro_bridge`:先解决 §三.4 的站点名问题。
+   - **`numpyro_bridge` 的先决已经全部量清**,开工清单逐条写在
+     `2026-08-27-numpyro-bridge-measurements.md` §三,**第 1 项已做掉**(碰撞拒绝)。
+     剩下第 2–5 项:`to_graph` 的可选节点名(D26)与分布形 scale(D27)、
+     `to_numpyro_model` 的委托、`tests/crosscheck/test_bridge.py` 退役 + `SWITCHED`、
+     16 条分诊。**不要重新评估 D26/D27,它们已裁决并有实测。**
    - `uncertainty` **最重**——`FlatMatrix` **永久**保持(config products 逐字段读)、
      `as_noise_model` 留守、`_named_spans` 随 Wave C/D 退役,**文件不整删**。
      它还欠 D9 的第二项功课:`parameter_covariance` 的 `1/√eps` 天花板拒绝逐

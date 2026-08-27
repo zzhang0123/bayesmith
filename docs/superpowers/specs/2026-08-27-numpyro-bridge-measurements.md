@@ -127,8 +127,59 @@ obs site value shape: (8,)
    独立 oracle 逐条指认或改籍。
 5. 分诊:`tests/inference/test_numpyro_bridge.py` **16 条**,加 config 侧消费者。
 
-## 四、本页动了什么
+## 四、清单第 1 项已做掉:碰撞是响的,但说得不对
 
-**没有源码改动。** 只有四处 config 测试的**注释**改正(§一),它们的断言一行未动。
-两条裁决进登记簿(D26、D27),计划 §二 标题随之到 **D7–D27**。
-探针留在 scratchpad,`probe_sigma.py` 的输出逐字记在 §二。
+D27 把「空间里一个名叫 `noise_std` 的 latent 遇上分布形 `noise_std`」列为**必须先量**
+的一点。量了:
+
+```
+AssertionError: all sites must have unique names but got `noise_std` duplicated
+```
+
+**响,但不好用。** 那句话不提造出第二个站点的 `noise_std=` 参数,不提声明了第一个的
+空间,不给出路,而且是一个**裸 `AssertionError`**——而本包的异常类身份是保持面。
+所以按 P1 §三 的原则在它前面加一条本包的拒绝:
+`_refuse_a_latent_named_like_the_sampled_sigma`,`ParameterSpaceError`,两个量各自
+点名、两条出路各自写出。
+
+**只在 sigma 真被抽样时触发。** 一个名字不巧的普通 latent 配一个固定 sigma 什么都不
+碰,兄弟断言钉住这一条——没有它,一条只看名字的拒绝会通过第一条测试并删掉一个能用的
+声明。
+
+拒绝普查该文件 5 → **6**,总数 240 → **241**,`ParameterSpaceError` 174 → **175**,
+数字全部由守卫报出。`raises` 上写了 `match=` 是有意的:只用 `assert x in message`
+钉住的拒绝**对普查不可见**,于是对附录 B 也不可见,而附录 B 正是一波用来知道自己
+刚接手了哪些句子的东西。
+
+### 变异集(3 条全杀)
+
+| # | 变异 | 指名红 | 判决 |
+|---|---|---|---|
+| Q1 | 拒绝不触发 | `test_the_collision_is_refused_by_name` | KILLED(1) |
+| Q2 | 只看名字,不看 sigma 是否被抽样 | `test_a_fixed_sigma_beside_that_latent_is_left_alone` | KILLED(1) |
+| Q3 | 只看 sigma 被抽样,不看有没有碰撞 | `test_sampled_noise_std`(**既有测试**) | KILLED(1) |
+
+基线前后各一次绿。**Q3 是被一条既有测试杀掉的**——过度触发这一侧套件本来就守着。
+
+## 五、顺手查出:附录 B 的总数错了一整天,而它今天又变对了
+
+`CENSUS` 的 pin 与附录 B 的表头**曾经不一致**:G1 接线退役一条拒绝(241 → 240)时
+改了 pin **没有改附录**;本批次又加回一条(240 → 241),于是那个数**碰巧**重新等于
+纸面上的它。中间那段时间没有任何东西会说话。
+
+已在附录 B 的表头写明这件事,并加了一句:**逐文件清单已由 `_sites()` 重生成,
+这个总数也应当照做,而不是手抄。** 同一形状在 bayesmith 的工作笔记里已经写过一次
+(「那个数碰巧是对的,而这正是坏结果」)。
+
+## 六、本页动了什么
+
+- **源码**:一条新拒绝(`numpyro_bridge._refuse_a_latent_named_like_the_sampled_sigma`)。
+- **测试**:两条新守卫,普查 pin 三处刷新(文件 6、总数 241、`ParameterSpaceError` 175),
+  README 计数 10636 → **10638**。
+- **注释**:四处 config 测试里有注释的两处改正(§一);附录 B 的 `test_numpyro_bridge.py`
+  清单重生成、表头加注(§五)。
+- **登记簿**:D26、D27 进簿,标题到 **D7–D27**。
+- 探针留在 scratchpad;`probe_sigma.py` 的输出逐字记在 §二。
+
+**清单第 2–5 项(`to_graph` 的节点命名与分布形 scale、`to_numpyro_model` 的委托、
+cross-check 退役、16 条分诊)留给下一批**,先决已经全部量清。

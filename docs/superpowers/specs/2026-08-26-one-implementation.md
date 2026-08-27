@@ -811,6 +811,14 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 > `ParameterSpaceError` **175**、`StateValidationError` **58**、
 > `RuntimeError` **4**、`Exception` **3**、`TypeError` **1**。
 >
+> **这一行在 2026-08-27 一整天里是错的,而它今天又变对了,这比一直错更值得写下来。**
+> G1 接线退役了一条拒绝(241 → 240)并改了 `CENSUS` 的 pin,**没有改这里**;D27
+> 的碰撞拒绝今天又加回一条(240 → 241),于是这个数**碰巧**重新等于纸面上的它。
+> 中间那段时间,这一行与守卫的 pin 不一致,而没有任何东西会说。同一形状在
+> bayesmith 的工作笔记里已经写过一次:「那个数碰巧是对的,而这正是坏结果,因为
+> 那次运行里没有任何东西能说出相反的话。」**逐文件清单自 2026-08-27 起由
+> `test_refusal_census._sites()` 重生成;这个总数也应当照做,而不是手抄。**
+>
 > **这张表不由人手维护,也不该由人手维护。** 它由
 > e-RHINO `tests/inference/test_refusal_census.py` 逐文件计数并**钉住**,
 > 所以新增或删除一个被钉的拒绝会先让那个守卫红,并**报出要写进这里的数字**。
@@ -1116,15 +1124,16 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 
 </details>
 
-<details><summary><code>test_numpyro_bridge.py</code> — 5 条</summary>
+<details><summary><code>test_numpyro_bridge.py</code> — 6 条(2026-08-27 由 `_sites()` 重生成)</summary>
 
 | 行 | 类 | `match=` |
 |---|---|---|
-| 62 | `ParameterSpaceError` | `no prior` |
-| 70 | `ParameterSpaceError` | `shape` |
-| 242 | `StateValidationError` | `per-sample shape` |
-| 257 | `StateValidationError` | `differing numbers of draws` |
-| 262 | `StateValidationError` | `missing site` |
+| 149 | `ParameterSpaceError` | `no prior` |
+| 157 | `ParameterSpaceError` | `shape` |
+| 329 | `StateValidationError` | `per-sample shape` |
+| 344 | `StateValidationError` | `differing numbers of draws` |
+| 349 | `StateValidationError` | `missing site` |
+| 382 | `ParameterSpaceError` | `noise_std` |
 
 </details>
 
