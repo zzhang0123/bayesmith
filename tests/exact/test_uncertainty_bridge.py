@@ -38,8 +38,26 @@ from bayesmith.exact.linearity import linear_operator
 from bayesmith.exact.precision import diagonal_from
 
 N, SIGMA = 8, 0.4
-X = jnp.stack([jnp.ones(N), jnp.linspace(-1.0, 1.0, N)], axis=1)
+#: The design's two columns are deliberately CORRELATED -- ``linspace(0.2,
+#: 2.0)`` does not sum to zero, so ``X^T X`` is not diagonal and the parameter
+#: covariance has real off-diagonal entries. With a symmetric ``linspace(-1,
+#: 1)`` the columns are orthogonal, the covariance is nearly diagonal, and a
+#: delta method that simply ignored parameter correlation would agree with the
+#: correct one to well inside any tolerance. Measured: that fixture let the
+#: "diagonal only" mutation survive the whole file.
+X = jnp.stack([jnp.ones(N), jnp.linspace(0.2, 2.0, N)], axis=1)
 TRUTH = jnp.array([2.0, -1.0])
+#: Not zero, and that is the point. With ``Normal(0, 10)`` priors the declared
+#: centre IS the origin, so `init_to_declared` returning zeros instead of the
+#: declaration is indistinguishable from returning the declaration -- measured,
+#: that mutation survived. A prior centre that is neither zero nor the truth
+#: separates all three.
+#: A tuple, converted inside the ``dist_fn``: a module-level ``jnp.array`` is
+#: built at import, i.e. in float32, and a latent whose prior loc is float32
+#: gives the block a float32 domain -- which then meets an x64 trace as a bare
+#: "tangent aval float64 for primal aval float32" from inside JAX. The same
+#: shape the joint-prior tests pay for, one layer down.
+PRIOR_MEAN = (1.3, -0.7)
 AT = {"theta": TRUTH}
 
 
@@ -49,7 +67,7 @@ def affine_graph(sigma=SIGMA):
 
     def model():
         design = const("X", X)
-        theta = sample("theta", lambda: dist.Normal(jnp.zeros(2), 10.0))
+        theta = sample("theta", lambda: dist.Normal(jnp.asarray(PRIOR_MEAN), 10.0))
         mu = det("mu", lambda a, t: a @ t, design, theta, linear_in=("theta",))
         observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
 
@@ -104,6 +122,13 @@ def test_the_delta_method_matches_the_dense_construction():
         assert np.allclose(got, expected, rtol=1e-12)
         # And the fixture is not degenerate: the error bar has structure.
         assert got.max() / got.min() > 1.5
+        # And the parameters really are correlated, so an implementation that
+        # dropped the off-diagonal would be a different number rather than the
+        # same one -- without this the assertion above holds for two reasons
+        # and distinguishes neither.
+        values = np.asarray(cov.values)
+        diagonal_only = np.sqrt(np.diag(design @ np.diag(np.diag(values)) @ design.T))
+        assert np.max(np.abs(diagonal_only / expected - 1.0)) > 0.05
 
 
 def test_the_default_node_is_the_single_observed_one():
@@ -288,7 +313,7 @@ def test_an_ambiguous_node_is_refused_rather_than_guessed():
 
     def model():
         design = const("X", X)
-        theta = sample("theta", lambda: dist.Normal(jnp.zeros(2), 10.0))
+        theta = sample("theta", lambda: dist.Normal(jnp.asarray(PRIOR_MEAN), 10.0))
         mu = det("mu", lambda a, t: a @ t, design, theta, linear_in=("theta",))
         observe("d1", lambda m: dist.Normal(m, SIGMA), mu, obs=X @ TRUTH)
         observe("d2", lambda m: dist.Normal(m, SIGMA), mu, obs=X @ TRUTH)
@@ -342,6 +367,10 @@ def test_init_to_declared_starts_at_the_declared_centres():
         np.asarray(declared["theta"]),
     )
     assert set(strategy.keywords["values"]) == set(graph.latents)
+    # The declared centre is neither zero nor the truth, so "it returned the
+    # declaration" is distinguishable from both of the plausible wrong answers.
+    assert not np.allclose(np.asarray(declared["theta"]), 0.0)
+    assert not np.allclose(np.asarray(declared["theta"]), np.asarray(TRUTH))
 
 
 def test_init_to_declared_actually_starts_nuts_there():
