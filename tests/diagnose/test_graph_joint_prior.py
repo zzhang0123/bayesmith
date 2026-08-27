@@ -25,7 +25,7 @@ import numpyro.distributions as dist
 import pytest
 from numpyro.infer.util import log_density
 
-from bayesmith import Graph, joint_prior, sample, trace
+from bayesmith import Graph, det, joint_prior, observe, sample, trace
 from bayesmith.bridge.numpyro_bridge import to_numpyro
 from bayesmith.diagnose.priors import JeffreysPrior
 from bayesmith.errors import GraphError
@@ -173,6 +173,93 @@ def test_the_declaration_may_come_before_the_latents_it_covers():
         assert declared.joint_prior is not None
         assert declared.joint_prior.over == BLOCK
         assert np.isfinite(float(log_joint(declared, at())))
+
+
+def conditioned_pair(gain=0.0):
+    """A power law with a THIRD latent, outside the block, that the data sees.
+
+    ``power_law_graph``'s only latents are the block itself, so on it
+    "condition on every latent" and "condition on the block" are the same
+    dict -- a fixture that cannot tell the declared contract from a plausible
+    wrong one, which is what the mutation that passes only ``over`` proved by
+    surviving. Here ``gain`` is a latent the prediction depends on and the
+    prior is NOT over, which is the only shape in which the word "conditional"
+    means anything.
+
+    Returns ``(graph, values, prior)``.
+    """
+    freq = jnp.linspace(60e6, 85e6, 8)
+    nu0 = 75e6
+    data = jnp.broadcast_to(jnp.exp(7.8) * (freq / nu0) ** (-2.55), (8, 8))
+    prior = JeffreysPrior(over=BLOCK)
+
+    def model():
+        joint_prior(prior)
+        la = sample(
+            "fg_log_amp", lambda: dist.ImproperUniform(dist.constraints.real, (), ())
+        )
+        be = sample(
+            "fg_beta", lambda: dist.ImproperUniform(dist.constraints.real, (), ())
+        )
+        g = sample("gain", lambda: dist.Normal(0.0, 1.0))
+        pred = det(
+            "pred",
+            lambda a, b, gg: jnp.broadcast_to(
+                jnp.exp(gg) * jnp.exp(a) * (freq / nu0) ** (-b), (8, 8)
+            ),
+            la,
+            be,
+            g,
+        )
+        observe("d", lambda mu: dist.Normal(mu, 0.5).to_event(2), pred, obs=data)
+
+    return trace(model), {**at(), "gain": jnp.array(gain)}, prior
+
+
+def test_the_prior_conditions_on_the_latents_outside_its_block():
+    """"Conditional" is a claim, and this is the only fixture that can test it.
+
+    The prior is over ``(log A, beta)`` and ``gain`` is held at whatever the
+    potential currently has. Under a constant sigma the block's information
+    scales as ``exp(2 (gain + log A))``, so the half-log-determinant shifts by
+    ``2 * delta gain`` -- checked against that closed form rather than merely
+    for "it moved", since a term that moves for the wrong reason moves too.
+
+    The prior's OWN value, not ``log_joint``: moving ``gain`` moves the
+    prediction, so the likelihood shifts by ~1e9 and would bury the 1.4 nats
+    under test. The second assertion is what ties the isolated claim back to
+    the graph route -- ``log_joint`` here evaluates at a values dict with a
+    latent the block does not name, which is the whole configuration.
+    """
+    with jax.enable_x64(True):
+        graph, values, prior = conditioned_pair(gain=0.0)
+        _, shifted, _ = conditioned_pair(gain=0.7)
+        here = float(prior.log_density(graph, values))
+        there = float(prior.log_density(graph, shifted))
+        assert there - here == pytest.approx(2.0 * 0.7, rel=1e-8)
+        assert np.isfinite(float(log_joint(graph, shifted)))
+
+
+def test_dropping_the_outside_latents_is_not_the_declared_prior():
+    """The sibling: conditioning on the block alone is a DIFFERENT density.
+
+    Not "it raises" -- it does raise today, because `evaluate` refuses a latent
+    with no value -- but that is an accident of this graph having exactly one
+    outside latent that the prediction needs. The claim worth pinning is the
+    one about the value.
+    """
+    with jax.enable_x64(True):
+        graph, values, prior = conditioned_pair(gain=0.7)
+        whole = float(prior.log_density(graph, values))
+        with pytest.raises(GraphError, match="has no value"):
+            prior.log_density(graph, {k: values[k] for k in BLOCK})
+        # And the number the full dict gives is not the number the block-only
+        # dict would give if it worked: `gain=0` is the only value it could
+        # default to, and that is 1.4 nats away.
+        _, at_zero, _ = conditioned_pair(gain=0.0)
+        assert abs(whole - float(prior.log_density(graph, at_zero))) == pytest.approx(
+            2.0 * 0.7, rel=1e-8
+        )
 
 
 # --------------------------------------------------------------------------
