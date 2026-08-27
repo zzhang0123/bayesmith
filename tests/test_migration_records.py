@@ -43,6 +43,33 @@ CROSSCHECK = pathlib.Path(__file__).resolve().parent / "crosscheck"
 #: The §四 rows that have a page today, by the module file rheplicant names
 #: them by. An exact set, checked in both directions -- see the module
 #: docstring.
+#: Modules whose rheplicant side now DELEGATES to this package, so their
+#: cross-check has retired -- iron law 2 of the one-implementation plan:
+#: "切换即删除,守卫同批退役". A cross-check compares two implementations; once
+#: there is one, the file compares this package with itself and is a test that
+#: cannot fail, which is the single defect this repository's working notes name
+#: most often.
+#:
+#: Read in BOTH directions by
+#: ``test_every_paged_module_actually_has_a_cross_check_test``: a module in
+#: here that still HAS a cross-check fails (the retirement was forgotten), and
+#: one not in here that has LOST its cross-check fails (the retirement was not
+#: recorded). Neither mistake is silent.
+#:
+#: Each entry must name where the retirement is recorded, and what happened to
+#: the independent-oracle assertions that file carried -- iron law 2's second
+#: half says they are re-homed here or an existing equivalent is identified.
+SWITCHED = {
+    # 2026-08-27, Wave A. `docs/superpowers/specs/2026-08-27-wave-A-identifiability.md`.
+    # All four assertions in the retired file referenced rheplicant, so all
+    # four retired with it. Its one INDEPENDENT oracle -- the four-row table
+    # (free/basis x tone on/off, with n_par/rank/nullity) -- already has a home
+    # on this side: `tests/diagnose/test_identifiability.py::
+    # TestTheMotivatingCase::test_the_four_row_table`. Identified rather than
+    # re-homed, which is the clause's other branch.
+    "identifiability.py",
+}
+
 PAGED_TODAY = {
     "linear.py",
     "noise.py",
@@ -205,6 +232,8 @@ def test_every_paged_module_actually_has_a_cross_check_test():
     already follows.
     """
     files = [p.name for p in CROSSCHECK.glob("test_*.py")]
+    unknown = SWITCHED - PAGED_TODAY
+    assert not unknown, ("SWITCHED names a module with no page", sorted(unknown))
     for module in PAGED_TODAY:
         stem = module[:-3]
         # `priors.py`'s test is named for what it tests, `jeffreys`, so the
@@ -225,10 +254,19 @@ def test_every_paged_module_actually_has_a_cross_check_test():
             # Named for the layer it tests, as `plan` is.
             "numpyro_bridge": ("numpyro_bridge", "bridge"),
         }.get(stem, (stem,))
-        assert any(any(a in name for a in aliases) for name in files), (
-            module,
-            files,
-        )
+        found = any(any(a in name for a in aliases) for name in files)
+        if module in SWITCHED:
+            # The other direction, and it is the one that matters now: a
+            # switched module that still has a cross-check is comparing this
+            # package with itself, and would go green forever.
+            assert not found, (
+                f"{module} is recorded as SWITCHED, so its cross-check should "
+                "have retired with it (iron law 2). A cross-check against a "
+                "facade that delegates here compares this package with itself.",
+                files,
+            )
+            continue
+        assert found, (module, files)
 
 
 #: How the README spells small integers. The count in its prose is checked
