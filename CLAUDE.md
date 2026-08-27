@@ -37,6 +37,21 @@ Only exit **1** means a test failed. **2** interrupted, **3** internal error,
 load-bearing in mutation testing, where scoring any non-zero as a kill turns a
 typo into a KILLED for every mutant.
 
+**Commit the batch before you mutate it.** The protocol restores with
+`git checkout -- src/` rather than `cp`, and that is right -- `cp` inside the
+same second leaves bytecode Python reuses, which records a false SURVIVED. But
+`git checkout` restores to HEAD, so on a tree carrying uncommitted work it is a
+silent full revert of that work, not of the mutant. Measured on 2026-08-27: a
+mutation run was killed on a timeout, leaving a mutant in the tree; the
+`git checkout -- src/` that followed took the whole unfinished G1 change with
+it. Only `tests/` survived, because the mutants were all under `src/`. Commit
+first, then mutate, then restore -- `git checkout` is the better tool exactly
+because HEAD is the reference, which means HEAD has to be the thing you want
+back.
+
+`rm -rf __pycache__` between the mutation and the restore stays required
+either way.
+
 ## The test subject moves when the sibling checkout does
 
 The cross-checks under `tests/crosscheck/` import `rheplicant` from an

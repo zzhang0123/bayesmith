@@ -166,6 +166,48 @@ def test_the_sigma_at_a_masked_sample_does_not_matter():
     assert np.max(np.abs(_flat(first) - _flat(second))) < 1e-12
 
 
+def test_the_quadratic_form_ignores_a_non_finite_datum_at_a_masked_sample():
+    """The multiplication lives in ``quadratic``, not in ``apply``.
+
+    ``apply`` returns a clean zero at a masked sample -- ``jnp.where`` selects
+    -- but ``quadratic`` forms ``residual * apply(residual)``, and ``nan * 0``
+    is ``nan``. Measured before the guard: ``apply`` gave ``[4, 8, 0, 12]`` and
+    ``quadratic`` gave ``nan`` on the same input, so a masked model with a
+    clean solve still handed back a ``nan`` log-density.
+    """
+    from bayesmith.exact.precision import log_density, quadratic
+
+    seen = jnp.array([True, True, False, True])
+    precision = MaskedPrecision(
+        base=DiagonalPrecision(sigma=jnp.full((4,), 0.5)), seen=seen
+    )
+    poisoned = jnp.array([1.0, 2.0, jnp.nan, 3.0])
+    sub = DiagonalPrecision(sigma=jnp.full((3,), 0.5))
+    assert float(quadratic(precision, poisoned)) == float(
+        quadratic(sub, jnp.array([1.0, 2.0, 3.0]))
+    )
+    assert np.isfinite(float(log_density(precision, poisoned)))
+
+
+def test_the_quadratic_form_still_propagates_a_nan_that_WAS_observed():
+    """The guard is on the weight, not on the residual, and that is the point.
+
+    Mapping a ``nan`` at a sample that was taken to zero would MEAN
+    "unobserved", which is a claim only the model may make. A poisoned datum
+    the model believes it recorded has to stay loud -- the same reason the
+    sibling package keeps two weight formulas that disagree on ``nan``.
+    """
+    from bayesmith.exact.precision import quadratic
+
+    precision = MaskedPrecision(
+        base=DiagonalPrecision(sigma=jnp.full((4,), 0.5)),
+        seen=jnp.array([True, True, False, True]),
+    )
+    assert not np.isfinite(
+        float(quadratic(precision, jnp.array([1.0, jnp.nan, 0.0, 3.0])))
+    )
+
+
 # --------------------------------------------------------------------------
 # The draw
 # --------------------------------------------------------------------------
@@ -401,12 +443,19 @@ def test_masked_refuses_a_mask_that_is_not_a_selection():
 # --------------------------------------------------------------------------
 
 
-def test_the_log_transform_carries_the_mask():
+@pytest.mark.parametrize("kind", ["multiplicative", "lognormal"])
+def test_the_log_transform_carries_the_mask(kind):
     """``log_space`` rewrites the data and the scale; it must not drop the mask.
 
     A node that lost its mask here would solve with the flagged channels back
     in -- finitely, and wrongly, with the transform being the last place
     anyone would look.
+
+    **Both scenarios, because they are two different rebuild sites.**
+    ``log_space`` has one ``Probabilistic(...)`` reconstruction per scenario,
+    and the first version of this test exercised only the multiplicative one:
+    mutating the mask out of the LOGNORMAL site left the whole suite green.
+    That survivor is the reason for the parametrisation, not tidiness.
     """
     from bayesmith.exact.loglinear import log_space
 
@@ -416,20 +465,29 @@ def test_the_log_transform_carries_the_mask():
     def model():
         coordinate = const("X", x)
         lam = sample("log_gain", lambda: dist.Normal(0.0, 1.0))
-        mu = det("mu", lambda l, x_: jnp.exp(l) * x_, lam, coordinate)
-        observe(
-            "d",
-            lambda m: dist.Normal(m, 0.004 * m),
-            mu,
-            obs=2.0 * x,
-            mask=mask,
-        )
+        if kind == "multiplicative":
+            mu = det("mu", lambda l, x_: jnp.exp(l) * x_, lam, coordinate)
+            observe(
+                "d", lambda m: dist.Normal(m, 0.004 * m), mu, obs=2.0 * x, mask=mask
+            )
+        else:
+            ell = det(
+                "ell",
+                lambda l, x_: l + jnp.log(x_),
+                lam,
+                coordinate,
+                linear_in=("log_gain",),
+            )
+            observe(
+                "d", lambda e: dist.LogNormal(e, 0.004), ell, obs=2.0 * x, mask=mask
+            )
 
     transformed = log_space(trace(model))
-    # The transform actually fired. A SKIPPED node keeps its original form,
-    # so a mask surviving an untransformed node proves nothing about the
-    # rewrite -- this assertion is what makes the next one about the rewrite.
-    assert transformed.kind["d"] == "multiplicative"
+    # The transform actually fired, and as the scenario this case is about. A
+    # SKIPPED node keeps its original form, so a mask surviving an
+    # untransformed node proves nothing about the rewrite -- this assertion is
+    # what makes the next one about the rewrite.
+    assert transformed.kind["d"] == kind
     assert np.array_equal(
         np.asarray(transformed.graph.node("d").observed_mask), np.asarray(mask)
     )

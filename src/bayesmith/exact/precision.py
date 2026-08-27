@@ -157,8 +157,28 @@ def quadratic(precision: Precision, residual: jax.Array) -> jax.Array:
     method, so an implementation cannot make the quadratic form and the
     operator disagree -- which is the same failure this module exists to
     prevent one level up.
+
+    **A sample whose weight is exactly zero contributes exactly zero, whatever
+    its residual.** That is what zero weight means, and without saying it here
+    the derivation above would be broken by the one implementation that has
+    zero weights: ``apply`` returns ``0`` at a
+    :class:`MaskedPrecision`'s unobserved samples, but the multiplication is
+    HERE, and ``nan * 0`` is ``nan``. A flagged datum is routinely ``nan`` --
+    that is what an unrecorded sample looks like in a file -- so a masked model
+    whose solve was clean would still hand back a ``nan`` log-density. Measured:
+    ``[1, 2, nan, 3]`` against a mask ``[T, T, F, T]`` gave ``apply`` a clean
+    ``[4, 8, 0, 12]`` and ``quadratic`` a ``nan``.
+
+    The guard is on the WEIGHT and not on the residual, which is the whole
+    distinction: a non-zero weight times a ``nan`` is still ``nan``, so a
+    poisoned datum that WAS observed stays loud. Mapping that one to zero would
+    mean "unobserved", which is a claim only the model may make -- the same
+    argument the sibling package makes for keeping two weight formulas that
+    disagree on ``nan``. For every finite residual this is bitwise the
+    expression it replaces, since ``r * 0`` is exactly ``0``.
     """
-    return jnp.sum(residual * precision.apply(residual))
+    weighted = precision.apply(residual)
+    return jnp.sum(jnp.where(weighted == 0, jnp.zeros_like(weighted), residual * weighted))
 
 
 def log_density(precision: Precision, residual: jax.Array) -> jax.Array:
@@ -305,12 +325,22 @@ class MaskedPrecision(eqx.Module):
     ``whiten``          ``0`` -- the noise draw has no term for it
     ==================  =================================================
 
-    **The residual is zeroed before ``base.apply`` sees it, not only after.**
-    A flagged datum is routinely ``nan`` -- that is what an unrecorded sample
-    looks like in a file -- and ``0 * nan`` is ``nan``, so masking only the
-    OUTPUT would let one flagged channel poison the whole solve while every
-    weight looked right.
-    ``test_a_nan_at_a_masked_sample_does_not_reach_the_solution`` pins it.
+    **Masking is a SELECTION and not a multiplication, and that is what makes
+    a flagged ``nan`` harmless.** A flagged datum is routinely ``nan`` -- that
+    is what an unrecorded sample looks like in a file -- and ``jnp.where``
+    discards the branch it does not take, so ``where(False, nan, 0)`` is
+    ``0.0``. Written as ``seen * vector`` the same mask would give ``nan``, and
+    one flagged channel would poison the whole solve while every weight looked
+    right. ``test_a_nan_at_a_masked_sample_does_not_reach_the_solution`` pins
+    the property; the mutation that spells ``_kept`` as a product is what shows
+    the guard can fail.
+
+    Stated because it was measured the other way round first: this class began
+    by zeroing ``apply``'s INPUT as well as its output, on the reasoning above
+    about ``0 * nan``. Mutating that inner call away changed nothing at all --
+    correctly, because ``where`` selects -- so the belt was removed and the
+    braces named. The one place the multiplication really happens is
+    :func:`quadratic`, and it guards there.
 
     Attributes:
         base: the covariance in force on the samples that WERE taken.
@@ -324,7 +354,7 @@ class MaskedPrecision(eqx.Module):
         return jnp.where(self.seen, vector, jnp.zeros((), vector.dtype))
 
     def apply(self, residual: jax.Array) -> jax.Array:
-        return self._kept(self.base.apply(self._kept(residual)))
+        return self._kept(self.base.apply(residual))
 
     def log_normalizer(self) -> jax.Array:
         return jnp.sum(jnp.where(self.seen, self.base.log_normalizer_terms(), 0.0))
@@ -333,7 +363,7 @@ class MaskedPrecision(eqx.Module):
         return jnp.where(self.seen, self.base.log_spectrum(), 0.0)
 
     def whiten(self, omega: jax.Array) -> jax.Array:
-        return self._kept(self.base.whiten(self._kept(omega)))
+        return self._kept(self.base.whiten(omega))
 
 
 def masked(precision: Any, seen: jax.Array) -> MaskedPrecision:

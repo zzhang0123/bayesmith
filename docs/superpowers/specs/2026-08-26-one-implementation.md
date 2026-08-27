@@ -271,6 +271,33 @@
   (3) 零中心 + `floor=0` 子例**从此是回归 fixture**,R7 对它恢复生效。
   旧 spec §四 `gls.py` 行的「起点若改变,用不动点的起点无关性证等价」在
   本裁决下不必动用——两侧起点自此同源。
+- **D20 — 掩码的声明面(G1 落地时新增)。** §四 G1 只写了「观测掩码贯通
+  exact/precision(inf-σ = 零权)」,没写**谁声明**。两个读法:(a) inf-σ 本身
+  即声明——`precision_parts` 见到非有限 scale 就产出掩码协方差;(b) 节点上显式
+  声明 `observed_mask`,scale 保持有限,inf-σ 只作为**回报**存在于
+  `per_sample_sigma` 这一个接缝。
+  **【本次委托下自定,2026-08-27:取 (b),依 2026-08-27 的一次性委托;计划未
+  预见此点,按「保守的一侧」规则自选。】** 三条理由,都可核:
+  1. **inf-σ 只对记得去看的消费者是掩码。** 对其余消费者它不是「没有信息」而是
+     **-inf**:`Normal(mu, inf).log_prob` 处处 -inf,`log_joint` 与 `to_numpyro`
+     的整个势能随之消失。rheplicant 自己就不把 inf 放进 numpyro site——
+     `numpyro_bridge.to_numpyro_model` 写的是 `where(seen, sigma, 1.0)` 加
+     `handlers.mask`,并在 docstring 里逐字说明为什么。所以 inf-σ 是**上游编码**,
+     每个消费者在自己的接缝上翻译它;(b) 只是把那句翻译写成一处。
+  2. **(a) 要删掉一条已写下论证的守卫的对象。** bayesmith 的 `check_gaussian`
+     拒绝非有限 scale,消息里逐字写着「一个 `Precision` 被问的是这个协方差给出
+     什么密度,而无限方差的诚实答案是没有」。走 (a) 会把「sigma 表达式溢出了」
+     与「这一路被 flag 了」两种需要不同修法的故障合并成一种。
+  3. **声明可枚举,inf 不能。** 一个 inf 既可能是 flag 也可能是除零;一个字段
+     可以被守卫双向钉住。
+  **「inf-σ = 零权」在 (b) 下仍然为真**,只是位置从输入编码移到输出回报:
+  `per_sample_sigma` 对被掩样本报 `inf`,于是 `evidence.compress` 的既有掩码
+  路径一行未改就对上了,两处掩码归一化器**逐比特相等**(守卫钉住)。
+  **两条实测边界写在这里以免被读成遗漏**:(i) 相关(circulant)协方差 + 掩码
+  在构造期 `StructureError` 拒绝——compress 已量过近似代价 0.47 nat;
+  (ii) `evidence.campaign` 的分期切片没有 `MaskedPrecision` 规则,会以
+  「no rule for slicing」明确报错,证据层是 Wave D,补齐归那一波。
+  证据链:`2026-08-27-wave-P2-G1.md`。
 
 ## 三、P1 — 适配器基石
 
@@ -439,6 +466,14 @@ config 侧引用)。
   **恰为 1** 且 junit 中**指名测试**在红名单(2/4/5/143 记「未运行」并
   打红 job);(4) 变异集前后各一次基线绿;(5) 变异集是登记清单
   (附录 A 起步),每波扩充。
+  **(0) 先把这一批提交,再跑变异集。** 第 (1) 条用 `git checkout` 而不用
+  `cp` 是对的(`cp` 在同一秒内恢复会留下 Python 会复用的字节码,记下一个假
+  SURVIVED),但 `git checkout` 以 **HEAD** 为准:在一棵带着未提交改动的树上,
+  它回退的不是变异,是那一批还没提交的全部工作。2026-08-27 实测:一次变异集
+  超时被杀、树里留着变异,随后的 `git checkout -- src/` 把整批未提交的 G1
+  源码改动一并抹掉(`tests/` 侥幸幸存,因为变异点都在 `src/`)。这条不削弱
+  协议——`git checkout` 之所以更好正是因为 HEAD 是参照,那就要求 HEAD 已经是
+  你想要回的东西。证据:`2026-08-27-wave-P2-G1.md` §五。
 - **`test_engine_room.py`**:AST 解析、import 别名解析、FORBIDDEN 集
   (§〇)、允许名单逐文件列许可子集(§〇 第 3/4 类四个文件)、双向断言
   (名单外含禁 token 红;名单内不再含其许可 token 也红)。
