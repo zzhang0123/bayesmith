@@ -1,8 +1,8 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-27(第七次改写)· 交接自 **0.4.0 发布、Wave A 开工、
-> 第一个模块 `identifiability` 切换完成**之后的会话。
+> **日期**:2026-08-27(第八次改写)· 交接自 **Wave A 模块 1 `identifiability` 切换 +
+> G1 接线**完成之后的会话。
 
 ---
 
@@ -32,12 +32,13 @@
 
 1. **计划本体**:`docs/superpowers/specs/2026-08-26-one-implementation.md`
    ——终局形态、七条铁律、登记簿 D7–D19、缺口 G1–G14、四波切换、附录 A/B/C。
-2. 本程序至今的**十一份**执行记录,同目录:
+2. 本程序至今的**十二份**执行记录,同目录:
    `2026-08-26-wave-P0.md`、`2026-08-26-wave-P2a.md`、
    `2026-08-27-d17-protocol.md`、`2026-08-27-d16-five-axes.md`、
    `2026-08-27-wave-P1.md`、`2026-08-27-wave-P2-G1.md`、
    `2026-08-27-wave-P2-G13.md`、`2026-08-27-wave-P2-G7.md`、
-   `2026-08-27-wave-P2-D9.md`、`2026-08-27-wave-A-opening.md`、`2026-08-27-wave-A-identifiability.md`。
+   `2026-08-27-wave-P2-D9.md`、`2026-08-27-wave-A-opening.md`、`2026-08-27-wave-A-identifiability.md`、`2026-08-27-wave-A-g1-wiring.md`。
+   **最后一份的 §五 是本会话最贵的一课**,关于一个被读成 flaky 两次的守卫。
    **G1 那份最值得先看**:它记的三处「守卫已经不会失败了」是三种不同的形状,
    而三种都只有变异能看见。
 3. 前代 spec 的 §四(模块绑定契约台账)与 §六(本程序的由来):
@@ -59,10 +60,11 @@
   **10057 passed / 522 skipped**(`-n 4 --ignore=tests/gui/e2e`)加 **21 passed**
   (`tests/gui/e2e -n 2`);README 计数 **10599**,coverage floor
   `fail_under = 89`(均未动)。
-- **e-RHINO** `860703d`,已推送。**源码已动**:`inference/identifiability.py`
+- **e-RHINO** `6320c11`,已推送。**bayesmith 地板已升到 `>=0.4`**(G1 接线是
+  第一处真需要 0.4 表面的地方)。**源码已动**:`inference/identifiability.py`
   是本程序第一个被切换的模块。两阶段套件 **10061 passed / 522 skipped** exit 0
-  加 **21 passed** exit 0;README 计数 **10603**(由守卫报数);coverage floor
-  未动(`fail_under = 89`)。
+  加 **21 passed** exit 0(e2e 在模块 1 批次实测);最新全量 **10062 passed /
+  522 skipped** exit 0;README 计数 **10605**(由守卫报数);coverage floor 未动。
 - **跨仓实测(2026-08-27)**:e-RHINO `tests/inference` **996 passed** exit 0;
   `tests/seam`(x64)**19 passed / 1 xfailed** exit 0。四个批次各跑过一次,一致。
 - **bayesmith 地板仍是 `>=0.3`,这是有意的。** e-RHINO 今天**没有用**任何 0.4.0
@@ -138,18 +140,17 @@
 
 **Wave A 已开工,先决全部就位,发布门已开**(0.4.0 在索引上)。
 
-**下一批是 Wave A 的模块 2:`sensitivity`。** 理由与陷阱写在
-`2026-08-27-wave-A-identifiability.md` §七,三条,其中第 3 条最要紧:
+**下一批是 Wave A 的模块 2:`sensitivity`,先决已清。**
 
-* 切它才能把 `_flat_view` 真正删掉(它是最后一个消费者);
-* 它**需要 0.4**(D9 修好的 `prior_sensitivity` 守卫),所以**那一批同时把
-  e-RHINO 的 bayesmith 地板升到 `>=0.4`**;
-* **不要照抄 `_graph_for_rank` 的合成。** D22 的不变性对 `identifiability` 成立
-  是因为秩判决读不到先验;而 `prior_sensitivity` **算的就是先验位移**,所以合成
-  先验对它**不是**中性的。这是一条必须重新测量而不能继承的假设。
+* **不要照抄模块 1 的 `_graph_for_rank` 合成。** 上一版交接页把这条写成「D22 的
+  不变性要重新测量」——**那也不对**。`prior_sensitivity` 的签名自带 `observed`、
+  `noise_std`、`flags`,所以**根本不需要合成**:把调用方给的三样如实传下去。
+* `flags` 现在能过缝(G1 接线,本会话),所以 C19 那条 config 路径不会被打断。
+* 切它才能删掉 `_flat_view`(它是最后一个消费者)。
 
-**bayesmith 地板仍是 `>=0.3`**:模块 1 的门面只用到 0.3.0 就有的四个名字。地板
-声明的是真实需要,随模块 2 升。
+**一件仍然悬着的事,是 owner 的决定**:`860703d` 的历史里含有那九份评审草稿
+(我用 `git add -A` 误提交)。已从索引移除(`f8a73eb`)并 gitignore,文件在盘上。
+**把它从历史里去掉需要强推**,而强推是授权明写要停下来问的三件事之一,所以没做。
 
 **并行候选**:**G2 `bayesmith.fit`**——Wave B 的先决,D7/D11 共同指向的 gradient-MAP
 出口,在 bayesmith 一侧、不受发布门约束。
