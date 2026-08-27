@@ -789,6 +789,16 @@ config 侧引用)。
 - **G4 `exact.reduced_basis`**。
 - **G5 `bayesmith.amortize`**:NPE 族(D10 子裁决先决)。
 - **G6 证据消费面**:D12 包装所需缺口,逐项登记。
+  **【已逐项登记 2026-08-27;实现仍属 Wave D】** 证据族九个模块共 **40** 个公开名,
+  逐个判决(探针 `docs/probes/probe_14_g6_enumeration.py`,判决表在探针里、总数由它
+  求和):**HAVE 6**(远端已有同名对应物——**线索不是判决**,只有 `SqrtInfo` 有
+  cross-check)、**STAY 12**(容器/格式/声明,按 D12 与 §〇)、**G3 6**、**G4 8**
+  (各归自己的条目,**不重复登记进 G6**——不加区分的「34 个缺口」会让两处都以为
+  对方在做)、**G6 7**、**OPEN 1**(`memory.reject_bad_term`:准入判据还是构造期
+  契约,要读代码才知道,那一批的第一件事)。
+  **所以 G6 = 7 个确定 + 1 个待判,不是 34。**
+  **两条限制写在页上以免被读成完备**:按公开名数,**私名普查仍要做**;同名不等于
+  同题。证据链:`2026-08-27-g6-enumeration.md`。
 - **G7 bridge 补齐**:`init_to_declared`、`predict_from_samples`、
   `propagate_covariance`/`push_forward`(config `predict` kind 逐 fisher
   product 调用);约定:单参数 `model(observed=None)`、latent 同名 site、

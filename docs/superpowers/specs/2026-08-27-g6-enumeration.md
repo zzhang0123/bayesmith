@@ -53,9 +53,9 @@ bayesmith 的十个候选模块里找对应物:
 | `BayesMemory` / `ChainMemory` | 容器 | 同上;`ChainMemory` 还带一个活的 transition |
 | `save_memory` / `load_memory` | **格式** | 在盘格式与 manifest 是**簿记**不是数值。远端没有、也不该有:一个通用贝叶斯包不需要知道 RHINO 的归档布局。**D39** 就住在这里 |
 
-### 2.3 **G3 名下**(7)——`exact.chain`,不是 G6
+### 2.3 **G3 名下**(**6**)——`exact.chain`,不是 G6
 
-`chain.py` 的七个名字(`ChainMemory` 容器除外的六个:`HyperTransition`、
+`chain.py` 的七个公开名里,容器 `ChainMemory` 归 §2.2,其余**六个**(`HyperTransition`、
 `LinearGaussianTransition`、`chain_log_likelihood`、`chain_marginal`、
 `ornstein_uhlenbeck`、`smooth`)整族属于 **G3**(RTS/Kalman + `linked` 转移),
 计划 §四 已经为它开了自己的条目。**不重复登记进 G6。**
@@ -63,11 +63,12 @@ bayesmith 的十个候选模块里找对应物:
 > 记在这里的理由:一次不加区分的「34 个缺口」会把 G3 的活算进 G6,于是两处都
 > 以为对方在做。
 
-### 2.4 **G4 名下**(10)——`exact.reduced_basis`,不是 G6
+### 2.4 **G4 名下**(**8**)——`exact.reduced_basis`,不是 G6
 
-`reduced_basis.py` 的十个名字整族属于 **G4**,同理不重复登记。
+`reduced_basis.py` 的十个公开名里,两个容器(`FidelityReport`、`ReducedBasis`)
+归 §2.2,其余**八个**属于 **G4**,同理不重复登记。
 
-### 2.5 **真正的 G6**(5)——D12 的包装会调、而远端没有的**数值**
+### 2.5 **真正的 G6**(**8** 个名字,7 定 1 待判)——D12 的包装会调、而远端没有的**数值**
 
 | 名字 | 它算什么 | 为什么是缺口 |
 |---|---|---|
