@@ -68,6 +68,12 @@ SWITCHED = {
     # TestTheMotivatingCase::test_the_four_row_table`. Identified rather than
     # re-homed, which is the clause's other branch.
     "identifiability.py",
+    # 2026-08-27, Wave A. `docs/superpowers/specs/2026-08-27-wave-A-sensitivity.md`.
+    # Its cross-check compared rheplicant's mode displacement against this
+    # package's; rheplicant's now IS this package's. Its independent oracles --
+    # the closed form against a finite-difference refit, and the tour table --
+    # are already pinned here by `tests/diagnose/test_prior_sensitivity.py`.
+    "sensitivity.py",
 }
 
 PAGED_TODAY = {
