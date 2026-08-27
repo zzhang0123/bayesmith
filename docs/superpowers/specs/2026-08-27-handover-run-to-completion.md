@@ -125,8 +125,11 @@
    > 计划 §九 的排期表把它们分别排在 **Wave C(+G4/G5 实现)** 与
    > **Wave D(+G3/G6 实现)**。**以 §九 为准。**
 3. **收尾发布**:P2 余项做完后发一版 bayesmith(D13)。
-4. **P3 四波**:Wave A(剩两个模块)、Wave B、Wave C、Wave D。
+4. **P3 四波**:Wave A(只剩 `uncertainty` 后半)、Wave B、Wave C、Wave D。
 5. **P4** 质量机制换防;**P5–P7**。
+6. **G15**(新):带先验的**非线性**局部块,在 bayesmith 一侧实现并发布,然后拆掉
+   rheplicant 里那条有解除条件的延期(`uncertainty._prior_precision`)。它不属于
+   P2 余项那五项,是本会话新开的缺口,排期由做它的那一批定。
 
 **并行候选**:**G2 `bayesmith.fit`**——Wave B 的先决,D7/D11 共同指向的 gradient-MAP
 出口,在 bayesmith 一侧、不受发布门约束。
