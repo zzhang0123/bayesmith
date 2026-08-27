@@ -198,12 +198,31 @@ def test_the_gap_closes_when_sigma_does_not_depend_on_the_prediction():
 class TestTheFisherMatricesAgreeWhereBothPackagesClaimTo:
     """``F = J^T N^-1 J``, elementwise, on the model both routes can express.
 
+    **What this class compares changed on 2026-08-27, and the name is kept
+    because the subject is.** rheplicant's ``fisher_information`` is now a
+    facade over this module, so the two sides are no longer two packages'
+    arithmetic. What they still are is two CONSTRUCTION ROUTES to it: this
+    side builds the block with ``linear_operator`` off a graph written here,
+    and the other side builds one with ``local_block`` off a graph the adapter
+    synthesises from a bare ``forward`` callable and a ``NoiseModel``. A
+    comparison of a package with itself would go green forever; this one does
+    not, and that is measured rather than argued -- dropping the precision
+    weighting from the adapter's graph reddens both tests below (mutation U5,
+    `2026-08-27-wave-A-uncertainty-covariance.md`).
+
+    It therefore stays where iron law 2 puts it: ``uncertainty.py`` is not in
+    ``SWITCHED``, because ``as_noise_model``, ``FlatMatrix``, ``_named_spans``
+    and ``push_forward`` all remain over there -- the same half-switched shape
+    ``numpyro_bridge.py`` set the precedent for. The four module-level tests
+    above are a different module's ledger again (``noise``/``gls``, Wave B)
+    and are untouched by any of this.
+
     Note what does NOT need guarding here: a Fisher matrix does not read the
     data. It is built from the Jacobian and sigma, so the "same fixture"
     problem that §0.1 warns about -- the same PRNG key giving different draws
     under x64 -- cannot reach this comparison. What must match is the DESIGN,
     and that is taken from bayesmith's own graph rather than written out a
-    second time, so the two packages cannot be handed different models by a
+    second time, so the two routes cannot be handed different models by a
     typo in this file.
     """
 
@@ -257,6 +276,11 @@ class TestTheRadiometerCorrectionAgrees:
     ledger row. It went red when the term landed, which is what that
     construction is for; what replaces it is the comparison the ledger
     actually wants.
+
+    Since 2026-08-27 the far side of that comparison is a facade over this
+    module, so what is compared is two routes to one arithmetic rather than
+    two arithmetics -- see the class above for why that is still able to fail
+    and why the file stays.
 
     The two floors differ in KIND -- bayesmith adds ``floor`` to sigma,
     rheplicant clamps ``|prediction|`` at it -- so ``floor=1e-9`` against a

@@ -278,9 +278,12 @@ def test_every_paged_module_actually_has_a_cross_check_test():
             # switched module that still has a cross-check is comparing this
             # package with itself, and would go green forever.
             assert not found, (
-                f"{module} is recorded as SWITCHED, so its cross-check should "
-                "have retired with it (iron law 2). A cross-check against a "
-                "facade that delegates here compares this package with itself.",
+                (
+                    f"{module} is recorded as SWITCHED, so its cross-check "
+                    "should have retired with it (iron law 2). A cross-check "
+                    "against a facade that delegates here compares this "
+                    "package with itself."
+                ),
                 files,
             )
             continue
