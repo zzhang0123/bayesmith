@@ -1,8 +1,8 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-27(第十二次改写)· 交接自 **S6 结清、G13 接线、Wave A 模块 3
-> `priors`、模块 4 `numpyro_bridge`** 完成之后的会话。**Wave A 只剩 `uncertainty`。**
+> **日期**:2026-08-27(第十三次改写)· 交接自 **模块 4 `numpyro_bridge` 与
+> 模块 5 `uncertainty` 的第一步(`fisher_information`)** 完成之后的会话。
 
 ---
 
@@ -33,10 +33,10 @@
 
 1. **计划本体**:`docs/superpowers/specs/2026-08-26-one-implementation.md`
    ——终局形态、七条铁律、登记簿 **D7–D25**、缺口 G1–G14、四波切换、附录 A/B/C。
-2. 本程序至今的**十八份**执行记录,同目录。**最近五份最要紧,按序读**:
-   `2026-08-27-wave-A-s6-widened.md`、`2026-08-27-wave-A-g13-wiring.md`、
+2. 本程序至今的**十九份**执行记录,同目录。**最近四份最要紧,按序读**:
    `2026-08-27-wave-A-priors.md`、`2026-08-27-numpyro-bridge-measurements.md`、
-   `2026-08-27-wave-A-numpyro-bridge.md`(**它的 §十 就是下一批的开工清单**)。
+   `2026-08-27-wave-A-numpyro-bridge.md`、
+   `2026-08-27-wave-A-uncertainty-fisher.md`(**它的 §八 就是下一步的开工清单**)。
    其余:`2026-08-26-wave-P0.md`、`2026-08-26-wave-P2a.md`、
    `2026-08-27-d17-protocol.md`、`2026-08-27-d16-five-axes.md`、
    `2026-08-27-wave-P1.md`、`2026-08-27-wave-P2-G1.md`、`2026-08-27-wave-P2-G13.md`、
@@ -57,9 +57,9 @@
   段**为空**——G1/G13/G7/D9 都在 0.4.0 里,而今天三个批次**没有动 bayesmith 的
   `src/`**(`git log v0.4.0..HEAD -- src/` 为空),所以铁律 5 一直满足。
 - **e-RHINO** 见 `git log`,已推送。两阶段套件 **10095 passed / 534 skipped**
-  exit 0(359.7 s,`-n 4 --ignore=tests/gui/e2e`)加 **21 passed** exit 0
+  exit 0(359.0 s,`-n 4 --ignore=tests/gui/e2e`)加 **21 passed** exit 0
   (`tests/gui/e2e -n 2`);x64 接缝会话 **31 passed / 1 xfailed** exit 0。
-  README 计数 **10649**(由守卫报数);拒绝普查 **244**;coverage floor
+  README 计数 **10651**(由守卫报数);拒绝普查 **244**;coverage floor
   `fail_under = 89` 未动。
   bayesmith 地板 **`>=0.4`**。
 - 两仓互为 editable 安装;两个跨仓 workflow 并行(`crosscheck.yml`、`seam.yml`)。
@@ -68,9 +68,10 @@
 **已完成**:P0、P2a、D17 协议、D16 四条轴、P1、**P2 余项的 G1/G13/G7/D9**、
 **0.4.0 发布**、**Wave A 开工批**、**模块 1 `identifiability`**、**G1 接线**、
 **模块 2 `sensitivity`**、**S6 结清**、**G13 接线**、**模块 3 `priors`**、
-**D26/D27 先决测量**、**模块 4 `numpyro_bridge`(`to_numpyro_model` 委托)**。
+**D26/D27 先决测量**、**模块 4 `numpyro_bridge`(`to_numpyro_model` 委托)**、
+**模块 5 `uncertainty` 第一步(`fisher_information` 的似然一半)**。
 
-**登记簿 D7–D28 全部有裁决,只有 D23 例外**(见 §三)。
+**登记簿 D7–D29 全部有裁决,只有 D23 例外**(见 §三)。**缺口新增 G15**。
 
 ## 三、至今各批留下的几件事(下一位会先撞到)
 
@@ -102,14 +103,19 @@
    240 却没改附录;D27 的拒绝又加回一条。**逐文件清单已由 `_sites()` 重生成,
    这个总数也应当照做**,而不是手抄——附录 B 的表头写着这句。
 
+7. **G15 是本程序第一条「远端还没有这个能力」的缺口,而它有解除条件。**
+   `fisher_information(space=...)` 的先验曲率暂时留守,因为远端没有一个**带先验的
+   非线性局部块**(`local_block` 故意不带、`unchecked_operator` 在零点取切线)。
+   解除条件写在 `uncertainty._prior_precision` 的 docstring 里:G15 发布之后删掉
+   该函数、调用改成 `include_prior=space is not None`,**只有那一行会变**。
+
 ## 四、剩余工作(按计划 §九 的顺序)
 
-1. **Wave A 只剩 `uncertainty`,而它最重**:`FlatMatrix` **永久**保持(config
-   products 逐字段读)、`as_noise_model` 留守、`_named_spans` 随 Wave C/D 退役,
-   **文件不整删**。开工清单逐条写在 `2026-08-27-wave-A-numpyro-bridge.md` §十:
-   它必须**同批改写**一条拿 `fisher_information` 当回归 oracle 的测试(否则 D24 的
-   布局声明失去唯一对照),并结清 D9 的第二项功课(`parameter_covariance` 的
-   `1/√eps` 天花板逐 fixture 冒烟)。
+1. **Wave A 只剩 `uncertainty` 的后半**,开工清单逐条写在
+   `2026-08-27-wave-A-uncertainty-fisher.md` §八:`parameter_covariance`
+   (**D29 已裁决、范围已量、三条要改写的测试已点名**)、`propagate_covariance`
+   (先量再决定)、`push_forward` 留守、cross-check 照 `numpyro_bridge` 的先例
+   **逐条读**而不是照清单退役。**不要重新评估 D29 或 G15。**
 2. **P2 余项(计划 §九 口径,还剩五项)**:**G2** `bayesmith.fit`、**G9 全量**
    (vmap / log 空间 / Fisher 的复数面;另登记在案的两项:`diagnose` 仍拒绝复
    latent、`exact.correct.log_weight` 仍在域里索引)、**G10** 分区执行面(三件全做,

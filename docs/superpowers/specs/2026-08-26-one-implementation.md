@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D28;拍板后回填本行)
+## 二、裁决登记簿(D7–D29;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -470,6 +470,25 @@
   一条测试、config 也没有一条路径向这个出口传过一个有歧义的 1-D sigma。
   证据链:`2026-08-27-wave-A-numpyro-bridge.md`。
 
+- **D29 — `parameter_covariance` 的条件数天花板(切 `uncertainty` 时新增;D9 的第二项
+  功课在此结清测量)。** 本包的 `parameter_covariance` **不对条件数设门**,而
+  `F = J^T N^-1 J` **平方**了设计矩阵的条件数,所以一个普通模型就能触到算术的极限
+  (本函数自己的 docstring:κ(J)=1e3 时 float32 的协方差错 2.4%,float64 错 1.08e-12,
+  **两者都不说话**)。远端 `bayesmith.exact.fisher.parameter_covariance` 有
+  `max_condition="auto"`,从 dtype 推出 `1/sqrt(eps)`(float32 **2.90e3**、
+  float64 **6.71e7**)。
+  **范围已实测,不是估计**:把该天花板临时装进本包的 `parameter_covariance`,跑
+  `tests/inference` + `tests/config` + `tests/evidence`,**65 次求逆里 3 次会被拒**,
+  全是 float32,κ 分别为 **1.0e4 / 6.5e5 / 3.2e6**,逐条点名:
+  `tests/config/test_config_exits_conjugate.py::TestWidth::test_width_fisher_over_a_whole_multi_latent_space_is_allowed`、
+  `tests/inference/test_noise_std_axis.py::TestFisherInformation::test_the_two_explicit_readings_give_visibly_different_answers`、
+  `tests/inference/test_fisher_prior.py::TestPriorEntersTheMatrix::test_tightening_the_prior_tightens_the_error_bar`。
+  **【本次委托下自定,2026-08-27:接受天花板,按铁律 4(iv) 的「接受为修正」;
+  三条按分诊第二列改写。】** 理由:那三条今天拿到的是**静默错误的**数字——一个
+  Cramér–Rao 界错了却不说,比不给更糟,而这正是 D9 原文把它列为功课的原因。
+  **落地在 `uncertainty` 的下一步**(本步只做 `fisher_information`)。
+  证据链:`2026-08-27-wave-A-uncertainty-fisher.md`。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
@@ -582,6 +601,18 @@ config 侧引用)。
   `2026-08-27-wave-A-g13-wiring.md`。
 - **G14 measured-κ 诊断**(D15(a)):`condition_estimate` 的对应物,
   显式标注不可作守卫;随 Wave B 的 linear 工作落地。
+- **G15 带先验的局部块**(切 `uncertainty` 时新增):一个**非线性**模型在某点的
+  局部块,**并且携带各 latent 声明的先验**。今日两个构造器各缺一半——
+  `local_block` 给对雅可比而**故意不带先验**(它自己的 module docstring 写着:
+  把它交给 `fisher_information(include_prior=True)` **必须**在空字典上响亮失败,
+  而不是悄悄折进一个没人声明的曲率);`unchecked_operator` 带先验,却在**域的零点**
+  取切线(仿射映射处处一个切线),对一条幂律那是错的雅可比。两者都没错,只是还
+  没有第三个。
+  **后果**:rheplicant 的 `fisher_information(space=...)` 的先验曲率**暂时留守**,
+  作为一条**有解除条件的**延期(见 `uncertainty._prior_precision` 的 docstring):
+  G15 落地并发布之后,该函数删除、调用改为 `include_prior=space is not None`——
+  委托已经照那个形状写好,**只有那一行会变**。
+  证据链:`2026-08-27-wave-A-uncertainty-fisher.md`。
 
 每 G 项 = 实现 + 独立 oracle 测试 + §四式记录页(铁律 6 计时)。
 
