@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D36;拍板后回填本行)
+## 二、裁决登记簿(D7–D37;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -592,6 +592,22 @@
   两条拼起来的。
   证据链:`2026-08-27-p2-g10-g12.md` §三。
 
+- **D37 — 三条站在「不存在」上的守卫,在 D15(a) 落地时怎么办(做 G14 时新增)。**
+  bayesmith 有三处白纸黑字断言它**故意没有**移植 `extreme_eigenvalues` /
+  `condition_estimate`(模块 docstring、两条 cross-check、契约页 §5 整节),其中一条
+  的 docstring 逐字写着「这条会在有人最终移植它时变红——那时他应该去读那份拒绝了它的
+  模块 docstring,而不是把一个绿套件当成同意」。
+  **【本次委托下自定,2026-08-27:论证保留、判据搬家;计划未预见此点。】**
+  读过那份论证:**一个字没错,一个字也没有撤回**——它说的是**守卫**,而 D15(a) 要的是
+  **诊断**。所以:(1) 两条 cross-check 的「不存在」断言改成**一致性**断言(两个包
+  逐位相等,外加「两者在梯度谱上都错在同一方向」);(2)「不存在」真正代表的那条规则
+  **直接钉住**——**AST 双向扫描**:`extreme_eigenvalues` 只许被 `condition_estimate`
+  调用,`condition_estimate` 在包内一处也不许被调用,外加一条自检;(3) 契约页 §5
+  重写为「差异是一条**规则**而不是一处**缺席**」。
+  **为什么这是一条裁决**:铁律说「改判据 = 新裁决项」,而三条守卫的判据从「缺席」
+  变成了「无守卫读它」——即使这是在执行 D15(a)。
+  证据链:`2026-08-27-p2-g14-condition-estimate.md` §〇、§四。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
@@ -727,7 +743,13 @@ config 侧引用)。
   (行序)与 **D25**(float32 下的新拒绝)。证据链:
   `2026-08-27-wave-A-g13-wiring.md`。
 - **G14 measured-κ 诊断**(D15(a)):`condition_estimate` 的对应物,
-  显式标注不可作守卫;随 Wave B 的 linear 工作落地。
+  显式标注不可作守卫;~~随 Wave B 的 linear 工作落地~~。
+  **【已落地 2026-08-27,bayesmith 侧,提前于 Wave B】** `exact/solve.py::
+  condition_estimate` 与 `exact/conditioning.py::extreme_eigenvalues`。
+  「不可作守卫」不是一句注记而是一条 **AST 双向扫描**(D37)。偏差重测:
+  `geomspace(1, 1e7, 50)` 上 2000 次迭代后 λ_min 仍是 **501.2**(真值 1.0),
+  报出 κ = 2.00e4(真值 1e7)。**提前做**是因为它自足、不依赖 Wave B 的任何东西,
+  而 P2 余项本来就在它前面。证据链:`2026-08-27-p2-g14-condition-estimate.md`。
 - **G15 带先验的局部块**(切 `uncertainty` 时新增):一个**非线性**模型在某点的
   局部块,**并且携带各 latent 声明的先验**。今日两个构造器各缺一半——
   `local_block` 给对雅可比而**故意不带先验**(它自己的 module docstring 写着:
@@ -1059,6 +1081,21 @@ D31 的合法性是量出来的)。
 | W7 | 余项块从不被 `fit` 步进 | KILLED(3) | |
 | W8 | 重建的精度丢掉块自身的值 | **SURVIVED** | KILLED(1) |
 | W9 | `gcr+mh` 落到通用拒绝 | KILLED(1) | |
+
+### P2 余项 / **G14**(2026-08-27,6 条,**5 杀 1 必存**,本仓内)
+
+详情见 `2026-08-27-p2-g14-condition-estimate.md` §五。**X1 必须幸存**(幂迭代收敛到
+最大**模**,取负不改变模——实测两个方向的 spread 逐位都是 8);**X4 是真洞,而第一次
+修补没杀掉它**(修补写在了另一个函数上)。
+
+| # | 变异(bayesmith) | 第一轮 | 修好后 |
+|---|---|---|---|
+| X1 | 移位反向 | SURVIVED | **SURVIVED(必然)** |
+| X2 | λ_min 直接返回 spread | KILLED(5) | |
+| X3 | 第二次迭代复用第一个 key | KILLED(1) | |
+| X4 | 去掉 λ_min 的先验地板 | **SURVIVED** | KILLED(1) |
+| X5 | `condition_estimate` 改返回那个界 | KILLED(1) | |
+| X6 | `condition_bound` 开始读测得路线 | KILLED(2) | |
 
 ## 附录 B — 拒绝文案清单
 
