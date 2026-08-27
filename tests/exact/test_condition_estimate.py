@@ -309,3 +309,91 @@ class TestNoGuardReadsTheMeasuredRoute:
         sites = self._call_sites("largest_eigenvalue")
         assert len(sites) >= 2, sites
         assert "conditioning.py::extreme_eigenvalues" in sites
+
+
+class TestTwoThingsAMutationTaughtUs:
+    """Both of these exist because a mutation survived and was chased down.
+    One survivor was inevitable and one was a hole; the difference is only
+    visible after following each to the arithmetic."""
+
+    def test_the_shifted_iteration_is_insensitive_to_the_shifts_sign(self):
+        """Why reversing the shift is a NO-OP, stated as a property.
+
+        A mutation swapped ``largest * leaf - image`` for ``image - largest *
+        leaf`` and survived. It has to: :func:`largest_eigenvalue` normalises
+        by ``tree_norm``, so what it converges to is the largest MAGNITUDE,
+        and negating an operator leaves every magnitude alone. Measured on
+        ``diag(9, 3, 1)``: both spreads are exactly 8.
+
+        Pinned here so the next reader of that survivor does not have to
+        rediscover it -- and so that a change to `largest_eigenvalue` which
+        made it sign-sensitive (a Rayleigh quotient, say, which would return
+        a negative number) shows up as a failure with a name.
+        """
+        from bayesmith.exact.conditioning import largest_eigenvalue
+
+        def operator(parts):
+            return {"x": parts["x"] * jnp.asarray([9.0, 3.0, 1.0])}
+
+        template = {"x": jnp.zeros(3)}
+        top = largest_eigenvalue(operator, template, jax.random.key(4), 60)
+
+        def shifted(parts):
+            return jax.tree.map(
+                lambda leaf, image: top * leaf - image, parts, operator(parts)
+            )
+
+        def flipped(parts):
+            return jax.tree.map(
+                lambda leaf, image: image - top * leaf, parts, operator(parts)
+            )
+
+        key = jax.random.key(5)
+        assert float(largest_eigenvalue(shifted, template, key, 60)) == float(
+            largest_eigenvalue(flipped, template, key, 60)
+        )
+
+    def test_the_prior_floor_stops_a_NEGATIVE_condition_number(self):
+        """The floor is not decoration, and this is the fixture that shows it.
+
+        A mutation dropped ``jnp.maximum(smallest, floor)`` and survived every
+        test in this file, because none of them used a small enough iteration
+        count. Measured at ``iterations=1`` on ``geomspace(1, 1e7, 50)``:
+        ``lambda_min`` comes back **-2182035.5**, against a true 1.0.
+
+        The mechanism is worth writing down. ``largest`` is itself a
+        one-iteration estimate and therefore too SMALL, so ``largest * I - M``
+        is not positive semi-definite at all, and its largest magnitude can
+        exceed ``largest`` -- leaving ``largest - spread`` negative. Divided
+        into ``largest`` that is a condition number with the wrong SIGN:
+        finite, plausible in magnitude, and nonsense.
+
+        ``A^T N^-1 A`` is positive semi-definite, so ``lambda_min`` cannot
+        truly fall below the prior's own curvature; the floor is that fact,
+        and it is rigorous where the measurement is not.
+        """
+        with jax.enable_x64(True):
+            spectrum = jnp.geomspace(1.0, 1e7, 50)
+            operator, template = TestExtremeEigenvaluesOnAKnownSpectrum._diagonal(
+                spectrum
+            )
+            _, raw = extreme_eigenvalues(operator, template, jax.random.key(0), 1)
+        assert float(raw) < 0.0, float(raw)
+
+    def test_condition_estimate_is_positive_and_finite_in_that_regime(self):
+        """The other half: the floor is applied where it is needed, so the
+        public function never hands back the number above."""
+        from bayesmith.exact.solve import condition_estimate
+        from tests.exact.models import two_linear_latents
+
+        with jax.enable_x64(True):
+            graph = two_linear_latents()
+            block, precision = (
+                TestConditionEstimateAgainstConditionBound._block_and_precision(
+                    graph, ("a", "b")
+                )
+            )
+            measured = float(
+                condition_estimate(block, precision=precision, iterations=1)
+            )
+        assert measured > 0.0 and jnp.isfinite(measured), measured
