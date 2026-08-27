@@ -357,6 +357,19 @@
   (它算的就是先验位移),所以本行对它**无效**,`sensitivity` 那一批要自己量。
   证据链:`2026-08-27-wave-A-identifiability.md` §一。
 
+- **D23 — `prior_sensitivity` 的拒绝判据:雅可比秩 vs 曲率(Wave A 模块 2 新增)。**
+  rheplicant 在**观测雅可比的秩**上拒绝;bayesmith 在 **rest 项自身的曲率**上拒绝。
+  bayesmith 的判据更对,理由写在它自己的 docstring 里:一个被**下游** latent 的密度
+  持住的被选 latent(`child ~ Normal(parent, s)`,child 在选择之外),其
+  likelihood-only 众数**完全良定义**,而雅可比秩检验会拒绝这个合法问题。
+  差异**双向**:bayesmith 接受一些 rheplicant 拒绝的(上述),也拒绝一些 rheplicant
+  接受的(雅可比满秩、曲率条件数超 `1/sqrt(eps)` 天花板)。
+  **【登记,未裁决,2026-08-27】** 本批次**既未采纳也未回避**:两侧拒绝的**措辞相同**
+  (移植时保留),门面只翻译异常类,64 条测试**无一能分辨**这条差。所以它是一条
+  **已知的、当前无守卫的**语义差。要正式采纳曲率判据,先得造出能分辨它的 fixture
+  (下游密度持住的被选 latent),那是一次**语义升级**,届时在本行拍板。
+  证据链:`2026-08-27-wave-A-sensitivity.md` §四。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:

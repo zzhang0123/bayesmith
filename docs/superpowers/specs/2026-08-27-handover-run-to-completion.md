@@ -1,8 +1,8 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-27(第八次改写)· 交接自 **Wave A 模块 1 `identifiability` 切换 +
-> G1 接线**完成之后的会话。
+> **日期**:2026-08-27(第九次改写)· 交接自 **Wave A 模块 1 `identifiability`、G1 接线、
+> 模块 2 `sensitivity`** 完成之后的会话。
 
 ---
 
@@ -32,12 +32,12 @@
 
 1. **计划本体**:`docs/superpowers/specs/2026-08-26-one-implementation.md`
    ——终局形态、七条铁律、登记簿 D7–D19、缺口 G1–G14、四波切换、附录 A/B/C。
-2. 本程序至今的**十二份**执行记录,同目录:
+2. 本程序至今的**十三份**执行记录,同目录:
    `2026-08-26-wave-P0.md`、`2026-08-26-wave-P2a.md`、
    `2026-08-27-d17-protocol.md`、`2026-08-27-d16-five-axes.md`、
    `2026-08-27-wave-P1.md`、`2026-08-27-wave-P2-G1.md`、
    `2026-08-27-wave-P2-G13.md`、`2026-08-27-wave-P2-G7.md`、
-   `2026-08-27-wave-P2-D9.md`、`2026-08-27-wave-A-opening.md`、`2026-08-27-wave-A-identifiability.md`、`2026-08-27-wave-A-g1-wiring.md`。
+   `2026-08-27-wave-P2-D9.md`、`2026-08-27-wave-A-opening.md`、`2026-08-27-wave-A-identifiability.md`、`2026-08-27-wave-A-g1-wiring.md`、`2026-08-27-wave-A-sensitivity.md`。
    **最后一份的 §五 是本会话最贵的一课**,关于一个被读成 flaky 两次的守卫。
    **G1 那份最值得先看**:它记的三处「守卫已经不会失败了」是三种不同的形状,
    而三种都只有变异能看见。
@@ -49,7 +49,7 @@
 ## 二、当前状态(2026-08-27 实测,先复核再信)
 
 - **bayesmith** `95d82ff`,已推送;**0.4.0 已在 PyPI 上**(tag `v0.4.0`,
-  run 33063195570);套件 **1291 passed / 0 skipped**,exit 0,208 s;`ruff` 干净。
+  run 33063195570);套件 **1280 passed / 0 skipped**,exit 0,208 s;`ruff` 干净。
   crosscheck **119**(identifiability 那份已随模块退役)。CHANGELOG `Unreleased`
   段为空——G1/G13/G7/D9 都在 0.4.0 里。
   **0.4.0 的确认方式照 P0 的教训做**:绿的 publish workflow 是**记录不是索引**;
@@ -63,7 +63,7 @@
 - **e-RHINO** `6320c11`,已推送。**bayesmith 地板已升到 `>=0.4`**(G1 接线是
   第一处真需要 0.4 表面的地方)。**源码已动**:`inference/identifiability.py`
   是本程序第一个被切换的模块。两阶段套件 **10061 passed / 522 skipped** exit 0
-  加 **21 passed** exit 0(e2e 在模块 1 批次实测);最新全量 **10062 passed /
+  加 **21 passed** exit 0(e2e 在模块 1 批次实测);最新全量 **10063 passed /
   522 skipped** exit 0;README 计数 **10605**(由守卫报数);coverage floor 未动。
 - **跨仓实测(2026-08-27)**:e-RHINO `tests/inference` **996 passed** exit 0;
   `tests/seam`(x64)**19 passed / 1 xfailed** exit 0。四个批次各跑过一次,一致。
@@ -80,7 +80,8 @@
 **D9**、**0.4.0 发布**、**Wave A 开工批 + 模块 1 `identifiability`**(记录页 `-G1.md`、`-G13.md`、`-G7.md`、
 `-D9.md`、`2026-08-27-wave-A-opening.md`)。
 
-**登记簿新增 D20**(掩码的声明面)、**D21**(诊断的展开点)、**D22**(秩测试合成图的三样)。
+**登记簿新增 D20**(掩码的声明面)、**D21**(诊断的展开点)、**D22**(秩测试合成图的三样)、
+**D23**(sensitivity 的拒绝判据:已登记、**未裁决**、当前无守卫)。
 **两次事实修正**(委托下按「不是空白支票」那条处置):**D13**(发布号
 归属)与 **D9**(float32 政策)。D9 的建议 (b) 被谱隙表推翻,改取 (a);两条的
 冲突都写在各自那一行里。
@@ -140,13 +141,15 @@
 
 **Wave A 已开工,先决全部就位,发布门已开**(0.4.0 在索引上)。
 
-**下一批是 Wave A 的模块 2:`sensitivity`,先决已清。**
+**下一批的第一件事是一个开放项,不是一个模块。**
+`2026-08-27-wave-A-sensitivity.md` §五 的 **S6**:`_widened` 在 `sensitivity` 里
+去掉之后 64 条**全绿**,而在模块 1 里去掉会 45 条全红。两种可能——它在这里是死代码
+(该删),或者它承重但没有 fixture 制造那个条件(该补一条声明期 float32 init 的
+fixture)。**两个处置方向相反,别猜。**
 
-* **不要照抄模块 1 的 `_graph_for_rank` 合成。** 上一版交接页把这条写成「D22 的
-  不变性要重新测量」——**那也不对**。`prior_sensitivity` 的签名自带 `observed`、
-  `noise_std`、`flags`,所以**根本不需要合成**:把调用方给的三样如实传下去。
-* `flags` 现在能过缝(G1 接线,本会话),所以 C19 那条 config 路径不会被打断。
-* 切它才能删掉 `_flat_view`(它是最后一个消费者)。
+**然后是 Wave A 剩下的三个模块**:`priors`、`numpyro_bridge`、`uncertainty`。
+`uncertainty` 最重——`FlatMatrix` **永久**保持(config products 逐字段读)、
+`as_noise_model` 留守、`_named_spans` 随 Wave C/D 退役,**文件不整删**。
 
 **一件仍然悬着的事,是 owner 的决定**:`860703d` 的历史里含有那九份评审草稿
 (我用 `git add -A` 误提交)。已从索引移除(`f8a73eb`)并 gitignore,文件在盘上。
