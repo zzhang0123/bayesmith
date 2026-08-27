@@ -447,8 +447,9 @@ def precision_parts(
     circulant = getattr(dist, "CirculantNormal", None)
     if circulant is not None and isinstance(distribution, circulant):
         loc = _checked_loc(node, distribution.loc)
-        return loc, CirculantPrecision(
-            first_column=jnp.asarray(distribution.covariance_row)
+        return loc, _with_mask(
+            node,
+            CirculantPrecision(first_column=jnp.asarray(distribution.covariance_row)),
         )
     if not isinstance(distribution, dist.Normal):
         raise NotGaussian(
@@ -471,7 +472,29 @@ def precision_parts(
     scale = jnp.broadcast_to(
         jnp.asarray(distribution.scale), node_shape(graph, node, env)
     )
-    return loc, DiagonalPrecision(sigma=scale)
+    return loc, _with_mask(node, DiagonalPrecision(sigma=scale))
+
+
+def _with_mask(node: Node, precision: Any) -> Any:
+    """The node's covariance, narrowed to the samples it says were taken.
+
+    The whole of masking on the OPERATOR side: a
+    :class:`~bayesmith.exact.precision.MaskedPrecision` gives a masked sample
+    zero weight in the normal equations, no term in the log-determinant, no
+    contribution to the information and no term in a noise draw -- so no
+    solver changed, and none can honour the mask differently from another.
+
+    The mask is read from the NODE and not from an infinite scale, so
+    :func:`check_gaussian`'s refusal of a non-finite sigma stays exactly what
+    it was: "the expression that produces sigma has an infinity in it" and
+    "this sample was flagged" need different fixes, and only a declaration can
+    tell them apart.
+    """
+    if not isinstance(node, Probabilistic) or node.observed_mask is None:
+        return precision
+    from bayesmith.exact.precision import masked
+
+    return masked(precision, node.observed_mask)
 
 
 def observed_data_and_loc(

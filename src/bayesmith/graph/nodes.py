@@ -144,6 +144,24 @@ class Probabilistic(Node):
             that carries its own sigma.
         observed: the data this node is conditioned on, or ``None`` if the
             node is latent.
+        observed_mask: boolean, shaped like ``observed``; ``True`` = this
+            sample WAS taken. ``None`` means every sample was.
+
+            **A declaration, not a sigma.** Upstream spells an unobserved
+            sample ``sigma = inf`` (rheplicant's ``FlaggedNoise`` does), and
+            that encoding survives here in exactly one place: the per-sample
+            sigma a ``Precision`` reports back. It is not what a ``dist_fn``
+            should return, because ``Normal(mu, inf).log_prob`` is ``-inf``
+            EVERYWHERE, so an inf inside the scale does not say "no
+            information" to anything that reads the density -- it takes the
+            whole joint with it. Every consumer already translates the
+            encoding at its own seam; this field is where they read one
+            translation instead of each inventing it. Honoured by
+            :func:`~bayesmith.graph.evaluate.log_joint`,
+            :func:`~bayesmith.bridge.numpyro_bridge.to_numpyro` and
+            :func:`~bayesmith.exact.gaussian.precision_parts`, and refused on
+            a latent node -- a mask says which DATA were taken, and a latent
+            has none.
         support: :class:`Continuous`, :class:`Discrete` with a known state
             count, or ``None`` if undeclared. A **claim about the model**,
             in the same sense as :attr:`Deterministic.linear_in` -- nothing
@@ -173,6 +191,7 @@ class Probabilistic(Node):
     observed: jax.Array | None
     support: Support | None = eqx.field(static=True, default=None)
     depends_on_prediction: bool = eqx.field(static=True, default=True)
+    observed_mask: jax.Array | None = None
 
     @property
     def is_latent(self) -> bool:

@@ -2,7 +2,38 @@
 
 ## Unreleased
 
-Nothing yet.
+**A sample that was not observed informs nothing, on every exact route (G1).**
+An observed node may now declare `observed_mask` -- boolean, shaped like its
+data, `True` where the sample was actually taken -- and `precision_at` builds a
+`MaskedPrecision` from it. A masked sample gets zero weight in the normal
+equations, no term in the log-determinant, no contribution to the
+variance-information term and no term in a GCR draw, so the posterior is
+exactly the posterior of the model over the samples that were taken. No solver
+changed: masking is a new implementation of the existing `Precision` protocol,
+which is why every consumer of a covariance inherits it at once and none can
+honour it differently from another. `log_joint` and `to_numpyro` honour the
+same declaration, the latter through `numpyro.handlers.mask`, so NUTS stays the
+oracle the exact paths are checked against.
+
+The mask is declared on the NODE and not spelled as an infinite scale.
+`Normal(mu, inf).log_prob` is `-inf` everywhere, so an inf inside the scale is
+not a statement that a sample carries no information -- it takes the whole
+joint with it. The `sigma = inf` encoding survives at exactly one seam,
+`per_sample_sigma`, which reports it back so `GLSResult.noise_std` and
+`Estimate.noise_std` say "not observed" in the word their caller used, and so
+`evidence.compress` masks a masked covariance without knowing the class exists.
+`check_gaussian` still refuses a non-finite sigma, unchanged: "the expression
+that produces sigma has an infinity in it" and "this channel was flagged" need
+different fixes, and only a declaration tells them apart.
+
+Masking a CORRELATED covariance is refused rather than approximated. The
+observed submatrix of a stationary covariance is not itself stationary and its
+log-determinant is not a subset sum of the spectrum -- measured on a 6-point
+kernel with one sample dropped, `-0.7084` against a closest subset sum 0.47
+nats away.
+
+Not breaking: `observed_mask` defaults to `None`, and every existing graph
+reads unchanged.
 
 ## 0.3.0 — 2026-08-27
 

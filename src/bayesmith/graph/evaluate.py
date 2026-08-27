@@ -167,11 +167,21 @@ def log_joint(graph: Graph, values: Mapping[str, Any] | None = None) -> jax.Arra
     Every probabilistic node contributes ``log_prob`` of its value under the
     distribution its parents parameterise; deterministic nodes contribute
     nothing but the dependence they carry.
+
+    A node's :attr:`~bayesmith.graph.nodes.Probabilistic.observed_mask` drops
+    the samples it says were never taken. That is the whole of masking on THIS
+    side -- there is no infinite scale to take a limit of, because a sample
+    that was not observed contributes no term rather than a term whose width
+    went to infinity, and the two differ by exactly the ``log sigma`` that
+    would have sent the joint to ``-inf``.
     """
     env = evaluate(graph, values)
     total = jnp.zeros(())
     for node in graph.nodes:
         if isinstance(node, Probabilistic):
             distribution = apply_probabilistic(graph, node, env)
-            total = total + jnp.sum(distribution.log_prob(env[node.name]))
+            term = distribution.log_prob(env[node.name])
+            if node.observed_mask is not None:
+                term = jnp.where(node.observed_mask, term, 0.0)
+            total = total + jnp.sum(term)
     return total

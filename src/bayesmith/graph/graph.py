@@ -92,6 +92,33 @@ class Graph(eqx.Module):
                     "`refuse_stochastic_stages`. There is no numerical "
                     "symptom to find; the declaration is the whole signal."
                 )
+            if isinstance(node, Probabilistic) and node.observed_mask is not None:
+                mask = jnp.asarray(node.observed_mask)
+                if node.observed is None:
+                    raise GraphError(
+                        f"node {node.name!r} is LATENT and declares an "
+                        "observed_mask. A mask says which of this node's data "
+                        "were actually taken, and a latent node has no data -- "
+                        "it is what the graph is solving for. Masking a latent "
+                        "would have to mean dropping degrees of freedom, which "
+                        "is a different model, declared by not sampling them."
+                    )
+                if mask.dtype != jnp.bool_:
+                    raise GraphError(
+                        f"node {node.name!r} declares an observed_mask of "
+                        f"dtype {mask.dtype}; it must be boolean. A float mask "
+                        "multiplies where a boolean one selects, so a 0.5 "
+                        "would halve a sample's weight and call it unobserved."
+                    )
+                if mask.shape != jnp.shape(node.observed):
+                    raise GraphError(
+                        f"node {node.name!r} declares an observed_mask of "
+                        f"shape {mask.shape} but its data is "
+                        f"{jnp.shape(node.observed)}. Broadcasting these would "
+                        "mask a different set of samples than the caller "
+                        "named, and every shape downstream would still be "
+                        "right."
+                    )
             if len(node.plate) > 1:
                 raise GraphError(
                     f"node {node.name!r} is in plates {node.plate}: nested plates "

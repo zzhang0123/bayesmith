@@ -235,6 +235,7 @@ def observe(
     dist_fn: Callable[..., Any],
     *parents: NodeRef,
     obs: Any,
+    mask: Any = None,
     support: Support | None = None,
     depends_on_prediction: bool = True,
     plate: PlateRef | Iterable[PlateRef] | None = None,
@@ -245,6 +246,11 @@ def observe(
     the model, exactly like ``det``'s ``linear_in`` -- see
     :class:`~bayesmith.graph.nodes.Probabilistic` for what each default
     means and why. Nothing in P1 reads either.
+
+    ``mask`` is boolean and shaped like ``obs``, ``True`` where the sample was
+    actually taken; see
+    :attr:`~bayesmith.graph.nodes.Probabilistic.observed_mask` for why an
+    unobserved sample is declared here and not as an infinite scale.
     """
     recorder = _active()
     node = Probabilistic(
@@ -255,6 +261,7 @@ def observe(
         observed=jnp.asarray(obs),
         support=support,
         depends_on_prediction=depends_on_prediction,
+        observed_mask=None if mask is None else jnp.asarray(mask),
     )
     recorder.add(node)
     return NodeRef(name, recorder)

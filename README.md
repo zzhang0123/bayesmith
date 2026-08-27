@@ -55,8 +55,9 @@ is what the 0.3 floor names. Alpha in the classifier's sense: the API may
 still move -- 0.3.0 makes `reason` required on `NotGaussian` and
 `NotLogLinear`, which is breaking for anyone constructing them directly.
 
-Implemented and tested, 1235 tests: the graph core with plates and joint
-log-density; the NumPyro bridge, so any graph is runnable through NUTS;
+Implemented and tested, 1254 tests: the graph core with plates and joint
+log-density, with flagged samples declared per node and honoured by every
+route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR
 partition -- as many exact blocks as the model has factors, grouped by
 pairwise probe, with log-space blocks discovered rather than declared

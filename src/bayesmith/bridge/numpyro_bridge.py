@@ -47,17 +47,40 @@ def to_numpyro(graph: Graph) -> Callable[[], dict[str, Any]]:
                     env[node.name] = _complex_site(node, distribution)
                 elif node.plate:
                     name = node.plate[0]
-                    with numpyro.plate(name, graph.plate_size(name)):
+                    with _masked(node), numpyro.plate(
+                        name, graph.plate_size(name)
+                    ):
                         env[node.name] = numpyro.sample(
                             node.name, distribution, obs=node.observed
                         )
                 else:
-                    env[node.name] = numpyro.sample(
-                        node.name, distribution, obs=node.observed
-                    )
+                    with _masked(node):
+                        env[node.name] = numpyro.sample(
+                            node.name, distribution, obs=node.observed
+                        )
         return env
 
     return model
+
+
+def _masked(node: Probabilistic) -> Any:
+    """The node's ``observed_mask`` as a NumPyro handler, or a no-op.
+
+    ``numpyro.handlers.mask`` is the only place the potential can learn that a
+    sample was not taken, and it takes a boolean -- there is no scale that
+    means it. Handing ``Normal`` an infinite one instead sends ``log_prob``,
+    and so the whole potential, to ``-inf`` at every point in parameter space:
+    ``r**2/sigma**2`` vanishes but ``log sigma`` does not. Masking is the
+    limit that exists, which is the same sentence rheplicant's own bridge
+    carries, because it is the same fact.
+
+    ``mask(mask=True)`` for an undeclared mask rather than a branch at the
+    call site: one spelling of ``sample`` in each arm, so the plated and
+    unplated arms cannot drift into honouring the mask differently.
+    """
+    return numpyro.handlers.mask(
+        mask=True if node.observed_mask is None else node.observed_mask
+    )
 
 
 def _complex_site(node: Any, distribution: ComplexNormal) -> jax.Array:

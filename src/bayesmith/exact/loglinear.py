@@ -231,6 +231,11 @@ def _log_normal_node(node: Probabilistic) -> Probabilistic:
         observed=jnp.log(jnp.asarray(node.observed)),
         support=None,
         depends_on_prediction=False,
+        # Carried, not re-derived. The log transform changes the DATA and the
+        # scale; it does not change which samples were taken, and a node that
+        # silently lost its mask here would solve with the flagged channels
+        # back in, finitely and wrongly.
+        observed_mask=node.observed_mask,
     )
 
 
@@ -253,6 +258,7 @@ def _multiplicative_node(
         observed=y,
         support=None,
         depends_on_prediction=False,
+        observed_mask=node.observed_mask,
     )
 
 

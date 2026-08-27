@@ -39,6 +39,19 @@ Circulant is also the right model for the physics that motivated this:
 1/f drift and atmospheric correlation are stationary, and a periodic
 boundary is the honest statement of "stationary on this stretch".
 
+**An unobserved sample is the third thing a covariance can say, and it is a
+DECLARATION rather than a value.** ``sigma = inf`` is how upstream spells a
+flagged sample, and the four operations above disagree about what it means to
+them -- ``apply`` and ``whiten`` give zero, ``log_normalizer`` gives ``+inf``,
+correctly, because infinite variance has no density. Reading that ``+inf`` as
+``0`` is the statement "this sample was not observed", which is a modelling
+concept the interface does not have. So the node carries the mask
+(:attr:`~bayesmith.graph.nodes.Probabilistic.observed_mask`),
+:class:`MaskedPrecision` is what :func:`~bayesmith.exact.gaussian.precision_at`
+builds from it, and :class:`DiagonalPrecision` keeps a normaliser that is never
+silently wrong. Masking is DIAGONAL and that is measured, not assumed --
+:mod:`bayesmith.evidence.compress` carries the number.
+
 **Nothing in this module is exported, and that is the design rather than an
 oversight.** :func:`~bayesmith.exact.gaussian.precision_at` is the seam a
 caller touches: it builds the object from the graph at a point, and the three
@@ -172,8 +185,20 @@ class DiagonalPrecision(eqx.Module):
     def apply(self, residual: jax.Array) -> jax.Array:
         return residual / self.sigma**2
 
+    def log_normalizer_terms(self) -> jax.Array:
+        """``log 2 pi sigma_i**2`` per sample -- the summands, as a VECTOR.
+
+        Beyond the protocol, and only :class:`MaskedPrecision` reads it: a
+        subset determinant is a subset SUM, and a sum of logs cannot be
+        un-summed. It exists so the masked normaliser is the same expression
+        as the full one with terms dropped, rather than a second spelling of
+        it that can drift -- ``test_the_masked_normaliser_is_the_kept_terms``
+        pins that the two agree bitwise.
+        """
+        return jnp.log(2.0 * jnp.pi * self.sigma**2)
+
     def log_normalizer(self) -> jax.Array:
-        return jnp.sum(jnp.log(2.0 * jnp.pi * self.sigma**2))
+        return jnp.sum(self.log_normalizer_terms())
 
     def log_spectrum(self) -> jax.Array:
         # `2 log sigma` rather than `log(sigma**2)`: multiplying a float by 2
@@ -245,6 +270,123 @@ class CirculantPrecision(eqx.Module):
     def whiten(self, omega: jax.Array) -> jax.Array:
         spectrum = jnp.fft.fft(omega) / jnp.sqrt(self.eigenvalues)
         return jnp.real(jnp.fft.ifft(spectrum))
+
+
+class MaskedPrecision(eqx.Module):
+    """A per-sample covariance in which some samples were not taken at all.
+
+    ``sigma = inf`` is how an unobserved sample arrives from upstream --
+    rheplicant's ``FlaggedNoise`` spells RFI that way, and
+    :func:`~bayesmith.evidence.compress.observed_mask` already reads it. What
+    this class adds is the exact path: a masked sample must contribute
+    **nothing** to the quadratic form, nothing to the normaliser, nothing to
+    the information, and nothing to a draw.
+
+    **Why the mask is a separate object rather than an ``inf`` inside
+    :class:`DiagonalPrecision`.** ``inf`` is a value, and the four operations
+    disagree about what it means to them: ``apply`` and ``whiten`` happen to
+    give zero, while ``log_normalizer`` gives ``+inf`` -- correctly, because a
+    sample with infinite variance has no density. Reading that ``+inf`` as
+    ``0`` is a MODELLING statement ("this sample was not observed"), not an
+    arithmetic one, and :mod:`bayesmith.evidence.compress` says so at length.
+    Making ``DiagonalPrecision`` mask silently would delete the only guard
+    that distinguishes "the sigma expression produced an infinity" from "the
+    sample was flagged", and those need different fixes.
+
+    So the mask is carried, and every operation reads it:
+
+    ==================  =================================================
+    operation           at a masked sample
+    ==================  =================================================
+    ``apply``           ``0`` -- the sample enters no normal equation
+    ``log_normalizer``  omitted from the sum -- the subset determinant
+    ``log_spectrum``    ``0`` (``lambda = 1``, a CONSTANT), so the
+                        variance-information term gets no contribution
+    ``whiten``          ``0`` -- the noise draw has no term for it
+    ==================  =================================================
+
+    **The residual is zeroed before ``base.apply`` sees it, not only after.**
+    A flagged datum is routinely ``nan`` -- that is what an unrecorded sample
+    looks like in a file -- and ``0 * nan`` is ``nan``, so masking only the
+    OUTPUT would let one flagged channel poison the whole solve while every
+    weight looked right.
+    ``test_a_nan_at_a_masked_sample_does_not_reach_the_solution`` pins it.
+
+    Attributes:
+        base: the covariance in force on the samples that WERE taken.
+        seen: boolean, shaped like ``sigma``; ``True`` = observed.
+    """
+
+    base: DiagonalPrecision
+    seen: jax.Array
+
+    def _kept(self, vector: jax.Array) -> jax.Array:
+        return jnp.where(self.seen, vector, jnp.zeros((), vector.dtype))
+
+    def apply(self, residual: jax.Array) -> jax.Array:
+        return self._kept(self.base.apply(self._kept(residual)))
+
+    def log_normalizer(self) -> jax.Array:
+        return jnp.sum(jnp.where(self.seen, self.base.log_normalizer_terms(), 0.0))
+
+    def log_spectrum(self) -> jax.Array:
+        return jnp.where(self.seen, self.base.log_spectrum(), 0.0)
+
+    def whiten(self, omega: jax.Array) -> jax.Array:
+        return self._kept(self.base.whiten(self._kept(omega)))
+
+
+def masked(precision: Any, seen: jax.Array) -> MaskedPrecision:
+    """Wrap ``precision`` so the samples ``seen`` is ``False`` at inform nothing.
+
+    Asks :func:`per_sample_sigma` whether the covariance HAS per-sample sigmas
+    to mask, rather than testing its type here -- that question has one home
+    in this package and this is not a second one.
+
+    Raises:
+        StructureError: if the covariance has no per-sample sigma. An
+            unobserved sample inside a correlated epoch has no exact meaning:
+            the observed submatrix of a stationary covariance is not itself
+            stationary, and its log-determinant is not a subset sum of the
+            spectrum. Measured in :mod:`bayesmith.evidence.compress`: on a
+            6-point kernel with one sample dropped the observed submatrix's
+            log-determinant is ``-0.7084`` and the closest subset sum of log-
+            eigenvalues is 0.47 nats away.
+        StructureError: if ``seen`` is not boolean, or does not match the
+            sigma's shape. A float mask would multiply rather than select, and
+            a broadcasting one would mask a different set of samples than the
+            caller named while every shape downstream stayed right.
+    """
+    from bayesmith.errors import StructureError
+
+    sigma = per_sample_sigma({"_": precision})
+    if sigma is None:
+        raise StructureError(
+            f"a {type(precision).__name__} has no per-sample sigma, so there "
+            "is nothing for a mask to select. An unobserved sample inside a "
+            "CORRELATED covariance has no exact meaning: the observed "
+            "submatrix of a stationary covariance is not itself stationary, "
+            "and its log-determinant is not a subset sum of the spectrum. "
+            "Split the node at the gap, or declare the covariance over the "
+            "samples that were actually taken."
+        )
+    flags = jnp.asarray(seen)
+    if flags.dtype != jnp.bool_:
+        raise StructureError(
+            f"the observation mask has dtype {flags.dtype}; it must be "
+            "boolean. A float mask multiplies where a boolean one selects, so "
+            "a 0.5 would halve a sample's weight and call it unobserved."
+        )
+    if flags.shape != jnp.shape(sigma["_"]):
+        raise StructureError(
+            f"the observation mask has shape {flags.shape} but the covariance "
+            f"is {jnp.shape(sigma['_'])}. Broadcasting these would mask a "
+            "different set of samples than the caller named, and every shape "
+            "downstream would still be right."
+        )
+    return MaskedPrecision(
+        base=DiagonalPrecision(sigma=jnp.asarray(sigma["_"])), seen=flags
+    )
 
 
 def check_positive_definite(precision: CirculantPrecision) -> None:
@@ -419,10 +561,24 @@ def per_sample_sigma(
     Returns the ``sigma`` arrays THEMSELVES, so a result built by
     ``diagonal_from(sigma)`` reports back exactly the arrays it was given --
     bitwise, not to a tolerance.
+
+    **A :class:`MaskedPrecision` reports ``inf`` where it was masked**, which
+    is not a second encoding but the one this package already had: it is what
+    :func:`~bayesmith.evidence.compress.observed_mask` reads, and it is how
+    the mask reached bayesmith from upstream in the first place. So
+    ``GLSResult.noise_std`` and ``Estimate.noise_std`` say "not observed" in
+    the same word their caller used, and ``compress`` masks a masked
+    covariance without knowing this class exists.
     """
-    if not all(isinstance(value, DiagonalPrecision) for value in precision.values()):
-        return None
-    return {name: value.sigma for name, value in precision.items()}
+    sigma: dict[str, jax.Array] = {}
+    for name, value in precision.items():
+        if isinstance(value, MaskedPrecision):
+            sigma[name] = jnp.where(value.seen, value.base.sigma, jnp.inf)
+        elif isinstance(value, DiagonalPrecision):
+            sigma[name] = value.sigma
+        else:
+            return None
+    return sigma
 
 
 def diagonal_from(noise_std: dict[str, Any]) -> dict[str, DiagonalPrecision]:

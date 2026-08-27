@@ -1771,3 +1771,61 @@ def lying_block_member(*, n=6, sigma=0.5, w_true=1.4, seed=35):
         observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
 
     return trace(model)
+
+
+def flagged_line(
+    *,
+    n=8,
+    slope=1.5,
+    intercept=-3.0,
+    sigma=0.4,
+    prior_std=5.0,
+    garbage=1e3,
+    flagged=(2, 5),
+    seed=40,
+):
+    """``d ~ N(a X + b, sigma)`` with two channels flagged and full of garbage.
+
+    **The model's arithmetic is written once and wrapped twice**, which is the
+    point of returning both graphs from one function rather than building them
+    in the test. A masking bug and a fixture that quietly describes two
+    different models look identical from the assertion's side, and this
+    package has paid for that once already (a graph fixture missing an
+    additive offset read exactly like a solver defect).
+
+    Returns ``(masked, kept, mask)``:
+
+    * ``masked`` sees all ``n`` samples and DECLARES which were taken;
+    * ``kept`` sees only the samples that were taken and declares nothing;
+    * ``mask`` is the boolean, ``True`` = taken.
+
+    The two must give the same posterior. The flagged entries carry
+    ``garbage`` -- three orders of magnitude off the line -- so that ignoring
+    the mask is not a small error but a visible one: a guard that cannot tell
+    a masked solve from an unmasked one is not a guard.
+    """
+    x = jnp.linspace(-2.0, 2.0, n)
+    clean = slope * x + intercept + sigma * jax.random.normal(
+        jax.random.key(seed), (n,)
+    )
+    mask = jnp.ones((n,), dtype=bool).at[jnp.asarray(flagged)].set(False)
+    data = jnp.where(mask, clean, garbage)
+
+    def build(xs, obs, node_mask):
+        def model():
+            coordinate = const("X", xs)
+            a = sample("a", lambda: dist.Normal(0.0, prior_std))
+            b = sample("b", lambda: dist.Normal(0.0, prior_std))
+            mu = det(
+                "mu",
+                lambda a_, b_, x_: a_ * x_ + b_,
+                a,
+                b,
+                coordinate,
+                linear_in=("a", "b"),
+            )
+            observe("d", lambda m: dist.Normal(m, sigma), mu, obs=obs, mask=node_mask)
+
+        return trace(model)
+
+    return build(x, data, mask), build(x[mask], data[mask], None), mask
