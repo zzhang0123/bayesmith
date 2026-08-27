@@ -121,6 +121,16 @@
   dtype 推导 rtol(fisher 天花板先例);(c) 保留 rheplicant 实现(违背
   一份实现)。*建议 (b) 主、(a) 兜底*;C19 四 gate 模式与新拒绝逐
   fixture 冒烟;天花板拒绝按「接受为修正」入铁律 4(iv)。
+  **【owner 已授权委托,2026-08-27:取 (b) 主、(a) 兜底,依 2026-08-27 的
+  一次性委托。】** 读成 (b) 的理由:float32 政策的争点是**一条 rtol 的来路**,
+  不是**谁算这件事**。(b) 让 bayesmith 从 dtype 推导 rtol——它已经为 fisher
+  天花板这么做过,所以这是**扩展一条既有惯例**而不是新开一条;(a) 则要求适配器
+  在上下文内重建图并 cast 摄入数组,而那正是 B2 定罪过的形状:**只包一层调用是
+  no-op**,做对的代价是把「哪些数组进过 cast」变成适配器的长期义务。**兜底的
+  退场条件写在这里,以免它变成主路**:(a) 只在 Wave A 实测出「dtype 推导的 rtol
+  仍拒绝一个今日通过的 C13/C19 fixture」时启用,且启用当批必须附上那次实测。
+  拍板不豁免该行原有的两项功课:C19 四 gate 模式与新天花板拒绝逐 fixture 冒烟,
+  谱隙表在最终采用的配置下重跑。
 - **D10 — NPE 迁移(`bayesmith.amortize`)。** 前提已定:**B4 已修**
   (e-RHINO `d499171`,simulate_pairs 以 `noise.realise` 生成、`std()`
   仅判 flagged——实测核实)。剩两个子裁决:(2) 生成器忠实性——§三噪声
@@ -128,17 +138,51 @@
   `NoiseModel.realise`(噪声物理本就留守),graph dist_fn 不承担生成器
   忠实义务;(3) 薄包装保持三名与 `NeuralPosterior` 的 `__all__` 导出
   (config surface 测试钉住)。
+  **【owner 已授权委托,2026-08-27:子裁决 (2) 续用 `NoiseModel.realise`;
+  (3) 薄包装保持三名,依 2026-08-27 的一次性委托。】** 读成这两个选项的理由:
+  §三 的噪声映射表整张都是**密度侧**(`Normal(mu, noise.std(mu))`),而
+  `RadiometerNoise` 的生成侧与密度侧**故意不同**——`realise` 是乘性的
+  `d(1+fw)`,`std` 取了绝对值且可带 floor,两者在预测过零处符号不同,该模块
+  自己的 docstring 逐字写着这一点。让 graph 的 `dist_fn` 兼任生成器,等于
+  静默地把生成侧换成密度侧;而噪声物理本就是留守的第 2 类。(3) 同理是铁律 1:
+  三个名字与 `NeuralPosterior` 的 `__all__` 导出被 config surface 测试钉着,
+  是保持面。
 - **D11 — calibrate 与 `InferencePlan.estimate`。** *建议迁为
   `bayesmith.fit`(G2)*,联合 MAP 与块坐标并存;loss 方向守卫随迁,
   `test_loss_sense` 经包装重放。
+  **【owner 已授权委托,2026-08-27:取「迁为 `bayesmith.fit`(G2)」,依
+  2026-08-27 的一次性委托。】** 读成这个选项的理由:D7 已拍 (a),而 (a) 的
+  第二个后果**逐字**写着「Wave B 的先决因此确实含 G2(`bayesmith.fit` 承接
+  gradient-MAP 出口)」。G2 因此无论如何都要存在;把 calibrate 留在 rheplicant
+  会造出两个梯度 MAP 实现,直接违反本计划的一份实现法则。loss 方向守卫随迁,
+  `test_loss_sense` 经包装重放(该测试问的是符号,而符号是 G2 必须保持的东西)。
 - **D12 — 证据族 API 与在盘数据。** rheplicant 容器保持自有类
   (`__check_init__` 异常身份在构造期,基类先行,**子类化无法翻译**),
   委托在算术调用处逐调用互转。**前置**:切换前用今日代码写出并**提交**
   读档 fixture(`.eqx`+manifest,`template_projections` 有/无两形态),
   Wave D 读档回归以提交文件为输入,x64 会话中逐字段断言。
+  **【owner 已授权委托,2026-08-27:取「rheplicant 容器保持自有类,算术调用处
+  逐调用互转」,依 2026-08-27 的一次性委托。】** 读成这个选项的理由是该行自己
+  括号里那句实测:`__check_init__` 的异常身份在**构造期**抛,基类先行,所以
+  **子类化无法翻译**——把容器换成 bayesmith 的类会在构造期抛出 bayesmith 的
+  异常,而那是被钉住的保持面。**前置条件不因委托而松动**:读档 fixture
+  (`.eqx`+manifest,`template_projections` 有/无两形态)必须在切换**之前**用
+  今日代码写出并**提交**;Wave D 若发现该 fixture 未提交,那一波不得开工。
 - **D13 — 发布列车。** P0 即发 bayesmith 0.2.0(表面已在;机制:
   `publish.yml` 门 tag==pyproject 版本、测试构建轮;动作序列见 §九 P0);
   0.3.0 承载 P2;程序结束前 rheplicant 发版清 385 提交旧账。
+  **【owner 已授权委托,2026-08-27:发布列车照原样走,但版本号的归属**修正**:
+  0.3.0 承载 **P2a**(P1 的先决表面),P2 余项完成后另发一版;依 2026-08-27 的
+  一次性委托。】** **这是委托下的一次事实修正,不是照抄建议**,理由是一次实测
+  与一条铁律的冲突:铁律 5 要求「任何使 rheplicant main 依赖新 bayesmith 表面
+  的提交,之前必须有承载该表面的发布在索引上」,而 **P1 的适配器依赖 P2a 的两个
+  表面**(`AffinityRefused` 的载荷、`ComplexNormal`),它们今天只在 Unreleased
+  段里。原文「0.3.0 承载 P2」要求 P2 **全部**做完才发版,那会让 P1 无法在铁律 5
+  下落地——两条规矩不可能同时满足。**为什么是 0.3.0 而不是铁律 5 字面写的
+  「0.2.x」**:CHANGELOG 的 Unreleased 段**自己**写着 `Breaking`(三个异常类的
+  `reason` 变必填),而 0.x 下破坏性变更属于 minor 位。把它发成 0.2.1 会让一个
+  破坏性变更藏在 patch 位下,这是「静默产出错答案」的那一侧;铁律 5 关心的是
+  **发布先于依赖**,版本号的选择本就是本行的职责。
 - **D14 — 分区执行面的完形(G10 的范围)。**(v2 前提已修正。)
   bayesmith **已有**执行器:`sample_factors(graph, plan, key)` 逐块扫描
   `FactorPlan`,块可手工构造。缺的是三件:(i) **每 sweep 诊断钩子**
@@ -156,6 +200,13 @@
   裁决重访 conditioning.md 的拒绝,移植为显式标注「measured-κ,不可作
   守卫」的诊断(**G14**);(b) kind 换 condition_bound 语义(数字动,
   `iterations:` 旋钮失对象);(c) 机房守卫挂名豁免。*建议 (a)*。
+  **【owner 已授权委托,2026-08-27:取 (a),依 2026-08-27 的一次性委托。】**
+  读成 (a) 的理由:(b) 换语义会**动数字**并让 `iterations:` 旋钮失去对象,那是
+  config 面的破坏;(c) 挂名豁免会在机房守卫的允许名单上留一个**没有理由的条目**,
+  而那份名单刚刚才被改成**双向**断言(未用的豁免自己就是红),所以 (c) 与已落地的
+  守卫形状直接冲突。(a) 把 `condition_estimate` 移植为 **G14** 的诊断,并显式
+  标注「measured-κ,不可作守卫」——保住数字、保住旋钮,且把「它不是守卫」这句话
+  写进代码而不是留在某个人的记忆里。
 - **D16 — `check_linearity` 探针契约的家。** 两边探针语义**五轴**不同:
   锚点(max|init| vs 先验宽)、at 点数(1 vs 3 含先验抽取)、判据数
   (单 vs 双含 Unresolved)、返回/异常形、**聚合粒度**(整输出 max vs
