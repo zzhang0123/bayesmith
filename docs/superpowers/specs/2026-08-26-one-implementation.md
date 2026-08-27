@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D39;拍板后回填本行)
+## 二、裁决登记簿(D7–D40;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -282,6 +282,17 @@
   - **第二族(边界仿射、亮暗混合)**:是 **D16 的第一轴(锚点)与第五轴
     (聚合粒度)**,不是 D17 的新问题。*建议把这两例挂在 D16 名下,D16 拍板后
     自动结清,不在 D17 里单独表决。* 先定 D17 只会把同一个决定做两遍。
+  **【D17 已结清 2026-08-27,而本行到今天为止是过期的。】** 记录页
+  `2026-08-27-d17-protocol.md`(比本行只晚一分钟提交)写着 owner 已就两族拍板:
+  **第一族取 (b)**——给 `auto_blocks` 传噪声,把两条拒绝提到分区期,判据与常数
+  不变,**探针留守 rheplicant**;实现已落地(e-RHINO `a04410e`),不传 `noise=`
+  时**不声明任何 log 块**并发 `UncheckedLogRouteWarning`,判据抽成
+  `loglinear.log_route_refusal(noise)` 一个谓词供两个消费者共读,并有防漂移守卫。
+  修完后 **6/8**。本行「四条分歧待逐个拍板」因此**从未成立过**,是本文与记录页
+  之间的一次一分钟的过期——「一个事实两份拼写」的又一例,而这次两份只差六十秒。
+  **【第二族的「自动结清」是假的,已实测,登记为 D40。】** D16 四条轴落地之后
+  **重跑了该协议**(它是 tracked 且可重跑的):仍然 **6/8**,`boundary_affine` 与
+  `bright_and_faint` 仍分歧。但**分歧的形状变了**,而那才是结论——见 D40。
 - **D18 — G9(复数域)的家,P1 开工前拍板。** (a) bayesmith exact 原生
   支持复 latent(移植 `_real_parts` 拆分与实内积伴随约定及两半恒等式
   测试);(b) 适配器侧 re/im 重参数化为两个实节点 + det 重组,bayesmith
@@ -673,6 +684,29 @@
   **解除条件**:Wave D 决定是否绑定;若绑定,那是一次 `_FORMAT_VERSION` 提升,
   本次提交的两份 fixture 要按新版本重写并**保留旧版本的那两份**,因为「旧写新读」
   正是这条 fixture 存在的理由。
+
+- **D40 — D17 余下两例的分歧**不是探针的分歧**,而是一条假的 `linear=True` 声明
+  该被怎么处置(D16 落地后重跑协议时新增)。**
+  D16 的四条轴落地后重跑 `probe_11_d17_dual_run.py`:仍 6/8,仍是 `boundary_affine`
+  与 `bright_and_faint`。**但两侧现在都判定那条 `linear=True` 是假的**;不同的是
+  接下来做什么:
+  - **rheplicant 抛** `LinearityRefused`(`auto_blocks`),而它自己的 docstring 写着
+    理由:这条检查跑在任何一对之前,「so that 'these two may not share a block'
+    always means a coupling between two sound declarations and never one broken
+    declaration poisoning every pair it appears in」。
+  - **bayesmith 把它归进 NUTS 块**并写上 `reason`,因为 `factor_partition` 是**推导**
+    一个分区,而一条被证伪的声明是那次推导的**输入**,不是它的故障。
+  **【本次委托下自定,2026-08-27:登记为有意的差异,两侧都不改;计划未预见此点。】**
+  两种处置对各自的包都是对的,而且**都不是探针**——把 `auto_blocks` 换成图侧探针
+  (D17 问的那件事)不会改变这两例中的任何一例。**这正是结清 D17 的那句话。**
+  **它现在有守卫了**,而之前没有:协议本身**故意**不论一致与否都退出 0(以免下一位
+  被诱去把它弄绿),所以这条差异一直是 D23 那种「已登记、无守卫」的形状。守卫是
+  `tests/crosscheck/test_dispatch.py::TestAFalseLinearDeclarationIsDisposedOfDIFFERENTLY`,
+  两个方向各一条,外加一条「两侧对**模型**的判断是一致的」。
+  **守卫刻意用一条毫不含糊为假的声明**(`0.1 s²`)而不是协议那条边界值(`1e-7`):
+  被钉的是**处置**,而用边界 fixture 会让这条守卫对一个它不该管的阈值敏感——
+  实测,`1e-7` 配先验宽 10 时 rheplicant **不拒绝**,所以那样写会把阈值钉成一次意外。
+  证据链:`2026-08-27-d17-protocol.md` §四点五 + 本次重跑。
 
 ## 三、P1 — 适配器基石
 

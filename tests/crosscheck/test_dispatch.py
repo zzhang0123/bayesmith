@@ -544,3 +544,150 @@ def test_rheplicants_plan_now_attributes_b1_to_the_block_type():
     )
     # The numbers this row supplied, still the ones it is arguing from.
     assert "5.104558" in text and "6.248269" in text, text[:200]
+
+
+class TestAFalseLinearDeclarationIsDisposedOfDIFFERENTLY:
+    """D17's two remaining disagreements are not probe disagreements at all
+    (ledger D40), and this pins the difference so it cannot drift.
+
+    ``probe_11_d17_dual_run.py`` re-run after D16's four axes landed: still
+    6/8, still ``boundary_affine`` and ``bright_and_faint``. But the SHAPE of
+    those two changed, and that is the finding. Both packages now agree the
+    ``linear=True`` declaration is false. They dispose of it differently:
+
+    * rheplicant **raises** ``LinearityRefused`` from ``auto_blocks``. Its own
+      docstring says why, and it is a reason rather than an accident: the
+      check runs before any pair is tried, "so that 'these two may not share a
+      block' always means a coupling between two sound declarations and never
+      one broken declaration poisoning every pair it appears in".
+    * bayesmith **files the latent to the NUTS block** with a ``reason``,
+      because ``factor_partition`` DERIVES a partition and a disproved claim
+      is an input to that derivation rather than a fault in it.
+
+    Both are correct for the package they are in, and neither is the probe.
+    Switching ``auto_blocks`` to the graph-side probe -- the question D17 was
+    asked -- would not move either case, which is what closes D17.
+
+    The protocol itself cannot pin this: it exits 0 whether or not the two
+    agree, deliberately, so that nobody is tempted to make it green. This is
+    the guard the difference otherwise did not have.
+    """
+
+    @staticmethod
+    def _almost_affine():
+        """``mu = s + 0.1 s**2`` with ``s`` linear in ``u``, declared
+        ``linear=True`` and plainly not affine.
+
+        UNAMBIGUOUSLY false, deliberately. The protocol's own fixture is
+        marginal (``1e-7``), which is what makes it a D16 question about where
+        a threshold sits; what is pinned here is the DISPOSITION of a false
+        declaration, and a marginal fixture would make this guard sensitive to
+        a threshold it is not about. Measured while writing it: at ``1e-7``
+        and a prior width of 10, rheplicant does not refuse -- so a guard
+        built on that number would have been pinning the threshold by
+        accident.
+        """
+        import numpyro.distributions as ndist
+
+        from bayesmith import const, det, observe, sample, trace
+
+        basis = jnp.asarray(
+            np.linalg.qr(np.linspace(-1.0, 1.0, 24).reshape(12, 2))[0]
+        )
+        truth = jnp.asarray([0.7, -0.4])
+        signal = basis @ truth
+        data = signal + 0.1 * signal**2
+
+        def model():
+            b = const("B", basis)
+            u = sample("u", lambda: ndist.Normal(jnp.zeros(2), 10.0).to_event(1))
+            mu = det(
+                "mu",
+                lambda u_, b_: (b_ @ u_) + 0.1 * (b_ @ u_) ** 2,
+                u, b,
+                linear_in=("u",),
+            )
+            observe("d", lambda m: ndist.Normal(m, 0.05), mu, obs=data)
+
+        return trace(model), basis, data
+
+    def test_bayesmith_FILES_it_to_nuts_with_a_reason(self):
+        from bayesmith.dispatch.factor import factor_partition
+
+        graph, _, _ = self._almost_affine()
+        plan = factor_partition(graph)
+        assert plan.nuts == ("u",)
+        block = next(b for b in plan.blocks if b.method == "nuts")
+        assert "u" in block.reason
+        assert "affine" in block.reason
+
+    def test_rheplicant_RAISES_on_the_same_claim(self):
+        """The other disposition, on the same mathematics.
+
+        The model is rebuilt here rather than imported from
+        ``probe_11_d17_dual_run.py``: what this pins is a CONTRACT (raise
+        versus file), not a number, so it should survive the protocol's
+        fixtures being edited -- and a guard that broke whenever a probe was
+        retuned would be retuned away.
+        """
+        import equinox as eqx
+        import numpyro.distributions as ndist
+        import pytest
+        from rheplicant.core.errors import LinearityRefused
+        from rheplicant.core.operator import AbstractOperator
+        from rheplicant.core.pipeline import Pipeline
+        from rheplicant.core.state import Coordinates, State
+        from rheplicant.inference.parameters import Bind, Latent, ParameterSpace
+        from rheplicant.inference.partition import auto_blocks
+
+        _, basis, _ = self._almost_affine()
+
+        class Predict(AbstractOperator):
+            # Plain class attributes, not annotated fields: an annotation
+            # here would make equinox treat them as per-instance data.
+            requires = ("coords.time", "coords.freq")
+            provides = ("data",)
+
+            params: dict
+            design: jax.Array = eqx.field(static=False)
+
+            def __call__(self, state):
+                signal = self.design @ self.params["u"]
+                row = signal + 0.1 * signal**2
+                return state.with_data(jnp.broadcast_to(row[:4], (3, 4)))
+
+        space = ParameterSpace(
+            latents=[
+                Latent(
+                    "u",
+                    init=jnp.zeros(2),
+                    linear=True,
+                    prior=ndist.Normal(jnp.zeros(2), 10.0).to_event(1),
+                )
+            ],
+            bindings=[Bind("u", into=lambda p: p["predict"].params["u"])],
+        )
+        pipeline = Pipeline(
+            Predict(params={"u": jnp.zeros(2)}, design=basis), names=("predict",)
+        )
+        state = State(
+            coords=Coordinates(
+                time=jnp.arange(3, dtype=float),
+                freq=jnp.linspace(60e6, 85e6, 4),
+            ),
+            meta={"telescope": "RHINO", "obs_id": "d40-guard"},
+        )
+        with pytest.raises(LinearityRefused):
+            auto_blocks(space, pipeline, state)
+
+    def test_the_two_dispositions_agree_about_the_MODEL(self):
+        """What makes this an intended difference rather than a defect: both
+        say the declaration is false. Only what they do next differs, and a
+        version of either that stopped saying so would fail here."""
+        from bayesmith.dispatch.factor import factor_partition
+
+        graph, _, _ = self._almost_affine()
+        block = next(
+            b for b in factor_partition(graph).blocks if b.method == "nuts"
+        )
+        assert "not affine" in block.reason or "affine" in block.reason
