@@ -341,7 +341,21 @@
   fixture 才分得开,所以那条 fixture 是这条裁决的守卫。
   **同时更正** `docs/migration/identifiability.md` §5.2 的那句话:它是本程序里
   「一个事实两份拼写、其中一份悄悄过期」的又一例,而这次过期的那份是**契约页**。
-  证据链:Wave A 的执行页。
+  证据链:`2026-08-27-wave-A-identifiability.md`。
+- **D22 — 秩测试合成图的三样,以及摘掉 `joint_prior`(Wave A 模块 1 时新增)。**
+  `identifiability` 不带数据、噪声、先验;`to_graph` 三样都要。门面因此**合成**
+  `observed=zeros`、`noise=HomoscedasticNoise(1.0)`、以及自由 latent 的先验,并
+  **摘掉**声明了的 `joint_prior`(否则继承 `to_graph` 对它的拒绝,实测打红
+  `test_jeffreys_prior.py` 八条)。
+  **【本次委托下自定,2026-08-27:合成三样并摘 `joint_prior`,且把「它们够不到
+  答案」作为**被测量的**前提而不是论证。】** 合法性只有一条:秩判决读不到它们
+  ——bayesmith 的 `local_block` 的 docstring 逐字写着先验字段「deliberately
+  empty」,`dense_operator` 微分的是观测节点的 `loc`。**但 docstring 不是测量**,
+  而这是整个委托赖以成立的假设,所以 `TestTheSynthesisedGraph` 把图造三遍(数据、
+  σ、先验宽度各变一次)逐字段比较报告,并配一条断言基线非退化的兄弟测试。
+  **一条必须重新测量而不能继承的假设**:`prior_sensitivity` **确实读先验**
+  (它算的就是先验位移),所以本行对它**无效**,`sensitivity` 那一批要自己量。
+  证据链:`2026-08-27-wave-A-identifiability.md` §一。
 
 ## 三、P1 — 适配器基石
 
@@ -605,6 +619,21 @@ config 侧引用)。
    (稠密均值、虚部被数据约束、GCR 矩);观测退出码 **1**(x64 会话),
    float32 会话退出码 0——因为复数面只在 `tests/seam/` 被跨仓消费,这本身就是
    「哪一侧承重」的一次读数。
+
+### Wave A / `identifiability`(2026-08-27,**第一组真正的跨仓变异**,7/7 击杀)
+
+此前每组变异都在一个仓内跑,因为 rheplicant 侧没有消费者。这七条是**改 bayesmith、
+看 e-RHINO 红**,详情与逐条红名单见 `2026-08-27-wave-A-identifiability.md` §五。
+
+| # | 变异(bayesmith) | e-RHINO 红 |
+|---|---|---|
+| W1 | `diagnose/identifiability.py` 秩切点 `>` → `>=` | 1 |
+| W2 | 同上,雅可比不做列归一化 | 9 |
+| W3 | 同上,零列除以自己的零范数 | 2 |
+| W4 | 同上,谱不补齐到 `n_par` | 1 |
+| W5 | 同上,SVD 永不索取完整左因子 | 4 |
+| W6 | `diagnose/local.py` 去掉图侧精度拒绝 | 2(含 `test_a_model_pinned_to_float32_is_refused`) |
+| W7 | `tests/test_migration_records.py` 的 `SWITCHED` 漏记一个已切模块 | 1(本条对 bayesmith 套件跑) |
 
 ## 附录 B — 拒绝文案清单
 
