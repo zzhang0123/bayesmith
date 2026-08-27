@@ -46,14 +46,15 @@ pinned by ``tests/dispatch/test_factor.py``.
 
 ## Status
 
-**0.3.0.** Published so other packages can depend on it by name -- and one
+**0.4.0.** Published so other packages can depend on it by name -- and one
 now does, in two places. rheplicant's auto-partition and log-space seams
 import `dispatch.factor.first_fit` and `exact.loglinear` from here; and its
 adapter, which presents a pipeline as a `Graph`, reads `AffinityRefused`'s
 payload and declares complex latents with `ComplexNormal`. That second pair
 is what the 0.3 floor names. Alpha in the classifier's sense: the API may
-still move -- 0.3.0 makes `reason` required on `NotGaussian` and
-`NotLogLinear`, which is breaking for anyone constructing them directly.
+still move -- 0.3.0 made `reason` required on `NotGaussian` and
+`NotLogLinear`, and 0.4.0 tightens two precision refusals, each breaking for
+a caller who was relying on the wrong answer.
 
 Implemented and tested, 1295 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every

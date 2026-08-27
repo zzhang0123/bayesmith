@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.4.0 -- 2026-08-27
+
+Cut ahead of the rest of P2, and for the rule rather than the milestone. The
+migration plan's release row said the next number would carry all of P2; its
+release GATE says only that rheplicant's main may not depend on a bayesmith
+surface that is not on the index. Wave A -- the first wave that switches
+rheplicant modules onto this package -- needs the four items below, and there
+is no reason for it to wait on the five P2 gaps that remain (G2, G9 in full,
+G10, G12, G14). The gate is satisfied by publishing before the dependency, not
+by publishing last.
+
+Minor rather than patch: two refusals are TIGHTENED below. Anyone handing
+`prior_sensitivity` or `JeffreysPrior` a graph whose own arithmetic is single
+precision was getting a wrong number and now gets an exception, which is a fix
+and is also a behaviour change. Under 0.x that belongs in the minor position,
+the same reading 0.3.0 took.
+
+
 **Two diagnostics could be handed a graph that truncates, and only one of them
 said so (D9).** `JeffreysPrior.information` and `prior_sensitivity` now refuse a
 graph whose own arithmetic is single precision, the way `identifiability`
