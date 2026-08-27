@@ -801,6 +801,14 @@ config 侧引用)。
 - **G3 `exact.chain`**:RTS/Kalman + `linked` 转移;自含于
   bayesmith.evidence.sqrtinfo 之上(chain→sqrtinfo 依赖边,故与证据族
   同波)。
+  **【已落地 2026-08-27,bayesmith 侧;落址 `evidence/chain.py`】** 名字写的是
+  `exact.chain`,但同一行写着「自含于 `evidence.sqrtinfo` 之上」,而 `SqrtInfo` 与
+  `marginalise_arrays` 都住 `evidence/`——**跟依赖走,不跟名字走**。六个名字全数,
+  容器 `ChainMemory` 按 G6 §2.2 留守。oracle 是 numpy 装配的**稠密联合**,四个探点、
+  一条 width-3 旋转链、20 epoch,rel **1e-9**。**六个常数逐个删掉再量**,外加一条
+  证明这一整类必须存在的测试(删掉常数后 `factor`/`target` 逐比特不变)。
+  `smooth` 用稠密块三对角解而非经典 RTS 后向传递,理由在其 docstring。
+  变异 6/6。证据链:`2026-08-27-g3-chain.md`。
 - **G4 `exact.reduced_basis`**。
   **【数组级五个名字已落地 2026-08-27,bayesmith 侧】** `orthonormal_transform` /
   `orthonormalise` / `numerical_rank` / `select_svd` / `select_greedy`。范围由 G6
