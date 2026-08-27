@@ -27,6 +27,31 @@ nor the latent's own size raises instead of wrapping.
 
 ### Added
 
+**G4: `exact.reduced_basis` -- selection and orthonormalisation.**
+`orthonormal_transform`, `orthonormalise`, `numerical_rank`, `select_svd`,
+`select_greedy`. The ARRAY-LEVEL linear algebra only: the containers and the
+declaration layer that builds a bank from a parameter space stay upstream, per
+D12 and the G6 enumeration.
+
+Selection and basis are different things and the separation is load-bearing.
+The selectors choose CANDIDATES; `orthonormalise` turns candidates into a
+basis. Storing raw candidates gives a Gram matrix no float64 quadratic form
+survives, which is also why `numerical_rank` cuts at `sqrt(eps)` and not at
+`eps` -- the quadratic form squares the conditioning, so a set that is merely
+invertible is not usable. `orthonormal_transform` returns the TRANSFORM rather
+than the rows, because a basis has to be applicable to the raw rows too: the
+whitened copy is infinite wherever the reference could not see, and that is
+what a zero weight means rather than a limitation.
+
+**Every entry point refuses ambient float32, by name.** A separate guard from
+`diagnose.local`'s, with a separate argument: that one is about a rank verdict
+below float32's roundoff, this one is about the Gram matrix. The retention cut
+is `sqrt(eps)` of the arithmetic in hand -- 3.4e-04 in float32 against 1.5e-08
+in float64 -- so on a foreground-dominated bank every direction below a
+ten-thousandth of the largest is silently dropped, which is precisely the
+direction a reduced basis exists to keep. The message says to build the BANK
+inside the block, because widening only the call recovers nothing.
+
 **G15: `local_block(..., priors=True)` -- a nonlinear model's local block that
 also carries the declared priors.** The gap in one sentence: a nonlinear
 model's posterior precision at a point needs the Jacobian from `local_block`
