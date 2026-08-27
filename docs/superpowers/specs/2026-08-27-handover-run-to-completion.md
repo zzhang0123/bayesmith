@@ -1,7 +1,8 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-27 · 交接自 P0 / P2a / D16 / D17 完成后的会话。
+> **日期**:2026-08-27(第二次改写)· 交接自 **G1 完成**后的会话。
+> 此前一版交接自 P0 / P2a / D16 / D17 / P1 完成后的会话。
 
 ---
 
@@ -31,9 +32,12 @@
 
 1. **计划本体**:`docs/superpowers/specs/2026-08-26-one-implementation.md`
    ——终局形态、七条铁律、登记簿 D7–D19、缺口 G1–G14、四波切换、附录 A/B/C。
-2. 本程序至今的四份执行记录,同目录:
+2. 本程序至今的**六份**执行记录,同目录:
    `2026-08-26-wave-P0.md`、`2026-08-26-wave-P2a.md`、
-   `2026-08-27-d17-protocol.md`、`2026-08-27-d16-five-axes.md`。
+   `2026-08-27-d17-protocol.md`、`2026-08-27-d16-five-axes.md`、
+   `2026-08-27-wave-P1.md`、`2026-08-27-wave-P2-G1.md`。
+   **最后一份最值得先看**:它记的三处「守卫已经不会失败了」是三种不同的形状,
+   而三种都只有变异能看见。
 3. 前代 spec 的 §四(模块绑定契约台账)与 §六(本程序的由来):
    `2026-08-24-rheplicant-migration.md`。
 4. 两仓工作笔记(操作规则,条条是学费):`/Users/zzhang/projects/e-RHINO/CLAUDE.md`
@@ -41,71 +45,63 @@
 
 ## 二、当前状态(2026-08-27 实测,先复核再信)
 
-- **bayesmith** `70e390f`,已推送(P1 批次的最后一条是 CI floor 的棘轮上调,
-  所以这个哈希比记录页里引的 `eb69414` 晚一条——**照例先 `git -C … log -1`
-  复核再信**);**0.3.0 在 PyPI 上**(simple 索引已见 wheel
-  与 sdist);套件 **1235 passed / 0 skipped**;`ruff check src/ tests/ examples/`
-  干净。
-- **e-RHINO** `647a2ed`,已推送;套件两阶段跑
-  **10057 passed / 522 skipped**(`-n 4 --ignore=tests/gui/e2e`)加
-  **21 passed**(`tests/gui/e2e -n 2`),两阶段退出码均 0;README 计数 **10599**,
-  coverage floor `fail_under = 89`(未动)。
-- 两仓互为 editable 安装;e-RHINO 的 bayesmith 地板已升到 **`>=0.3`**。
-- **两个跨仓 workflow 现在并行**:`crosscheck.yml`(两实现是否仍一致)与
-  **新增的 `seam.yml`**(rheplicant 的 inference 层与适配器验收层在这份
-  bayesmith 上是否还能跑)。crosscheck 对 e-RHINO main 仍 **123 passed /
-  0 skipped**。
-- e-RHINO 根目录九份未跟踪评审/交接草稿:**不动**(计划附录 C 明令)。
-  `run.log`/`run.exit`/`run2.log`/`run2.exit` 已入 `.gitignore`。
+- **bayesmith** `c4e831b`,已推送(`ls-remote` 核实);**0.3.0 在 PyPI 上**;
+  套件 **1258 passed / 0 skipped**,exit 0,190 s(`-n 4`);
+  `ruff check src/ tests/ examples/` 干净。CHANGELOG 的 `Unreleased` 段现在
+  **不为空**——它装着 G1,这就是下一个发布号的内容。
+- **e-RHINO** `647a2ed`,已推送,**本会话未动一行源码**。上次全量:
+  **10057 passed / 522 skipped**(`-n 4 --ignore=tests/gui/e2e`)加 **21 passed**
+  (`tests/gui/e2e -n 2`);README 计数 **10599**,coverage floor
+  `fail_under = 89`(均未动)。
+- **跨仓实测(2026-08-27,对 bayesmith `c4e831b`)**:e-RHINO `tests/inference`
+  **996 passed** exit 0;`tests/seam`(x64)**19 passed / 1 xfailed** exit 0。
+  那个 xfail 是 D19 的闹钟,**strict**,Wave B 落地当天它会因为「意外地绿」而红。
+- 两仓互为 editable 安装;e-RHINO 的 bayesmith 地板 **`>=0.3`**。
+- 两个跨仓 workflow 并行:`crosscheck.yml` 与 `seam.yml`。
+- e-RHINO 根目录九份未跟踪评审/交接草稿:**不动**(附录 C 明令)。
 
-**已完成**:P0(落盘 + 发布 0.2.0)、P2a(G11 + G9 最小面含 `ComplexNormal`)、
-D17 裁决协议、D16 四条轴落地、**P1(适配器 + 钉名十例 + 拒绝文案清单 +
-接缝 CI + 发布 0.3.0)**——记录页 `2026-08-27-wave-P1.md`。
+**已完成**:P0、P2a、D17 协议、D16 四条轴、P1、**P2 余项的 G1**
+(记录页 `2026-08-27-wave-P2-G1.md`)。
 
-**已拍板的 D 项**:D7、D8、D14、D16、D17、D18、D19(owner 亲拍);
-**D9、D10、D11、D12、D13、D15(2026-08-27 的一次性委托下已处置,理由回填在
-各自那一行)**。**登记簿至此全部有裁决。**
+**登记簿**:D7–D19 全部有裁决;**D20 为本次委托下自定的新条目**(掩码的声明面
+取节点声明,不取 inf-σ),理由回填在计划 §二。
 
-## 三、委托下已处置的六项(2026-08-27),以及一条被实测收紧的
+## 三、G1 批次留下的三件事(下一位会先撞到)
 
-| 项 | 结果 |
-|---|---|
-| **D9** float32 政策 | 取 (b) 主、(a) 兜底;(a) 的**启用条件**写在那一行,以免兜底变主路 |
-| **D10** NPE 迁移 | (2) 续用 `NoiseModel.realise`;(3) 薄包装保持三名 |
-| **D11** calibrate | 迁为 `bayesmith.fit`(G2) |
-| **D12** 证据族 API | 容器保持自有类,逐调用互转;**读档 fixture 的前置条件不因委托而松动** |
-| **D13** 发布列车 | **事实修正**:0.3.0 承载 **P2a**(已发),P2 余项完成后另发一版;理由是铁律 5 与原文冲突 |
-| **D15** condition_estimate | 取 (a),移植为 G14 的 measured-κ 诊断 |
-
-**D19 被一次实测收紧(裁决不变,范围变)**:登记簿写「首解退化」,实测退化发生
-在**更早一层**——`linear_operator` 自己的线性化点就取在先验中心,σ=0,
-`check_linearity` 先抛 `StructureError`。所以 Wave B 的数据锚定起步要**同时**
-覆盖 block 的 `at` 与 GLS 的起点。已编码成
-`tests/seam/test_p1_ten_examples.py` 里一条 `xfail(strict=True)` 的回归 fixture
-——**strict**,所以 Wave B 落地那天它会因为「意外地绿」而红。
+1. **`Unreleased` 段不为空,而适配器在等它。** e-RHINO 的
+   `graph_bridge.py::_refuse_flagged_noise` 仍原样拒绝 `FlaggedNoise`,文案里
+   写着「Masking is the G1 gap on the bayesmith side」。按铁律 5,接线要等承载
+   G1 的 bayesmith 发布上索引;按 D13,那一版在 **P2 余项做完之后**发。所以
+   接线是 P2 收尾那一批的事,不是现在。届时
+   `tests/inference/test_refusal_census.py` 的逐文件计数会红并**报出**要写进
+   附录 B 的新数字——按它报的改,不要自己加。
+2. **`evidence/campaign.py` 的分期切片对 `MaskedPrecision` 无规则**,会以
+   「no rule for slicing a MaskedPrecision」明确报错。证据层是 Wave D,补齐还是
+   保留为限制由那一波定,并上登记簿。
+3. **五行协议现在有第 (0) 条**:先提交本批次,再跑变异集。`git checkout -- src/`
+   以 HEAD 为准,在一棵带未提交改动的树上它回退的是**工作**而不是变异——本会话
+   实测,它吃掉了 G1 的第一版源码。已写进计划 §六 与 bayesmith 的 CLAUDE.md;
+   **e-RHINO 的 CLAUDE.md/AGENTS.md 还没写**(它们逐字节一致,由
+   `tests/test_docs_claims.py` 钉着,要成对改),留给下一个动 e-RHINO 的批次。
 
 ## 四、剩余工作(按计划 §九 的顺序)
 
-1. ~~**P1 适配器**~~ **已完成 2026-08-27**,见 `2026-08-27-wave-P1.md`。
-   落点:e-RHINO `src/rheplicant/inference/graph_bridge.py`、
-   `tests/seam/`(x64 子会话,19 passed + 1 xfail)、
-   `tests/inference/test_graph_bridge.py`(36)、
-   `tests/inference/test_refusal_census.py`(附录 B 的守卫)、
-   bayesmith `.github/workflows/seam.yml`。**两条接缝变异实跑,双双击杀**
-   (附录 A 第 3、4 行)。**三件事留给下一位**:(a) 接缝 CI 的两个 floor
-   (`FLOOR`、`ADAPTER_FLOOR`)是本地实测的种子,按 runner 第一次绿跑打印的
-   数字往上写;(b) `to_graph`/`translate` 要不要经门面公开,是 Wave A 前的
-   一条新裁决(今天**没有**导出,门面 106 名单未动);(c) 例 5b 的
-   `xfail(strict=True)` 是 Wave B 的闹钟,不要顺手删。
-2. **P2 余项**:G1 掩码、G2 `bayesmith.fit`、G3 `exact.chain`、G4
-   `exact.reduced_basis`、G5 `bayesmith.amortize`、G6 证据消费面、G7 bridge 补齐、
-   **G9 全量**(vmap/log 空间/Fisher 的复数面;另**登记在案的两项**:`diagnose`
-   仍拒绝复 latent、`exact.correct.log_weight` 仍在域里索引)、G10 分区执行面
-   (三件全做,D14 已拍)、G12、G13、G14。
-3. **P3 四波**:Wave A(检查与报告面)、Wave B(求解与计划)、Wave C、Wave D。
-4. **P4** 质量机制换防(oracle 改籍、接缝 CI 与 crosscheck 双岗、
-   `test_engine_room.py`、R3 编译计数门)。
-5. **P5–P7**:18 个 run kind 冒烟、发布列车、P7 具名文档清单。
+1. ~~P1 适配器~~ 已完成;~~G1 掩码~~ **已完成 2026-08-27**。
+2. **P2 余项(按计划 §九 的口径)**:**G2** `bayesmith.fit`、**G7** bridge 补齐、
+   **G9 全量**(vmap / log 空间 / Fisher 的复数面;另登记在案的两项:`diagnose`
+   仍拒绝复 latent、`exact.correct.log_weight` 仍在域里索引)、**G10** 分区执行面
+   (三件全做,D14 已拍)、**G12**、**G13**、**G14**。
+   > 口径差,写明以免下一位两处都读、两处都信:本页早先版本把 G3/G4/G5/G6 也
+   > 列进「P2 余项」;计划 §九 的排期表把它们分别排在 **Wave C(+G4/G5 实现)**
+   > 与 **Wave D(+G3/G6 实现)**。**以 §九 为准。**
+3. **收尾发布**:P2 余项做完后发一版 bayesmith(D13),然后 e-RHINO 侧接线
+   (含 §三 第 1 条)。
+4. **P3 四波**:Wave A(先决 P1+D9+D16+**G7**+G11+**G13**)、Wave B、Wave C、
+   Wave D。
+5. **P4** 质量机制换防;**P5–P7**。
+
+**下一批的自然选择是 G7 或 G13**——两者都是 Wave A 的先决,都不依赖任何未拍的
+裁决,且都在 bayesmith 一侧,因此不受铁律 5 的发布门约束。
 
 ## 五、批次纪律(铁律 4,每批四件套)
 
@@ -151,6 +147,11 @@ D17 裁决协议、D16 四条轴落地、**P1(适配器 + 钉名十例 + 拒绝�
 - `cd` 不跨回合存活:每条 git 命令都用 `git -C <绝对路径>`。
 - **推送后用 `git ls-remote` 核实**,不要读本地记录。
 - 子代理一律被拒 `EnterWorktree`;编排者自建 worktree + `git -C` 可行。
+- **跑变异集之前先把批次提交。** `git checkout -- src/` 以 HEAD 为准;在一棵带
+  未提交改动的树上它是一次静默的全量回退。实测吃掉过一整批未提交的源码改动。
+  另外两条同源的脚本教训:变异日志要 `flush`(被杀的运行否则只留下一个 0 字节
+  文件),`rglob("__pycache__")` 不要从仓根走(它连 `.venv` 一起删,把 15 秒的
+  变异拖成 2 分钟)。
 
 **计数与文档**
 
@@ -195,8 +196,18 @@ JAX_ENABLE_X64=1 .venv/bin/python -m pytest tests/seam
    bayesmith 一模一样的两条拒绝、同一个常数 0.06,只是住在求解期,于是它产出
    了自己的求解器会拒绝的分区。**问「这个检查拿到它需要的全部输入了吗」。**
 
-另外:**一个刚写完的守卫要先证明它还能失败**。本会话对每个新判据都跑了变异
-(D16 四条轴、G9 六个变异、G11 的 AST 普查),每次都问「红的是不是**我的**断言」。
+另外:**一个刚写完的守卫要先证明它还能失败**。对每个新判据都跑变异
+(D16 四条轴、G9 六个变异、G11 的 AST 普查、G1 十四条),每次都问「红的是不是
+**我的**断言」。
+
+4. **一条从另一个库搬来的「常识」。** G1 的 `MaskedPrecision` 有一段 docstring
+   论证「`0 * nan` 是 `nan`,所以要在输入侧也掩」——为它写的变异**幸存**了。
+   实测:JAX 里 `bool 数组 * float 数组` 是**选择**(`[T,F,T] * [1,nan,3]` 得
+   `[1,0,3]`,eager 与 jit 一致),而 NumPy 是相乘(得 `[1,nan,3]`)。那句
+   「常识」是 NumPy 的,搬进来防的是一个不存在的东西。**顺着这条查下去才发现
+   真的洞**:乘法在 `quadratic` 里,`sum(r * apply(r))`,于是求解干净而密度是
+   `nan`。教训是两层:跨库搬事实要重测;以及**一个幸存的变异要追到底,不要
+   补一条断言就算了结**——真正的缺陷在第二层。
 
 ## 八、上下文用尽时怎么收尾(不要硬撑)
 
