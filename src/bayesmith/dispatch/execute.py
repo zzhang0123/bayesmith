@@ -826,9 +826,13 @@ def _refuse_unless_whole_graph_exact(plan: InferencePlan) -> None:
         "sampling"
     )
     raise NotImplementedError(
-        f"estimate() has no point estimate for this graph: {why}. Use sample() "
-        "instead. A point estimate of a partly-sampled graph is a MAP over the "
-        "sampled latents, which needs an optimiser this package does not ship "
-        "(P5) -- and the conditional mean of the exact block at some arbitrary "
-        "value of the others is not it, however much it looks like a number."
+        f"estimate() has no point estimate for this graph: {why}. A point "
+        "estimate of a partly-sampled graph is a MAP over the sampled "
+        "latents, and the conditional mean of the exact block at some "
+        "arbitrary value of the others is not it, however much it looks like "
+        "a number. Two routes now exist and this one is still not either of "
+        "them: `bayesmith.estimate_factors(graph, plan)` sweeps a factor "
+        "partition -- exact blocks solved, the remainder stepped by `fit` -- "
+        "or `bayesmith.fit(graph)` maximises the joint over every latent at "
+        "once. Or use sample()."
     )

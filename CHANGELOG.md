@@ -2,6 +2,69 @@
 
 ## Unreleased
 
+**The factor execution surface gains the three things D14 named (G10), and
+G12 with them.** All three land ON `sample_factors` rather than beside it: the
+migration plan's v2 believed this package had no multi-block executor and was
+wrong, and starting a second one would break the one-implementation rule from
+the inside.
+
+`declared_partition(graph, blocks)` builds a `FactorPlan` from a block table
+the caller decided. No affinity probe runs -- counted, not asserted:
+`check_linearity` is entered zero times -- and no movement gate. You declare,
+you are responsible: a `"gcr"` block whose prediction is not affine in its
+members gives a draw from a linearisation, silently, with a converged residual
+and a healthy chain, and nothing here can tell you so because the check that
+would have is what the entry skips. Every block records `declared` and `not
+probed` in its `reason`, so a plan read later cannot be mistaken for a derived
+one. What is still refused is bookkeeping rather than modelling: a name that
+is not a latent, a latent in two blocks or in none, an empty block, an unknown
+method, a second `"nuts"` block. An incomplete cover is refused rather than
+swept into a NUTS block, because inventing that decision is the opposite of
+what the entry is for.
+
+`sample_factors(..., on_sweep=)` calls back with a `SweepReport` after every
+sweep -- index, warmup flag, the values kept, the joint log-density there, and
+a relative CG residual per exact block, which this executor used to drop on the
+floor. The joint is the chi-square trajectory in the spelling that survives a
+non-Gaussian model: for a Gaussian one `-2 log_joint` IS the chi-square up to a
+constant that does not move along a trajectory. **Refused on a plan with a
+NUTS remainder**, and the reason is measured rather than defensive: the sweep
+is then HMCGibbs's `gibbs_fn`, which numpyro traces -- entered twice at the
+Python level for five sweeps of a two-block plan -- so a callback there fires
+once, at trace time, and reports a sweep that never happened.
+
+`estimate_factors(graph, plan, sweeps=)` is a POINT by block coordinate
+ascent: exact blocks solved for their conditional mean by `wiener_solve`, and
+the remainder, if any, stepped by `fit`. It takes no key and is deterministic;
+a sweep that drew would land near the mode too and differ run to run. It
+answers what `InferencePlan.estimate` refuses -- a graph that is not exact
+throughout -- and on a plan carrying a `gcr` block, a `log-gcr` block and a
+`nuts` remainder it recovers `log_gain` 0.469 against a simulated 0.470 and
+`centre` 0.1033 against 0.100.
+
+Because a Gaussian conditional's mean IS its mode, a Wiener sweep is exact
+coordinate ascent on the joint, so `SweepEstimate.history` is non-decreasing
+by construction on an all-exact plan -- the assertion a stale-environment bug
+fails. What it does not fix is the partition: alternating one-latent blocks on
+`collinear_pair` is still 0.758 from the joint answer after 300 sweeps, with
+the joint log-density monotone the whole way and moving five hundredths of a
+nat. Every number a caller could look at says converged. The remedy is the
+block, not the sweep count.
+
+**G12 -- sigma frozen at the block's current value** is reachable through that
+declared path, and it is the existing rebuild branch rather than new
+arithmetic: `precision_at(source, current)` where `current` already holds the
+block's own latest draw. The condition is about an OUTSIDE latent, which is
+worth stating because it is easy to get backwards -- two blocks over a
+prediction-dependent sigma rebuild, one block over the whole model is hoisted
+at the prior centre instead, a different approximation with a different error.
+Both are approximations with a name and neither is a correctness proof; the
+transition is history-dependent and the chain is not in general invariant for
+the declared posterior. `"gcr+mh"`, the corrected version, is refused at
+construction with its own message rather than the generic unknown-method one:
+`_mh_step`'s argument is a single-block one and is enforced by a signature
+that has no `x` to pass.
+
 **`fit` -- gradient MAP, the exit an exact solve does not have (G2).**
 `wiener_solve` and `iterative_gls` answer a model that is affine in its
 latents; everything else has only a gradient, and until now this package had

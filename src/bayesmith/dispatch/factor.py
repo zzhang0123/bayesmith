@@ -44,8 +44,8 @@ outside latents' priors -- which the originals were not.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, NamedTuple
 
 import equinox as eqx
 import jax
@@ -72,6 +72,7 @@ from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.linearity import DEFAULT_SCALES, check_linearity
 from bayesmith.exact.loglinear import LOG_DEFAULT_SCALES, LogSpace, log_space
 from bayesmith.exact.solve import gcr_sample
+from bayesmith.graph.evaluate import log_joint
 from bayesmith.graph.graph import Graph
 
 #: The methods a factor block can carry. ``"gcr"`` and ``"log-gcr"`` are the
@@ -421,6 +422,194 @@ def factor_partition(
     )
 
 
+def declared_partition(
+    graph: Graph,
+    blocks: Sequence[tuple[Sequence[str], str]],
+    *,
+    key: jax.Array | None = None,
+    measure: bool = True,
+) -> FactorPlan:
+    """A :class:`FactorPlan` from a block table the CALLER decided (G10 iii).
+
+    :func:`factor_partition` derives a partition by probing: it checks each
+    latent's affinity alone, groups by the pairwise joint check, and refuses a
+    group whose sigma moves with it. This entry runs none of that. It takes
+    the groups and the methods as given, builds the plan, and hands it to
+    :func:`sample_factors`.
+
+    **You declare, you are responsible.** That is not a disclaimer, it is the
+    contract: a ``"gcr"`` block whose prediction is not affine in its members
+    gives a draw from a linearisation, silently, with a converged residual and
+    a healthy chain. Nothing here can tell you so, because the check that
+    would have is exactly what this entry skips. Every block records
+    ``declared`` in its ``reason`` so a plan read later cannot be mistaken for
+    a derived one.
+
+    What is still refused is everything that is a BOOKKEEPING error rather
+    than a modelling claim -- a name that is not a latent, a latent in two
+    blocks or in none, an empty block, an unknown method, a second ``"nuts"``
+    block. Those are not judgements about the model, and letting them through
+    would make the entry useless rather than permissive.
+
+    **G12 -- sigma frozen at the block's CURRENT value, and exactly when.**
+    A block whose sigma moves with its own members is what
+    :func:`factor_partition` refuses (the movement gate); declaring it
+    ``"gcr"`` here is how that semantics becomes reachable. What happens then
+    is already in :func:`sample_factors` and is not new code: a block is put
+    on the REBUILD branch by
+    :func:`~bayesmith.dispatch.classify._sigma_needs_rebuild`, and that branch
+    reads ``precision_at(source, current)`` where ``current`` already holds
+    every latent's latest value, the block's own included.
+
+    **The condition is about an OUTSIDE latent, and that matters here.**
+    ``_sigma_needs_rebuild`` asks whether an observed node depends on a latent
+    outside the block -- so a plan of two or more blocks over a
+    prediction-dependent sigma rebuilds, and a plan of ONE block over the
+    whole model does not: with nothing outside it, that block is hoisted and
+    its sigma is frozen at the PRIOR CENTRE instead. Measured on a
+    single-latent radiometer: ``_sigma_needs_rebuild`` returns ``False``.
+    Two different approximations, and only the first is the one this entry is
+    for.
+
+    **Either way it is an approximation with a name, not a correctness
+    proof.** The transition is history-dependent and the chain it produces is
+    not, in general, invariant for the declared posterior. It is offered
+    because it reproduces a specific existing behaviour exactly, and that is
+    written down here so "the switch-over kept the numbers" is not mistaken
+    for "the sampler is right". ``"gcr+mh"`` -- the corrected version -- is
+    refused at construction, with its own message.
+
+    Args:
+        graph: the model.
+        blocks: ``[(names, method), ...]`` in sweep order. Methods are
+            :data:`FACTOR_METHODS`. The order is the caller's and is kept --
+            block order is a modelling choice for a Gibbs sweep, not an
+            implementation detail.
+        key: PRNG key for the kappa sweep, when ``measure`` is on.
+        measure: whether to measure each exact block's conditioning and set
+            its ``tol`` from it, as :func:`factor_partition` does. ``False``
+            leaves ``tol`` unset and :func:`sample_factors` falls back to its
+            own default -- for a caller who knows the probe is expensive and
+            does not want the number.
+
+    Returns:
+        A :class:`FactorPlan`.
+
+    Raises:
+        StructureError: for any of the bookkeeping errors listed above.
+    """
+    key = jax.random.key(0) if key is None else key
+    latents = list(graph.latents)
+    declared: list[tuple[tuple[str, ...], str]] = []
+    seen: dict[str, int] = {}
+    for index, (names, method) in enumerate(blocks):
+        group = tuple(names)
+        if not group:
+            raise StructureError(
+                f"declared_partition: block {index} is empty. A block with no "
+                "latents has nothing to sweep; drop it from the table."
+            )
+        if method == "gcr+mh":
+            # G12's construction-time refusal, named separately from the
+            # generic unknown-method one because the reason is specific and a
+            # caller reaching for it has a real model in mind.
+            raise StructureError(
+                f"declared_partition: block {group} asks for 'gcr+mh', and "
+                "this executor does not sweep it -- deliberately, not for "
+                "want of a branch. `_mh_step`'s correctness argument is a "
+                "SINGLE-block one, and it is enforced by a signature: "
+                "`_precision_at` takes no `x`, so a frozen-sigma proposal "
+                "cannot silently be evaluated at the moving point. A "
+                "Metropolis accept per block per sweep is a different "
+                "argument and it has not been written down. Use "
+                "`bayesmith.exact.gibbs.assemble` for that block alone, "
+                "declare it 'nuts', or -- if what you want is sigma frozen "
+                "at the block's CURRENT value rather than corrected -- "
+                "declare it 'gcr' and read this function's note on G12, "
+                "which is an approximation with a name rather than a "
+                "correctness proof."
+            )
+        if method not in FACTOR_METHODS:
+            raise StructureError(
+                f"declared_partition: block {group} carries method "
+                f"{method!r}, which is not one this package sweeps; the "
+                f"methods are {list(FACTOR_METHODS)}."
+            )
+        for name in group:
+            if name not in latents:
+                raise StructureError(
+                    f"declared_partition: block {group} names {name!r}, which "
+                    f"is not a latent of this graph; its latents are {latents}."
+                )
+            if name in seen:
+                raise StructureError(
+                    f"declared_partition: {name!r} is in more than one block "
+                    f"({blocks[seen[name]][0]} and {group}). A Gibbs sweep "
+                    "updates each latent once per pass, so a latent in two "
+                    "blocks would be conditioned on a value it had already "
+                    "replaced."
+                )
+            seen[name] = index
+        declared.append((group, method))
+
+    uncovered = [name for name in latents if name not in seen]
+    if uncovered:
+        raise StructureError(
+            f"declared_partition: {uncovered} are in no block. "
+            "`factor_partition` sweeps what it could not solve into a NUTS "
+            "block; this entry does not, because inventing that decision is "
+            "the opposite of what a declared partition is for. Add them to a "
+            "block, or declare a `(names, 'nuts')` block of your own."
+        )
+    nuts_blocks = [g for g, m in declared if m == "nuts"]
+    if len(nuts_blocks) > 1:
+        raise StructureError(
+            f"declared_partition: {len(nuts_blocks)} 'nuts' blocks "
+            f"({nuts_blocks}). A plan carries at most one 'nuts' block -- "
+            "`FactorPlan.nuts` returns the first, so a second would be a "
+            "block that is never sampled and never mentioned."
+        )
+
+    env = prior_environment(graph)
+    transformed = (
+        log_space(graph) if any(m == "log-gcr" for _, m in declared) else None
+    )
+    built: list[Block] = []
+    for group, method in declared:
+        if method == "nuts":
+            built.append(
+                Block(
+                    latents=tuple(sorted(group)),
+                    method="nuts",
+                    reason="declared: this block was named by the caller, not probed",
+                )
+            )
+            continue
+        source = transformed.graph if method == "log-gcr" else graph
+        kappa = tol = epsilon = None
+        if measure:
+            kappa, tol, epsilon = _measured(
+                source, group, env, key, sweep_outside=(method != "log-gcr")
+            )
+        built.append(
+            Block(
+                latents=tuple(sorted(group)),
+                method=method,
+                reason=(
+                    f"declared {method} block: the caller asserted this group is "
+                    "jointly affine and its sigma frozen; not probed here"
+                ),
+                kappa=kappa,
+                tol=tol,
+                epsilon=epsilon,
+            )
+        )
+    return FactorPlan(
+        blocks=tuple(built),
+        log_space=transformed if any(b.method == "log-gcr" for b in built) else None,
+    )
+
+
 def _movement_of(
     graph: Graph,
     operator: Any,
@@ -447,6 +636,32 @@ def _source_of(graph: Graph, plan: FactorPlan, block: Block) -> Graph:
     return graph
 
 
+class SweepReport(NamedTuple):
+    """One sweep, as the ``on_sweep`` hook sees it (G10 i).
+
+    Attributes:
+        index: sweep number over warmup and kept sweeps together, from 0.
+        warmup: whether this sweep is being discarded.
+        values: every latent's value at the END of this sweep -- the row that
+            was kept, when ``warmup`` is false.
+        log_joint: the joint log-density there. This is the chi-square
+            trajectory D14 asks for, in the spelling that also exists for a
+            model that is not Gaussian: for one that is, ``-2 log_joint`` IS
+            the chi-square up to an additive constant, and the constant does
+            not move along a trajectory.
+        residuals: ``{block latents: relative CG residual}`` for this sweep's
+            solves. Not an accuracy -- multiply by the block's ``kappa`` for
+            that -- but it is the only per-solve number there is, and this
+            executor used to drop it on the floor.
+    """
+
+    index: int
+    warmup: bool
+    values: dict[str, Any]
+    log_joint: jax.Array
+    residuals: dict[tuple[str, ...], jax.Array]
+
+
 def sample_factors(
     graph: Graph,
     plan: FactorPlan,
@@ -456,6 +671,7 @@ def sample_factors(
     num_samples: int = 2000,
     maxiter: int | None = None,
     nuts_options: dict[str, Any] | None = None,
+    on_sweep: Callable[[SweepReport], None] | None = None,
 ) -> dict[str, jax.Array]:
     """Draw from the posterior by sweeping the plan's blocks.
 
@@ -477,6 +693,13 @@ def sample_factors(
         num_warmup, num_samples: sweeps discarded and kept.
         maxiter: CG iteration cap per solve.
         nuts_options: forwarded to the inner NUTS kernel, when there is one.
+        on_sweep: called with a :class:`SweepReport` after every sweep, warmup
+            included. **Refused on a plan with a NUTS remainder**, and the
+            reason is measured rather than defensive: with one, the sweep
+            becomes ``HMCGibbs``'s ``gibbs_fn``, which numpyro TRACES -- on a
+            two-block plan over five sweeps it is entered twice at the Python
+            level. A callback there would fire once, at trace time, and report
+            a sweep that never happened, with plausible values in it.
 
     The inner NUTS kernel, when there is one, is initialised at the latents'
     prior centres unless ``nuts_options`` names its own ``init_strategy`` --
@@ -494,6 +717,8 @@ def sample_factors(
             :func:`~bayesmith.bridge.numpyro_bridge.nuts` instead, and this
             refusal names it -- or if a block carries a method this module
             does not sweep.
+        StructureError: if ``on_sweep`` is given for a plan with a NUTS
+            remainder.
     """
     exact = plan.exact
     if not exact:
@@ -527,8 +752,11 @@ def sample_factors(
         else:
             rebuild.add(block.latents)
 
-    def sweep(values: dict[str, Any], sweep_key: jax.Array) -> dict[str, Any]:
+    def sweep(
+        values: dict[str, Any], sweep_key: jax.Array
+    ) -> tuple[dict[str, Any], dict[tuple[str, ...], jax.Array]]:
         current = dict(values)
+        residuals: dict[tuple[str, ...], jax.Array] = {}
         for index, block in enumerate(exact):
             source = sources[block.latents]
             at = {
@@ -543,7 +771,7 @@ def sample_factors(
                 noise = precision_at(source, current)
             else:
                 noise = hoisted[block.latents]
-            drawn, _ = gcr_sample(
+            drawn, residual = gcr_sample(
                 operator,
                 precision=noise,
                 key=jax.random.fold_in(sweep_key, index),
@@ -551,18 +779,41 @@ def sample_factors(
                 maxiter=maxiter,
             )
             current.update(drawn)
-        return current
+            residuals[block.latents] = residual
+        return current, residuals
 
     nuts_latents = plan.nuts
     if not nuts_latents:
         values = dict(centres)
         kept: dict[str, list] = {name: [] for name in graph.latents}
         for index in range(num_warmup + num_samples):
-            values = sweep(values, jax.random.fold_in(key, index))
+            values, residuals = sweep(values, jax.random.fold_in(key, index))
+            if on_sweep is not None:
+                on_sweep(
+                    SweepReport(
+                        index=index,
+                        warmup=index < num_warmup,
+                        values=dict(values),
+                        log_joint=log_joint(graph, values),
+                        residuals=dict(residuals),
+                    )
+                )
             if index >= num_warmup:
                 for name in graph.latents:
                     kept[name].append(values[name])
         return {name: jnp.stack(rows) for name, rows in kept.items()}
+
+    if on_sweep is not None:
+        raise StructureError(
+            f"on_sweep was given for a plan whose remainder {nuts_latents} "
+            "goes to NUTS, and this sweep is then HMCGibbs's `gibbs_fn`, "
+            "which numpyro TRACES: measured on a two-block plan over five "
+            "sweeps, it is entered twice at the Python level. A callback "
+            "there would fire once, at trace time, and hand you one sweep "
+            "that never happened -- with values of the right shape and dtype "
+            "in it. Sweep an all-exact plan to use the hook, or read the "
+            "chain numpyro returns."
+        )
 
     from numpyro.infer import MCMC, NUTS, HMCGibbs
     from numpyro.infer.initialization import init_to_value
@@ -576,7 +827,7 @@ def sample_factors(
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         values = {k: v for k, v in hmc_sites.items() if k in set(graph.latents)}
         values.update({k: gibbs_sites[k] for k in gibbs_names})
-        updated = sweep(values, rng_key)
+        updated, _ = sweep(values, rng_key)
         return {name: updated[name] for name in gibbs_names}
 
     inner = NUTS(to_numpyro(graph), **options)
@@ -592,9 +843,148 @@ def sample_factors(
     return {name: draws[name] for name in graph.latents}
 
 
+class SweepEstimate(NamedTuple):
+    """What :func:`estimate_factors` returns (G10 ii).
+
+    Attributes:
+        values: the point the sweeps reached, every latent.
+        history: the joint log-density after each sweep, shape ``(sweeps,)``.
+            For an all-exact plan this is **non-decreasing by construction**
+            and that is the property to assert on: a Gaussian conditional's
+            MEAN is its MODE, so each block update maximises the joint over
+            its own members. A sweep that conditioned on stale values still
+            converges on an orthogonal model and breaks this on a correlated
+            one.
+        residuals: the last sweep's relative CG residual per exact block.
+        sweeps: how many were run. There is no early stop.
+    """
+
+    values: dict[str, Any]
+    history: jax.Array
+    residuals: dict[tuple[str, ...], jax.Array]
+    sweeps: int
+
+
+def estimate_factors(
+    graph: Graph,
+    plan: FactorPlan,
+    *,
+    sweeps: int = 50,
+    maxiter: int | None = None,
+    steps: int = 200,
+    learning_rate: float = 1e-2,
+    step_sizes: Mapping[str, float] | None = None,
+) -> SweepEstimate:
+    """A POINT by block coordinate ascent over the plan (G10 ii).
+
+    :meth:`~bayesmith.dispatch.plan.InferencePlan.estimate` refuses a graph
+    that is not exact throughout, which leaves a mixed model -- the ordinary
+    case, and the one a factor partition exists for -- with no point estimate
+    at all. This sweeps instead: every exact block is solved for its
+    conditional MEAN, and the remainder, if there is one, is stepped by
+    :func:`~bayesmith.optimize.fit` on the same joint.
+
+    **Solved, not drawn.** The exact blocks go through
+    :func:`~bayesmith.exact.solve.wiener_solve` rather than ``gcr_sample``,
+    so this takes no key and is deterministic -- a sweep that drew would land
+    near the mode too, and differ run to run while looking identical in a
+    docstring.
+
+    **Why the two halves compose.** For a Gaussian conditional the mean IS
+    the mode, so a Wiener sweep is exact coordinate ascent on the joint;
+    :func:`~bayesmith.optimize.fit` ascends the same joint over the remaining
+    latents. One objective, two ways of maximising over a coordinate block --
+    which is why :attr:`SweepEstimate.history` is a single meaningful
+    trajectory rather than two spliced ones.
+
+    **What it is not.** There is no convergence verdict and no early stop:
+    ``sweeps`` sweeps are run. The gradient half also has no line search, so
+    on a mixed plan the history can dip where a gradient block overshoots;
+    monotonicity is a property of the all-exact case only, and is asserted
+    there.
+
+    Args:
+        graph: the model.
+        plan: from :func:`factor_partition` or :func:`declared_partition`.
+        sweeps: how many passes over the blocks.
+        maxiter: CG iteration cap per solve.
+        steps, learning_rate, step_sizes: passed to
+            :func:`~bayesmith.optimize.fit` for the NUTS-remainder block, per
+            sweep. Ignored when the plan has no remainder.
+
+    Returns:
+        A :class:`SweepEstimate`.
+
+    Raises:
+        StructureError: for a non-positive ``sweeps``.
+        GraphError: if a block carries a method this module does not sweep.
+    """
+    from bayesmith.exact.solve import wiener_solve
+    from bayesmith.optimize import fit
+
+    if not isinstance(sweeps, int) or isinstance(sweeps, bool) or sweeps < 1:
+        raise StructureError(f"sweeps must be a positive int, got {sweeps!r}.")
+    exact = plan.exact
+    for block in exact:
+        if block.method not in ("gcr", "log-gcr"):
+            raise GraphError(
+                f"block {block.latents} carries method {block.method!r}, "
+                f"which estimate_factors does not sweep; it runs "
+                f"{FACTOR_METHODS[:2]}."
+            )
+    sources = {block.latents: _source_of(graph, plan, block) for block in exact}
+    env = prior_environment(graph)
+    values = {name: env[name] for name in graph.latents if name in env}
+    remainder = plan.nuts
+
+    history: list[jax.Array] = []
+    residuals: dict[tuple[str, ...], jax.Array] = {}
+    for _ in range(sweeps):
+        for block in exact:
+            source = sources[block.latents]
+            members = set(block.latents)
+            at = {
+                name: values[name]
+                for name in graph.latents
+                if name not in members
+            }
+            operator = unchecked_operator(
+                source, block.latents, at=at, probe_gaussian=False
+            )
+            solved, residual = wiener_solve(
+                operator,
+                precision=precision_at(source, values),
+                tol=block.tol if block.tol is not None else 1e-6,
+                maxiter=maxiter,
+            )
+            values.update(solved)
+            residuals[block.latents] = residual
+        if remainder:
+            stepped = fit(
+                graph,
+                values,
+                names=remainder,
+                steps=steps,
+                learning_rate=learning_rate,
+                step_sizes=step_sizes,
+            )
+            values = dict(stepped.values)
+        history.append(log_joint(graph, values))
+    return SweepEstimate(
+        values=values,
+        history=jnp.stack(history),
+        residuals=residuals,
+        sweeps=sweeps,
+    )
+
+
 __all__ = [
     "FACTOR_METHODS",
     "FactorPlan",
+    "SweepEstimate",
+    "SweepReport",
+    "declared_partition",
+    "estimate_factors",
     "factor_partition",
     "first_fit",
     "sample_factors",
