@@ -784,6 +784,17 @@ config 侧引用)。
   G15 落地并发布之后,该函数删除、调用改为 `include_prior=space is not None`——
   委托已经照那个形状写好,**只有那一行会变**。
   证据链:`2026-08-27-wave-A-uncertainty-fisher.md`。
+  **【bayesmith 一侧已落地 2026-08-27;rheplicant 一侧仍待发布】**
+  第三个构造器是 `local_block(..., priors=True)`——**关键字而非第二个函数**,默认
+  一字未变,因为 `diagnose/local.py` 那段「本块不带先验」的论证每个字都还成立。
+  先验经 `_env_before` 读(全包唯一一处把声明变成 `(shape, dtype, prior_mean,
+  prior_std)` 的地方),所以没有第二份拼写,且它的 `check_gaussian` 一起来了。
+  缺口是量出来的:`mu = a x^b` 上 `unchecked_operator` 给 `a log x`(零点切线),
+  `b=2` 处的是 `a x² log x`,除 x=1 外每行都不同。
+  **解除条件的另一半仍未兑现**,而它被铁律 5 挡着——`priors=True` 只在 `Unreleased`
+  里。发布之后改那一行、重测数字,**并重跑 e-RHINO 全套**:G9 全量修掉的先验广播
+  缺陷今天够不到门面(它永远传 `include_prior=False`),而这条改动正是让它够得到的。
+  证据链:`2026-08-27-g15-local-block-priors.md`。
 
 每 G 项 = 实现 + 独立 oracle 测试 + §四式记录页(铁律 6 计时)。
 
