@@ -76,6 +76,7 @@ class _Recorder:
         self.nodes: list[Node] = []
         self.plates: list[Plate] = []
         self.names: set[str] = set()
+        self.joint_prior: Any = None
 
     def add(self, node: Node) -> None:
         if node.name in self.names:
@@ -267,6 +268,50 @@ def observe(
     return NodeRef(name, recorder)
 
 
+def joint_prior(prior: Any) -> None:
+    """Declare a prior over SEVERAL latents at once -- one per graph.
+
+    A latent's own ``dist_fn`` is the prior on that one quantity. A Jeffreys
+    prior is a different shape of object: one density over a named block, read
+    off the forward model and the noise. Declaring it here rather than adding
+    ``numpyro.factor`` by hand in a model is what makes the two scans of a
+    graph -- :func:`~bayesmith.graph.evaluate.log_joint` and
+    :func:`~bayesmith.bridge.numpyro_bridge.to_numpyro` -- read one
+    declaration instead of one of them silently missing it.
+
+    Order does not matter: it is a term of the joint, not a node, so it may be
+    declared before or after the latents it covers. The covered latents must
+    themselves be declared FLAT; the prior refuses a covered latent carrying a
+    proper density where it is evaluated, since that is two priors on one
+    quantity.
+
+    Raises:
+        GraphError: if a second one is declared. **Two Jeffreys blocks are not
+            two independent factors.** Each is the CONDITIONAL prior of its
+            block given the other latents, and a product of conditionals is in
+            general not the joint density of anything -- it is neither
+            declaration's prior, and nothing downstream reports the
+            difference. One block, named explicitly, is the declaration this
+            package can be held to. A model that genuinely wants both blocks
+            covered declares ONE prior over their union, which is a different
+            (and often non-existent) density -- see ``JeffreysPrior.over``.
+    """
+    recorder = _active()
+    if recorder.joint_prior is not None:
+        raise GraphError(
+            "this graph already declares a joint_prior over "
+            f"{list(recorder.joint_prior.over)}, and a second one over "
+            f"{list(getattr(prior, 'over', ()))} was declared. Two Jeffreys "
+            "blocks are not two independent factors: each is the CONDITIONAL "
+            "prior of its block given the other latents, and a product of "
+            "conditionals is in general the joint density of nothing -- a "
+            "proper-looking, plausible potential that neither declaration "
+            "describes, with no diagnostic able to report it. Declare ONE "
+            "prior over the union if that is what is meant."
+        )
+    recorder.joint_prior = prior
+
+
 def trace(model_fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Graph:
     """Run ``model_fn`` once and return the graph it declared."""
     recorder = _Recorder()
@@ -275,4 +320,8 @@ def trace(model_fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Graph:
         model_fn(*args, **kwargs)
     finally:
         _STACK.pop()
-    return Graph(nodes=tuple(recorder.nodes), plates=tuple(recorder.plates))
+    return Graph(
+        nodes=tuple(recorder.nodes),
+        plates=tuple(recorder.plates),
+        joint_prior=recorder.joint_prior,
+    )

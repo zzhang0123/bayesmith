@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+**A joint prior is declared ON the graph, so both readers of the model find it
+(G13).** `Graph` carries a `joint_prior`, `trace` records one through
+`joint_prior(...)`, and BOTH `log_joint` and `to_numpyro` evaluate it -- the
+latter as a `numpyro.factor("joint_prior", ...)` site. `JeffreysPrior` could
+always evaluate itself; what it could not do was be part of a model. A caller
+wrote the factor line beside the model by hand, which meant the graph's own
+`log_joint` did not know about it: the exact paths were being checked against a
+NUTS potential missing a term, and a model that simply forgot the line sampled
+a different posterior with every diagnostic healthy.
+
+One per graph, and the refusal is mathematical rather than clerical: two
+Jeffreys blocks are not two independent factors. Each is the CONDITIONAL prior
+of its block given the other latents, and a product of conditionals is in
+general the joint density of nothing. A model that wants both blocks covered
+declares one prior over their union, which is a different -- and often
+non-existent -- density.
+
+`graph.py` is the core and imports nothing from `diagnose`, so what it checks
+is structural: the object answers `over` and `log_density`, and its block names
+latents this graph declares. That last one runs at CONSTRUCTION, earlier than
+the prior's own check, which needs values and so cannot run until the potential
+does -- a typo in a block name should not survive to the first leapfrog step.
+Identifiability and the double-prior refusal stay with `JeffreysPrior` and fire
+where it is evaluated.
+
+Not breaking: `joint_prior` defaults to `None` and every existing graph reads
+unchanged.
+
 **A sample that was not observed informs nothing, on every exact route (G1).**
 An observed node may now declare `observed_mask` -- boolean, shaped like its
 data, `True` where the sample was actually taken -- and `precision_at` builds a

@@ -58,6 +58,19 @@ def to_numpyro(graph: Graph) -> Callable[[], dict[str, Any]]:
                         env[node.name] = numpyro.sample(
                             node.name, distribution, obs=node.observed
                         )
+        if graph.joint_prior is not None:
+            # One site, named for what it is. The covered latents are declared
+            # flat, so their own sites contribute nothing and this factor is
+            # their whole prior -- which is why it has to be emitted from the
+            # graph's declaration rather than added by hand beside the model:
+            # a model that forgot it samples a DIFFERENT posterior, with every
+            # diagnostic healthy.
+            numpyro.factor(
+                "joint_prior",
+                graph.joint_prior.log_density(
+                    graph, {name: env[name] for name in graph.latents}
+                ),
+            )
         return env
 
     return model

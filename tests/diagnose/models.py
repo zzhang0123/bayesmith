@@ -20,7 +20,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpyro.distributions as dist
 
-from bayesmith import det, observe, sample, trace
+from bayesmith import det, joint_prior, observe, sample, trace
 
 N_TIME, N_FREQ = 8, 8
 TONE_CHANNEL, TONE_KELVIN = 3, 5000.0
@@ -192,6 +192,7 @@ def power_law_graph(
     flat_latents: bool = True,
     prior_widths: tuple[float, float] = (0.5, 0.3),
     depends_on_prediction: bool | None = None,
+    declare_prior=None,
 ):
     """``mu = A (nu/nu0)^-beta + floor`` over (log A, beta), 8x8, data = truth.
 
@@ -201,6 +202,12 @@ def power_law_graph(
     ``noise="radiometer"`` declares ``Normal(mu, F |mu|)``; ``"homo"`` a
     constant ``sigma0``, with the ``depends_on_prediction`` claim following
     unless overridden.
+
+    ``declare_prior=`` puts that object on the graph as its ``joint_prior``.
+    The point of the keyword rather than two model functions: the graph WITH
+    the declaration and the graph WITHOUT it must be the same model in every
+    other respect, and two spellings of one model is this repository's most
+    expensive recurring defect.
     """
     freq = jnp.linspace(60e6, 85e6, N_FREQ)
     truth = jnp.exp(7.8) * (freq / NU0) ** (-2.55) + floor
@@ -208,6 +215,8 @@ def power_law_graph(
     claim = (noise == "radiometer") if depends_on_prediction is None else depends_on_prediction
 
     def model():
+        if declare_prior is not None:
+            joint_prior(declare_prior)
         if flat_latents:
             la = sample(
                 "fg_log_amp",

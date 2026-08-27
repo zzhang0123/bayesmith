@@ -32,6 +32,7 @@ __all__ = [
     "sample",
     "observe",
     "plate",
+    "joint_prior",
     "NodeRef",
     "PlateRef",
     # graph
@@ -109,6 +110,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "sample": ("bayesmith.graph.trace", "sample"),
     "observe": ("bayesmith.graph.trace", "observe"),
     "plate": ("bayesmith.graph.trace", "plate"),
+    "joint_prior": ("bayesmith.graph.trace", "joint_prior"),
     "NodeRef": ("bayesmith.graph.trace", "NodeRef"),
     "PlateRef": ("bayesmith.graph.trace", "PlateRef"),
     "Graph": ("bayesmith.graph.graph", "Graph"),

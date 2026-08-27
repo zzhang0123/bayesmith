@@ -184,4 +184,13 @@ def log_joint(graph: Graph, values: Mapping[str, Any] | None = None) -> jax.Arra
             if node.observed_mask is not None:
                 term = jnp.where(node.observed_mask, term, 0.0)
             total = total + jnp.sum(term)
+    if graph.joint_prior is not None:
+        # A density over SEVERAL latents, so it is a term of the joint and not
+        # a node's own. Read HERE and in `to_numpyro`, from the one
+        # declaration, because the two are two scans of one graph and a prior
+        # honoured by one of them is a different posterior wearing the same
+        # model's name.
+        total = total + graph.joint_prior.log_density(
+            graph, {name: env[name] for name in graph.latents}
+        )
     return total

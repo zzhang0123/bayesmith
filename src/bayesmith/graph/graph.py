@@ -8,6 +8,8 @@ that a hand-built graph obeys the same rule.
 
 from __future__ import annotations
 
+from typing import Any
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -24,10 +26,33 @@ class Plate(eqx.Module):
 
 
 class Graph(eqx.Module):
-    """A static DAG of nodes in topological order, plus its plates."""
+    """A static DAG of nodes in topological order, plus its plates.
+
+    Attributes:
+        nodes: every node, in topological order.
+        plates: the repetition axes the nodes may live inside.
+        joint_prior: a density over SEVERAL latents at once, or ``None``. A
+            latent's own ``dist_fn`` says what one quantity is a priori and is
+            the only per-latent prior the rest of the package needs; a Jeffreys
+            prior is not of that shape -- it is one density over a named block,
+            a function of the forward model and the noise rather than of the
+            latents alone. Declaring it HERE is what lets
+            :func:`~bayesmith.graph.evaluate.log_joint` and
+            :func:`~bayesmith.bridge.numpyro_bridge.to_numpyro` both find it,
+            so the two scans of one graph cannot target different posteriors.
+
+            Structural only at this layer: this module is the core and imports
+            nothing from ``diagnose``, so what is checked here is that the
+            object answers ``over`` and ``log_density`` and that its block
+            names latents this graph declares. Everything else --
+            identifiability, the double-prior refusal -- belongs to
+            :class:`~bayesmith.diagnose.priors.JeffreysPrior` and fires where
+            it is evaluated.
+    """
 
     nodes: tuple[Node, ...]
     plates: tuple[Plate, ...]
+    joint_prior: Any = None
 
     def __check_init__(self) -> None:
         plate_names: set[str] = set()
@@ -131,6 +156,46 @@ class Graph(eqx.Module):
                         f"does not declare. Known plates: {sorted(plate_names)}."
                     )
             seen.add(node.name)
+
+        if self.joint_prior is not None:
+            self._check_joint_prior(seen)
+
+    def _check_joint_prior(self, latents: set[str]) -> None:
+        """Structural checks on a declared joint prior, at construction.
+
+        Earlier than the prior's own ``_check_against``, which needs values and
+        so cannot run until the potential does. A block naming a node that does
+        not exist is a typo, and a typo should not survive until the first
+        leapfrog step.
+        """
+        prior = self.joint_prior
+        for attribute in ("over", "log_density"):
+            if not hasattr(prior, attribute):
+                raise GraphError(
+                    f"joint_prior is a {type(prior).__name__}, which has no "
+                    f"{attribute!r}. A graph-level prior has to say which "
+                    "latents it is over and be able to evaluate itself at a "
+                    "values dict -- those two are what log_joint and "
+                    "to_numpyro call. JeffreysPrior is the one this package "
+                    "ships."
+                )
+        declared = {
+            name
+            for name in latents
+            if any(
+                n.name == name and isinstance(n, Probabilistic) and n.is_latent
+                for n in self.nodes
+            )
+        }
+        unknown = [name for name in prior.over if name not in declared]
+        if unknown:
+            raise GraphError(
+                f"joint_prior is over {list(prior.over)}, and {unknown} "
+                f"are not latents of this graph; its latents are "
+                f"{list(self.latents)}. The block would be assembled from the "
+                "names that DO match, which is a prior over a smaller block -- "
+                "a different density, and not a marginal of the declared one."
+            )
 
     @property
     def names(self) -> tuple[str, ...]:
