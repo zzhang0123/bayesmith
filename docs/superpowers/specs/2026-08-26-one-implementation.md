@@ -304,6 +304,26 @@
   (3) 零中心 + `floor=0` 子例**从此是回归 fixture**,R7 对它恢复生效。
   旧 spec §四 `gls.py` 行的「起点若改变,用不动点的起点无关性证等价」在
   本裁决下不必动用——两侧起点自此同源。
+  **【实测修正,2026-08-27:本行的前提不成立,退化的首解在 bayesmith 里不会发生。】**
+  这是本次委托下的**第三次事实修正**(前两次是 D13 与 D9),按「委托不是空白支票」
+  处置:照建议做与实测冲突,按事实选,冲突写进本行。
+  证据:`tests/exact/test_gls.py::TestD19sSubCaseIsREFUSEDRatherThanDegenerate`。
+  1. **零中心 + `floor=0` 不会产生一个退化的首解**,因为**块根本建不起来**:
+     `check_linearity` 的 `_refuse_unusable_noise` 在任何求解之前就以
+     「smallest eigenvalue 0」拒绝,并**指名 scale 表达式**、给出出路(加一个 floor)。
+  2. **而且这条拒绝与先验中心无关**:`floor=0` 在中心 **2.5**(那里 σ=0.125)时**同样**
+     被拒,因为仿射探针的 scale 扫描会经过预测过零的那个点并在那里读协方差。
+     所以 `floor=0` 不是「起点不巧」,是**本包的精确路线不接受的模型**。
+  3. **本包早就知道**:`test_a_correlated_prediction_dependent_model_finds_the_same_
+     fixed_point` 的 docstring 记着同一机理的相关核版本,并写着这种模型
+     「classifies to NUTS, and correctly」。
+  **因此本行的第 (3) 条按事实改写**:零中心 + `floor=0` 子例**确实**从此是回归
+  fixture,但它是**拒绝**的回归 fixture,不是求解的——已按此形态落地(四条断言,
+  含两个中心与「同一模型加了 floor 就从零中心正常收敛」的反向)。
+  **第 (1)(2) 条改为待 Wave B 实测**:起点该不该动,现在是一个纯粹的**数值连续性**
+  问题(`iterations`/`delta`/`converged` 三个可观测量会随起点动),而它**只能**对着
+  rheplicant 自己钉住的数字量,那些数字不在本包这一侧。**本批因此没有改起点**,
+  也没有把这条推迟藏在某人的记忆里。
 - **D20 — 掩码的声明面(G1 落地时新增)。** §四 G1 只写了「观测掩码贯通
   exact/precision(inf-σ = 零权)」,没写**谁声明**。两个读法:(a) inf-σ 本身
   即声明——`precision_parts` 见到非有限 scale 就产出掩码协方差;(b) 节点上显式

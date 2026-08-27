@@ -1117,3 +1117,109 @@ def test_a_correlated_prediction_dependent_model_finds_the_same_fixed_point():
         point = moved
     assert iteration < 199, "the NumPy reference did not converge"
     assert got == pytest.approx(point, rel=1e-12)
+
+
+class TestD19sSubCaseIsREFUSEDRatherThanDegenerate:
+    """The migration ledger's D19 fixture, measured -- and it does not do what
+    D19 says it does.
+
+    D19 records the premise this way: "bayesmith starts from sigma at the
+    PRIOR CENTRE; with a zero prior centre and RadiometerNoise(floor=0) the
+    starting sigma is 0 and the first solve is degenerate -- rheplicant, which
+    starts from the data, has no such problem." It then rules for a
+    data-anchored start, and adds that the zero-centre/floor-free sub-case
+    "is a regression fixture from now on".
+
+    **Measured here: the degenerate first solve never happens.** The block is
+    refused before any solve, by ``_refuse_unusable_noise``, which names the
+    scale expression as the fault and says to add a floor. And the refusal is
+    not about the prior centre at all: ``floor=0`` is refused for a centre of
+    2.5 as well, where sigma at the centre is 0.125, because
+    ``check_linearity`` sweeps probes through the point where the prediction
+    crosses zero and reads the covariance there.
+
+    So the sub-case IS a regression fixture, as D19 asks -- but for the
+    REFUSAL, not for a solve. Pinned here so Wave B reads a measurement rather
+    than re-deriving one from the ledger's premise. Whether the starting point
+    should move at all is then a pure numerical-continuity question about
+    ``iterations``/``delta``/``converged``, answerable only against
+    rheplicant's own pinned numbers, which do not exist on this side.
+
+    (This package already knew: ``test_a_correlated_prediction_dependent_
+    model_finds_the_same_fixed_point``'s docstring records the same mechanism
+    for a correlated kernel, and says such a model "classifies to NUTS, and
+    correctly".)
+    """
+
+    @staticmethod
+    def _radiometer(*, floor, prior_mean, kappa=0.05, n=10):
+        import numpyro.distributions as ndist
+
+        from bayesmith import const, det, observe, sample, trace
+
+        x = jnp.linspace(1.0, 5.0, n)
+        data = 3.0 * x * (
+            1.0 + kappa * jax.random.normal(jax.random.key(6), (n,))
+        )
+
+        def model():
+            xs = const("X", x)
+            w = sample("w", lambda: ndist.Normal(prior_mean, 10.0))
+            mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+            observe(
+                "d",
+                lambda m: ndist.Normal(m, kappa * jnp.abs(m) + floor),
+                mu,
+                depends_on_prediction=True,
+                obs=data,
+            )
+
+        return trace(model)
+
+    @pytest.mark.parametrize("prior_mean", [0.0, 2.5])
+    def test_a_floor_free_radiometer_is_refused_at_block_construction(
+        self, prior_mean
+    ):
+        """Both centres, because the refusal is about the PROBE's sweep and
+        not about where the prior sits -- which is the half of this that D19's
+        wording does not have."""
+        from bayesmith.errors import StructureError
+        from bayesmith.exact.linearity import linear_operator
+
+        graph = self._radiometer(floor=0.0, prior_mean=prior_mean)
+        with pytest.raises(StructureError, match="positive definite"):
+            linear_operator(graph, ("w",), at={})
+
+    def test_the_refusal_names_the_scale_expression_and_the_remedy(self):
+        """A refusal that did not say what to do is where a caller invents a
+        starting point of their own, which is the failure D19 was reaching
+        for."""
+        from bayesmith.errors import StructureError
+        from bayesmith.exact.linearity import linear_operator
+
+        graph = self._radiometer(floor=0.0, prior_mean=0.0)
+        with pytest.raises(StructureError) as caught:
+            linear_operator(graph, ("w",), at={})
+        message = str(caught.value)
+        assert "scale expression" in message
+        assert "floor" in message
+
+    def test_the_SAME_model_with_a_floor_solves_from_the_prior_centre(self):
+        """The other direction, and it is what makes the refusal a boundary
+        rather than a wall: with a floor, the zero-centre case the ledger
+        worried about converges from the prior centre with no trouble at all.
+
+        Measured: w = 2.94668, converged, 5 reweights -- from a centre of 0.0,
+        which is the exact configuration D19 describes as degenerate.
+        """
+        from bayesmith.exact.linearity import linear_operator
+
+        graph = self._radiometer(floor=1e-3, prior_mean=0.0)
+        block = linear_operator(graph, ("w",), at={})
+        result = iterative_gls(
+            block,
+            sigma_of=sigma_from_graph(graph, {}),
+            depends_on_prediction=True,
+        )
+        assert bool(result.converged)
+        assert float(result.solution["w"]) == pytest.approx(2.94668, rel=1e-4)
