@@ -27,6 +27,34 @@ nor the latent's own size raises instead of wrapping.
 
 ### Added
 
+**G3: `evidence.chain` -- the recursion that integrates a linked nuisance out
+exactly.** `LinearGaussianTransition`, `HyperTransition`,
+`ornstein_uhlenbeck`, `chain_marginal`, `chain_log_likelihood`, `smooth`.
+
+Carry a joint square-root information factor over `(theta, zeta_e)`; fold an
+epoch in by re-triangularising, advance by widening, appending the
+transition's rows and marginalising `zeta_e`. That drop IS the Schur
+complement in square root, which is what keeps a thousand-epoch accumulation
+inside float64 where the explicit `(F, b)` form goes indefinite. `theta` is
+never marginalised, so the result is `log p(d_1:N | theta)` exactly -- checked
+against a dense joint assembled in numpy at four probes, on a width-3 chain
+with a rotating `phi`, and over a 20-epoch campaign, to 1e-9.
+
+The two sub-scopes are a TYPE rather than a caveat. An OU with an inferred
+correlation time is still linear-Gaussian, so a caveat phrased that way is
+satisfied while its claim fails: a filter run once at compression time pins
+`Q(theta)` and `phi(theta)` silently. A `LinearGaussianTransition` holds
+numbers; a `HyperTransition` holds a builder resolved INSIDE the likelihood,
+so the recursion is differentiated on every leapfrog step -- pinned against a
+finite difference.
+
+**Six constants reach the answer and the recursion's shape, gradient and
+curvature are correct without any of them**, so every test that checks a mean,
+a width or a derivative passes on a version that has dropped one. They are
+deleted one at a time and measured, and a further test asserts that deleting
+them leaves the `SqrtInfo`'s factor and target bitwise unchanged -- which is
+why only a dense comparison can notice.
+
 **G4: `exact.reduced_basis` -- selection and orthonormalisation.**
 `orthonormal_transform`, `orthonormalise`, `numerical_rank`, `select_svd`,
 `select_greedy`. The ARRAY-LEVEL linear algebra only: the containers and the
