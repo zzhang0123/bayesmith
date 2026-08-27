@@ -76,8 +76,23 @@ computed by hand in the suite to show what they protect.
    the constant survive; the justification now cites this side's numbers.
 2. **Signature**: `(space, pipeline, state_template)` → `graph`. `at`
    defaults to prior centres (`prior_environment`, the dispatch layer's own
-   anchoring rule) rather than declared inits — the same point, one
-   spelling.
+   anchoring rule) rather than declared inits.
+
+   **This line used to end "the same point, one spelling", and that was
+   wrong** — corrected 2026-08-27, at Wave A's opening, when a facade was
+   about to be built on it. `Latent` carries `init` and `prior` as
+   INDEPENDENT fields; the declaring module's own example is
+   `Latent("fwhm_deg", init=12.0, prior=dist.Uniform(5.0, 30.0))`, where the
+   two are nowhere near each other. And identifiability is a LOCAL property
+   of a nonlinear model, which this page's own §2 says: measured on
+   `mu = a exp(b x)` with one prior and one model, expanding at `a = 0.0`
+   gives nullity **1** (`s_min/s_max = 0`) and at `a = 1.0` gives nullity
+   **0** (`2.406e-01`). The verdict flips.
+
+   So a caller porting from rheplicant must pass
+   `at=space.initial_values()` explicitly rather than take this default.
+   Registered as **D21** in the migration plan, whose ruling is that the
+   facade does exactly that.
 3. **The Jacobian's row layout** is `dense_operator`'s (observed nodes in
    sorted name order, flattened); rheplicant's is a single prediction
    array. Irrelevant to the rank and the null space; recorded because the

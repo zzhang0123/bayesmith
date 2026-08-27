@@ -325,6 +325,24 @@
   「no rule for slicing」明确报错,证据层是 Wave D,补齐归那一波。
   证据链:`2026-08-27-wave-P2-G1.md`。
 
+- **D21 — 诊断的展开点(Wave A 开工时新增)。** `identifiability` 是**非线性模型的
+  局部性质**(它自己的 docstring 这么写),所以「在哪一点展开」是判据的一部分。
+  两侧默认**不同**:rheplicant 展开在 `space.initial_values()`(每个 `Latent` 声明的
+  `init`),bayesmith 展开在 `prior_environment(graph)`(先验中心)。
+  `docs/migration/identifiability.md` §5.2 把这条差异记作「the same point, one
+  spelling」——**实测为假**。`Latent` 的 `init` 与 `prior` 是**互相独立**的字段,该
+  模块自己的例子就是 `Latent("fwhm_deg", init=12.0, prior=dist.Uniform(5.0, 30.0))`。
+  实测(`mu = a·exp(b·x)`,同一模型同一先验):展开在 `a=0.0` 得 **nullity 1**
+  (`s_min/s_max = 0`),展开在 `a=1.0` 得 **nullity 0**(`2.406e-01`)——**判决翻转**。
+  **【本次委托下自定,2026-08-27:门面显式传 `at=space.initial_values()`,不吃
+  bayesmith 的默认。】** 取这一侧的三条理由:(1) 铁律 1 要的是**数值一致**,而展开点
+  一动数字就动;(2) 它**不需要改 bayesmith**——`at=` 本来就是参数,默认值只是默认值;
+  (3) 它可被守卫钉住,而「两个默认碰巧相同」不能——只有 `init != prior 中心` 的
+  fixture 才分得开,所以那条 fixture 是这条裁决的守卫。
+  **同时更正** `docs/migration/identifiability.md` §5.2 的那句话:它是本程序里
+  「一个事实两份拼写、其中一份悄悄过期」的又一例,而这次过期的那份是**契约页**。
+  证据链:Wave A 的执行页。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
