@@ -325,22 +325,30 @@ class MaskedPrecision(eqx.Module):
     ``whiten``          ``0`` -- the noise draw has no term for it
     ==================  =================================================
 
-    **Masking is a SELECTION and not a multiplication, and that is what makes
-    a flagged ``nan`` harmless.** A flagged datum is routinely ``nan`` -- that
-    is what an unrecorded sample looks like in a file -- and ``jnp.where``
-    discards the branch it does not take, so ``where(False, nan, 0)`` is
-    ``0.0``. Written as ``seen * vector`` the same mask would give ``nan``, and
-    one flagged channel would poison the whole solve while every weight looked
-    right. ``test_a_nan_at_a_masked_sample_does_not_reach_the_solution`` pins
-    the property; the mutation that spells ``_kept`` as a product is what shows
-    the guard can fail.
+    **A flagged datum is routinely ``nan``, and masking here discards it --
+    but not for the reason the obvious argument gives.** ``jnp.where`` selects,
+    so ``where(False, nan, 0)`` is ``0.0``; that much is expected. What is not:
+    in JAX a BOOLEAN mask used as a product does the same thing. Measured,
+    eager and under ``jit``::
 
-    Stated because it was measured the other way round first: this class began
-    by zeroing ``apply``'s INPUT as well as its output, on the reasoning above
-    about ``0 * nan``. Mutating that inner call away changed nothing at all --
-    correctly, because ``where`` selects -- so the belt was removed and the
-    braces named. The one place the multiplication really happens is
-    :func:`quadratic`, and it guards there.
+        jnp    [True, False, True] * [1, nan, 3]  ->  [1,   0, 3]
+        jnp    seen.astype(f32)    * [1, nan, 3]  ->  [1, nan, 3]
+        numpy  [True, False, True] * [1, nan, 3]  ->  [1, nan, 3]
+
+    So the familiar "``0 * nan`` is ``nan``" is a NumPy fact, and importing it
+    here produces a defence against nothing. This class began by zeroing
+    ``apply``'s and ``whiten``'s INPUTS as well as their outputs on exactly
+    that reasoning; mutating those inner calls away changed no test, because
+    there was nothing for them to prevent. They were removed and the real rule
+    written down instead: **mask with a boolean, never with a float**, since
+    only the float cast reinstates the IEEE multiply.
+    ``test_a_nan_at_a_masked_sample_does_not_reach_the_solution`` pins the
+    property, and the mutation that casts ``seen`` to a float is what shows the
+    guard can fail.
+
+    The one place a genuine float zero meets a raw residual is
+    :func:`quadratic`, and that is where the ``nan`` really did get through --
+    it guards there.
 
     Attributes:
         base: the covariance in force on the samples that WERE taken.
