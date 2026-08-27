@@ -67,18 +67,41 @@ class TestOrthonormalTransform:
         assert kept == (0, 1, 2, 3, 4)
         assert np.allclose(rows @ rows.T, np.eye(5), atol=1e-12)
 
-    def test_it_returns_the_TRANSFORM_and_it_reproduces_the_rows(self):
-        """``M`` is the deliverable. A version that orthonormalised correctly
-        and returned a transform that did not reproduce it would pass the test
-        above and be useless for the raw rows."""
-        candidates = _bank(rows=4, columns=10)
-        transform, _ = orthonormal_transform(candidates)
-        assert transform.shape == (4, 4)
-        assert np.allclose(
-            np.asarray(transform @ candidates),
-            np.asarray(orthonormalise(candidates)),
-            atol=1e-12,
-        )
+    def test_the_transform_carries_the_SAME_combination_to_the_raw_rows(self):
+        """Why ``M`` is returned at all, pinned by the use it exists for.
+
+        **The first version of this test was vacuous**, and a mutation found
+        it: it compared ``transform @ candidates`` against
+        ``orthonormalise(candidates)``, which is DEFINED as that -- the same
+        expression on both sides. Its docstring claimed to catch "a transform
+        that did not reproduce the rows", which is exactly what it could not
+        do. Dropping the transform's accumulation left it green.
+
+        What the transform is for: a basis built from whitened rows has to be
+        applied to the RAW ones, because an epoch whose flag pattern differs
+        from the reference's cannot divide the whitened copy by a weight that
+        is zero where the reference could not see. So the property is that one
+        combination serves both -- ``(M @ raw) * weight == M @ (raw * weight)``
+        -- and it is checked here on a weight with a genuine zero in it.
+        """
+        raw = np.array(_bank(rows=4, columns=10))
+        weight = np.ones(10)
+        weight[3] = 0.0          # a sample the reference could not see
+        weight[7] = 4.0
+        whitened = raw * weight
+
+        transform, kept = orthonormal_transform(jnp.asarray(whitened))
+        assert transform.shape == (4, 4) and kept == (0, 1, 2, 3)
+
+        carried = np.asarray(transform) @ raw
+        assert np.allclose(carried * weight, np.asarray(transform @ jnp.asarray(whitened)))
+        # ... and the whitened image really is orthonormal, so the combination
+        # being carried is the basis one and not an arbitrary matrix.
+        rows = np.asarray(transform @ jnp.asarray(whitened))
+        assert np.allclose(rows @ rows.T, np.eye(4), atol=1e-12)
+        # The zero-weight column is where the raw rows are NOT recoverable
+        # from the whitened ones, which is the whole reason M is returned.
+        assert np.any(np.abs(carried[:, 3]) > 1e-6)
 
     def test_the_span_is_NESTED_in_the_candidates_order(self):
         """What seeding depends on: a direction placed first survives whatever
