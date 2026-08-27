@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D27;拍板后回填本行)
+## 二、裁决登记簿(D7–D28;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -455,6 +455,21 @@
   **那次碰撞今天是什么行为尚未量过**,实现批的第一件事是量它并按结果补拒绝。
   证据链:`2026-08-27-numpyro-bridge-measurements.md` §二。
 
+- **D28 — `to_numpyro_model` 下一个被拒的 1-D sigma(切 `numpyro_bridge` 时新增)。**
+  `to_graph` 的 `_prevalidate` 调 `check_noise_std_axis`,而 `to_numpyro_model` 从前
+  不调。**实测**:在一个方格网格(8×8)上,`noise_std=jnp.linspace(0.4, 0.6, 8)`
+  今天**被接受**,并沿最后一个轴广播成 `(8, 8)`——两种读法是两个不同的模型,而
+  兼容的那一种正是危险的那一种(`to_graph` 的 docstring 自己写着「过了这一点,
+  sigma 已经被广播进一个分布,歧义被静默地、错误地 settle 掉了」)。委托之后这条路
+  **新拒**它。
+  **【本次委托下自定,2026-08-27:接受这条新拒绝,按铁律 4(iv) 的「接受为修正」;
+  并把它提到 `to_numpyro_model` 自己名下。】** 理由:(1) 保守的一侧是**拒绝**——
+  被接受的那一侧静默产出另一个模型;(2) 它可被守卫钉住,而「碰巧广播对了」不能;
+  (3) 提到本函数名下是 P1 §三 的原则——`to_graph` 的同一条检查会自称 `to_graph`,
+  那对一个调用了 `to_numpyro_model` 的人是真话而无用。**代价实测为零**:全套没有
+  一条测试、config 也没有一条路径向这个出口传过一个有歧义的 1-D sigma。
+  证据链:`2026-08-27-wave-A-numpyro-bridge.md`。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
@@ -804,11 +819,39 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 | P5 | 去掉 D25 的构造期拒绝 | e-RHINO | KILLED(1) |
 | P6 | 远端不再应用秩地板 | **bayesmith** | KILLED(1) |
 
+### Wave A / D27 碰撞拒绝(2026-08-27,3/3 击杀)
+
+详情见 `2026-08-27-numpyro-bridge-measurements.md` §四。
+
+| # | 变异 | 仓 | 指名红 |
+|---|---|---|---|
+| Q1 | 拒绝不触发 | e-RHINO | `test_the_collision_is_refused_by_name` |
+| Q2 | 只看名字,不看 sigma 是否被抽样 | e-RHINO | `test_a_fixed_sigma_beside_that_latent_is_left_alone` |
+| Q3 | 只看 sigma 被抽样,不看有没有碰撞 | e-RHINO | `test_sampled_noise_std`(**既有测试**) |
+
+### Wave A / `numpyro_bridge` 委托(2026-08-27,6/6 击杀,**第一轮 5/6**)
+
+详情见 `2026-08-27-wave-A-numpyro-bridge.md`。同 `priors` 批,变异集要跑**两个会话**。
+
+| # | 变异 | 仓 | 第一轮 | 修好后 |
+|---|---|---|---|---|
+| R1 | 忽略调用方选的节点名 | e-RHINO | KILLED(3) | KILLED(3) |
+| R2 | 碰撞拒绝回到钉默认名 | e-RHINO | KILLED(2) | KILLED(2) |
+| R3 | 丢掉声明的 scale,占位 sigma 变成真的 | e-RHINO | KILLED(4) | KILLED(4) |
+| R4 | scale latent 的名字不再被保留 | e-RHINO | KILLED(1) | KILLED(1) |
+| R5 | `observed=None` 不再翻译(`{}` → `None`) | e-RHINO | **SURVIVED** | KILLED(1) |
+| R6 | 远端不再 honour 观测节点的 mask | **bayesmith** | KILLED(1) | KILLED(1) |
+
+**R5 是一个真洞**:两个包对那个参数的读法**方向相反**,而图是拿一张零占位建的,
+所以未翻译的版本会把每一次先验预测调用**条件在占位上**,交回一堆形状与 dtype 都对的
+零。文件里没有任何东西分得出来。补了两条(每个方向一条),读的是 `is_observed`
+而不是值本身。
+
 ## 附录 B — 拒绝文案清单
 
 > **P1 交付物,已回填(2026-08-27)。** 实测:`tests/inference/` 下共
-> **241** 个 `pytest.raises(..., match=...)` 站点。按抛出的异常类:
-> `ParameterSpaceError` **175**、`StateValidationError` **58**、
+> **244** 个 `pytest.raises(..., match=...)` 站点。按抛出的异常类:
+> `ParameterSpaceError` **178**、`StateValidationError` **58**、
 > `RuntimeError` **4**、`Exception` **3**、`TypeError` **1**。
 >
 > **这一行在 2026-08-27 一整天里是错的,而它今天又变对了,这比一直错更值得写下来。**
@@ -908,13 +951,7 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 
 </details>
 
-<details><summary><code>test_graph_bridge.py</code> — 13 条(2026-08-27 G13 接线批次重生成)</summary>
-
-> **这张表曾经过期,而且是本程序自己的机制没跟上。** G1 接线批次退役了
-> `sigma = inf` 那一条(14 → 13)并把数字写进了记录页与 `CENSUS`,却没有改这里;
-> G13 接线批次退役 `joint_prior` 那一条、又新增一条(13 → 13),**普查测试因此保持
-> 绿**——净变化为零,而内容变了两处。计数守卫抓不到这种,只有内容能。
-> 本表自此**由 `test_refusal_census._sites()` 重生成**,不再手抄。
+<details><summary><code>test_graph_bridge.py</code> — 16 条(2026-08-27 由 `_sites()` 重生成)</summary>
 
 | 行 | 类 | `match=` |
 |---|---|---|
@@ -930,7 +967,10 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 | 458 | `ParameterSpaceError` | `ComplexNormal` |
 | 495 | `ParameterSpaceError` | `declares` |
 | 499 | `ParameterSpaceError` | `no prior for latent` |
-| 743 | `ParameterSpaceError` | `two priors on one quantity` |
+| 823 | `ParameterSpaceError` | `two priors on one quantity` |
+| 884 | `ParameterSpaceError` | `internal node names` |
+| 982 | `ParameterSpaceError` | `scale_prior` |
+| 1010 | `ParameterSpaceError` | `internal node names` |
 
 </details>
 

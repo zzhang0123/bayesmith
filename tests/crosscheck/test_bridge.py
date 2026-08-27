@@ -324,10 +324,17 @@ def test_a_joint_prior_over_a_latent_that_already_has_one_is_refused():
 def test_the_factor_site_adds_the_jeffreys_term_exactly_once():
     """The arithmetic behind the refusal, on the model that is legal.
 
-    ``numpyro.factor`` is how the prior reaches a NUTS run today (the
-    ``bridge/`` row is where declaring it ON the graph belongs). The claim
-    worth checking is not that the factor works but that the joint moves by
-    the Jeffreys term and by nothing else -- so the term is measured
+    ``numpyro.factor`` is how the prior reached a NUTS run when this was
+    written. **That parenthetical is now spent**: declaring it ON the graph
+    landed on 2026-08-27 (the G13 wiring, then rheplicant's bridge switch), so
+    `to_numpyro` emits the factor from `graph.joint_prior` and no caller writes
+    one by hand. This test keeps the hand-written form on purpose -- it is the
+    independent construction the emitted one is checked against, and a test
+    that used the emitted factor to check the emitted factor would be checking
+    nothing.
+
+    The claim worth checking is not that the factor works but that the joint
+    moves by the Jeffreys term and by nothing else -- so the term is measured
     independently and subtracted.
     """
     import numpyro
