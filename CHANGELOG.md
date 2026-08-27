@@ -2,7 +2,46 @@
 
 ## Unreleased
 
-Nothing yet.
+**`fit` -- gradient MAP, the exit an exact solve does not have (G2).**
+`wiener_solve` and `iterative_gls` answer a model that is affine in its
+latents; everything else has only a gradient, and until now this package had
+no exit for it. `bayesmith.fit(graph, at=None, names=None, ...)` maximises the
+graph's joint log-density over every latent, or over `names=` with the rest
+held, which is block coordinate. `bayesmith.minimize` is the same optimiser on
+any scalar objective, for a caller scoring a PREDICTION against DATA rather
+than a joint. Adam and plain gradient descent, per-latent step sizes.
+
+**The objective is the FULL density**, `sum log sigma` and any declared
+`joint_prior` included, and that is a decision rather than an implementation
+detail (D7 in the migration ledger). Under a prediction-dependent sigma the
+GLS-flavoured potential a point estimate might otherwise descend has a
+DIFFERENT optimum, so the estimate and the draw from one declaration would
+target two distributions. `fit` reads `log_joint`, which is also what
+`to_numpyro` samples.
+
+`check_loss_sense` comes with it: a log-density has an error's signature and
+the opposite optimum, so a minimiser handed one descends a function unbounded
+below while the loss history looks like textbook convergence. Measured on a
+one-parameter gain fit with truth `g = 1.0`: an error reaches `+0.9999`, a
+log-density reaches `-30.7349` with a loss going `-3.2e7 -> -1.3e11`. The
+guard has a declared half (`sense`) and a measured one (score the PERFECT
+prediction), because a declaration alone is a whitelist and a whitelist is
+wrong about exactly the code it has not met.
+
+Two things it refuses rather than returns. A **non-finite** result: plain
+gradient descent diverges above `2/L` for curvature `L` while Adam's step is
+bounded by its rate, so a `method=` changed without revisiting
+`learning_rate=` lands there -- measured at `L = 231`, rate 0.006 converges
+and 0.02 gives NaN. And a **complex** starting value: `jax.grad` of a real
+objective at a complex point gives the CONJUGATE gradient, so a descent using
+it walks the wrong way without erroring.
+
+There is no convergence verdict: `steps` steps are taken and the objective
+reached is reported. The starting point is load-bearing and `at=` is how it is
+supplied -- measured on a fractional-sigma model, starting from the prior
+centre puts the objective at 4.3e8 against 24.2 at the optimum, and 6000 Adam
+steps from there travel 0.08 with a monotonically decreasing loss history the
+whole way.
 
 ## 0.4.0 -- 2026-08-27
 

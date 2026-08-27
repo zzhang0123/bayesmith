@@ -77,6 +77,13 @@ __all__ = [
     "init_to_declared",
     "propagate_covariance",
     "push_forward",
+    # optimise
+    "fit",
+    "minimize",
+    "Fit",
+    "check_loss_sense",
+    "MINIMIZE",
+    "MAXIMIZE",
     # errors
     "BayesmithError",
     "GraphError",
@@ -154,6 +161,12 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "init_to_declared": ("bayesmith.bridge.numpyro_bridge", "init_to_declared"),
     "propagate_covariance": ("bayesmith.exact.fisher", "propagate_covariance"),
     "push_forward": ("bayesmith.exact.fisher", "push_forward"),
+    "fit": ("bayesmith.optimize", "fit"),
+    "minimize": ("bayesmith.optimize", "minimize"),
+    "Fit": ("bayesmith.optimize", "Fit"),
+    "check_loss_sense": ("bayesmith.optimize", "check_loss_sense"),
+    "MINIMIZE": ("bayesmith.optimize", "MINIMIZE"),
+    "MAXIMIZE": ("bayesmith.optimize", "MAXIMIZE"),
 }
 
 # Subpackages reachable as `bayesmith.<name>` after a bare `import bayesmith`,
