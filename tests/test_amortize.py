@@ -72,12 +72,25 @@ def untrained():
 
 @pytest.fixture(scope="module")
 def trained():
-    """One training run, reused. That reuse is the point of the method."""
+    """One training run, reused. That reuse is the point of the method.
+
+    Returns the estimator training STARTED from as well, because "the fit
+    improved" is a comparison and the other half of it has to be the same
+    object -- rebuilding it a second time in a test would be a second
+    spelling of the construction.
+    """
     theta, data = draw_bank(jax.random.key(0), 8192)
-    q = NeuralPosterior.create(theta, data, key=jax.random.key(1), n_components=1)
-    return train_posterior(
-        q, theta, data, key=jax.random.key(2), n_steps=2000, batch_size=256
+    start = NeuralPosterior.create(
+        theta, data, key=jax.random.key(1), n_components=1
     )
+    fitted, history = train_posterior(
+        start, theta, data, key=jax.random.key(2), n_steps=2000, batch_size=256
+    )
+    return start, fitted, history
+
+
+def mean_log_density(q: NeuralPosterior, thetas, data) -> float:
+    return float(jnp.mean(jax.vmap(q.log_prob)(thetas, data)))
 
 
 def eqx_arrays(tree):
@@ -96,6 +109,19 @@ def quadrature(q: NeuralPosterior, datum, moments: bool = False):
     first = float(jnp.trapezoid(density * grid, grid))
     second = float(jnp.trapezoid(density * grid**2, grid))
     return mass, first, (second - first**2) ** 0.5
+
+
+class NegatedDensity(NeuralPosterior):
+    """The same estimator with `log_prob` negated.
+
+    Used to reproduce a sign error in the training objective without editing
+    the source: `train_posterior` minimises `-mean(log_prob)`, so negating
+    `log_prob` makes it minimise `+mean(log_prob)` -- an optimiser descending
+    away from the posterior.
+    """
+
+    def log_prob(self, theta, datum):
+        return -super().log_prob(theta, datum)
 
 
 class TestTheDensityIsADensity:
@@ -170,12 +196,74 @@ class TestAgainstTheExactPosterior:
 
     OBSERVED = (0.5, 1.6, -0.9)
 
-    def test_training_reduces_the_loss(self, trained):
-        _, history = trained
+    def test_training_raises_the_density_on_pairs_it_never_saw(self, trained):
+        """**The loss falling is not this claim**, and the gap between the two
+        was measured rather than argued.
+
+        ``history.train`` records the quantity being minimised, so it falls for
+        any optimiser that is working -- including one descending the WRONG
+        SIGN of the objective. Measured, by negating ``log_prob`` so that
+        ``-mean(log_prob)`` becomes ``+mean(log_prob)``: the correct run's
+        history goes 2.379 -> -0.583, and the flipped run's goes -2.379 ->
+        **-4.5e22**. The naive assertion (`train[-1] < train[0] - 0.5`) is
+        satisfied by the second more emphatically than by the first.
+
+        What says the fit improved is a quantity the optimiser was never scored
+        on: the density the returned estimator gives to FRESH pairs from the
+        joint, against the density the estimator it started from gave them.
+        """
+        start, fitted, history = trained
+        fresh_theta, fresh_data = draw_bank(jax.random.key(31), 1024)
+        before = mean_log_density(start, fresh_theta, fresh_data)
+        after = mean_log_density(fitted, fresh_theta, fresh_data)
+        assert after > before + 1.0
+        # The loss history is still expected to fall -- it just cannot carry
+        # the claim on its own.
         assert float(history.train[-1]) < float(history.train[0]) - 0.5
 
+    def test_the_wrong_sign_is_caught_by_that_quantity_and_not_by_the_loss(self):
+        """The standing form of the measurement above: a guard that reads the
+        objective cannot tell an ascent from a descent, and one that reads
+        held-out density can.
+
+        This is `check_loss_sense`'s question (D32) asked of the trainer, and
+        the reason it needs asking here is that `train_posterior` fixes the
+        direction internally -- there is no `scoring=` for a caller to get
+        wrong, so the only way the sign can be wrong is if the code is.
+        """
+        theta, data = draw_bank(jax.random.key(0), 2048)
+        start = NeuralPosterior.create(
+            theta, data, key=jax.random.key(1), n_components=1
+        )
+        flipped = NegatedDensity(
+            net=start.net, embed=start.embed, n_components=start.n_components,
+            n_params=start.n_params, theta_mean=start.theta_mean,
+            theta_scale=start.theta_scale, data_mean=start.data_mean,
+            data_scale=start.data_scale, min_scale=start.min_scale,
+        )
+        common = {"key": jax.random.key(2), "n_steps": 400, "batch_size": 256}
+        good, good_history = train_posterior(start, theta, data, **common)
+        bad, bad_history = train_posterior(flipped, theta, data, **common)
+
+        fresh_theta, fresh_data = draw_bank(jax.random.key(31), 512)
+        base = mean_log_density(start, fresh_theta, fresh_data)
+        assert mean_log_density(good, fresh_theta, fresh_data) > base
+        # `bad` reports its own (negated) density, so read the real one off
+        # the same weights wearing the unnegated class.
+        undone = NeuralPosterior(
+            net=bad.net, embed=bad.embed, n_components=bad.n_components,
+            n_params=bad.n_params, theta_mean=bad.theta_mean,
+            theta_scale=bad.theta_scale, data_mean=bad.data_mean,
+            data_scale=bad.data_scale, min_scale=bad.min_scale,
+        )
+        assert mean_log_density(undone, fresh_theta, fresh_data) < base
+
+        # ... and the loss history says the run went well in BOTH cases.
+        for history in (good_history, bad_history):
+            assert float(history.train[-1]) < float(history.train[0]) - 0.5
+
     def test_the_posterior_mean_matches(self, trained):
-        q, _ = trained
+        _, q, _ = trained
         for theta_true in self.OBSERVED:
             x = observation(theta_true)
             mean, sd = exact_posterior(x)
@@ -184,7 +272,7 @@ class TestAgainstTheExactPosterior:
             assert abs(float(jnp.mean(draws)) - mean) < 0.6 * sd
 
     def test_the_posterior_width_matches(self, trained):
-        q, _ = trained
+        _, q, _ = trained
         for theta_true in self.OBSERVED:
             x = observation(theta_true)
             _, sd = exact_posterior(x)
@@ -196,7 +284,7 @@ class TestAgainstTheExactPosterior:
         rounding can reach: the exact posterior is about fifteen times tighter
         than the prior it came from, so an estimator that had learned nothing
         would miss by a factor, not by a tolerance."""
-        q, _ = trained
+        _, q, _ = trained
         _, sd = exact_posterior(observation(0.5))
         assert S0 / sd > 12.0
         widths = [
@@ -209,7 +297,7 @@ class TestAgainstTheExactPosterior:
         """The property the method exists for: one fit, then every observation
         is a forward pass. The three answers must differ from each other, or
         `q` is returning the prior with extra steps."""
-        q, _ = trained
+        _, q, _ = trained
         means = [
             float(jnp.mean(q.sample(observation(t), jax.random.key(5), 20_000)))
             for t in self.OBSERVED
