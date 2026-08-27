@@ -12,3 +12,22 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .DS_Store
+
+# Written by a process outside this repository (the rheplicant agent), not by
+# anyone working here. The owner ruled on 2026-08-26 that it not be committed:
+# CLAUDE.md's own opening says there is deliberately no second copy of it
+# beside this file, and an unenforced copy is the defect this project has
+# spent the most time repairing. Deleting it is not a mechanism -- it came
+# back three times on 2026-08-27, the last time carrying a test count one
+# edit stale, which is that defect happening inside a single session.
+#
+# This keeps it out of the repository. It does NOT stop a reader of the
+# working directory finding a stale copy there, so if the writer is ever
+# identified, stopping it at the source is still the better fix.
+AGENTS.md
+
+# The test runner's own scratch, per CLAUDE.md's recipe. Excluded by the
+# migration plan's commit list already; here so it stops showing up in every
+# `git status` and inviting an accidental `git add -A`.
+run.log
+run.exit
