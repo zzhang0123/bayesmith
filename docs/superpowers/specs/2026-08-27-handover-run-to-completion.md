@@ -1,8 +1,8 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-27(第二次改写)· 交接自 **G1 完成**后的会话。
-> 此前一版交接自 P0 / P2a / D16 / D17 / P1 完成后的会话。
+> **日期**:2026-08-27(第三次改写)· 交接自 **G1 + G13 完成**后的会话。
+> 此前两版分别交接自 P0/P2a/D16/D17/P1 之后、G1 之后。
 
 ---
 
@@ -32,11 +32,12 @@
 
 1. **计划本体**:`docs/superpowers/specs/2026-08-26-one-implementation.md`
    ——终局形态、七条铁律、登记簿 D7–D19、缺口 G1–G14、四波切换、附录 A/B/C。
-2. 本程序至今的**六份**执行记录,同目录:
+2. 本程序至今的**七份**执行记录,同目录:
    `2026-08-26-wave-P0.md`、`2026-08-26-wave-P2a.md`、
    `2026-08-27-d17-protocol.md`、`2026-08-27-d16-five-axes.md`、
-   `2026-08-27-wave-P1.md`、`2026-08-27-wave-P2-G1.md`。
-   **最后一份最值得先看**:它记的三处「守卫已经不会失败了」是三种不同的形状,
+   `2026-08-27-wave-P1.md`、`2026-08-27-wave-P2-G1.md`、
+   `2026-08-27-wave-P2-G13.md`。
+   **G1 那份最值得先看**:它记的三处「守卫已经不会失败了」是三种不同的形状,
    而三种都只有变异能看见。
 3. 前代 spec 的 §四(模块绑定契约台账)与 §六(本程序的由来):
    `2026-08-24-rheplicant-migration.md`。
@@ -45,28 +46,29 @@
 
 ## 二、当前状态(2026-08-27 实测,先复核再信)
 
-- **bayesmith** `c4e831b`,已推送(`ls-remote` 核实);**0.3.0 在 PyPI 上**;
-  套件 **1258 passed / 0 skipped**,exit 0,190 s(`-n 4`);
-  `ruff check src/ tests/ examples/` 干净。CHANGELOG 的 `Unreleased` 段现在
-  **不为空**——它装着 G1,这就是下一个发布号的内容。
+- **bayesmith** `a38430a`,已推送(`ls-remote` 核实);**0.3.0 在 PyPI 上**;
+  套件 **1272 passed / 0 skipped**,exit 0,198 s(`-n 4`);
+  `ruff check src/ tests/ examples/` 干净。CHANGELOG 的 `Unreleased` 段
+  **不为空**——它装着 **G1 与 G13**,这就是下一个发布号的内容。
 - **e-RHINO** `647a2ed`,已推送,**本会话未动一行源码**。上次全量:
   **10057 passed / 522 skipped**(`-n 4 --ignore=tests/gui/e2e`)加 **21 passed**
   (`tests/gui/e2e -n 2`);README 计数 **10599**,coverage floor
   `fail_under = 89`(均未动)。
-- **跨仓实测(2026-08-27,对 bayesmith `c4e831b`)**:e-RHINO `tests/inference`
-  **996 passed** exit 0;`tests/seam`(x64)**19 passed / 1 xfailed** exit 0。
+- **跨仓实测(2026-08-27,对 bayesmith `a38430a`)**:e-RHINO `tests/inference`
+  **996 passed** exit 0,80.4 s;`tests/seam`(x64)**19 passed / 1 xfailed** exit 0,
+  50.2 s。两批次(G1、G13)各跑过一次,数字一致。
   那个 xfail 是 D19 的闹钟,**strict**,Wave B 落地当天它会因为「意外地绿」而红。
 - 两仓互为 editable 安装;e-RHINO 的 bayesmith 地板 **`>=0.3`**。
 - 两个跨仓 workflow 并行:`crosscheck.yml` 与 `seam.yml`。
 - e-RHINO 根目录九份未跟踪评审/交接草稿:**不动**(附录 C 明令)。
 
-**已完成**:P0、P2a、D17 协议、D16 四条轴、P1、**P2 余项的 G1**
-(记录页 `2026-08-27-wave-P2-G1.md`)。
+**已完成**:P0、P2a、D17 协议、D16 四条轴、P1、**P2 余项的 G1 与 G13**
+(记录页 `2026-08-27-wave-P2-G1.md`、`2026-08-27-wave-P2-G13.md`)。
 
 **登记簿**:D7–D19 全部有裁决;**D20 为本次委托下自定的新条目**(掩码的声明面
 取节点声明,不取 inf-σ),理由回填在计划 §二。
 
-## 三、G1 批次留下的三件事(下一位会先撞到)
+## 三、G1 / G13 两批留下的几件事(下一位会先撞到)
 
 1. **`Unreleased` 段不为空,而适配器在等它。** e-RHINO 的
    `graph_bridge.py::_refuse_flagged_noise` 仍原样拒绝 `FlaggedNoise`,文案里
@@ -78,7 +80,15 @@
 2. **`evidence/campaign.py` 的分期切片对 `MaskedPrecision` 无规则**,会以
    「no rule for slicing a MaskedPrecision」明确报错。证据层是 Wave D,补齐还是
    保留为限制由那一波定,并上登记簿。
-3. **五行协议现在有第 (0) 条**:先提交本批次,再跑变异集。`git checkout -- src/`
+3. **`exact/fisher.py` 的模块 docstring 里写着 `propagate_covariance` 与
+   `push_forward`「are P5」**,而计划 §四 把它们放在 **G7**。那是一句过期的排期
+   注记,不是判据,所以开工 G7 时**顺手改掉**即可,不必上登记簿——但要在 G7 的
+   记录页里点名说明这次更正。
+4. **G13 只验了势能,没跑真链。** `nuts()` 现在会自动带上 `joint_prior` 的
+   factor site(它走 `to_numpyro`);本批次用 `numpyro.infer.util.log_density`
+   一次求值验的,理由是丢了 factor 的 handler 会改变**每一点**的势能。真链验收
+   归 Wave A 切 `priors` 那一批。
+5. **五行协议现在有第 (0) 条**:先提交本批次,再跑变异集。`git checkout -- src/`
    以 HEAD 为准,在一棵带未提交改动的树上它回退的是**工作**而不是变异——本会话
    实测,它吃掉了 G1 的第一版源码。已写进计划 §六 与 bayesmith 的 CLAUDE.md;
    **e-RHINO 的 CLAUDE.md/AGENTS.md 还没写**(它们逐字节一致,由
@@ -86,11 +96,11 @@
 
 ## 四、剩余工作(按计划 §九 的顺序)
 
-1. ~~P1 适配器~~ 已完成;~~G1 掩码~~ **已完成 2026-08-27**。
-2. **P2 余项(按计划 §九 的口径)**:**G2** `bayesmith.fit`、**G7** bridge 补齐、
-   **G9 全量**(vmap / log 空间 / Fisher 的复数面;另登记在案的两项:`diagnose`
+1. ~~P1 适配器~~ 已完成;~~G1 掩码~~、~~G13 图级联合先验~~ **均已完成 2026-08-27**。
+2. **P2 余项(按计划 §九 的口径,还剩六项)**:**G7** bridge 补齐、
+   **G2** `bayesmith.fit`、**G9 全量**(vmap / log 空间 / Fisher 的复数面;另登记在案的两项:`diagnose`
    仍拒绝复 latent、`exact.correct.log_weight` 仍在域里索引)、**G10** 分区执行面
-   (三件全做,D14 已拍)、**G12**、**G13**、**G14**。
+   (三件全做,D14 已拍)、**G12**、**G14**。
    > 口径差,写明以免下一位两处都读、两处都信:本页早先版本把 G3/G4/G5/G6 也
    > 列进「P2 余项」;计划 §九 的排期表把它们分别排在 **Wave C(+G4/G5 实现)**
    > 与 **Wave D(+G3/G6 实现)**。**以 §九 为准。**
@@ -100,8 +110,10 @@
    Wave D。
 5. **P4** 质量机制换防;**P5–P7**。
 
-**下一批的自然选择是 G7 或 G13**——两者都是 Wave A 的先决,都不依赖任何未拍的
-裁决,且都在 bayesmith 一侧,因此不受铁律 5 的发布门约束。
+**下一批的自然选择是 G7**——它是 Wave A 仅剩的未完成先决(P1+D9+D16+G7+G11+G13
+里,只有 G7 还没开工),不依赖任何未拍的裁决,且在 bayesmith 一侧,因此不受
+铁律 5 的发布门约束。G7 之后 Wave A 即可开工;G2/G9 全量/G10/G12/G14 是 Wave B
+的先决,可以在 Wave A 之后或与之并行。
 
 ## 五、批次纪律(铁律 4,每批四件套)
 
