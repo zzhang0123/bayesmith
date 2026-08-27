@@ -648,6 +648,44 @@ config 侧引用)。
 | W6 | `diagnose/local.py` 去掉图侧精度拒绝 | 2(含 `test_a_model_pinned_to_float32_is_refused`) |
 | W7 | `tests/test_migration_records.py` 的 `SWITCHED` 漏记一个已切模块 | 1(本条对 bayesmith 套件跑) |
 
+### Wave A / G1 接线(2026-08-27,4/4 击杀)
+
+详情见 `2026-08-27-wave-A-g1-wiring.md` §四。
+
+| # | 变异 | 仓 | 指名红 |
+|---|---|---|---|
+| X1 | 掩码保留 flags 的极性(不取反) | e-RHINO | `test_the_mask_is_the_negation_of_the_flags` |
+| X2 | 声明的 scale 保留 `inf` | e-RHINO | `test_the_declared_scale_is_finite_where_the_flags_are` |
+| X3 | 每张图都给一个满掩码 | e-RHINO | `test_an_unflagged_noise_model_declares_no_mask_at_all`(6 红) |
+| X4 | `graph/trace.py` 把节点的 mask 丢掉 | **bayesmith** | `test_the_mask_is_the_negation_of_the_flags` |
+
+### Wave A / `sensitivity`(2026-08-27,6 条 4 杀 2 存)
+
+详情见 `2026-08-27-wave-A-sensitivity.md` §五。**两条幸存都逐条归因**,不是缺口:
+S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是红的),S6 当时未能分辨,
+留成开放项,已由下一批结清(见下)。
+
+| # | 变异 | 仓 | 判决 |
+|---|---|---|---|
+| S1 | shift 丢掉后验 sigma 缩放 | bayesmith | KILLED(3 红) |
+| S2 | 先验的二次拉力减半 | bayesmith | KILLED(20 红) |
+| S3 | 远端去掉图侧精度守卫 | bayesmith | SURVIVED(已归因) |
+| S4 | 门面改吃 bayesmith 的默认展开点 | e-RHINO | KILLED(8 红) |
+| S5 | 跳过先验预检查 | e-RHINO | KILLED(1 红) |
+| S6 | 不把值加宽到 float64 | e-RHINO | SURVIVED → 见下,已结清 |
+
+### Wave A / S6 结清(2026-08-27,4/4 击杀)
+
+详情见 `2026-08-27-wave-A-s6-widened.md` §七。S6 的幸存是**fixture 缺失**,不是死代码;
+追到底之后发现承重的是 `astype` **剥掉弱类型**那一半,而不是加宽那一半。
+
+| # | 变异 | 仓 | 指名红 |
+|---|---|---|---|
+| M1 | `_widened` → 恒等(S6 原条) | e-RHINO | `test_the_verdict_comes_back_in_double`、`test_a_weak_float64_init_does_not_carry_a_float32_model`;**旧 64 条一条不红** |
+| M2 | 只 cast 真 float32,放过弱 float64 | e-RHINO | `test_a_weak_float64_init_does_not_carry_a_float32_model`(唯一红) |
+| M3 | 给新 fixture 加上 x64 | e-RHINO | `test_the_fixture_really_is_declared_in_single_precision`(兄弟断言) |
+| M4 | M1 + 远端 `refuse_single_precision` 一并去掉 | 两仓 | `test_the_verdict_comes_back_in_double`,红在**数值一致**断言而非 dtype 断言 |
+
 ## 附录 B — 拒绝文案清单
 
 > **P1 交付物,已回填(2026-08-27)。** 实测:`tests/inference/` 下共
