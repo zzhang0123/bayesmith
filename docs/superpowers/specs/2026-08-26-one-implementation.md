@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D19;拍板后回填本行)
+## 二、裁决登记簿(D7–D25;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -370,6 +370,47 @@
   (下游密度持住的被选 latent),那是一次**语义升级**,届时在本行拍板。
   证据链:`2026-08-27-wave-A-sensitivity.md` §四。
 
+- **D24 — `JeffreysPrior.information` 的行序:`sorted(over)` 还是 `over`(G13 接线时新增)。**
+  rheplicant 按 **`sorted(over)`** 返回行列,并在自己的 docstring 里把这条写成一个
+  **wart**:「`over=("b","a")` 与 `over=("a","b")` 返回**同一个**矩阵……一个把第 0 行读成
+  『我传的第一个名字』的调用方,在 tour 自己的块上错 **7.4e+1**」。bayesmith **故意没有
+  移植这条 wart**——它的 docstring 逐字写着「the graph machinery preserves the caller's
+  order, so the wart does not port」。行列式不受影响(对称置换),所以**先验本身两边
+  相同**;变的只是**返回矩阵的行序**,而那是一条被测试读到的可观测输出。
+  **【本次委托下自定,2026-08-27:门面把远端的输出置换回 `sorted(over)`,登记本行;
+  采纳 `over` 序是一次语义升级,另行拍板。】** 取保守侧的三条理由:(1) 铁律 1 说的是
+  可观测面保持,而 tour 自己的块 `("fg_log_amp","fg_beta")` 的 sorted 与原序**不同**,
+  所以这条差**有 fixture 分得开**——它是能被守卫钉住的一侧;(2) 置换发生在薄包装里,
+  不是第二份实现——§〇 第 5 类明写「产品容器字段布局」属保持面;(3) 升级路径是干净的:
+  哪天采纳 `over` 序,改的是门面的一行加一批重测的数字,而不是一个算法。
+  **落地在 `priors` 那一批**(本行随 G13 接线登记,因为差异是在那里量到的)。
+
+- **D25 — 一个 float32 会话里的 Jeffreys 先验:新拒绝(G13 接线时新增)。**
+  bayesmith 的 `JeffreysPrior.information` 在 0.4.0 里**指名拒绝** ambient float32
+  (D9 顺带查出的第二个洞:同一个精确退化块给出 **-27.52** 对 **-338.05**,310 nat,
+  且在 NUTS 会取指数的那一项上)。rheplicant 今天**没有**这条守卫,于是一个 float32
+  的 NUTS 运行照跑。`priors` 切换后这条拒绝会**新拒今天通过的路径**。
+  **范围已实测,不是估计**:把该守卫临时装进 rheplicant 的 `information` 再跑
+  `tests/inference` + `tests/config`,红的**恰好三条**,全在
+  `tests/config/test_config_exits_npe.py::TestThePriorGate`
+  (`test_one_document_is_refused_by_npe_and_run_by_nuts`、
+  `test_the_refusal_is_not_the_missing_section_one`、
+  `test_the_advice_the_gate_gives_depends_on_the_document`)。
+  `tests/inference/test_jeffreys_prior.py` 的 49 条**一条不红**——它有一条 module 级
+  autouse 的 x64 fixture,和 S6 那个文件同一形状。
+  **【本次委托下自定,2026-08-27:取「拒绝」,并把拒绝提到 `to_numpyro_model` 的
+  构造期;依 2026-08-27 的一次性委托。】** 取这一侧的理由,以及为什么另外两条路
+  **不存在**:
+  1. `jax_enable_x64` 是**追踪期**的全局开关,而 NUTS 在门面返回之后才追踪 `model`。
+     所以「门面内部开 x64」这条(identifiability/sensitivity 用的那条)在这里**用不了**
+     ——一个 float32 追踪出来的模型里放不进一个 float64 的因子。
+  2. 让 bayesmith 长一个 `allow_single_precision=` 的口子,等于重开 D9 并要一次发版,
+     且它把「静默产出错答案」重新变成可达的。
+  3. 于是只剩「拒绝」。**提到构造期**是 P1 §三 的原则:图缝会抹掉证据的拒绝住在缝前
+     ——构造期拒绝能说出「这份文档声明了 joint_prior」,追踪期只能说出一个 dtype。
+  **代价与义务**:那三条 config 测试按分诊第二列**改写对适配器**,并且拒绝必须说出
+  出路(在 x64 会话里跑该文档),不能只说「被拒绝了」。**落地在 `priors` 那一批。**
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
@@ -475,6 +516,11 @@ config 侧引用)。
   `method="gcr+mh"` **构造期拒绝**;注记为近似声明,非正确性证明。
 - **G13 图级联合先验**:`JeffreysPrior(over=…)` 的图侧声明与
   `to_numpyro` factor site 读取。Wave A 的 priors/numpyro_bridge 之门。
+  **【实现已落地 0.4.0;e-RHINO 侧接线已落地 2026-08-27】** `to_graph` 不再拒绝
+  `joint_prior`,而是把被覆盖的 latent 声明成 `ImproperUniform` 并调
+  `bayesmith.joint_prior(...)`。接线批次同时量出**两条语义差**并登记为 **D24**
+  (行序)与 **D25**(float32 下的新拒绝)。证据链:
+  `2026-08-27-wave-A-g13-wiring.md`。
 - **G14 measured-κ 诊断**(D15(a)):`condition_estimate` 的对应物,
   显式标注不可作守卫;随 Wave B 的 linear 工作落地。
 
@@ -686,6 +732,20 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 | M3 | 给新 fixture 加上 x64 | e-RHINO | `test_the_fixture_really_is_declared_in_single_precision`(兄弟断言) |
 | M4 | M1 + 远端 `refuse_single_precision` 一并去掉 | 两仓 | `test_the_verdict_comes_back_in_double`,红在**数值一致**断言而非 dtype 断言 |
 
+### Wave A / G13 接线(2026-08-27,5/5 击杀,**第一轮 3/5**)
+
+详情见 `2026-08-27-wave-A-g13-wiring.md` §六。**第一轮的两条幸存都是真洞**,
+修好后重跑全杀;两轮之间还踩了一次第 (0) 条的第二半(修补未提交,被变异脚本自己的
+开场 `git checkout` 回退,输出与「修补不起作用」不可分辨)。
+
+| # | 变异 | 仓 | 第一轮 | 修好后 |
+|---|---|---|---|---|
+| N1 | 声明根本不进图 | e-RHINO | KILLED(11) | KILLED(13) |
+| N2 | 所有 latent 一律声明成 flat | e-RHINO | **SURVIVED**(守卫用了一个没有 joint prior 的空间,两种读法都说「未覆盖」) | KILLED(1) |
+| N3 | 翻译时丢掉 `rank_rtol` | e-RHINO | KILLED(1) | KILLED(1) |
+| N4 | 块**反序**过缝 | e-RHINO | **SURVIVED**(`over` 是一元组,而一元组是自己的反序) | KILLED(2) |
+| N5 | 远端 `graph/trace.py` 不再记录声明 | **bayesmith** | KILLED(11) | KILLED(13) |
+
 ## 附录 B — 拒绝文案清单
 
 > **P1 交付物,已回填(2026-08-27)。** 实测:`tests/inference/` 下共
@@ -782,24 +842,29 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 
 </details>
 
-<details><summary><code>test_graph_bridge.py</code> — 14 条</summary>
+<details><summary><code>test_graph_bridge.py</code> — 13 条(2026-08-27 G13 接线批次重生成)</summary>
+
+> **这张表曾经过期,而且是本程序自己的机制没跟上。** G1 接线批次退役了
+> `sigma = inf` 那一条(14 → 13)并把数字写进了记录页与 `CENSUS`,却没有改这里;
+> G13 接线批次退役 `joint_prior` 那一条、又新增一条(13 → 13),**普查测试因此保持
+> 绿**——净变化为零,而内容变了两处。计数守卫抓不到这种,只有内容能。
+> 本表自此**由 `test_refusal_census._sites()` 重生成**,不再手抄。
 
 | 行 | 类 | `match=` |
 |---|---|---|
-| 161 | `ParameterSpaceError` | `building the block` |
-| 338 | `StateValidationError` | `more than one legitimate reading` |
-| 348 | `StateValidationError` | `complex `observed`` |
-| 358 | `ParameterSpaceError` | `sigma = inf` |
-| 370 | `ParameterSpaceError` | `HomoscedasticNoise` |
-| 394 | `ParameterSpaceError` | `<computed>` |
-| 407 | `ParameterSpaceError` | `joint_prior` |
-| 420 | `ParameterSpaceError` | `internal node names` |
-| 426 | `ParameterSpaceError` | `declares no prior` |
-| 432 | `ParameterSpaceError` | `also declares` |
-| 445 | `ParameterSpaceError` | `which this space does not declare` |
-| 480 | `ParameterSpaceError` | `ComplexNormal` |
-| 517 | `ParameterSpaceError` | `declares` |
-| 521 | `ParameterSpaceError` | `no prior for latent` |
+| 162 | `ParameterSpaceError` | `building the block` |
+| 339 | `StateValidationError` | `more than one legitimate reading` |
+| 349 | `StateValidationError` | `complex `observed`` |
+| 361 | `ParameterSpaceError` | `HomoscedasticNoise` |
+| 385 | `ParameterSpaceError` | `<computed>` |
+| 398 | `ParameterSpaceError` | `internal node names` |
+| 404 | `ParameterSpaceError` | `declares no prior` |
+| 410 | `ParameterSpaceError` | `also declares` |
+| 423 | `ParameterSpaceError` | `which this space does not declare` |
+| 458 | `ParameterSpaceError` | `ComplexNormal` |
+| 495 | `ParameterSpaceError` | `declares` |
+| 499 | `ParameterSpaceError` | `no prior for latent` |
+| 743 | `ParameterSpaceError` | `two priors on one quantity` |
 
 </details>
 

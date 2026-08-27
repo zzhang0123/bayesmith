@@ -49,6 +49,21 @@ first, then mutate, then restore -- `git checkout` is the better tool exactly
 because HEAD is the reference, which means HEAD has to be the thing you want
 back.
 
+**Rule (0) has a second half, and it is the half that bites twice.** "Commit
+the batch before you mutate it" is not "commit once when the batch starts" --
+it is **HEAD has to be what you want back, every time you run the set**. The
+protocol's `git checkout -- src/ tests/` restores to HEAD, so a fix written
+*after* the first mutation run and *before* the second is reverted by that
+second run's own opening restore, silently and before any mutant is applied.
+Measured 2026-08-27: two survivors were diagnosed correctly, the guards were
+repaired, the set was re-run to confirm -- and it reported the same two
+survivors, because the repair no longer existed. Nothing in the output says
+so; a reverted fix and a fix that did not work look identical.
+
+Commit the repair, then re-run. And if a mutation script restores paths beyond
+the mutants' own, narrow it: that one restored all of `tests/` to undo mutants
+that were only ever in `src/`.
+
 `rm -rf __pycache__` between the mutation and the restore stays required
 either way.
 
