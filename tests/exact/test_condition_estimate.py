@@ -380,20 +380,44 @@ class TestTwoThingsAMutationTaughtUs:
             _, raw = extreme_eigenvalues(operator, template, jax.random.key(0), 1)
         assert float(raw) < 0.0, float(raw)
 
-    def test_condition_estimate_is_positive_and_finite_in_that_regime(self):
-        """The other half: the floor is applied where it is needed, so the
-        public function never hands back the number above."""
-        from bayesmith.exact.solve import condition_estimate
-        from tests.exact.models import two_linear_latents
+    def test_the_floor_binds_on_a_REAL_block_and_the_answer_stays_positive(self):
+        """The other half, and on a block rather than a hand-made spectrum --
+        because the first version of this test used the hand-made one, and the
+        mutation that removed the floor survived it.
+
+        `collinear_pair` at ``iterations=1``: the raw measurement is
+        **-198.07** against a prior floor of 0.1111. So the floor is what
+        stands between this function and a negative condition number on a
+        fixture already in this repository. At two iterations it settles on
+        0.11111 -- the floor exactly, which is the honest answer for a block
+        whose weakest direction the prior alone holds.
+        """
+        from bayesmith.exact.block import (
+            domain_zero,
+            largest_variance,
+            variance_parts,
+        )
+        from bayesmith.exact.solve import condition_estimate, normal_operator
+        from tests.exact.models import collinear_pair
 
         with jax.enable_x64(True):
-            graph = two_linear_latents()
+            graph = collinear_pair()
             block, precision = (
                 TestConditionEstimateAgainstConditionBound._block_and_precision(
                     graph, ("a", "b")
                 )
             )
+            prior_variance = variance_parts(block)
+            floor = float(1.0 / largest_variance(prior_variance))
+            _, raw = extreme_eigenvalues(
+                normal_operator(block, precision, prior_variance),
+                domain_zero(block),
+                jax.random.key(0),
+                1,
+            )
             measured = float(
                 condition_estimate(block, precision=precision, iterations=1)
             )
+        assert float(raw) < 0.0, float(raw)
+        assert float(raw) < floor
         assert measured > 0.0 and jnp.isfinite(measured), measured
