@@ -53,6 +53,7 @@ def _collected() -> int:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        check=False,  # the return code is asserted on the next line, with context
     )
     assert proc.returncode == 0, (proc.returncode, proc.stdout[-2000:])
     match = _COLLECTED.search(proc.stdout)
