@@ -41,38 +41,60 @@
 
 ## 二、当前状态(2026-08-27 实测,先复核再信)
 
-- **bayesmith** `8615318`,已推送;**0.2.0 在 PyPI 上**;套件 **1235 passed /
-  0 skipped**;`ruff check src/ tests/ examples/` 干净。
-- **e-RHINO** `694405e`,已推送;套件 **9991 passed / 502 skipped**(命令见下),
-  README 计数 **10514**,coverage floor `fail_under = 89`。
-- 两仓互为 editable 安装。crosscheck workflow 对 e-RHINO main **123 passed /
+- **bayesmith** `eb69414`,已推送;**0.3.0 在 PyPI 上**(simple 索引已见 wheel
+  与 sdist);套件 **1235 passed / 0 skipped**;`ruff check src/ tests/ examples/`
+  干净。
+- **e-RHINO** `647a2ed`,已推送;套件两阶段跑
+  **10057 passed / 522 skipped**(`-n 4 --ignore=tests/gui/e2e`)加
+  **21 passed**(`tests/gui/e2e -n 2`),两阶段退出码均 0;README 计数 **10599**,
+  coverage floor `fail_under = 89`(未动)。
+- 两仓互为 editable 安装;e-RHINO 的 bayesmith 地板已升到 **`>=0.3`**。
+- **两个跨仓 workflow 现在并行**:`crosscheck.yml`(两实现是否仍一致)与
+  **新增的 `seam.yml`**(rheplicant 的 inference 层与适配器验收层在这份
+  bayesmith 上是否还能跑)。crosscheck 对 e-RHINO main 仍 **123 passed /
   0 skipped**。
 - e-RHINO 根目录九份未跟踪评审/交接草稿:**不动**(计划附录 C 明令)。
+  `run.log`/`run.exit`/`run2.log`/`run2.exit` 已入 `.gitignore`。
 
-**已完成**:P0(落盘 + 发布 0.2.0)、P2a(G11 结构化拒绝载荷 + G9 复数域最小面
-含声明路径 `ComplexNormal`)、D17 裁决协议(探针留守,对数轴补噪声)、D16 四条轴
-落地(判据改严,形状保持)。
+**已完成**:P0(落盘 + 发布 0.2.0)、P2a(G11 + G9 最小面含 `ComplexNormal`)、
+D17 裁决协议、D16 四条轴落地、**P1(适配器 + 钉名十例 + 拒绝文案清单 +
+接缝 CI + 发布 0.3.0)**——记录页 `2026-08-27-wave-P1.md`。
 
-**已拍板的 D 项**:D7、D8、D14、D16、D17、D18、D19(共 9 处 `owner 已拍板` 标记,
-含 AGENTS.md 与 G9 范围两条)。
+**已拍板的 D 项**:D7、D8、D14、D16、D17、D18、D19(owner 亲拍);
+**D9、D10、D11、D12、D13、D15(2026-08-27 的一次性委托下已处置,理由回填在
+各自那一行)**。**登记簿至此全部有裁决。**
 
-## 三、仍未拍板的 D 项 —— 按 §〇 的委托自行处置
+## 三、委托下已处置的六项(2026-08-27),以及一条被实测收紧的
 
-| 项 | 计划的建议 | 备注 |
-|---|---|---|
-| **D9** float32 政策 | *(b) 主、(a) 兜底* | Wave A 先决。(a) 若被采用,**必须上下文内重建图并 cast 摄入数组**——只包一层调用是 B2 定罪过的 no-op |
-| **D10** NPE 迁移 | 子裁决 (2) 续用 `NoiseModel.realise`;(3) 薄包装保持三名 | 前提 B4 已修(`d499171`) |
-| **D11** calibrate | *迁为 `bayesmith.fit`(G2)* | loss 方向守卫随迁 |
-| **D12** 证据族 API | rheplicant 容器保持自有类,算术调用处逐调用互转 | **前置**:切换前用今日代码写出并**提交**读档 fixture |
-| **D13** 发布列车(余下) | 0.3.0 承载 P2;程序结束前 rheplicant 发版 | 0.2.0 已发 |
-| **D15** condition_estimate | *(a)* 移植为标注「measured-κ,不可作守卫」的诊断(G14) | |
+| 项 | 结果 |
+|---|---|
+| **D9** float32 政策 | 取 (b) 主、(a) 兜底;(a) 的**启用条件**写在那一行,以免兜底变主路 |
+| **D10** NPE 迁移 | (2) 续用 `NoiseModel.realise`;(3) 薄包装保持三名 |
+| **D11** calibrate | 迁为 `bayesmith.fit`(G2) |
+| **D12** 证据族 API | 容器保持自有类,逐调用互转;**读档 fixture 的前置条件不因委托而松动** |
+| **D13** 发布列车 | **事实修正**:0.3.0 承载 **P2a**(已发),P2 余项完成后另发一版;理由是铁律 5 与原文冲突 |
+| **D15** condition_estimate | 取 (a),移植为 G14 的 measured-κ 诊断 |
+
+**D19 被一次实测收紧(裁决不变,范围变)**:登记簿写「首解退化」,实测退化发生
+在**更早一层**——`linear_operator` 自己的线性化点就取在先验中心,σ=0,
+`check_linearity` 先抛 `StructureError`。所以 Wave B 的数据锚定起步要**同时**
+覆盖 block 的 `at` 与 GLS 的起点。已编码成
+`tests/seam/test_p1_ten_examples.py` 里一条 `xfail(strict=True)` 的回归 fixture
+——**strict**,所以 Wave B 落地那天它会因为「意外地绿」而红。
 
 ## 四、剩余工作(按计划 §九 的顺序)
 
-1. **P1 适配器**:`graph_bridge.py` + `translate` + 图缝前预验证 + **拒绝文案
-   清单(附录 B)** + **接缝 CI 工作流的建立**(规格 §六,住 bayesmith 侧
-   crosscheck.yml 旁)。验收是**钉名十例**,分确定性层与抽样层两套判据。
-   **先决已全部满足**(P2a 完成、D19 已拍)。
+1. ~~**P1 适配器**~~ **已完成 2026-08-27**,见 `2026-08-27-wave-P1.md`。
+   落点:e-RHINO `src/rheplicant/inference/graph_bridge.py`、
+   `tests/seam/`(x64 子会话,19 passed + 1 xfail)、
+   `tests/inference/test_graph_bridge.py`(36)、
+   `tests/inference/test_refusal_census.py`(附录 B 的守卫)、
+   bayesmith `.github/workflows/seam.yml`。**两条接缝变异实跑,双双击杀**
+   (附录 A 第 3、4 行)。**三件事留给下一位**:(a) 接缝 CI 的两个 floor
+   (`FLOOR`、`ADAPTER_FLOOR`)是本地实测的种子,按 runner 第一次绿跑打印的
+   数字往上写;(b) `to_graph`/`translate` 要不要经门面公开,是 Wave A 前的
+   一条新裁决(今天**没有**导出,门面 106 名单未动);(c) 例 5b 的
+   `xfail(strict=True)` 是 Wave B 的闹钟,不要顺手删。
 2. **P2 余项**:G1 掩码、G2 `bayesmith.fit`、G3 `exact.chain`、G4
    `exact.reduced_basis`、G5 `bayesmith.amortize`、G6 证据消费面、G7 bridge 补齐、
    **G9 全量**(vmap/log 空间/Fisher 的复数面;另**登记在案的两项**:`diagnose`
@@ -146,6 +168,17 @@ cd /Users/zzhang/projects/bayesmith
 
 改动任一侧探针语义后重跑它们;`probe_11` 现在应报 **6/8 一致**(余下两例是
 D16 轴 1/轴 5,已随 D16 落地结清——若它现在报 8/8,把那两行的期望更新掉)。
+
+**第三条,P1 起可跑**(适配器的验收层,必须带 x64):
+
+```bash
+cd /Users/zzhang/projects/e-RHINO
+JAX_ENABLE_X64=1 .venv/bin/python -m pytest tests/seam
+```
+
+默认(float32)会话里它整目录 **skip**,那是设计:`tests/test_seam_session.py`
+以子进程跑上面这条命令,并在它红时红。**全套里现在有两个 x64 会话,不是一个**
+——`tests/evidence/` 与 `tests/seam/`,各有自己的门 conftest 与驱动。
 
 ## 七、本会话反复付学费的三种形状(值得当成检查表)
 

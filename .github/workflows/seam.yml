@@ -132,17 +132,19 @@ jobs:
                            "produces it did not finish. Read that step's log; "
                            "this guard has nothing to measure.")
 
-          # Seeded from a measurement, not from a guess: tests/inference
-          # collects 959 and skips 0 in a complete local environment
-          # (2026-08-27, the P1 batch). Five of those tests reach
-          # rhino-cal-jax through a function-level importorskip and it is a
-          # best-effort install above, so the floor is set below that with
-          # room -- 940. It is a RATCHET: raise it in the same commit that
-          # adds tests to tests/inference, and never lower it to make a run
-          # pass. A module standing down behind a module-level importorskip
-          # takes tens of tests with it, which is what this number is sized to
-          # catch; a handful of optional-dependency skips is not.
-          FLOOR = 940
+          # Measured on THIS runner, not seeded: the first green run
+          # (2026-08-27, rheplicant 647a2ed) reported collected=996 passed=996
+          # skipped=0, and a complete local environment reports the same 996.
+          # The two agreeing is worth more than either number: it says the
+          # workflow's dependency list is not quietly standing modules down.
+          #
+          # A RATCHET. Raise it in the same commit that adds tests to
+          # tests/inference; never lower it to make a run pass. It is sized to
+          # catch a module standing down behind a module-level importorskip,
+          # which takes tens of tests with it -- not to catch one or two
+          # optional-dependency skips, which report themselves in the line
+          # printed above.
+          FLOOR = 996
           root = ET.parse("seam.xml").getroot()
           suite = root[0] if root.tag == "testsuites" else root
           a = suite.attrib
@@ -161,7 +163,11 @@ jobs:
           # suite mask a seam directory that skipped itself entirely, which is
           # exactly what happens if JAX_ENABLE_X64 fails to reach the child:
           # the dtype gate fires, every test skips, and pytest exits 0.
-          ADAPTER_FLOOR = 19      # 19 passed + 1 xfail, measured 2026-08-27
+          # 19 passed + 1 xfail. The xfail shows in junit as a SKIP, which is
+          # why this is a pass floor and not an equality: raising it to 20
+          # would go red on a green run. Confirmed on the runner 2026-08-27:
+          # "adapter: collected=20 passed=19 skipped=1".
+          ADAPTER_FLOOR = 19
           root = ET.parse("adapter.xml").getroot()
           suite = root[0] if root.tag == "testsuites" else root
           a = suite.attrib
