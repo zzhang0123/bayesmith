@@ -1,0 +1,183 @@
+# Run rheplicant's inference layer against THIS bayesmith, automatically.
+#
+# The second of two standing cross-repository jobs, and it is NOT a duplicate
+# of crosscheck.yml. They answer different questions and both answers are
+# needed for as long as the migration runs:
+#
+#   crosscheck.yml  "do the two IMPLEMENTATIONS still agree?"  It runs
+#                   bayesmith's own tests/crosscheck, which compare numbers
+#                   computed here against numbers computed there. It retires
+#                   file by file as each module switches, because once there is
+#                   one implementation there is nothing left to compare.
+#
+#   seam.yml        "does rheplicant's inference layer still WORK on this
+#                   bayesmith?"  It runs rheplicant's own tests/inference
+#                   against the working tree here. It is born the day the
+#                   adapter exists and grows as modules switch -- exactly the
+#                   opposite curve.
+#
+# Two jobs, both running until the last cross-check file retires: the plan's
+# §六 double posting. Running only the first would leave the seam untested for
+# the whole migration; running only the second would let the two implementations
+# drift apart while both remained internally happy.
+#
+# THE FLOOR, AND WHY IT IS A RECORDED NUMBER RATHER THAN "no failures".
+# `tests/inference` collects behind module-level importorskip in several
+# places, so a thin environment stands modules down and pytest still exits 0.
+# The pass floor is therefore the last green run's `tests - skipped`, written
+# below, and the job fails if this run clears fewer. A skip is not a pass, and
+# a run that compared nothing exits 0 exactly like a healthy one.
+#
+# ON INJECTION SAFETY. This workflow interpolates nothing and reads no event
+# data: no titles, bodies, comments, branch names or commit messages. Outside
+# this paragraph, which names it in order to say so, the expression syntax
+# appears nowhere in the file. Keep it that way -- an expression substituted
+# into a `run:` block is evaluated before the shell sees it, which is the whole
+# vulnerability class, and `pull_request` from a public fork is where it bites.
+
+name: Seam
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  seam:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install this bayesmith, from the working tree
+        run: |
+          uv venv --python 3.12
+          uv pip install -e . --group dev
+
+      # ONE clone, installed editable from it, and the commit printed. Not a
+      # URL install plus a separate clone of the tests: those are two fetches
+      # of a moving ref, so the suite that runs and the package it imports
+      # could be different commits -- and the failure would look like a real
+      # disagreement. This project has already paid once for a cross-repository
+      # guard that was green only because of which checkout was installed, so
+      # "which rheplicant was this" is answered in the log, by git, every run.
+      #
+      # --no-deps is not a shortcut: rheplicant declares limTOD, which drags in
+      # some seventy-eight transitive packages and re-solves jax and numpy
+      # against a second set of constraints, while the layer under test imports
+      # fine without it (the sky engines load limTOD lazily).
+      - name: Clone rheplicant at main, install it, and say which commit
+        run: |
+          git clone --depth 1 --branch main \
+            https://github.com/RHINO-Experiment/rheplicant.git rheplicant-src
+          git -C rheplicant-src rev-parse HEAD
+          uv pip install --no-deps -e ./rheplicant-src
+
+      - name: Install what tests/inference itself needs
+        run: |
+          uv pip install pytest pytest-xdist hypothesis h5py numpyro equinox
+
+      # Best effort, like crosscheck.yml's: it is not on PyPI and lives on a
+      # branch. If it will not install, the floor check below reports the hole
+      # rather than the job hiding it.
+      - name: Install the optional twin dependency, if it will install
+        continue-on-error: true
+        run: |
+          uv pip install --no-deps \
+            "rhino-cal-jax @ git+https://github.com/RHINO-Experiment/rhino-cal@feat/rhino-cal-jax"
+
+      - name: Run the inference layer
+        working-directory: rheplicant-src
+        run: |
+          ../.venv/bin/python -m pytest tests/inference \
+            --no-cov -p no:cacheprovider --junit-xml=../seam.xml
+
+      # The adapter's own acceptance tier, which is the part of this job that
+      # actually crosses the seam. It is x64-gated on rheplicant's side --
+      # jax_enable_x64 is process-global and its deterministic tier makes a
+      # machine-precision claim -- so it is a SECOND pytest invocation with the
+      # flag in the environment, not another path on the line above. Run
+      # directly rather than through rheplicant's tests/test_seam_session.py,
+      # because that module spawns a child of its own and nesting the two only
+      # hides which one failed.
+      - name: Run the adapter's acceptance tier, in float64
+        working-directory: rheplicant-src
+        env:
+          JAX_ENABLE_X64: "1"
+        run: |
+          ../.venv/bin/python -m pytest tests/seam \
+            --no-cov -p no:cacheprovider -rs --junit-xml=../adapter.xml
+
+      # The half that tells a healthy run from one that stood itself down.
+      - name: The seam run must have cleared the recorded floor
+        if: always()
+        run: |
+          uv run python - <<'PY'
+          import pathlib, sys, xml.etree.ElementTree as ET
+
+          # `if: always()` means this step also runs when a pytest step above
+          # failed before writing its XML. Say that plainly instead of dying on
+          # a FileNotFoundError, whose traceback names this guard and hides the
+          # step that actually failed.
+          for report in ("seam.xml", "adapter.xml"):
+              if not pathlib.Path(report).exists():
+                  sys.exit(f"{report} was never written: the pytest step that "
+                           "produces it did not finish. Read that step's log; "
+                           "this guard has nothing to measure.")
+
+          # Seeded from a measurement, not from a guess: tests/inference
+          # collects 959 and skips 0 in a complete local environment
+          # (2026-08-27, the P1 batch). Five of those tests reach
+          # rhino-cal-jax through a function-level importorskip and it is a
+          # best-effort install above, so the floor is set below that with
+          # room -- 940. It is a RATCHET: raise it in the same commit that
+          # adds tests to tests/inference, and never lower it to make a run
+          # pass. A module standing down behind a module-level importorskip
+          # takes tens of tests with it, which is what this number is sized to
+          # catch; a handful of optional-dependency skips is not.
+          FLOOR = 940
+          root = ET.parse("seam.xml").getroot()
+          suite = root[0] if root.tag == "testsuites" else root
+          a = suite.attrib
+          tests, skipped = int(a["tests"]), int(a["skipped"])
+          passed = tests - skipped - int(a["failures"]) - int(a["errors"])
+          print(f"collected={tests} passed={passed} skipped={skipped} "
+                f"failed={a['failures']} errors={a['errors']}")
+          if passed < FLOOR:
+              sys.exit(f"the seam run cleared {passed}, below the recorded floor "
+                       f"{FLOOR}. A module that stops collecting stands down "
+                       f"behind importorskip and pytest still exits 0. THIS IS "
+                       f"NOT A PASS.")
+
+          # The adapter tier, checked separately and against its own floor.
+          # Folding it into the number above would let a healthy inference
+          # suite mask a seam directory that skipped itself entirely, which is
+          # exactly what happens if JAX_ENABLE_X64 fails to reach the child:
+          # the dtype gate fires, every test skips, and pytest exits 0.
+          ADAPTER_FLOOR = 19      # 19 passed + 1 xfail, measured 2026-08-27
+          root = ET.parse("adapter.xml").getroot()
+          suite = root[0] if root.tag == "testsuites" else root
+          a = suite.attrib
+          tests, skipped = int(a["tests"]), int(a["skipped"])
+          passed = tests - skipped - int(a["failures"]) - int(a["errors"])
+          print(f"adapter: collected={tests} passed={passed} skipped={skipped}")
+          if passed < ADAPTER_FLOOR:
+              sys.exit(f"the adapter tier cleared {passed}, below {ADAPTER_FLOOR}. "
+                       "If every test skipped, JAX_ENABLE_X64 did not reach the "
+                       "child and the dtype gate fired. THIS IS NOT A PASS.")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: seam-report
+          path: |
+            seam.xml
+            adapter.xml

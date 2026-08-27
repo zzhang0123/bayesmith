@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.3.0 — 2026-08-27
+
+Released ahead of the rest of P2, and the reason is a rule rather than a
+milestone: rheplicant's adapter (`graph_bridge.py`) depends on the two
+surfaces below, and the migration plan forbids rheplicant's main from
+depending on a bayesmith surface that is not on the index. The plan's
+release row said 0.3.0 would carry all of P2; the two rules cannot both
+hold, so the row was corrected and this number carries P2a. A patch
+release was the other option and was refused: the change below is
+breaking for anyone constructing the three error classes directly, and a
+breaking change hidden in the patch position is the silently-wrong side.
+
 **A refusal a caller must act on now carries its evidence as data (G11).**
 `AffinityRefused` is new -- a subclass of `StructureError`, so every existing
 `except StructureError` keeps catching it -- and it carries the probe's own

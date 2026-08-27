@@ -514,10 +514,455 @@ config 侧引用)。
    `y = jnp.log(observed) + fractional**2 / 2.0` → 去位移;指名红:
    e-RHINO `test_loglinear.py::TestTheNoiseTransform::test_the_leading_order_mean_shift_is_added_back`;
    观测退出码 1。
+3. **G11 载荷**(P1 批次新增,**已实跑,KILLED**):bayesmith `errors.py`
+   `AffinityRefused.__init__` 的 `self.failed = tuple(failed)` → `self.failed = ()`;
+   指名红:e-RHINO
+   `tests/inference/test_graph_bridge.py::TestTranslateBringsRefusalsBackInThisPackagesClasses::test_the_translated_refusal_carries_the_probe_numbers`;
+   观测退出码 **1**,且该条是**唯一**的红。这一行正是 P2a 记录页 §四 预告的那条
+   ——当时无跨仓消费者,`translate` 尚不存在,故只登记不实跑;今日两者都在了。
+4. **复数 join**(P1 批次新增,**已实跑,KILLED**):bayesmith `exact/block.py`
+   `real_parts` 的 join,`parts[n][0] + 1j * parts[n][1]` → `+ 0j *`;指名红:
+   e-RHINO `tests/seam/test_p1_ten_examples.py::TestExample2ComplexAlm` 的**三条**
+   (稠密均值、虚部被数据约束、GCR 矩);观测退出码 **1**(x64 会话),
+   float32 会话退出码 0——因为复数面只在 `tests/seam/` 被跨仓消费,这本身就是
+   「哪一侧承重」的一次读数。
 
 ## 附录 B — 拒绝文案清单
 
-P1 交付物,census 后回填(格式:match= 模式 | 今日抛出处 | 切换后抛出侧)。
+> **P1 交付物,已回填(2026-08-27)。** 实测:`tests/inference/` 下共
+> **241** 个 `pytest.raises(..., match=...)` 站点。按抛出的异常类:
+> `ParameterSpaceError` **175**、`StateValidationError` **58**、
+> `RuntimeError` **4**、`Exception` **3**、`TypeError` **1**。
+>
+> **这张表不由人手维护,也不该由人手维护。** 它由
+> e-RHINO `tests/inference/test_refusal_census.py` 逐文件计数并**钉住**,
+> 所以新增或删除一个被钉的拒绝会先让那个守卫红,并**报出要写进这里的数字**。
+> 本附录与那个守卫是**同一次测量的两份呈现**,必须同批更新——计划反复付学费
+> 的形状正是「一个事实两份拼写,其中一份悄悄过期」。
+>
+> **「今日抛出处」与「切换后抛出侧」为什么不是两列。** 定稿时设想的是三列表,
+> 而实测后改了形态,理由写下来以免被读成偷工:227(当时)个站点里,今天
+> **每一条都由 rheplicant 抛出**——这是铁律 1 的直接推论,门面保持异常类身份
+> 与被钉文案。所以「今日抛出处」整列是同一个值,而「切换后抛出侧」在切换**之前**
+> 填只能是预测。二者都不是测量。
+>
+> 因此本附录记录的是**总体与逐文件的分布**(可测、会漂、被守卫钉住),而
+> 「哪一条切换后由 bayesmith 抛出并经 `translate` 回来」**逐波核销**:每一波
+> 切换的模块,其文件在下表的计数会变,守卫会红,那一波在自己的执行页里写明
+> 它接手了哪些句子、哪些改由 `translate` 产生。这正是计划 §六「R4 拒绝文案:
+> 附录 B 清单驱动,逐波核销」说的动作,只是把「清单」定义成了一个**能失败的
+> 守卫**而不是一张静态表。
+>
+> **今日已知的两条例外**,也就是清单里唯一已经跨过缝的部分:
+> `AffinityRefused` → `LinearityRefused`(载荷同数,不重算)与
+> 其余 `BayesmithError` → `SeamRefusal`(`ParameterSpaceError` 子类,点名 site)。
+> 两条都在 e-RHINO `tests/inference/test_graph_bridge.py` 里被钉住,并各有一个
+> 已实跑的接缝变异(附录 A 第 3、4 行)。
+
+### 逐文件清单(2026-08-27 实测)
+
+<details><summary><code>test_block_learning_rate.py</code> — 2 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 62 | `Exception` | `learning_rate must be > 0` |
+| 69 | `Exception` | `conjugate` |
+
+</details>
+
+<details><summary><code>test_declared_prior.py</code> — 14 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 222 | `ParameterSpaceError` | `prior_std` |
+| 284 | `ParameterSpaceError` | `prior_std` |
+| 296 | `ParameterSpaceError` | `conjugate` |
+| 396 | `ParameterSpaceError` | `amp_b` |
+| 409 | `ParameterSpaceError` | `prior_std` |
+| 416 | `ParameterSpaceError` | `prior_mean` |
+| 423 | `ParameterSpaceError` | `prior_std` |
+| 451 | `ParameterSpaceError` | `prior_std= you passed is a traced value` |
+| 544 | `ParameterSpaceError` | `traced` |
+| 558 | `ParameterSpaceError` | `prior_std` |
+| 592 | `ParameterSpaceError` | `conjugate` |
+| 613 | `ParameterSpaceError` | `LogNormal` |
+| 635 | `ParameterSpaceError` | `needs prior_std` |
+| 642 | `ParameterSpaceError` | `different problem` |
+
+</details>
+
+<details><summary><code>test_fisher_prior.py</code> — 7 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 222 | `StateValidationError` | `parameter_covariance` |
+| 233 | `StateValidationError` | `parameter_covariance` |
+| 273 | `ParameterSpaceError` | `z_scalar` |
+| 295 | `ParameterSpaceError` | `LogNormal` |
+| 314 | `ParameterSpaceError` | `z_scalar` |
+| 321 | `StateValidationError` | `not named` |
+| 331 | `ParameterSpaceError` | `do not match` |
+
+</details>
+
+<details><summary><code>test_forward.py</code> — 1 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 53 | `ParameterSpaceError` | `NoiseOperator at 'noise'` |
+
+</details>
+
+<details><summary><code>test_gls.py</code> — 3 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 217 | `ParameterSpaceError` | `prior_std` |
+| 223 | `ParameterSpaceError` | `min_reweights` |
+| 438 | `ParameterSpaceError` | `needs a NoiseModel` |
+
+</details>
+
+<details><summary><code>test_graph_bridge.py</code> — 14 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 161 | `ParameterSpaceError` | `building the block` |
+| 338 | `StateValidationError` | `more than one legitimate reading` |
+| 348 | `StateValidationError` | `complex `observed`` |
+| 358 | `ParameterSpaceError` | `sigma = inf` |
+| 370 | `ParameterSpaceError` | `HomoscedasticNoise` |
+| 394 | `ParameterSpaceError` | `<computed>` |
+| 407 | `ParameterSpaceError` | `joint_prior` |
+| 420 | `ParameterSpaceError` | `internal node names` |
+| 426 | `ParameterSpaceError` | `declares no prior` |
+| 432 | `ParameterSpaceError` | `also declares` |
+| 445 | `ParameterSpaceError` | `which this space does not declare` |
+| 480 | `ParameterSpaceError` | `ComplexNormal` |
+| 517 | `ParameterSpaceError` | `declares` |
+| 521 | `ParameterSpaceError` | `no prior for latent` |
+
+</details>
+
+<details><summary><code>test_identifiability.py</code> — 13 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 366 | `StateValidationError` | `null direction` |
+| 368 | `StateValidationError` | `null direction` |
+| 375 | `StateValidationError` | `null direction` |
+| 449 | `StateValidationError` | `Inconsistent report` |
+| 451 | `StateValidationError` | `Inconsistent report` |
+| 458 | `StateValidationError` | `Inconsistent report` |
+| 560 | `ParameterSpaceError` | `not a latent` |
+| 918 | `StateValidationError` | `float32\|single precision` |
+| 962 | `ParameterSpaceError` | `not a latent` |
+| 969 | `ParameterSpaceError` | `more than once\|repeated` |
+| 977 | `ParameterSpaceError` | `at least one` |
+| 1004 | `ParameterSpaceError` | `R-linear but not C-linear` |
+| 1024 | `ParameterSpaceError` | `not a continuous parameter` |
+
+</details>
+
+<details><summary><code>test_inference_construction_guards.py</code> — 10 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 166 | `StateValidationError` | `learning_rate must be > 0` |
+| 168 | `StateValidationError` | `n_steps must be a positive int` |
+| 657 | `StateValidationError` | `learning_rate must be > 0` |
+| 661 | `StateValidationError` | `floor must be >= 0` |
+| 676 | `StateValidationError` | `channel_width` |
+| 681 | `StateValidationError` | `integration_time` |
+| 692 | `StateValidationError` | `n_steps must be a positive int` |
+| 698 | `StateValidationError` | `beta1/beta2 must be in \[0, 1\)` |
+| 704 | `StateValidationError` | `must be in \[0, 1\)` |
+| 722 | `StateValidationError` | `n_components must be positive` |
+
+</details>
+
+<details><summary><code>test_inference_unpinned_refusals.py</code> — 5 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 88 | `ParameterSpaceError` | `'amp' is not declared linear=True` |
+| 94 | `ParameterSpaceError` | `Declare it` |
+| 114 | `ParameterSpaceError` | `No latent in this space is declared` |
+| 144 | `ParameterSpaceError` | `wiener_solve expects a real-valued` |
+| 206 | `StateValidationError` | `was computed for \{'amp'` |
+
+</details>
+
+<details><summary><code>test_jeffreys_prior.py</code> — 13 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 445 | `ParameterSpaceError` | `over no latents` |
+| 450 | `ParameterSpaceError` | `more than once` |
+| 455 | `ParameterSpaceError` | `takes latent NAMES` |
+| 460 | `ParameterSpaceError` | `positive relative cut` |
+| 466 | `ParameterSpaceError` | `names \['fg_index'\]` |
+| 472 | `ParameterSpaceError` | `AND declare their own` |
+| 521 | `ParameterSpaceError` | `no entry for \['fg_beta'\]` |
+| 531 | `ParameterSpaceError` | `inside its own definition` |
+| 545 | `ParameterSpaceError` | `splits it across blocks` |
+| 562 | `ParameterSpaceError` | `does not evaluate a joint prior` |
+| 606 | `ParameterSpaceError` | `\['t_floor'\] have no prior` |
+| 672 | `ParameterSpaceError` | `sqrt.det I. is not a density` |
+| 687 | `ParameterSpaceError` | `sigma\^-2` |
+
+</details>
+
+<details><summary><code>test_linear_block_as_dict.py</code> — 2 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 92 | `ParameterSpaceError` | `groups \['gain'\]` |
+| 97 | `ParameterSpaceError` | `keyed by \['sky'\]` |
+
+</details>
+
+<details><summary><code>test_linear_blocks.py</code> — 19 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 104 | `ParameterSpaceError` | `linear=True` |
+| 112 | `ParameterSpaceError` | `not affine` |
+| 319 | `ParameterSpaceError` | `different` |
+| 325 | `ParameterSpaceError` | `prior_std` |
+| 345 | `ParameterSpaceError` | `not affine` |
+| 380 | `ParameterSpaceError` | `not affine` |
+| 398 | `ParameterSpaceError` | `not affine` |
+| 454 | `ParameterSpaceError` | `not affine` |
+| 477 | `ParameterSpaceError` | `not affine` |
+| 487 | `ParameterSpaceError` | `not affine` |
+| 502 | `ParameterSpaceError` | `No latent named` |
+| 516 | `ParameterSpaceError` | `which latent` |
+| 544 | `ParameterSpaceError` | `not affine` |
+| 763 | `ParameterSpaceError` | `prior_std` |
+| 837 | `ParameterSpaceError` | `not a latent` |
+| 1018 | `RuntimeError` | `condition number` |
+| 1036 | `RuntimeError` | `condition number` |
+| 1063 | `RuntimeError` | `precision\|condition number` |
+| 1190 | `RuntimeError` | `precision\|condition number` |
+
+</details>
+
+<details><summary><code>test_linear_groups.py</code> — 21 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 274 | `ParameterSpaceError` | `name= OR names=` |
+| 278 | `ParameterSpaceError` | `at least one latent name` |
+| 282 | `ParameterSpaceError` | `not a latent of this space` |
+| 286 | `ParameterSpaceError` | `more than once` |
+| 303 | `ParameterSpaceError` | `not declared linear=True` |
+| 314 | `ParameterSpaceError` | `not a latent` |
+| 619 | `ParameterSpaceError` | `different` |
+| 631 | `ParameterSpaceError` | `one prior PER LATENT` |
+| 635 | `ParameterSpaceError` | `one prior PER LATENT` |
+| 639 | `ParameterSpaceError` | `one prior PER LATENT` |
+| 643 | `ParameterSpaceError` | `does not group` |
+| 648 | `ParameterSpaceError` | `prior_std for \['t_ant'\]` |
+| 668 | `ParameterSpaceError` | `latent 't_nw' declares a Uniform` |
+| 682 | `ParameterSpaceError` | `latent 't_ant' declares` |
+| 715 | `ParameterSpaceError` | `one entry per member` |
+| 729 | `ParameterSpaceError` | `one entry per member` |
+| 753 | `ParameterSpaceError` | `not affine in them JOINTLY` |
+| 759 | `ParameterSpaceError` | `not affine` |
+| 789 | `ParameterSpaceError` | `floating-point or complex` |
+| 799 | `ParameterSpaceError` | `floating-point or complex` |
+| 803 | `ParameterSpaceError` | `name= OR names=` |
+
+</details>
+
+<details><summary><code>test_loss_sense.py</code> — 5 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 121 | `ParameterSpaceError` | `declares sense='maximize'` |
+| 138 | `ParameterSpaceError` | `must be 'maximize'` |
+| 151 | `ParameterSpaceError` | `scores a PERFECT prediction` |
+| 170 | `ParameterSpaceError` | `scores a PERFECT prediction` |
+| 185 | `ParameterSpaceError` | `not finite at entry` |
+
+</details>
+
+<details><summary><code>test_noise_model.py</code> — 3 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 104 | `StateValidationError` | `positive` |
+| 106 | `StateValidationError` | `positive` |
+| 163 | `StateValidationError` | `shape` |
+
+</details>
+
+<details><summary><code>test_noise_std_axis.py</code> — 18 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 107 | `StateValidationError` | `more than one` |
+| 145 | `StateValidationError` | `more than one` |
+| 156 | `StateValidationError` | `more than one` |
+| 163 | `StateValidationError` | `more than one` |
+| 177 | `StateValidationError` | `more than one` |
+| 195 | `StateValidationError` | `more than one` |
+| 211 | `StateValidationError` | `more than one` |
+| 279 | `StateValidationError` | `more than one` |
+| 286 | `StateValidationError` | `wiener_solve` |
+| 378 | `StateValidationError` | `more than one` |
+| 382 | `StateValidationError` | `<computed>` |
+| 491 | `ParameterSpaceError` | `takes a plain sigma array` |
+| 509 | `ParameterSpaceError` | `no prediction to evaluate it` |
+| 516 | `ParameterSpaceError` | `wiener_solve` |
+| 518 | `ParameterSpaceError` | `gcr_sample` |
+| 554 | `StateValidationError` | `condition_estimate` |
+| 558 | `ParameterSpaceError` | `takes a plain sigma array` |
+| 615 | `StateValidationError` | `<computed>` |
+
+</details>
+
+<details><summary><code>test_npe.py</code> — 4 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 236 | `ParameterSpaceError` | `no prior` |
+| 243 | `StateValidationError` | `positive` |
+| 253 | `StateValidationError` | `same pairs` |
+| 258 | `StateValidationError` | `n_params` |
+
+</details>
+
+<details><summary><code>test_numpyro_bridge.py</code> — 5 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 62 | `ParameterSpaceError` | `no prior` |
+| 70 | `ParameterSpaceError` | `shape` |
+| 242 | `StateValidationError` | `per-sample shape` |
+| 257 | `StateValidationError` | `differing numbers of draws` |
+| 262 | `StateValidationError` | `missing site` |
+
+</details>
+
+<details><summary><code>test_parameters.py</code> — 29 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 180 | `ParameterSpaceError` | `unique` |
+| 187 | `ParameterSpaceError` | `undeclared` |
+| 195 | `ParameterSpaceError` | `never bound` |
+| 205 | `ParameterSpaceError` | ``into` selector` |
+| 219 | `ParameterSpaceError` | `returned 3 values` |
+| 223 | `ParameterSpaceError` | `exactly one latent` |
+| 228 | `ParameterSpaceError` | `shape` |
+| 235 | `ParameterSpaceError` | `scope` |
+| 316 | `ParameterSpaceError` | `fan='broadcast'` |
+| 333 | `ParameterSpaceError` | `fan='distribute'` |
+| 347 | `ParameterSpaceError` | `returned 3 values` |
+| 355 | `ParameterSpaceError` | `returned 3 values` |
+| 395 | `ParameterSpaceError` | `fan='broadcast'` |
+| 410 | `ParameterSpaceError` | `fan='tie'` |
+| 436 | `ParameterSpaceError` | `fan='broadcast'` |
+| 456 | `ParameterSpaceError` | `array leaf` |
+| 467 | `ParameterSpaceError` | `written by more than one` |
+| 475 | `ParameterSpaceError` | `shape` |
+| 484 | `ParameterSpaceError` | `complex` |
+| 494 | `ParameterSpaceError` | `structure` |
+| 533 | `ParameterSpaceError` | `shape` |
+| 607 | `ParameterSpaceError` | `INSTEAD of bindings` |
+| 627 | `ParameterSpaceError` | `does not reach the pipeline` |
+| 640 | `ParameterSpaceError` | `shape` |
+| 650 | `ParameterSpaceError` | `complex` |
+| 663 | `Exception` | `bindings` |
+| 780 | `ParameterSpaceError` | `'x'` |
+| 794 | `ParameterSpaceError` | `'x'` |
+| 812 | `ParameterSpaceError` | `'x'` |
+
+</details>
+
+<details><summary><code>test_plan.py</code> — 32 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 271 | `ParameterSpaceError` | `at least one latent name` |
+| 277 | `ParameterSpaceError` | `latent NAMES` |
+| 281 | `ParameterSpaceError` | `more than once` |
+| 285 | `ParameterSpaceError` | `the engines are` |
+| 293 | `ParameterSpaceError` | `positive int` |
+| 302 | `ParameterSpaceError` | `at least one Block` |
+| 306 | `ParameterSpaceError` | `does not declare` |
+| 310 | `ParameterSpaceError` | `\['gain', 't_coeff'\]` |
+| 316 | `ParameterSpaceError` | `'gain' is in more than one block` |
+| 322 | `ParameterSpaceError` | `does not cover latent\(s\) \['t_coeff'\]` |
+| 359 | `ParameterSpaceError` | `mixes declared-linear` |
+| 363 | `ParameterSpaceError` | `\['amp'\].*\['centre'\]` |
+| 381 | `ParameterSpaceError` | `not declared linear=True` |
+| 387 | `ParameterSpaceError` | `no inner ` |
+| 427 | `ParameterSpaceError` | `nullity 6` |
+| 535 | `ParameterSpaceError` | `check_identifiability` |
+| 539 | `ParameterSpaceError` | `check_identifiability` |
+| 620 | `ParameterSpaceError` | `nullity 12` |
+| 736 | `ParameterSpaceError` | `min_sweeps <= max_iter` |
+| 745 | `ParameterSpaceError` | `max_iter >= 1` |
+| 761 | `ParameterSpaceError` | `n_sweeps >= 1` |
+| 771 | `ParameterSpaceError` | `warmup >= 0` |
+| 783 | `ParameterSpaceError` | `<computed>` |
+| 807 | `ParameterSpaceError` | `\['centre'\] have none` |
+| 843 | `ParameterSpaceError` | `this plan's model predicts` |
+| 848 | `ParameterSpaceError` | `this plan's model predicts` |
+| 871 | `ParameterSpaceError` | `this plan's model predicts` |
+| 876 | `ParameterSpaceError` | `this plan's model predicts` |
+| 889 | `ParameterSpaceError` | `not affine in them JOINTLY` |
+| 894 | `ParameterSpaceError` | `not affine in them JOINTLY` |
+| 906 | `TypeError` | `key` |
+| 1071 | `ParameterSpaceError` | `<computed>` |
+
+</details>
+
+<details><summary><code>test_prior_sensitivity.py</code> — 9 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 818 | `StateValidationError` | `fg_gamma` |
+| 820 | `StateValidationError` | `fg_gamma` |
+| 826 | `StateValidationError` | `positive` |
+| 828 | `StateValidationError` | `positive` |
+| 832 | `StateValidationError` | `broadcast` |
+| 963 | `ParameterSpaceError` | `fg_beta` |
+| 999 | `ParameterSpaceError` | `broadcast\|shape` |
+| 1006 | `ParameterSpaceError` | `fg_gamma` |
+| 1011 | `ParameterSpaceError` | `fg_gamma` |
+
+</details>
+
+<details><summary><code>test_stochastic_twin.py</code> — 4 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 123 | `ParameterSpaceError` | `NoiseOperator at 'noise'` |
+| 127 | `ParameterSpaceError` | `NoiseOperator at 'noise'` |
+| 131 | `ParameterSpaceError` | `Assembly\.without\(node_id\)` |
+| 142 | `ParameterSpaceError` | `RFIOperator at 'field_sum/rfi_field'` |
+
+</details>
+
+<details><summary><code>test_uncertainty.py</code> — 8 条</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 49 | `StateValidationError` | `flags` |
+| 121 | `StateValidationError` | `no trainable` |
+| 152 | `StateValidationError` | `param_cov` |
+| 165 | `StateValidationError` | `structure` |
+| 262 | `StateValidationError` | `parameter_covariance` |
+| 268 | `StateValidationError` | `no parameter named` |
+| 276 | `StateValidationError` | `not named` |
+| 290 | `StateValidationError` | `Complex parameters` |
+
+</details>
+
 
 ## 附录 C — P0 提交清单
 
