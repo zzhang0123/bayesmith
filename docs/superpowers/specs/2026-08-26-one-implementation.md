@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D33;拍板后回填本行)
+## 二、裁决登记簿(D7–D36;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -558,6 +558,40 @@
   接线那一批要按分诊第二列处置——**今天没有量过**,量它是那一批的第一件事。
   证据链:`2026-08-27-p2-g2-fit.md` §六.2。
 
+- **D34 — `declared_partition` 遇到不完整覆盖:补一个 NUTS 块还是拒绝(做 G10 时新增)。**
+  `factor_partition` 把解不了的 latent 扫进一个 NUTS 块;声明入口照做会**替调用方
+  作一个他没作的决定**,而那正好是「你声明你负责」的反面——一个漏掉的 latent 与一个
+  被判给 NUTS 的 latent 在返回的 plan 里长得一模一样。
+  **【本次委托下自定,2026-08-27:拒绝,并点名未覆盖的 latent;计划未预见此点,
+  按「保守的一侧」规则自选。】** 同一条规则决定了这个入口**还**拒绝什么:名字不是
+  latent、一个 latent 在两个块里、空块、未知方法、第二个 `nuts` 块——全部是**簿记**
+  错误而不是建模主张。建模主张(这个块真的仿射吗)恰恰是这个入口跳过的东西,拒绝
+  它们会让入口失去意义;簿记错误放过去则会让它变成一个陷阱。
+  证据链:`2026-08-27-p2-g10-g12.md` §一。
+
+- **D35 — 每 sweep 钩子在 NUTS 余项存在时:调用还是拒绝(同上批次新增)。**
+  **实测而非推测**:带 NUTS 余项时 sweep 变成 `HMCGibbs` 的 `gibbs_fn`,而 numpyro
+  **追踪**它——两块 plan 跑五个 sweep,Python 层只进入 **2 次**。一个 Python 回调
+  因此只在**追踪期**触发一次,交回一个从未发生过的 sweep,而里面的值形状与 dtype
+  全对。
+  **【本次委托下自定,2026-08-27:拒绝,并在消息里写出那次计数。】** 另一条路
+  (`jax.debug.callback`)能在 jit 下触发,但顺序不定且无法交回 Python 对象,
+  于是「诊断」会变成一串不知道属于哪个 sweep 的打印。**拒绝的对象是钩子,不是混合
+  plan**——后者一直能跑,兄弟测试钉住这一条。
+  证据链:`2026-08-27-p2-g10-g12.md` §二。
+
+- **D36 — sweep 形 estimate:解还是抽(同上批次新增)。**
+  D14 (ii) 写的是「块坐标下降」,没写精确块用 `wiener_solve`(条件**均值**)还是
+  `gcr_sample`(条件**抽样**)。
+  **【本次委托下自定,2026-08-27:解,因此不收 key,因此确定性。】** 三条理由:
+  (1) 一个 estimate 的名字承诺的是点而不是样本;(2) 抽样版本也会落在众数附近,
+  **在 docstring 里两者一模一样**而每次运行的数字不同——那是「静默的错答案」的形状;
+  (3) 高斯条件的**均值即众数**,所以解出来的 sweep 是对联合密度的**精确坐标上升**,
+  于是 `history` 单调不降**按构造成立**,而这正是一条「用了过期环境」的实现会红的
+  断言。余项块交给 **`fit`**(G2),目标同一个联合——所以 `history` 是一条轨迹而不是
+  两条拼起来的。
+  证据链:`2026-08-27-p2-g10-g12.md` §三。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
@@ -663,11 +697,28 @@ config 侧引用)。
   (i) per-sweep 回调(χ² 轨迹、identifiability 节奏、块残差),
   (ii) sweep 形 estimate,(iii) 声明分区入口(绕探测与政策门,文档化
   「声明者负责」)。**不另起执行器。**
+  **【已落地 2026-08-27,bayesmith 侧】** 三件都落在 `sample_factors` 上,没有第二个
+  执行器。(i) `on_sweep` + `SweepReport`(index / warmup / values / **log_joint** /
+  逐块 CG 残差),**带 NUTS 余项时拒绝**(D35);χ² 用 `log_joint` 拼写——高斯模型下
+  `-2 log_joint` 就是 χ² 差一个不随轨迹动的常数,而非高斯模型下只有前者存在。
+  (ii) `estimate_factors` + `SweepEstimate`,精确块 `wiener_solve`、余项交 `fit`
+  (D36);三种块(gcr / log-gcr / nuts)同一个 plan 里一起估出来,而
+  `InferencePlan.estimate` 对这张图**直接拒绝**。(iii) `declared_partition`,
+  探测数实测为 **0**,不完整覆盖**拒绝**(D34)。
+  证据链:`2026-08-27-p2-g10-g12.md`。
 - **G11 结构化拒绝载荷**:仿射类异常带 errors=/rtol=/failed;
   NotGaussian/NotLogLinear 带判别字段。先于任何委托检查的波次。
 - **G12 冻结在当前值的 gcr(移址)**:经 G10(iii) 的声明分区路径暴露
   `sample_factors` rebuild 分支的既有语义;若保留 gibbs.py 侧模式,对
   `method="gcr+mh"` **构造期拒绝**;注记为近似声明,非正确性证明。
+  **【已落地 2026-08-27,随 G10】** 三件都按本行做了,而**触发条件与本行的读法
+  差一层,值得写下来**:rebuild 分支由 `_sigma_needs_rebuild` 决定,而它问的是
+  「有没有**块外**的 latent 到达观测节点」。所以**两块以上**的 plan 走 rebuild
+  (sigma 冻在块自身当前值),**整图一块**的 plan 走 hoist(sigma 冻在**先验中心**)
+  ——后者是另一个近似,误差也不同。实测:单 latent radiometer 的
+  `_sigma_needs_rebuild` 返回 **False**。两条都不是正确性证明,注记照本行写成
+  「近似声明:历史依赖核,非严格不变」。
+  证据链:`2026-08-27-p2-g10-g12.md` §四。
 - **G13 图级联合先验**:`JeffreysPrior(over=…)` 的图侧声明与
   `to_numpyro` factor site 读取。Wave A 的 priors/numpyro_bridge 之门。
   **【实现已落地 0.4.0;e-RHINO 侧接线已落地 2026-08-27】** `to_graph` 不再拒绝
@@ -991,6 +1042,23 @@ D31 的合法性是量出来的)。
 | V4 | `step_sizes` 被忽略 | KILLED(2) | `test_per_latent_rates_reach_what_a_single_rate_does_not` |
 | V5 | 方向守卫只留声明的一半 | KILLED(1) | `test_an_undeclared_maximiser_is_caught_by_measurement` |
 | V6 | 非有限结果不再拒绝 | KILLED(1) | `test_plain_gradient_above_its_stability_limit_is_refused_not_returned` |
+
+### P2 余项 / **G10 + G12**(2026-08-27,9 条,**第一轮 8 杀**,本仓内)
+
+详情见 `2026-08-27-p2-g10-g12.md` §八。**W8 是真洞**,形状是「fixture 分不出对与
+貌似对」;**W5 的红不是登记的那条**,而登记错的是期望值不是守卫。
+
+| # | 变异(bayesmith) | 第一轮 | 修好后 |
+|---|---|---|---|
+| W1 | 不完整覆盖补一个 NUTS 块 | KILLED(1) | |
+| W2 | 声明块的 `reason` 换成派生块的 | KILLED(1) | |
+| W3 | 钩子拿到 sweep 之前的值 | KILLED(1) | |
+| W4 | NUTS 余项下不再拒绝 `on_sweep` | KILLED(1) | |
+| W5 | 估计条件在 sweep 开始时的值上 | KILLED(1,**非登记的那条**) | |
+| W6 | 估计**抽**而不是解 | KILLED(4) | |
+| W7 | 余项块从不被 `fit` 步进 | KILLED(3) | |
+| W8 | 重建的精度丢掉块自身的值 | **SURVIVED** | KILLED(1) |
+| W9 | `gcr+mh` 落到通用拒绝 | KILLED(1) | |
 
 ## 附录 B — 拒绝文案清单
 
