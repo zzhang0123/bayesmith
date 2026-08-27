@@ -74,6 +74,18 @@ SWITCHED = {
     # the closed form against a finite-difference refit, and the tour table --
     # are already pinned here by `tests/diagnose/test_prior_sensitivity.py`.
     "sensitivity.py",
+    # 2026-08-27, Wave A. `docs/superpowers/specs/2026-08-27-wave-A-priors.md`.
+    # `JeffreysPrior`'s arithmetic in rheplicant now delegates here, so the
+    # cross-check's live comparison had become this package against itself.
+    # All three of its subjects already have independent homes on this side and
+    # are identified rather than re-homed: the flat constant against a
+    # numpy-only closed form (`test_the_flat_constant_equals_a_numpy_closed_
+    # form_no_autodiff_touched`), the gradients under both noise models
+    # (`test_the_noise_model_chooses_the_priors_shape` and
+    # `test_the_radiometer_jeffreys_prior_has_a_zero_gradient`), and the
+    # singular block's floor (`test_the_eigh_route_floors_the_singular_block_
+    # to_effectively_zero`) -- all in `tests/diagnose/test_jeffreys.py`.
+    "priors.py",
 }
 
 PAGED_TODAY = {
