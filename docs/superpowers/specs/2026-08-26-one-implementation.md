@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D31;拍板后回填本行)
+## 二、裁决登记簿(D7–D33;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -531,6 +531,33 @@
   实现——并住在**缝前**,因为图缝之后它会穿上 `ParameterSpaceError` 到达。
   证据链:`2026-08-27-wave-A-uncertainty-covariance.md` §三、§四、§五。
 
+- **D32 — `bayesmith.fit` 是一个入口还是两个(做 G2 时新增)。**
+  两个消费者打分的**不是同一样东西**:Wave B 的梯度块降的是一个**条件后验**
+  (似然 + 先验),Wave C 的 calibrator 降的是 `loss_fn(forward(params), observed)`
+  ——一个只看得见预测与数据的目标。rheplicant 的 `engines.py` 自己的 docstring 逐字
+  记着这条区别,并说明为什么 `AdamCalibrator` 不能用作梯度块:「这个接口没有办法
+  传先验」。
+  **【本次委托下自定,2026-08-27:两个入口(`fit` 图侧 / `minimize` 任意目标),
+  共用一个优化器;计划未预见此点,按「保守的一侧」规则自选。】** 另外两条路各自
+  破一条法则:只给 `fit` 会逼 Wave C 为一次最小二乘**发明一个模型**;只给
+  `minimize` 会让 Wave B 的**每个**梯度块自己拼 `-log_joint`,把一句声明抄进每个
+  调用点(而「一份实现」的对偶正是「一句声明一处」)。两个入口共用一个优化器,
+  所以不是两份实现——`fit` 是 `minimize` 的一个调用方,九行。
+  证据链:`2026-08-27-p2-g2-fit.md` §五。
+
+- **D33 — 一次发散的下降:返回还是拒绝(同上批次新增)。**
+  朴素梯度下降在步长超过 `2/L` 时发散,Adam 不会——**实测**:单 latent 高斯
+  `L = 231.1`,界 `0.00865`,`"gradient"` 在 0.006 收敛、0.02 给 **NaN**,
+  `"adam"` 两个都收敛。所以一个只改 `method=` 不改 `learning_rate=` 的调用方正好
+  落在这里,而 rheplicant 的两个 calibrator 今天会**把 NaN 交回去**。
+  **【本次委托下自定,2026-08-27:拒绝,用 `eqx.error_if`。】** 取拒绝一侧的理由:
+  一个 NaN 的「拟合」是本程序反复拒绝的那种**静默错答案**,而它有一条现成的、
+  jit 下也能用的机制(`wiener_solve` 的同一条)。挂在**点**上而不是 objective 上,
+  因为调用方先读的是点,而一个没人用的检查可能被优化掉。
+  **这条改变了 Wave C 的分诊**:`calibrate` 的测试里若有依赖「NaN 也照样返回」的,
+  接线那一批要按分诊第二列处置——**今天没有量过**,量它是那一批的第一件事。
+  证据链:`2026-08-27-p2-g2-fit.md` §六.2。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
@@ -599,6 +626,13 @@ config 侧引用)。
 - **G1 掩码/旗标**:观测掩码贯通 exact/precision(inf-σ = 零权)。
 - **G2 `bayesmith.fit`**:联合 MAP(Adam/朴素梯度)+ loss 方向守卫;
   承接 D7 的 gradient-MAP 出口。
+  **【已落地 2026-08-27,bayesmith 侧;rheplicant 一行未动】** `bayesmith.optimize`
+  给出六个名字:`fit`(图入口,联合 MAP 或 `names=` 的块坐标)、`minimize`(任意
+  标量目标)、`Fit`、`check_loss_sense`、`MINIMIZE`/`MAXIMIZE`。目标是**全密度**
+  (D7),逐 latent 步长,无收敛判据。两条新裁决 **D32**(两个入口)与
+  **D33**(发散即拒绝)。**接线在 Wave B/C,且铁律 5 要求先发一版**——
+  CHANGELOG 的 `Unreleased` 段自本批起不再为空。
+  证据链:`2026-08-27-p2-g2-fit.md`。
 - **G3 `exact.chain`**:RTS/Kalman + `linked` 转移;自含于
   bayesmith.evidence.sqrtinfo 之上(chain→sqrtinfo 依赖边,故与证据族
   同波)。
@@ -943,6 +977,20 @@ D31 的合法性是量出来的)。
 | U5 | 远端在**加 jitter 之前**量条件数 | **bayesmith** | KILLED(1) | `test_jitter_is_measured_after_it_is_applied` |
 | U6 | 信息图忽略调用方的噪声模型 | e-RHINO | KILLED(4) | **bayesmith** `test_noise_logdet.py` 的常数 σ 一条 + 三个 f 的 radiometer |
 | U7 | 远端的 delta 方法按精度加权 | **bayesmith** | KILLED(6) | 含 `test_the_synthetic_sigma_and_data_do_not_move_the_report` |
+
+### P2 余项 / **G2 `fit`**(2026-08-27,6/6 击杀,**本仓内**)
+
+详情见 `2026-08-27-p2-g2-fit.md` §八。**这一组没有跨仓接缝**——rheplicant 尚未接线
+——所以变异打在 bayesmith 自己的守卫上。六条的「指名红」**先登记后实跑**,六条全中。
+
+| # | 变异(bayesmith) | 判决 | 指名红 |
+|---|---|---|---|
+| V1 | `fit` 丢掉 `Σ log σ` | KILLED(3) | `test_the_fit_lands_on_the_grid_minimum` |
+| V2 | `names=` 被忽略 | KILLED(4) | `test_the_held_latents_come_back_untouched` |
+| V3 | `Fit.objective` 返回 `history[-1]` | KILLED(1) | `test_the_reported_objective_is_at_the_reported_point` |
+| V4 | `step_sizes` 被忽略 | KILLED(2) | `test_per_latent_rates_reach_what_a_single_rate_does_not` |
+| V5 | 方向守卫只留声明的一半 | KILLED(1) | `test_an_undeclared_maximiser_is_caught_by_measurement` |
+| V6 | 非有限结果不再拒绝 | KILLED(1) | `test_plain_gradient_above_its_stability_limit_is_refused_not_returned` |
 
 ## 附录 B — 拒绝文案清单
 
