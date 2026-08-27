@@ -131,6 +131,32 @@
   仍拒绝一个今日通过的 C13/C19 fixture」时启用,且启用当批必须附上那次实测。
   拍板不豁免该行原有的两项功课:C19 四 gate 模式与新天花板拒绝逐 fixture 冒烟,
   谱隙表在最终采用的配置下重跑。
+  **【实测修正,2026-08-27:谱隙表跑完,(b) 不成立;改取 (a),refuse 保持。】**
+  这是本次委托下的**第二次事实修正**(第一次是 D13),按「委托不是空白支票」那条
+  规则处置:照建议做与实测冲突,按事实选,冲突写进本行。
+  证据:`docs/probes/probe_13_d9_precision_policy.py`——两分量幂律,`delta` 把真实
+  条件数拉过**十个量级**,对每一个候选容差(`1e-8` 到 float32 的 `sqrt(eps)`=3.45e-4)
+  问它能否复现 float64 的判决。**没有一个能。**
+  **原因不是「切点难放」,而是被切的那个量没了**:float64 的最小奇异值跟着模型走
+  (5.1e-6 → 5.2e-16),float32 的从第二个量级起就坐在自己的舍入地板 ~1e-7 上,并且
+  **非单调**——那是噪声。float64 分得开两个量级的两个模型,在 float32 里回来时无法
+  分辨,所以没有任何切点能跟上它们:推导的、调过的、逐模型选的,都不行。
+  **(b) 的类比在这里断掉,值得写清楚**:条件数天花板可以从 dtype 推导,因为它是
+  「算术还剩几位数」的陈述;秩的切点不能,因为它是「谱从哪里开始不再描述模型」的
+  陈述,而 float32 里谱**在任何切点之上**就已经不描述模型了。
+  rheplicant 早已独立得出同一结论并写在自己的 `inference/identifiability.py` 里:
+  「A per-precision retune of rtol would therefore recover *this* model. It would
+  not recover one a few decades worse conditioned... Forcing float64 is what lets
+  one default be right for both.」——这一行原先的 (b) 建议没有读到那段。
+  **改取 (a)**,并且实测它**失败得响亮**:只把调用包进 x64 而图仍在外面建,会被
+  既有的 `refuse_single_precision` 指名拒绝,不会给出一个穿着 float64 外衣的
+  float32 判决。所以 (a) 的「适配器长期义务」是有守卫的义务,不是记忆力。
+  **顺带查出并已修的两个洞**(找反证时找到的,不是本来要做的):
+  `refuse_ambient_float32` 有**三**个调用方而本行只点了两个;`JeffreysPrior.
+  information` 根本没有图侧守卫——实测同一个精确退化块给出 **-27.52** 对 **-338.05**
+  的半对数行列式,310 nat 的静默误差,且在 NUTS 会取指数的那一项上;
+  `prior_sensitivity` 的守卫钉在一个**会自动提升**的标量上,因而形同虚设。
+  证据链:`2026-08-27-wave-P2-D9.md`。
 - **D10 — NPE 迁移(`bayesmith.amortize`)。** 前提已定:**B4 已修**
   (e-RHINO `d499171`,simulate_pairs 以 `noise.realise` 生成、`std()`
   仅判 flagged——实测核实)。剩两个子裁决:(2) 生成器忠实性——§三噪声
