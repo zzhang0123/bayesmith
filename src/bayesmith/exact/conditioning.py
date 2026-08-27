@@ -10,22 +10,31 @@ knows nothing about :mod:`bayesmith.exact.block`'s blocks and nothing about
 graphs. That keeps the numerics separable from the model machinery and the
 dependency pointing one way.
 
-**Only the top of the spectrum is measured here.** rheplicant's
-``extreme_eigenvalues`` finds ``lambda_min`` by a second power iteration on
-``lambda_max * I - M``; that is deliberately not ported, because it was
-measured to fail in principle on a graded spectrum -- the shifted operator's
-leading eigenvalues all crowd against ``lambda_max`` with vanishing gaps, so
-the iteration cannot separate them however long it runs (2000 steps still
-left a factor of 700 on a 50-point geometric spectrum at kappa=1e7). Worse,
-the bias is one-sided in the dangerous direction: ``lambda_min`` comes back
-too large, so kappa comes back too small, so a convergence guard built on it
-stays silent exactly when it should fire.
+**Two ways to get at the bottom of the spectrum, and they answer different
+questions.** :func:`extreme_eigenvalues` MEASURES ``lambda_min`` by a second
+power iteration on ``lambda_max * I - M``. It fails in principle on a graded
+spectrum -- the shifted operator's leading eigenvalues all crowd against
+``lambda_max`` with vanishing gaps, so the iteration cannot separate them
+however long it runs (2000 steps still left a factor of 700 on a 50-point
+geometric spectrum at kappa=1e7). Worse, the bias is **one-sided in the
+dangerous direction**: ``lambda_min`` comes back too large, so kappa comes
+back too small, so a convergence guard built on it stays silent exactly when
+it should fire.
 
-``lambda_min`` is instead bounded from below by the prior's own curvature:
-``A^T N^-1 A`` is positive semi-definite, so
+So a GUARD bounds ``lambda_min`` from below by the prior's own curvature
+instead: ``A^T N^-1 A`` is positive semi-definite, so
 ``lambda_min(A^T N^-1 A + S^-1) >= 1 / max(prior_variance)``. See
 :func:`bayesmith.exact.solve.condition_bound`, which turns that into an
 UPPER bound on kappa -- the direction a safety guard needs.
+
+A DIAGNOSTIC is a different job, and it is why the measured route is here at
+all (migration ledger D15(a), gap G14). The bound floors ``lambda_min``, so
+it structurally cannot report a near-degenerate partition -- the whole of
+which lives in ``lambda_min``. The measured one can see it. See
+:func:`bayesmith.exact.solve.condition_estimate`, which says in its own
+docstring that it is not a bound; an earlier version of THIS paragraph said
+``extreme_eigenvalues`` was "deliberately not ported", which was true of the
+guard and became false of the package.
 
 Ported from ``rheplicant.inference.conditioning``.
 """
@@ -79,6 +88,61 @@ def _random_like(template: Any, key: jax.Array) -> Any:
             for leaf, subkey in zip(leaves, keys, strict=True)
         ],
     )
+
+
+def extreme_eigenvalues(
+    operator: Callable[[Any], Any],
+    template: Any,
+    key: jax.Array,
+    iterations: int,
+) -> tuple[jax.Array, jax.Array]:
+    """``(lambda_max, lambda_min)`` of a symmetric positive-definite operator.
+
+    ``lambda_min`` comes from a second power iteration on
+    ``lambda_max * I - M``, whose top eigenvalue is
+    ``lambda_max - lambda_min``. Measuring it beats bounding it **for a
+    diagnostic**: a caller who assumed the worst about ``lambda_min`` would
+    call every well-conditioned operator ill-conditioned by the whole dynamic
+    range of the problem, and would never be able to tell two partitions
+    apart.
+
+    **Read the module docstring before using this for anything that
+    branches.** The returned ``lambda_min`` is biased HIGH on a graded
+    spectrum, so a kappa built from it is biased LOW -- the direction that
+    certifies an answer it should have refused. It is measured here so that
+    :func:`bayesmith.exact.solve.condition_estimate` can report it, and that
+    function is a diagnostic; the guard is
+    :func:`bayesmith.exact.solve.condition_bound`.
+
+    The difference is taken between two numbers of size ``lambda_max``, so it
+    is cancellation-prone precisely when ``lambda_min`` is tiny. Callers
+    holding an independent lower bound on ``lambda_min`` -- a prior's
+    curvature -- should floor the result with it; that is both rigorous and
+    the scale at which the cancellation bites.
+
+    Ported from ``rheplicant.core.conditioning`` unchanged, including the
+    reuse of :func:`largest_eigenvalue` for the top, so there is one
+    implementation of the power iteration rather than two.
+
+    Args:
+        operator: the symmetric positive-definite map, pytree to pytree.
+        template: a pytree of the operator's domain, for shapes and dtypes.
+        key: PRNG key for the starting vectors.
+        iterations: number of steps per end.
+
+    Raises:
+        GraphError: as :func:`largest_eigenvalue`.
+    """
+    largest = largest_eigenvalue(operator, template, key, iterations)
+    spread = largest_eigenvalue(
+        lambda parts: jax.tree.map(
+            lambda leaf, image: largest * leaf - image, parts, operator(parts)
+        ),
+        template,
+        jax.random.fold_in(key, 1),
+        iterations,
+    )
+    return largest, largest - spread
 
 
 def largest_eigenvalue(

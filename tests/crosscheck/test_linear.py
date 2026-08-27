@@ -682,25 +682,27 @@ def test_the_silent_axis_choice_is_over_confident_and_by_how_much():
     assert spreads["per_time"].max() / spreads["per_freq"].max() > 20.0
 
 
-def test_bayesmith_does_not_carry_condition_estimate():
-    """§四 4.1 asks for ``condition_estimate`` "同键同数". There is no such
-    function here, deliberately, and this goes red if one is ported.
+def test_bayesmith_now_carries_condition_estimate_as_a_diagnostic():
+    """§四 4.1 asks for ``condition_estimate`` "同键同数", and it is here now.
 
-    The argument is already recorded in ``docs/migration/conditioning.md``:
-    rheplicant estimates ``lambda_min`` by a second power iteration on
-    ``lambda_max*I - M``, which on a graded spectrum cannot separate the
-    eigenvalues crowded against ``lambda_max``, and errs ONE-SIDEDLY toward
-    danger -- kappa too small, so a guard built on it is silent exactly when
-    it should fire. bayesmith bounds ``lambda_min`` by the prior's own
-    curvature instead, which is an UPPER bound on kappa: the direction a
-    safety guard needs.
+    **This test used to assert its ABSENCE.** The argument for that absence
+    -- recorded in ``docs/migration/conditioning.md`` -- was that estimating
+    ``lambda_min`` by a second power iteration errs ONE-SIDEDLY toward
+    danger, so a guard built on it is silent exactly when it should fire.
+    That argument is unchanged and still decides what ``condition_bound``
+    does. Migration ledger D15(a) rules that the measured route is ported
+    anyway, as a DIAGNOSTIC: it can see a near-degenerate partition, which
+    the bound floors away and cannot report.
+
+    So the assertion becomes the one an absence check could not make -- that
+    the two packages' numbers are the same quantity -- and the rule that the
+    absence was standing in for is pinned separately, by an AST scan that no
+    guard in bayesmith reads it.
     """
     from bayesmith.exact import solve
 
-    assert not hasattr(solve, "condition_estimate"), (
-        "condition_estimate was ported after all; read "
-        "docs/migration/conditioning.md before keeping it"
-    )
+    assert hasattr(solve, "condition_estimate")
+    assert "not a bound" in (solve.condition_estimate.__doc__ or "").lower()
 
 
 @pytest.mark.parametrize(("block_name", "ceiling"), [("gain", 1e-20), ("t_ant", 1e-12)])

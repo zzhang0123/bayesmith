@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+**`condition_estimate` -- the MEASURED kappa, as a diagnostic and never a
+guard (G14, ledger D15(a)).** `condition_bound` measures only the top of the
+spectrum and replaces `lambda_min` with the prior's own curvature, which makes
+it an upper bound -- the direction a safety guard needs. This one measures
+both ends, and it is biased in the other direction, so it is not
+interchangeable with it and the docstring says so first.
+
+The bias is not a budget problem and the numbers are in the tests rather than
+in a claim. On `geomspace(1, 1e7, 50)`, whose true `lambda_min` is 1.0:
+50 steps give 10210.8, 200 give 2351.3, 800 give 805.9, and 2000 give 501.2 --
+so the kappa it reports is 2.00e4 against a true 1e7 even after forty times
+the work. The shifted operator's leading eigenvalues crowd against
+`lambda_max` with vanishing gaps, and no iteration count separates them.
+
+What it can do is what a bound structurally cannot: SEE a degeneracy. A
+near-degenerate partition lives entirely in `lambda_min`, which the bound
+floors. On `collinear_pair` -- the data fixes `a + b`, the prior alone fixes
+`a - b` -- the joint block's measured kappa exceeds a single member's by more
+than an order of magnitude beyond what their bounds differ by. That is the
+question this answers: "how badly conditioned is this partition?", never "is
+this solve accurate enough?".
+
+`extreme_eigenvalues` comes with it, in `exact.conditioning`, reusing
+`largest_eigenvalue` for the top so there is one power iteration and not two.
+That module's docstring used to say the routine was "deliberately not ported";
+the argument it gave is unchanged and is still why it must never be a guard,
+but the sentence was about the guard and had become false of the package.
+
 **The factor execution surface gains the three things D14 named (G10), and
 G12 with them.** All three land ON `sample_factors` rather than beside it: the
 migration plan's v2 believed this package had no multi-block executor and was

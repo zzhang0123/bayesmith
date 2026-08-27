@@ -45,19 +45,41 @@ belongs to `solve.py` and is checked in `tests/exact/`.
 still agreement", so the shared claim is checked against truth as well as
 against each other.
 
-## 5. Intended differences — one, and it is the reason the harness exists
+## 5. Intended differences — one, and it MOVED (2026-08-27, D15(a)/G14)
 
-**`extreme_eigenvalues` was deliberately NOT ported.** rheplicant estimates
-λ_min by running a second power iteration on `λ_max·I − M`, which on a
-graded spectrum cannot separate the eigenvalues crowded against λ_max — and
-the error is **one-sided and toward danger**: λ_min comes back too LARGE,
-so κ too SMALL, so a convergence guard built on it is silent exactly when
-it should fire. Measured upstream at κ = 1e4: λ_min over-large by 33.9×,
-reported κ = 2.947e+02 against a true 1.000e+04.
+**This section used to read "`extreme_eigenvalues` was deliberately NOT
+ported", and that is no longer where the difference lies.** The argument
+behind it is unchanged and is reproduced below; what changed is that the
+argument is about **guards**, and the routine has a second use that is not
+one.
 
-bayesmith bounds λ_min below by the prior's own curvature instead
-(`exact/solve.py::condition_bound`), giving an UPPER bound on κ — the
-direction a safety guard needs.
+The argument, unchanged: rheplicant estimates λ_min by a second power
+iteration on `λ_max·I − M`, which on a graded spectrum cannot separate the
+eigenvalues crowded against λ_max — and the error is **one-sided and toward
+danger**: λ_min comes back too LARGE, so κ too SMALL, so a convergence guard
+built on it is silent exactly when it should fire. Measured upstream at
+κ = 1e4: λ_min over-large by 33.9×, reported κ = 2.947e+02 against a true
+1.000e+04. Re-measured on this side at κ = 1e7 over 50 points: λ_min = 501.2
+against a true 1.0 after **2000** iterations, so a reported κ of 2.00e+04.
+
+So `condition_bound` still bounds λ_min below by the prior's own curvature
+(`exact/solve.py`), giving an UPPER bound on κ — the direction a safety guard
+needs — and **that is still the only thing `require_convergence` reads**.
+
+What is new is `exact/solve.py::condition_estimate`, a **diagnostic**. A
+near-degenerate partition lives entirely in λ_min, which the bound floors and
+therefore cannot report however tight the spectrum gets; the measured one can
+see it. Its docstring says it is not a bound, in those words, and a test
+asserts that it does.
+
+**The difference is now a RULE rather than an absence**, and the rule is what
+the cross-check pins: no guard in bayesmith may read either routine. That is
+an AST scan over `src/bayesmith` with a two-directional allowlist
+(`tests/exact/test_condition_estimate.py::TestNoGuardReadsTheMeasuredRoute`) —
+`extreme_eigenvalues` may be called from `condition_estimate` and nowhere
+else, and `condition_estimate` from nowhere at all inside the package. The
+two cross-check tests that asserted the absence are now agreement tests
+instead, which is the check an absence could never make.
 
 Both halves are live tests, not prose:
 

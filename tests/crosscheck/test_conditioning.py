@@ -92,25 +92,56 @@ class TestWhatWasPortedStillAgrees:
             assert found == pytest.approx(truth, rel=1e-3), module.__name__
 
 
-class TestWhatWasRejectedIsStillAbsent:
-    def test_bayesmith_does_not_carry_extreme_eigenvalues(self):
-        """``lambda_min`` by a second power iteration on ``lambda_max * I - M``
-        was measured to fail in principle on a graded spectrum, and to fail in
-        the DANGEROUS direction: it returns ``lambda_min`` too large, so kappa
-        too small, so a guard built on it is silent exactly when it should
-        fire. ``bayesmith.exact.solve.condition_bound`` bounds ``lambda_min``
-        below by the prior's own curvature instead, which makes an UPPER bound
-        on kappa.
+class TestWhatWasRejectedIsHereNowAsADiagnostic:
+    """**This class used to assert an ABSENCE, and the ruling changed.**
 
-        This goes red if somebody ports it after all -- at which point they
-        should read the module docstring that rejected it rather than take a
-        green suite as agreement.
-        """
-        assert not hasattr(ours, "extreme_eigenvalues"), (
-            "bayesmith grew extreme_eigenvalues. Deliberately not ported -- see "
-            "bayesmith/exact/conditioning.py's module docstring for the "
-            "measurement that rejected it."
+    ``lambda_min`` by a second power iteration on ``lambda_max * I - M`` was
+    rejected here because it fails in principle on a graded spectrum and fails
+    in the DANGEROUS direction: ``lambda_min`` too large, kappa too small, a
+    guard built on it silent exactly when it should fire. Every word of that
+    is still true and none of it is retracted.
+
+    What changed is what the routine is FOR. Migration ledger D15(a) rules
+    that ``condition_estimate`` is ported as a DIAGNOSTIC -- it can see a
+    near-degenerate partition, which lives entirely in ``lambda_min`` and
+    which ``condition_bound`` structurally cannot report because it floors
+    ``lambda_min`` with the prior. So the absence assertion is replaced by the
+    two that actually carry the rule now: the packages must AGREE, and no
+    guard in this package may read it (``tests/exact/
+    test_condition_estimate.py::TestNoGuardReadsTheMeasuredRoute``).
+
+    The old assertion's own docstring said to read the argument rather than
+    take a green suite as agreement. It has been read; it is unchanged; the
+    conclusion it supports is about guards and not about the package.
+    """
+
+    def test_both_packages_now_carry_it_and_agree(self, theirs):
+        """A real cross-package comparison, which the absence check could not
+        be. Same operator, same template, same key, same iteration count."""
+        spectrum = [1.0, 2.0, 3.0]
+        operator, _ = _dense_operator(spectrum)
+        template = jnp.zeros(len(spectrum))
+        key = jax.random.key(7)
+
+        assert hasattr(ours, "extreme_eigenvalues")
+        mine = ours.extreme_eigenvalues(operator, template, key, 12)
+        yours = theirs.extreme_eigenvalues(operator, template, key, 12)
+        assert float(mine[0]) == float(yours[0])
+        assert float(mine[1]) == float(yours[1])
+
+    def test_they_agree_on_the_graded_spectrum_too_where_both_are_wrong(self):
+        """Agreeing on a wrong number is still agreement, so the case that
+        matters is the one where both are wrong in the same direction -- and
+        that is the whole reason this routine is not a guard."""
+        spectrum = list(jnp.geomspace(1.0, 1e4, 20))
+        operator, matrix = _dense_operator(spectrum)
+        template = jnp.zeros(len(spectrum))
+        truth = float(jnp.min(jnp.linalg.eigvalsh(matrix)))
+        _, smallest = ours.extreme_eigenvalues(
+            operator, template, jax.random.key(7), 12
         )
+        # Too LARGE, which is the dangerous direction, and by a lot.
+        assert float(smallest) > truth * 5.0, (float(smallest), truth)
 
     def test_rheplicant_still_carries_it_and_still_leans_the_unsafe_way(self, theirs):
         """The finding this harness exists to keep visible, as a live number.

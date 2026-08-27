@@ -38,7 +38,11 @@ from bayesmith.exact.block import (
     real_parts,
     variance_parts,
 )
-from bayesmith.exact.conditioning import largest_eigenvalue, tree_norm
+from bayesmith.exact.conditioning import (
+    extreme_eigenvalues,
+    largest_eigenvalue,
+    tree_norm,
+)
 from bayesmith.exact.precision import Precision, quadratic
 
 #: Power-iteration steps for the top of the spectrum. The estimate typically
@@ -195,6 +199,80 @@ def condition_bound(
         jax.random.key(0) if key is None else key,
         iterations,
     )
+
+
+def condition_estimate(
+    block: LinearBlock,
+    *,
+    precision: dict[str, Precision],
+    iterations: int = POWER_ITERATIONS,
+    key: jax.Array | None = None,
+) -> jax.Array:
+    """The MEASURED conditioning of the system this block is solved with.
+
+    ``kappa(A^T N^-1 A + S^-1)`` says how much a solver's residual understates
+    its error: for a solution with relative residual ``r``,
+    ``||x - x*|| / ||x*|| <= kappa * r``, so a residual of 1e-6 against
+    kappa=1e7 certifies nothing at all.
+
+    **This is a diagnostic and not a bound. Never divide an accuracy target
+    by it, and never guard on it** -- :func:`condition_bound` is the one to
+    divide by, and it is what ``require_convergence`` itself reads. This one
+    measures ``lambda_min`` by a second power iteration whose leading
+    eigenvalues crowd against ``lambda_max`` with vanishing gaps on a graded
+    spectrum, so the ``lambda_min`` it returns is too LARGE and this kappa
+    **too small** -- measured on a 20-point geometric spectrum at a true
+    kappa of 1e4, ``lambda_min`` came back 33.9x high and kappa 33.9x low; at
+    1e7 over 50 points the factor was ~700 and 2000 iterations did not close
+    it. A ``tol`` computed from it is too LOOSE by that factor, which is the
+    direction that certifies an answer it should have refused.
+
+    **What it is good for is the thing a bound cannot do: it can SEE a
+    degeneracy.** A near-degenerate partition lives entirely in
+    ``lambda_min``, which :func:`condition_bound` replaces with the prior's
+    floor and therefore cannot report however tight the spectrum gets. Read
+    it as "how badly conditioned is this partition?" and never as a
+    certificate. For a group it is the JOINT condition number, and that is
+    the number a per-block guard cannot produce: two latents the data barely
+    distinguishes give a well-conditioned operator each and a badly
+    conditioned one together.
+
+    Large kappa is not a defect here, it is the design: for a block the data
+    does not fully identify, ``lambda_min`` is exactly ``1/prior_std**2``
+    while ``lambda_max`` is set by the data.
+
+    Costs ``2 * iterations`` applications of the normal operator -- each the
+    same JVP-plus-VJP a CG iteration costs -- and forms no matrix.
+    :func:`condition_bound` costs half that, measuring only the top.
+
+    Args:
+        block: from :func:`bayesmith.exact.linearity.linear_operator`.
+        precision: ``{observed: N^-1}``, as :func:`condition_bound` takes it.
+            A decided operator, not a rule: a kappa belongs to one particular
+            normal operator, and one computed under a different reading of
+            the same array describes an operator nobody builds.
+        iterations: power-iteration steps per END of the spectrum. The
+            default is comfortable; the top settles within a few, and the
+            bottom does not settle at all on a graded spectrum, which is the
+            whole of the caveat above.
+        key: PRNG key for the starting vectors. Fixed by default, so a
+            diagnostic printed twice is one number.
+
+    Returns:
+        The measured condition number, floored so that ``lambda_min`` can
+        never fall below the prior's own curvature -- ``A^T N^-1 A`` is
+        positive semi-definite, so that floor is rigorous even where the
+        measurement is not.
+    """
+    prior_variance = variance_parts(block)
+    largest, smallest = extreme_eigenvalues(
+        normal_operator(block, precision, prior_variance),
+        domain_zero(block),
+        jax.random.key(0) if key is None else key,
+        iterations,
+    )
+    floor = 1.0 / largest_variance(prior_variance)
+    return largest / jnp.maximum(smallest, floor)
 
 
 def _split_like(key: jax.Array, template: Any) -> Any:
