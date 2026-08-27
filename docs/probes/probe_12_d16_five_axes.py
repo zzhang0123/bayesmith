@@ -53,7 +53,7 @@ from bayesmith.exact.linearity import check_linearity as bm_check
 SIGMA = 0.5
 
 
-def rheplicant_side(fn, spec, *, names, at=None, scales=DEFAULT_SCALES):
+def rheplicant_side(fn, spec, *, names, at=None, scales=DEFAULT_SCALES, noise=None):
     """``check_linearity`` through a Pipeline. Returns (verdict, detail)."""
     operator = Predict(params={n: spec[n][0] for n in spec}, fn=fn)
     pipeline = Pipeline(operator, names=("predict",))
@@ -71,7 +71,8 @@ def rheplicant_side(fn, spec, *, names, at=None, scales=DEFAULT_SCALES):
     )
     try:
         errors = rh_check(
-            space, pipeline, _state(), names=names, at=at, scales=scales
+            space, pipeline, _state(), names=names, at=at, scales=scales,
+            noise=noise,
         )
         return "accepted", {float(k): float(v) for k, v in errors.items()}
     except Exception as error:  # noqa: BLE001 - a refusal is the measurement
@@ -193,11 +194,19 @@ def axis_3_criteria() -> None:
     print(f"  model: signal + {curvature:g} * signal**2 -- a departure UNDER the")
     print("         relative tolerance at every probe, so the first criterion")
     print("         passes it. The noise is the only thing that can object.")
-    print("\n  rheplicant, at four noise levels (its signature has no sigma):")
+    from rheplicant.inference.noise import HomoscedasticNoise
+
+    print("\n  rheplicant WITHOUT a noise model (all it could do before D16):")
     for sigma in (1e2, 1.0, 1e-2, 1e-4):
         print(f"    sigma={sigma:<8g} {rheplicant_side(fn, spec, names=('u',))[0]}")
-    print("  -- the same verdict four times, which IS the axis: the contract")
-    print("     cannot express a question about the noise.")
+    print("  -- the same verdict four times: with no noise passed there is no")
+    print("     second criterion, and that was the whole contract until 2026-08-27.")
+    print("\n  rheplicant WITH it (noise= since D16 axis 3):")
+    for sigma in (1e2, 1.0, 1e-2, 1e-4):
+        verdict = rheplicant_side(
+            fn, spec, names=("u",), noise=HomoscedasticNoise(sigma=sigma)
+        )[0]
+        print(f"    sigma={sigma:<8g} {verdict}")
     print(f"\n  bayesmith, same four (weighted_rtol = {WEIGHTED_RTOL:g}):")
     for sigma in (1e2, 1.0, 1e-2, 1e-4):
         print(f"    sigma={sigma:<8g} {bayesmith_side(fn, spec, names=('u',), sigma=sigma)[0]}")
