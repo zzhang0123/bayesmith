@@ -19,13 +19,23 @@ at the domain's zero, because an affine map has one tangent everywhere; here
 it is taken at the caller's values, because a nonlinear model has a different
 Jacobian at every point and the diagnostic is about *this* one.
 
-**The local block carries no prior.** Its ``prior_mean``/``prior_std`` are
-empty dicts rather than numbers read off the latents, because the diagnostics
-built on it either refuse non-Gaussian priors themselves (sensitivity) or
-must not see a prior at all (a Jeffreys prior built from a matrix containing
-prior curvature would sit inside its own definition). Passing one to
-``fisher_information(include_prior=True)`` therefore fails loudly on the
-empty dict instead of silently folding in a curvature nobody declared.
+**The local block carries no prior BY DEFAULT.** Its
+``prior_mean``/``prior_std`` are empty dicts rather than numbers read off the
+latents, because the diagnostics built on it either refuse non-Gaussian priors
+themselves (sensitivity) or must not see a prior at all (a Jeffreys prior
+built from a matrix containing prior curvature would sit inside its own
+definition). Passing one to ``fisher_information(include_prior=True)``
+therefore fails loudly on the empty dict instead of silently folding in a
+curvature nobody declared. Every one of those callers reads unchanged.
+
+``local_block(..., priors=True)`` is the migration plan's **G15**, added
+2026-08-27, and it is a THIRD constructor rather than a change of mind about
+this one. A caller who wants a nonlinear model's posterior precision at a
+point needs the Jacobian from here and the prior from
+``unchecked_operator`` -- and neither had both, because the latter
+linearizes at the domain's zero, which is the same tangent everywhere only
+when the map is affine. The default keeps every sentence above true; the
+keyword says at the call site that the caller has asked.
 
 **Precision discipline.** Nothing here touches ``jax.config`` -- the package
 rule. Run the whole thing, graph construction included, inside
@@ -218,15 +228,55 @@ def flat_view(
 
 
 def local_block(
-    graph: Graph, names: Sequence[str], values: dict[str, jax.Array]
+    graph: Graph,
+    names: Sequence[str],
+    values: dict[str, jax.Array],
+    *,
+    priors: bool = False,
 ) -> LinearBlock:
     """A :class:`LinearBlock` whose ``forward`` is the tangent AT ``values``.
 
     See the module docstring for how this differs from
-    :func:`~bayesmith.exact.block.unchecked_operator` and why the prior
-    fields are deliberately empty. ``data`` and the codomain layout are the
-    exact layer's own, so :func:`~bayesmith.exact.fisher.dense_operator`
-    reads this handle unchanged.
+    :func:`~bayesmith.exact.block.unchecked_operator`. ``data`` and the
+    codomain layout are the exact layer's own, so
+    :func:`~bayesmith.exact.fisher.dense_operator` reads this handle
+    unchanged.
+
+    Args:
+        graph: the model.
+        names: the latents to linearize with respect to.
+        values: where -- every latent, the block's members included.
+        priors: whether to carry each member's DECLARED Gaussian prior in
+            ``prior_mean``/``prior_std``. Default ``False``, which is the
+            behaviour this function has always had and which the module
+            docstring argues for: the diagnostics built on it either refuse
+            non-Gaussian priors themselves or must not see a prior at all,
+            and an empty dict makes
+            ``fisher_information(include_prior=True)`` fail loudly instead of
+            folding in a curvature nobody asked for.
+
+            ``True`` is the migration plan's **G15**, and it is the third
+            constructor that did not exist. The other two each had half of it:
+            this one takes the tangent at the CALLER's point, which is the
+            right Jacobian for a nonlinear model and the wrong one to attach a
+            prior to by default; ``unchecked_operator`` carries the prior but
+            linearizes at the domain's ZERO, because an affine map has one
+            tangent everywhere -- and for a power law that is simply a
+            different matrix. Neither is wrong; there was no third.
+
+            The priors are read through
+            ``bayesmith.exact.block._env_before``, which is the one place in
+            this package that turns a latent's declaration into
+            ``(shape, dtype, prior_mean, prior_std)``. That is deliberate
+            twice over: there is no second spelling to drift, and its
+            ``check_gaussian`` comes along, so a member whose prior has no
+            quadratic form is refused HERE by name rather than contributing a
+            silent zero to a posterior precision.
+
+    Raises:
+        NotGaussian: with ``priors=True``, if a member's prior is not a
+            diagonal Gaussian. There is no such refusal with ``priors=False``,
+            because there is then nothing being read off it.
     """
     names = tuple(names)
     at = {key: value for key, value in values.items() if key not in names}
@@ -235,6 +285,14 @@ def local_block(
     offset, tangent = jax.linearize(forward, point)
     _, pullback = jax.vjp(forward, point)
     data, _ = observed_data_and_loc(graph, evaluate(graph, values))
+    prior_mean: dict[str, jax.Array] = {}
+    prior_std: dict[str, jax.Array] = {}
+    if priors:
+        from bayesmith.exact.block import _env_before
+
+        _, domain = _env_before(graph, names, at)
+        prior_mean = {name: domain[name][2] for name in names}
+        prior_std = {name: domain[name][3] for name in names}
     return LinearBlock(
         names=names,
         shape={name: jnp.shape(point[name]) for name in names},
@@ -243,8 +301,8 @@ def local_block(
         forward=tangent,
         adjoint=lambda y: pullback(y)[0],
         data=data,
-        prior_mean={},
-        prior_std={},
+        prior_mean=prior_mean,
+        prior_std=prior_std,
     )
 
 

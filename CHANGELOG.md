@@ -27,6 +27,25 @@ nor the latent's own size raises instead of wrapping.
 
 ### Added
 
+**G15: `local_block(..., priors=True)` -- a nonlinear model's local block that
+also carries the declared priors.** The gap in one sentence: a nonlinear
+model's posterior precision at a point needs the Jacobian from `local_block`
+and the prior from `unchecked_operator`, and neither had both. The second
+linearizes at the domain's ZERO, which is the same tangent everywhere only
+when the map is affine -- on `mu = a x**b` its design is `a log x` where the
+one at `b = 2` is `a x**2 log x`, a different matrix on every row but `x = 1`.
+
+A third constructor rather than a change of mind about the first: the default
+still carries empty prior fields, so `fisher_information(include_prior=True)`
+still fails loudly on it, and every argument in `diagnose.local`'s module
+docstring still holds word for word. The priors are read through
+`_env_before`, the one place that turns a latent's declaration into
+`(shape, dtype, prior_mean, prior_std)` -- so there is no second spelling, and
+its `check_gaussian` comes along: a member whose prior has no quadratic form
+is refused by name instead of contributing a silent zero to a posterior
+precision. With `priors=False` there is no such refusal, because nothing is
+being read off it.
+
 **G9 in full: the complex latent reaches the dense route, the SNIS weight, vmap
 and log space.** Two of those four already worked and two did not, measured
 rather than assumed.
