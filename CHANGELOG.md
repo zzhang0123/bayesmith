@@ -26,6 +26,18 @@ joint with it. The `sigma = inf` encoding survives at exactly one seam,
 that produces sigma has an infinity in it" and "this channel was flagged" need
 different fixes, and only a declaration tells them apart.
 
+`quadratic` -- and so `log_density`, and so the whole density route -- now
+says that a sample whose weight is exactly zero contributes exactly zero,
+whatever its residual. The multiplication `residual * apply(residual)` lives
+there rather than in `apply`, and `nan * 0` is `nan`, so a masked model whose
+solve was clean still handed back a `nan` log-density: measured, `[1, 2, nan,
+3]` under a mask `[T, T, F, T]` gave `apply` a clean `[4, 8, 0, 12]` and
+`quadratic` a `nan`. For every finite residual this is bitwise the expression
+it replaces. The guard is on the WEIGHT, not on the residual: a non-zero
+weight times a `nan` is still `nan`, so a poisoned datum that WAS observed
+stays loud, and the gradient is checked against its closed form rather than
+only for finiteness.
+
 Masking a CORRELATED covariance is refused rather than approximated. The
 observed submatrix of a stationary covariance is not itself stationary and its
 log-determinant is not a subset sum of the spectrum -- measured on a 6-point

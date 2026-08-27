@@ -189,6 +189,34 @@ def test_the_quadratic_form_ignores_a_non_finite_datum_at_a_masked_sample():
     assert np.isfinite(float(log_density(precision, poisoned)))
 
 
+def test_the_gradient_through_the_guard_is_finite_and_right():
+    """A finite value with a ``nan`` gradient is this codebase's recurring defect.
+
+    ``normal_operator`` differentiates ``quadratic`` -- that IS the curvature --
+    so a guard that fixed the value and left the derivative poisoned would look
+    fixed from every forward assertion and break only the solve. ``jnp.where``
+    is also the classic place for it: the branch it does not take still runs
+    its own VJP, and ``0 * nan`` there is ``nan``.
+
+    Checked against the closed form rather than against "is finite" alone. At
+    ``x = 1`` the residual is ``[0, -1, nan, -2]``, the masked entry drops, and
+    ``d/dx sum r**2/sigma**2 = 2 (0 - 1 - 2) / 0.25 = -24``.
+    """
+    from bayesmith.exact.precision import quadratic
+
+    precision = MaskedPrecision(
+        base=DiagonalPrecision(sigma=jnp.full((4,), 0.5)),
+        seen=jnp.array([True, True, False, True]),
+    )
+    data = jnp.array([1.0, 2.0, jnp.nan, 3.0])
+
+    def chi2(x):
+        return quadratic(precision, x * jnp.ones(4) - data)
+
+    assert float(chi2(1.0)) == 20.0
+    assert float(jax.grad(chi2)(1.0)) == -24.0
+
+
 def test_the_quadratic_form_still_propagates_a_nan_that_WAS_observed():
     """The guard is on the weight, not on the residual, and that is the point.
 
