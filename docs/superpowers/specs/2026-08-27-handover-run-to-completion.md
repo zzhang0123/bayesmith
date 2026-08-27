@@ -56,7 +56,8 @@
   crosscheck 收集数 **97**(实测)。**上一版这里写 119,已过期一批**:sensitivity 那份退役时没有改,jeffreys 这批又退一份。这个数没有守卫,所以每次都要重量。CHANGELOG `Unreleased`
   段**为空**——G1/G13/G7/D9 都在 0.4.0 里,而今天三个批次**没有动 bayesmith 的
   `src/`**(`git log v0.4.0..HEAD -- src/` 为空),所以铁律 5 一直满足。
-- **e-RHINO** 见 `git log`,已推送。两阶段套件 **10095 passed / 534 skipped**
+- **两仓各有提交未推送**(按 §〇 owner 新增的那条攒着)。
+- **e-RHINO** 两阶段套件 **10097 passed / 534 skipped**
   exit 0(359.0 s,`-n 4 --ignore=tests/gui/e2e`)加 **21 passed** exit 0
   (`tests/gui/e2e -n 2`);x64 接缝会话 **31 passed / 1 xfailed** exit 0。
   README 计数 **10651**(由守卫报数);拒绝普查 **244**;coverage floor
