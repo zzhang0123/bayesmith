@@ -1,8 +1,8 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-27(第五次改写)· 交接自 **G1 + G13 + G7 + D9 完成**后的会话。
-> 此前四版分别交接自 P0/P2a/D16/D17/P1 之后、G1 之后、G13 之后、G7 之后。
+> **日期**:2026-08-27(第六次改写)· 交接自 **G1/G13/G7/D9 完成、0.4.0 发布、
+> Wave A 开工**之后的会话。
 
 ---
 
@@ -32,12 +32,12 @@
 
 1. **计划本体**:`docs/superpowers/specs/2026-08-26-one-implementation.md`
    ——终局形态、七条铁律、登记簿 D7–D19、缺口 G1–G14、四波切换、附录 A/B/C。
-2. 本程序至今的**九份**执行记录,同目录:
+2. 本程序至今的**十份**执行记录,同目录:
    `2026-08-26-wave-P0.md`、`2026-08-26-wave-P2a.md`、
    `2026-08-27-d17-protocol.md`、`2026-08-27-d16-five-axes.md`、
    `2026-08-27-wave-P1.md`、`2026-08-27-wave-P2-G1.md`、
    `2026-08-27-wave-P2-G13.md`、`2026-08-27-wave-P2-G7.md`、
-   `2026-08-27-wave-P2-D9.md`。
+   `2026-08-27-wave-P2-D9.md`、`2026-08-27-wave-A-opening.md`。
    **G1 那份最值得先看**:它记的三处「守卫已经不会失败了」是三种不同的形状,
    而三种都只有变异能看见。
 3. 前代 spec 的 §四(模块绑定契约台账)与 §六(本程序的由来):
@@ -47,26 +47,37 @@
 
 ## 二、当前状态(2026-08-27 实测,先复核再信)
 
-- **bayesmith** `227104b`,已推送(`ls-remote` 核实);**0.3.0 在 PyPI 上**;
-  套件 **1295 passed / 0 skipped**,exit 0,190 s(`-n 4`);
-  `ruff check src/ tests/ examples/` 干净。CHANGELOG 的 `Unreleased` 段
-  **不为空**——它装着 **G1、G13、G7、D9**,这就是下一个发布号的内容。
+- **bayesmith** `946baba`,已推送(`ls-remote` 核实);**0.4.0 已在 PyPI 上**
+  (2026-08-27,tag `v0.4.0`,run 33063195570);套件 **1295 passed / 0 skipped**,
+  exit 0,190 s(`-n 4`);`ruff` 干净。CHANGELOG 的 `Unreleased` 段**为空**——
+  G1/G13/G7/D9 都在 0.4.0 里了。
+  **0.4.0 的确认方式照 P0 的教训做**:绿的 publish workflow 是**记录不是索引**;
+  在 `pypi.org/simple/bayesmith/` 上见到 whl 与 sdist(**JSON API 当时仍报
+  0.3.0**,滞后如 P0 所记),再用 `uv pip install --target … bayesmith==0.4.0`
+  真解析一次,并在装出来的 `dist-info/METADATA` 里核实版本号。
 - **e-RHINO** `647a2ed`,已推送,**本会话未动一行源码**。上次全量:
   **10057 passed / 522 skipped**(`-n 4 --ignore=tests/gui/e2e`)加 **21 passed**
   (`tests/gui/e2e -n 2`);README 计数 **10599**,coverage floor
   `fail_under = 89`(均未动)。
-- **跨仓实测(2026-08-27,对 bayesmith `227104b`)**:e-RHINO `tests/inference`
-  **996 passed** exit 0,66.9 s;`tests/seam`(x64)**19 passed / 1 xfailed** exit 0,
-  48.5 s。四个批次各跑过一次,数字一致。
+- **e-RHINO** `2fe13a0`,已推送。源码仍未动;本会话唯一的 e-RHINO 提交是
+  CLAUDE.md/AGENTS.md 那对(变异协议第 (0) 条),两份仍逐字节一致。
+- **跨仓实测(2026-08-27)**:e-RHINO `tests/inference` **996 passed** exit 0;
+  `tests/seam`(x64)**19 passed / 1 xfailed** exit 0。四个批次各跑过一次,一致。
+- **bayesmith 地板仍是 `>=0.3`,这是有意的。** e-RHINO 今天**没有用**任何 0.4.0
+  的表面:适配器仍拒绝 `FlaggedNoise`,没有任何图声明 `joint_prior`,诊断走的还是
+  rheplicant 自己那份。地板声明的是**真实需要**(`pyproject.toml` 那段注释自己
+  这么写),所以它**随 Wave A 第一个模块切换同批升到 `>=0.4`**,不是现在。
   那个 xfail 是 D19 的闹钟,**strict**,Wave B 落地当天它会因为「意外地绿」而红。
 - 两仓互为 editable 安装;e-RHINO 的 bayesmith 地板 **`>=0.3`**。
 - 两个跨仓 workflow 并行:`crosscheck.yml` 与 `seam.yml`。
 - e-RHINO 根目录九份未跟踪评审/交接草稿:**不动**(附录 C 明令)。
 
 **已完成**:P0、P2a、D17 协议、D16 四条轴、P1、**P2 余项的 G1、G13、G7**、
-**D9 的实现侧**(记录页 `2026-08-27-wave-P2-G1.md`、`-G13.md`、`-G7.md`、`-D9.md`)。
+**D9**、**0.4.0 发布**、**Wave A 开工批**(记录页 `-G1.md`、`-G13.md`、`-G7.md`、
+`-D9.md`、`2026-08-27-wave-A-opening.md`)。
 
-**登记簿的两次事实修正**(委托下按「不是空白支票」那条处置):**D13**(发布号
+**登记簿新增 D20**(掩码的声明面)与 **D21**(诊断的展开点)。
+**两次事实修正**(委托下按「不是空白支票」那条处置):**D13**(发布号
 归属)与 **D9**(float32 政策)。D9 的建议 (b) 被谱隙表推翻,改取 (a);两条的
 冲突都写在各自那一行里。
 
@@ -123,22 +134,21 @@
    Wave D。
 5. **P4** 质量机制换防;**P5–P7**。
 
-**Wave A 的先决现在全部就位**:P1 ✓、D9 ✓、D16 ✓、G7 ✓、G11 ✓、G13 ✓。
+**Wave A 已开工,先决全部就位,发布门已开**(0.4.0 在索引上)。
 
-**下一批的两个候选**:
+**下一批就是 Wave A 的第一个模块:`identifiability`。** 该做什么写在
+`2026-08-27-wave-A-opening.md` §六,六条,逐条可执行。要点:
 
-* **Wave A 开工**——第一波真正的「切换即删除」:动 rheplicant 的源码,第一次用到
-  铁律 5 的发布门(所以它要么排在下一次 bayesmith 发布之后,要么只做不依赖新表面
-  的那部分),第一次要填分诊表的三列,第一次要跑真正的跨仓接缝变异。
-* **G2 `bayesmith.fit`**——Wave B 的先决,D7/D11 两条裁决共同指向的 gradient-MAP
-  出口,在 bayesmith 一侧、不受发布门约束,可与 Wave A 并行或先做。
+* 门面保持签名与异常类身份,内部 `_in_float64()` → **块内** `to_graph` →
+  bayesmith `identifiability`,报告字段搬回 rheplicant 的 `IdentifiabilityReport`;
+* **D21 的守卫欠着**:一个 `init != prior 中心` 的 fixture,断言门面给出的是
+  **init 处**的判决。没有它,D21 是一句话而不是一条裁决;
+* **这是本程序第一次动 rheplicant 的 main**,所以 bayesmith 地板同批升到 `>=0.4`;
+* **接缝变异从这一批起是真的跨仓变异**(改 bayesmith、看 e-RHINO 红),附录 A
+  要新增行。
 
-**建议先发一版 bayesmith 再开 Wave A**:`Unreleased` 已经装着四项(G1/G13/G7/D9),
-而 Wave A 的第一个模块切换就会让 rheplicant main 依赖它们。D13 说的「P2 余项完成后
-另发一版」原意是等 P2 全部做完,但铁律 5 关心的是**发布先于依赖**;P2 还剩五项
-(G2、G9 全量、G10、G12、G14),让 Wave A 等它们全部做完并没有依据。**这是一条新的
-排期判断,不是判据变更,所以不上登记簿**——但下一位若不同意,请在自己的记录页里
-写明改回的理由。
+**并行候选**:**G2 `bayesmith.fit`**——Wave B 的先决,D7/D11 共同指向的 gradient-MAP
+出口,在 bayesmith 一侧、不受发布门约束。
 
 ## 五、批次纪律(铁律 4,每批四件套)
 
