@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D40;拍板后回填本行)
+## 二、裁决登记簿(D7–D41;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -708,6 +708,21 @@
   实测,`1e-7` 配先验宽 10 时 rheplicant **不拒绝**,所以那样写会把阈值钉成一次意外。
   证据链:`2026-08-27-d17-protocol.md` §四点五 + 本次重跑。
 
+- **D41 — `exact.reduced_basis` 对 ambient float32 的态度(做 G4 时新增)。**
+  上游 `rheplicant.inference.reduced_basis` 不拒绝——它住在一个 x64 会话里。
+  本包的规矩是「`src/` 从不自己开 x64,它拒绝并说出出路」,所以这里要一个决定。
+  **【本次委托下自定,2026-08-27:每个入口拒绝;计划未预见此点,按「保守的一侧」
+  规则自选。】** 理由是一个**数**:本模块产出的是调用方要拿去建投影算子的行,
+  `c^T G c` 平方条件数,保留切点是**手上算术的** `sqrt(eps)`——float32 **3.4e-04**
+  对 float64 **1.5e-08**。前景主导的 bank 上,比最大方向小一万倍以下的方向会被
+  **静默丢掉**,而那正是这个基存在的理由(RHINO 前景 ~200 K 对 21 cm ~0.2 K)。
+  **它与 `diagnose/local.refuse_ambient_float32` 是两条守卫而不是一条抄两遍**:
+  那条的论证是秩判决住在舍入之下,这条的是 Gram 矩阵。两个不同理由不是一个事实的
+  两份拼写。消息里给出两个数并写明**在哪里**加宽(建 bank 的那一层,不是这次调用)。
+  **顺带把一条 R2 清单项答了一半**:`reduced_basis` 测试族的会话归属**不再是选择**
+  ——它必须在 x64 里。
+  证据链:`2026-08-27-g4-reduced-basis.md` §三。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
@@ -787,6 +802,14 @@ config 侧引用)。
   bayesmith.evidence.sqrtinfo 之上(chain→sqrtinfo 依赖边,故与证据族
   同波)。
 - **G4 `exact.reduced_basis`**。
+  **【数组级五个名字已落地 2026-08-27,bayesmith 侧】** `orthonormal_transform` /
+  `orthonormalise` / `numerical_rank` / `select_svd` / `select_greedy`。范围由 G6
+  登记页 §2.4 定:两个容器留守(D12),八个属于 G4,本批做五个**数组级**的;
+  另外三个(`score_directions`、`build_reduced_basis`、`basis_fidelity`)都要先有
+  容器那一侧的接线,**跟 Wave C 走**。每个入口**拒绝 ambient float32**(**D41**)。
+  oracle 全是 numpy 且大多算**性质**(Gram = I、张成逐前缀嵌套、残差投影),
+  唯一的过程复算是「重正交化那一遍值不值」,而那条问的就是两个过程的差。
+  证据链:`2026-08-27-g4-reduced-basis.md`。
 - **G5 `bayesmith.amortize`**:NPE 族(D10 子裁决先决)。
 - **G6 证据消费面**:D12 包装所需缺口,逐项登记。
   **【已逐项登记 2026-08-27;实现仍属 Wave D】** 证据族九个模块共 **40** 个公开名,
@@ -1240,6 +1263,21 @@ D31 的合法性是量出来的)。
 | **Y4b** | 先验曲率**忠实回退**到 0.4.0 写法 | KILLED(4) | **四条全是本批新写的;既有 `test_fisher.py` 一条都没红** |
 | Y5 | `log_weight` 只求和第一个叶子 | KILLED(2) | 虚部有贡献 |
 | Y6 | `log_weight` 回到 DOMAIN 写法 | KILLED(2) | 同上 |
+
+### **G4**(2026-08-27,6/6 击杀;R2 追出一条自比测试)
+
+详情见 `2026-08-27-g4-reduced-basis.md` §四、§五。**R2 第一轮的五条红里没有登记
+的那条**,追下去发现那条测试的两边是**同一个表达式**(`orthonormalise` 的定义就是
+`transform @ candidates`)。修好后 R2 被指名的那条杀掉。
+
+| # | 变异(bayesmith) | 判决 |
+|---|---|---|
+| R1 | 去掉重正交化那一遍 | KILLED(1) |
+| R2 | 变换不再随向量累加 | KILLED(5);**第一轮不含登记的那条** |
+| R3 | 秩切在 `eps` 而非 `sqrt(eps)` | KILLED(1) |
+| R4 | greedy 改成按范数排序 | KILLED(1) |
+| R5 | 秩亏丢弃从不触发 | KILLED(4) |
+| R6 | 去掉 float32 拒绝 | KILLED(6) |
 
 ## 附录 B — 拒绝文案清单
 
