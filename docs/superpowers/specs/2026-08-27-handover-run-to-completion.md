@@ -41,7 +41,7 @@
 
 ## 二、当前状态(2026-08-27 实测,先复核再信)
 
-- **bayesmith** `0d70f22`,已推送;**0.2.0 在 PyPI 上**;套件 **1235 passed /
+- **bayesmith** `8615318`,已推送;**0.2.0 在 PyPI 上**;套件 **1235 passed /
   0 skipped**;`ruff check src/ tests/ examples/` 干净。
 - **e-RHINO** `694405e`,已推送;套件 **9991 passed / 502 skipped**(命令见下),
   README 计数 **10514**,coverage floor `fail_under = 89`。
