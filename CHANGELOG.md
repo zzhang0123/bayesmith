@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+**Carrying a parameter uncertainty onto a prediction, two ways (G7).**
+`propagate_covariance(graph, covariance, at, node=)` is the delta method --
+`sqrt(diag(J Sigma J^T))` from one `jacfwd` -- and `push_forward(graph,
+samples, node=)` is the Monte-Carlo pushforward of the same quantity. Both are
+next to `parameter_covariance` because choosing between them is the decision a
+reader arrives with: they agree exactly when the map is affine over the
+posterior's width and diverge when it is not.
+
+An OBSERVED node contributes its `loc`. `evaluate` gives such a node its DATA
+-- that is what conditioning means -- and data has no parameter dependence, so
+propagating the value would report a Jacobian of exactly zero and an error bar
+of exactly zero, on every entry, for any model. That was this feature's first
+draft, and it was caught by the default-node test passing while comparing two
+zeros.
+
+`FlatMatrix` carries `names` and `spans`, so the covariance is checked against
+the graph by SHAPE as well as by name. rheplicant's ancestor could only compare
+pytree structures, and its own docstring records what that missed: a dict
+treedef encodes the key names alone, so two spaces with the same latent names
+and different per-latent shapes pass and give finite, wrong error bars. A
+matrix whose `kind` is not `"covariance"` is refused outright -- a precision is
+the same shape and is wrong by the square of everything.
+
+**`init_to_declared(graph)`** returns the init strategy that starts NUTS at the
+graph's declared prior centres, reading them through the public
+`prior_environment` so the sampler starts where the classifier looked. `nuts`'s
+docstring already carried the measurement (r_hat 1609 and ESS 1.0 from the
+default `init_to_uniform` against 1.006 and 138.6 from the declared point);
+what was missing was the remedy spelled once.
+
+**The model a graph compiles to now takes `observed=`.** `None` (the default)
+conditions on each node's own data, unchanged; a mapping overrides per node;
+`{}` conditions on nothing, which is the prior predictive. Needed because
+`Predictive` over a model with `obs=` baked in returns the observed node's data
+identical in every draw -- measured, a standard deviation of 0 across 3000
+draws against a prediction spread of 0.26 -- which is correct of NumPyro and is
+not what "posterior predictive" usually means.
+
 **A joint prior is declared ON the graph, so both readers of the model find it
 (G13).** `Graph` carries a `joint_prior`, `trace` records one through
 `joint_prior(...)`, and BOTH `log_joint` and `to_numpyro` evaluate it -- the

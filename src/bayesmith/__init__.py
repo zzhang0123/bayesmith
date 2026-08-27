@@ -74,6 +74,9 @@ __all__ = [
     "identifiability",
     "prior_sensitivity",
     "JeffreysPrior",
+    "init_to_declared",
+    "propagate_covariance",
+    "push_forward",
     # errors
     "BayesmithError",
     "GraphError",
@@ -148,6 +151,9 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "identifiability": ("bayesmith.diagnose.identifiability", "identifiability"),
     "prior_sensitivity": ("bayesmith.diagnose.sensitivity", "prior_sensitivity"),
     "JeffreysPrior": ("bayesmith.diagnose.priors", "JeffreysPrior"),
+    "init_to_declared": ("bayesmith.bridge.numpyro_bridge", "init_to_declared"),
+    "propagate_covariance": ("bayesmith.exact.fisher", "propagate_covariance"),
+    "push_forward": ("bayesmith.exact.fisher", "push_forward"),
 }
 
 # Subpackages reachable as `bayesmith.<name>` after a bare `import bayesmith`,

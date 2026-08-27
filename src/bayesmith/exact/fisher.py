@@ -17,13 +17,18 @@ quantity from the posterior precision every other exit here targets.
 ``include_prior=`` chooses, and :attr:`FlatMatrix.kind` records the answer so
 one cannot quietly be used as the other.
 
-Ported from ``rheplicant.inference.uncertainty``; ``propagate_covariance`` and
-``push_forward`` are P5.
+Ported from ``rheplicant.inference.uncertainty``, including
+:func:`propagate_covariance` and :func:`push_forward` -- the two ways to carry
+a parameter uncertainty onto a prediction, kept side by side because choosing
+between them is the decision a reader arrives with. (An earlier line here said
+those two "are P5"; that was a scheduling note that went stale, not a
+criterion. They are the migration plan's G7.)
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from typing import Any, Literal
 
 import equinox as eqx
@@ -31,8 +36,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from bayesmith.errors import StructureError
 from bayesmith.exact.block import LinearBlock
+from bayesmith.exact.gaussian import gaussian_parts, node_shape
 from bayesmith.exact.precision import diagonal_from
+from bayesmith.graph.evaluate import evaluate
+from bayesmith.graph.graph import Graph
+from bayesmith.graph.nodes import Probabilistic
 
 
 class FlatMatrix(eqx.Module):
@@ -416,6 +426,261 @@ def condition_ceiling(dtype: Any) -> float:
     float32 case through or refuse the float64 case that is fine.
     """
     return 1.0 / math.sqrt(float(jnp.finfo(dtype).eps))
+
+
+def _flat_domain(
+    graph: Graph, matrix: FlatMatrix, at: dict[str, Any], caller: str
+) -> tuple[jax.Array, tuple[tuple[int, int], ...]]:
+    """``at``'s covered latents raveled in ``matrix``'s OWN order, checked.
+
+    The order is the matrix's, never the graph's or the dict's, because the
+    matrix is the thing whose rows have to line up. Its ``names`` and ``spans``
+    say what it was built over; this refuses anything that does not match, by
+    SHAPE and not only by name.
+
+    rheplicant's ancestor could only compare pytree structures, and its own
+    docstring records what that missed: for a dict-keyed space a treedef
+    encodes the KEY NAMES alone, so two spaces with the same latent names and
+    different per-latent shapes pass the check and produce finite, wrong error
+    bars. A :class:`FlatMatrix` carries the spans, so here the sizes are
+    checked as well and that gap does not port.
+    """
+    for name in matrix.names:
+        if name not in graph.latents:
+            raise StructureError(
+                f"{caller} was given a {matrix.kind} over {list(matrix.names)}, "
+                f"and {name!r} is not a latent of this graph; its latents are "
+                f"{list(graph.latents)}. The Jacobian's columns would be taken "
+                "against a different set of parameters from the ones the "
+                "matrix describes -- finite, correctly shaped, and wrong."
+            )
+        if name not in at:
+            raise StructureError(
+                f"{caller} needs a value for {name!r}: it is one of the "
+                f"{matrix.kind}'s own parameters. Given "
+                f"{sorted(at)}."
+            )
+    parts = []
+    for name, (start, stop) in zip(matrix.names, matrix.spans, strict=True):
+        flat = jnp.reshape(jnp.asarray(at[name]), (-1,))
+        if flat.size != stop - start:
+            raise StructureError(
+                f"{caller}: the {matrix.kind} gives {name!r} {stop - start} "
+                f"entries but `at` has {flat.size} "
+                f"({jnp.shape(at[name])}). Two spaces with the same latent "
+                "NAMES and different per-latent shapes are exactly the case a "
+                "name check passes and the numbers come back finite and wrong."
+            )
+        parts.append(flat)
+    vector = jnp.concatenate(parts) if parts else jnp.zeros((0,))
+    size = matrix.spans[-1][1] if matrix.spans else 0
+    if jnp.shape(matrix.values) != (size, size):
+        raise StructureError(
+            f"{caller}: the {matrix.kind} is {jnp.shape(matrix.values)} but its "
+            f"spans cover {size} entries. The matrix and its own index do not "
+            "agree, so nothing downstream can be trusted to line up."
+        )
+    return vector, matrix.spans
+
+
+def _node_of(graph: Graph, node: str | None, caller: str) -> str:
+    """The node to propagate onto, or a refusal that names the candidates.
+
+    Defaulted only when the graph leaves no choice -- one observed node, whose
+    PREDICTION is what a caller means by "the error bar". Guessing among
+    several would pick one silently.
+    """
+    if node is not None:
+        if node not in graph.names:
+            raise StructureError(
+                f"{caller} was asked for node {node!r}, which this graph does "
+                f"not declare. Its nodes are {list(graph.names)}."
+            )
+        target = graph.node(node)
+        if isinstance(target, Probabilistic) and target.is_latent:
+            raise StructureError(
+                f"{caller} was asked for latent {node!r}. A latent's own "
+                "uncertainty is what the covariance already reports -- "
+                "`FlatMatrix.block(name)` is that sub-matrix -- and pushing it "
+                "through the identity would return the same numbers by a much "
+                "longer route while reading as a prediction. Name a "
+                "deterministic node, or the observed node whose prediction is "
+                "wanted."
+            )
+        return node
+    if len(graph.observed) == 1:
+        return graph.observed[0]
+    raise StructureError(
+        f"{caller} needs `node=`: this graph has {len(graph.observed)} observed "
+        f"nodes ({list(graph.observed)}), so there is no single prediction to "
+        "default to. Name the deterministic node whose uncertainty is wanted -- "
+        f"the graph's nodes are {list(graph.names)}."
+    )
+
+
+def _predicted(graph: Graph, target: str, values: dict[str, Any]) -> jax.Array:
+    """The node's value, except that an OBSERVED node gives its ``loc``.
+
+    The distinction is the whole of both functions' correctness and it is not
+    a nicety. ``evaluate`` gives an observed node its DATA -- that is what
+    conditioning means -- and the data does not depend on the parameters at
+    all. So propagating the value would report a Jacobian of exactly zero and
+    an error bar of exactly zero, on every entry, for any model: finite,
+    correctly shaped, and the most confident possible wrong answer. Measured
+    while writing this: the delta method returned ``0.0`` everywhere for the
+    single-observed-node default, and the test comparing the default against
+    the deterministic node passed, because it was comparing two zeros.
+
+    An observed node's ``loc`` IS the prediction, so that is what is carried.
+    """
+    env = evaluate(graph, values)
+    node = graph.node(target)
+    if isinstance(node, Probabilistic) and not node.is_latent:
+        loc, _ = gaussian_parts(graph, node, env)
+        return jnp.broadcast_to(loc, node_shape(graph, node, env))
+    return env[target]
+
+
+def propagate_covariance(
+    graph: Graph,
+    covariance: FlatMatrix,
+    at: dict[str, Any],
+    *,
+    node: str | None = None,
+) -> jax.Array:
+    """Delta-method prediction uncertainty: ``sqrt(diag(J Sigma J^T))``.
+
+    The linearised answer, and the cheap one: one ``jacfwd`` of the node's
+    value with respect to the covered latents, at ``at``. Its Monte-Carlo
+    counterpart is :func:`push_forward`, and choosing between them is a
+    modelling decision rather than a performance one -- see that function.
+
+    Args:
+        graph: the model. The prediction, the parameters and their point all
+            come from it, so there is no second statement of any of them to
+            disagree with the first.
+        covariance: from :func:`parameter_covariance`. Its ``kind`` must be
+            ``"covariance"``: a Fisher matrix and a covariance are the same
+            SHAPE, and putting one where the other belongs gives an error bar
+            that is wrong by the square of everything.
+        at: where to linearise -- every latent the graph declares, since the
+            node's value generally depends on latents outside the covariance
+            too. Only the covered ones enter the Jacobian; the rest are held.
+        node: whose value to propagate -- and for an OBSERVED node that is its
+            ``loc``, the prediction, because ``evaluate`` gives such a node its
+            data and the data does not depend on the parameters at all. See
+            :func:`_predicted`. Defaults to the single observed node when the
+            graph has exactly one, and is refused otherwise. A latent is
+            refused: its own uncertainty is what the covariance already holds.
+
+    Returns:
+        Per-entry standard deviation, shaped like the node's value.
+
+    Raises:
+        StructureError: for a matrix that is not a covariance, a covered name
+            the graph does not declare, a per-latent shape that disagrees with
+            the matrix's own spans, or an ambiguous ``node``.
+    """
+    if covariance.kind != "covariance":
+        raise StructureError(
+            f"propagate_covariance was given a {covariance.kind!r}, not a "
+            "covariance. The delta method wants Sigma, and a precision is its "
+            "INVERSE -- the same shape, so nothing downstream would notice: "
+            "the error bar comes back finite and wrong by the square of "
+            "everything. Pass parameter_covariance(fisher) rather than the "
+            "fisher."
+        )
+    target = _node_of(graph, node, "propagate_covariance")
+    vector, spans = _flat_domain(graph, covariance, at, "propagate_covariance")
+
+    def value_of(flat: jax.Array) -> jax.Array:
+        moved = dict(at)
+        for name, (start, stop) in zip(covariance.names, spans, strict=True):
+            moved[name] = jnp.reshape(flat[start:stop], jnp.shape(at[name]))
+        return jnp.reshape(_predicted(graph, target, moved), (-1,))
+
+    jacobian = jax.jacfwd(value_of)(vector)
+    variance = jnp.einsum("ip,pq,iq->i", jacobian, covariance.values, jacobian)
+    shape = jnp.shape(_predicted(graph, target, at))
+    return jnp.reshape(jnp.sqrt(variance), shape)
+
+
+def push_forward(
+    graph: Graph,
+    samples: Mapping[str, Any],
+    *,
+    node: str | None = None,
+) -> jax.Array:
+    """Monte-Carlo pushforward: a node's value over a stack of parameter draws.
+
+    The counterpart of :func:`propagate_covariance`, and the difference is a
+    modelling one rather than a matter of cost. The delta method reports the
+    spread of a LINEARISATION of the node about one point; this reports the
+    spread of the node itself. They agree exactly when the map is affine over
+    the posterior's width and diverge when it is not -- a log-amplitude
+    latent, an exponent, a beam width -- where the linear answer is symmetric
+    about the point and the true one is not.
+
+    Noiseless, which is what makes it different from
+    :func:`~bayesmith.bridge.numpyro_bridge.predict`: that one runs NumPyro's
+    ``Predictive`` and therefore DRAWS the observation noise, giving the
+    posterior predictive. This propagates the parameters alone, so the spread
+    it reports is the model's uncertainty about its own prediction with no
+    measurement error added. Summarising the wrong one of those two as "the
+    error bar" is an ordinary and invisible mistake, which is why both exist
+    under names that say which they are.
+
+    Args:
+        graph: the model.
+        samples: ``{latent: (n_draws, *latent shape)}`` -- what
+            :func:`~bayesmith.bridge.numpyro_bridge.nuts` returns, unchanged.
+        node: whose value to push, with an observed node again giving its
+            ``loc``. Defaults as :func:`propagate_covariance`'s.
+
+    Returns:
+        ``(n_draws, *node shape)``. Summarise with ``mean(0)`` / ``std(0)`` /
+        quantiles.
+
+    Raises:
+        StructureError: if a latent is missing from ``samples``, if a stack's
+            per-draw shape is not the latent's own, or if the stacks disagree
+            about how many draws there are. The leading axis IS the draw axis,
+            and a transposed square stack broadcasts into a finite, correctly
+            shaped, wrong answer -- the same guard, and the same measurement,
+            as ``predict``'s.
+    """
+    from bayesmith.dispatch.classify import prior_environment
+
+    target = _node_of(graph, node, "push_forward")
+    declared = prior_environment(graph)
+    draws: set[int] = set()
+    for name in graph.latents:
+        if name not in samples:
+            raise StructureError(
+                f"push_forward is missing latent {name!r}; it has "
+                f"{sorted(samples)}. Every latent the graph declares has to be "
+                "there, because the deterministic nodes read them."
+            )
+        expected = jnp.shape(declared[name])
+        got = jnp.shape(samples[name])
+        if got[1:] != expected:
+            raise StructureError(
+                f"push_forward: samples[{name!r}] has per-draw shape {got[1:]} "
+                f"but the latent is {expected} (its full stack is {got}). The "
+                "LEADING axis must be the draw axis; a transposed square stack "
+                "broadcasts into a finite, correctly shaped, wrong answer."
+            )
+        draws.add(got[0])
+    if len(draws) > 1:
+        raise StructureError(
+            f"push_forward: the sample stacks disagree about the number of "
+            f"draws: {sorted(draws)}. They must all come from one run."
+        )
+
+    def one(values: dict[str, Any]) -> jax.Array:
+        return _predicted(graph, target, values)
+
+    return jax.vmap(one)({name: samples[name] for name in graph.latents})
 
 
 def parameter_covariance(

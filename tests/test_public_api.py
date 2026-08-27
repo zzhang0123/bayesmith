@@ -71,6 +71,8 @@ def test_every_exact_name_resolves_and_is_the_same_object_as_its_module_s():
         "precision_at": gaussian.precision_at,
         "fisher_information": fisher.fisher_information,
         "parameter_covariance": fisher.parameter_covariance,
+        "propagate_covariance": fisher.propagate_covariance,
+        "push_forward": fisher.push_forward,
         # The log-space family: the four callables are top-level names; the
         # two constants and LogSpace live one level down, on bayesmith.exact,
         # and the subpackage guard below is what pins those.
@@ -82,6 +84,23 @@ def test_every_exact_name_resolves_and_is_the_same_object_as_its_module_s():
     for name, target in expected.items():
         assert getattr(bayesmith, name) is target, name
         assert name in bayesmith.__all__
+
+
+def test_the_bridge_exports_are_the_objects_their_own_module_defines():
+    """The identity pin, for the three names ``bridge/`` owns.
+
+    Same argument as the dispatch test below, and found the same way: adding
+    ``init_to_declared`` to ``_LAZY_ATTRS`` and to ``__all__`` left every guard
+    in this file green, because ``test_every_exported_name_resolves`` only asks
+    whether the name resolves to SOMETHING. Swapping two bridge entries would
+    have gone unnoticed in exactly the way the dispatch docstring describes.
+    """
+    import bayesmith
+    from bayesmith.bridge import numpyro_bridge
+
+    for name in ("nuts", "predict", "init_to_declared"):
+        assert getattr(bayesmith, name) is getattr(numpyro_bridge, name), name
+        assert name in bayesmith.__all__, name
 
 
 def test_the_dispatch_exports_are_the_objects_their_own_module_defines():
@@ -176,6 +195,8 @@ def test_the_exact_subpackage_s_own_all_reexports_the_right_object():
         "dense_operator": fisher.dense_operator,
         "fisher_information": fisher.fisher_information,
         "parameter_covariance": fisher.parameter_covariance,
+        "propagate_covariance": fisher.propagate_covariance,
+        "push_forward": fisher.push_forward,
         "FIRST_ORDER_MAX_FRACTIONAL": loglinear.FIRST_ORDER_MAX_FRACTIONAL,
         "LOG_DEFAULT_SCALES": loglinear.LOG_DEFAULT_SCALES,
         "LogSpace": loglinear.LogSpace,

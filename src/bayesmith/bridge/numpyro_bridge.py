@@ -23,16 +23,41 @@ from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
 
 
-def to_numpyro(graph: Graph) -> Callable[[], dict[str, Any]]:
+def to_numpyro(graph: Graph) -> Callable[..., dict[str, Any]]:
     """Build a NumPyro model that declares the same joint distribution.
 
     Latent and observed nodes become ``numpyro.sample`` sites carrying the
     graph's own node names, so posterior samples come back keyed by them.
     Deterministic nodes are recorded with ``numpyro.deterministic`` so they
     appear in traces and predictives without contributing a density.
+
+    The model takes ONE optional argument, ``observed``, which is the
+    migration's stated bridge convention:
+
+    ==================  ==================================================
+    ``observed``        what the observed nodes are conditioned on
+    ==================  ==================================================
+    ``None`` (default)  each node's own declared data -- today's behaviour,
+                        so every existing caller reads unchanged
+    a mapping           that node's entry, or ``None`` for a node the
+                        mapping omits, which UNconditions it
+    ``{}``              nothing at all: the prior predictive
+    ==================  ==================================================
+
+    **Why the unconditioned mode is worth having, measured.** ``Predictive``
+    over a model whose ``obs=`` is baked in returns the observed node's DATA,
+    identical in every draw -- standard deviation ``0`` across 3000 draws
+    against a prediction spread of 0.26. That is correct of NumPyro and is
+    not what "posterior predictive" usually means, so the mode that gives the
+    other reading has to exist rather than be assumed.
     """
 
-    def model() -> dict[str, Any]:
+    def model(observed: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        def data_for(node: Probabilistic) -> Any:
+            if observed is None:
+                return node.observed
+            return observed.get(node.name)
+
         env: dict[str, Any] = {}
         for node in graph.nodes:
             if isinstance(node, Const):
@@ -51,12 +76,12 @@ def to_numpyro(graph: Graph) -> Callable[[], dict[str, Any]]:
                         name, graph.plate_size(name)
                     ):
                         env[node.name] = numpyro.sample(
-                            node.name, distribution, obs=node.observed
+                            node.name, distribution, obs=data_for(node)
                         )
                 else:
                     with _masked(node):
                         env[node.name] = numpyro.sample(
-                            node.name, distribution, obs=node.observed
+                            node.name, distribution, obs=data_for(node)
                         )
         if graph.joint_prior is not None:
             # One site, named for what it is. The covered latents are declared
@@ -138,6 +163,45 @@ def _complex_site(node: Any, distribution: ComplexNormal) -> jax.Array:
         f"{node.name}__im", dist.Normal(jnp.imag(distribution.loc), distribution.scale)
     )
     return numpyro.deterministic(node.name, real + 1j * imag)
+
+
+def init_to_declared(graph: Graph) -> Any:
+    """A NumPyro init strategy that starts where the graph's priors sit.
+
+    Pass it as ``nuts(graph, key, nuts_options={"init_strategy":
+    init_to_declared(graph)})``.
+
+    **Not a tuning knob.** NumPyro's default is ``init_to_uniform``, which
+    draws in the UNCONSTRAINED space with no knowledge of where the graph's
+    priors are; a posterior far narrower than its prior is a needle,
+    ``init_to_uniform`` lands in the haystack, and warmup then adapts a step
+    size for wherever it landed. Measured on a power law whose amplitude has a
+    prior of 1e4 and a posterior width of 0.4, two chains of 400:
+
+    ==============================================  ======  ======
+    init                                            r_hat   ESS
+    ==============================================  ======  ======
+    default (``init_to_uniform``)                    1609     1.0
+    the declared values                              1.006  138.6
+    ==============================================  ======  ======
+
+    ``nuts``'s own docstring already recorded that measurement and named the
+    remedy; what was missing was the remedy itself, spelled once. Written by
+    hand, "the declared values" is a second statement of the prior centres,
+    and the whole reason
+    :func:`~bayesmith.dispatch.classify.prior_environment` is public is that a
+    second spelling of that point lets the sampler start somewhere the
+    classifier never looked.
+
+    The declared point does not have to be GOOD -- only somewhere a gradient
+    can be followed.
+    """
+    from numpyro.infer import init_to_value
+
+    from bayesmith.dispatch.classify import prior_environment
+
+    declared = prior_environment(graph)
+    return init_to_value(values={name: declared[name] for name in graph.latents})
 
 
 def nuts(
@@ -229,7 +293,13 @@ def predict(
 
     Returns:
         ``{node name: (n_draws, *node shape)}``, deterministic nodes
-        included.
+        included. **An OBSERVED node comes back as its data**, identical in
+        every draw, because the model is conditioned on it -- measured, a
+        standard deviation of ``0`` across 3000 draws against a prediction
+        spread of 0.26. For the noiseless prediction over the same draws use
+        :func:`~bayesmith.exact.fisher.push_forward`; for a genuine
+        predictive, call this graph's model with ``observed={}`` so the
+        observed sites are drawn rather than conditioned.
 
     Raises:
         GraphError: if a latent is missing from ``samples``; if a stack's

@@ -12,6 +12,8 @@ from bayesmith.exact.fisher import (
     dense_operator,
     fisher_information,
     parameter_covariance,
+    propagate_covariance,
+    push_forward,
 )
 from bayesmith.exact.gaussian import (
     check_gaussian,
@@ -78,6 +80,8 @@ __all__ = [
     "dense_operator",
     "fisher_information",
     "parameter_covariance",
+    "propagate_covariance",
+    "push_forward",
     "FIRST_ORDER_MAX_FRACTIONAL",
     "LOG_DEFAULT_SCALES",
     "LogSpace",
