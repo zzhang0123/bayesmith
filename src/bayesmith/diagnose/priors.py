@@ -89,7 +89,11 @@ from bayesmith.diagnose.identifiability import (
     IdentifiabilityReport,
     identifiability,
 )
-from bayesmith.diagnose.local import local_block, refuse_ambient_float32
+from bayesmith.diagnose.local import (
+    local_block,
+    refuse_ambient_float32,
+    refuse_single_precision,
+)
 from bayesmith.errors import GraphError
 from bayesmith.exact.fisher import (
     _log_spectrum_curvature,
@@ -371,6 +375,20 @@ class JeffreysPrior(eqx.Module):
         refuse_ambient_float32(doing="a Jeffreys information matrix")
         self._check_against(graph, values)
         block = local_block(graph, self.over, values)
+        # The GRAPH's own precision, not just the ambient one. Measured on the
+        # exactly-degenerate `doubled_graph`: a graph whose constants were
+        # traced outside the x64 block, evaluated inside it, gives a float32
+        # information matrix, and `half_log_determinant`'s floor then replaces
+        # the null eigenvalue with float32's `tiny` instead of float64's --
+        # `-27.52` where the same block honestly gives `-338.05`. A 310-nat
+        # error in a log-prior, silent, and in a term NUTS exponentiates.
+        #
+        # `identifiability` has guarded its Jacobian this way since it existed;
+        # this path did not, and D9's registry line named only two of this
+        # guard's three callers.
+        refuse_single_precision(
+            dense_operator(block), doing="the Jeffreys block's design"
+        )
         design = dense_operator(block)
         matrix = design.T @ _weighted_design(block, design, precision_at(graph, values))
         if any(graph.node(name).depends_on_prediction for name in graph.observed):

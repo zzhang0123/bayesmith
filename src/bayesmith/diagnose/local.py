@@ -276,6 +276,20 @@ def refuse_ambient_float32(*, doing: str) -> None:
     ``jax.linearize`` a float64 primal whose tangents the ambient dtype
     truncates, and the failure then arrives as a bare shape/dtype
     inconsistency from inside JAX naming neither the cause nor the remedy.
+
+    **Why this is not replaced by a float32 tolerance, measured over a family
+    rather than argued.** The obvious alternative is to keep the diagnostic and
+    move the rank cut with the dtype. ``docs/probes/probe_13_d9_precision_
+    policy.py`` sweeps a two-component power law whose conditioning is dialled
+    across ten decades and asks, of every candidate cut from ``1e-8`` up to
+    ``sqrt(eps)`` in float32, whether it reproduces float64's verdicts. None
+    does. The reason is not that the cut is hard to place: float64's smallest
+    singular value tracks the model (5.1e-6 down to 5.2e-16) while float32's
+    sits on its own roundoff floor near 1e-7 from the second decade onward,
+    non-monotonic, because it is noise. Two models float64 separates by two
+    decades come back indistinguishable, so no cut can follow -- derived,
+    tuned, or chosen per model. ``tests/diagnose/test_precision_policy.py``
+    keeps that runnable.
     """
     if jnp.result_type(float) == jnp.float64:
         return
@@ -286,9 +300,14 @@ def refuse_ambient_float32(*, doing: str) -> None:
         "null direction sits at 7.5e-17 of the largest singular value in "
         "double precision and surfaces at 3.1e-8 in single, ABOVE the 1e-8 "
         "rank tolerance, so float32 reports the degenerate model as "
-        "identified. Run the call inside `with jax.enable_x64(True):`, "
-        "building the graph inside the block so its constants and data are "
-        "traced at the wider dtype."
+        "identified. Moving the tolerance instead does not work and was "
+        "measured over a family, not argued: float32's smallest singular "
+        "value sits on its own roundoff floor rather than on anything about "
+        "the model, so two models float64 separates by two decades come back "
+        "indistinguishable and no cut can follow them. Run the call inside "
+        "`with jax.enable_x64(True):`, building the graph inside the block so "
+        "its constants and data are traced at the wider dtype -- wrapping only "
+        "the call leaves them at float32 and is refused separately."
     )
 
 

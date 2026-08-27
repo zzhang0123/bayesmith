@@ -137,6 +137,20 @@ from bayesmith.graph.graph import Graph
 #:
 #: ``test_the_suite_pins_this_constant_more_tightly_than_the_physics`` states
 #: that window in one place; read it first if a retune starts failing tests.
+#:
+#: **This constant is float64's, and there is no float32 counterpart to write
+#: -- measured, not assumed.** The migration's D9 proposed deriving the cut
+#: from the ambient dtype, on the reasonable ground that the fisher ceiling is
+#: already derived that way. It does not carry over. A ceiling on a CONDITION
+#: NUMBER is a statement about how many digits the arithmetic has; a rank cut
+#: is a statement about where a spectrum stops describing the model, and in
+#: float32 the spectrum stops describing it well ABOVE any cut one might pick.
+#: ``docs/probes/probe_13_d9_precision_policy.py`` sweeps a family over ten
+#: decades of true conditioning: float64's smallest singular value follows it,
+#: float32's sits at ~1e-7 and wanders non-monotonically, and no candidate cut
+#: reproduces every float64 verdict. So the diagnose family REFUSES float32
+#: rather than retuning for it -- the same conclusion rheplicant reached
+#: independently and records in its own ``identifiability`` module.
 DEFAULT_RANK_RTOL: float = 1e-8
 
 

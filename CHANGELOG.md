@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+**Two diagnostics could be handed a graph that truncates, and only one of them
+said so (D9).** `JeffreysPrior.information` and `prior_sensitivity` now refuse a
+graph whose own arithmetic is single precision, the way `identifiability`
+always has. The hole was not cosmetic: on an exactly degenerate block, a graph
+whose constants were traced OUTSIDE the x64 block gave a half-log-determinant
+of **-27.52** where the same block honestly gives **-338.05** -- a 310-nat error
+in a log-prior, silent, in a term NUTS exponentiates. The eigenvalue floor was
+working; it substitutes the DTYPE's smallest positive number, and float32's is
+`log`-87 against float64's -708.
+
+`prior_sensitivity`'s existing guard was on the scalar log-posterior, which
+accumulates into a float64 zero and so comes back float64 whatever the graph
+did. It now guards the observed nodes' predictions -- what `identifiability`
+guards its Jacobian of, and where a truncation actually is. Before, such a
+graph reached a `ConvergenceError` thirty lines later that named float32 as one
+of three candidate causes.
+
+**And the float32 refusal stays, which is the measured answer to a question the
+migration expected to answer the other way.** `docs/probes/probe_13_d9_precision
+_policy.py` sweeps a two-component power law across ten decades of conditioning
+and asks whether any float32 rank tolerance -- from `1e-8` up to `sqrt(eps)` --
+reproduces float64's verdicts. None does, and not because the cut is hard to
+place: float64's smallest singular value tracks the model while float32's sits
+on its own roundoff floor near 1e-7 and wanders non-monotonically. Two models
+float64 separates by two decades come back indistinguishable. A condition-number
+ceiling derives from the dtype because it is a statement about available digits;
+a rank cut cannot, because in float32 the spectrum stops describing the model
+above any cut one might pick.
+
 **Carrying a parameter uncertainty onto a prediction, two ways (G7).**
 `propagate_covariance(graph, covariance, at, node=)` is the delta method --
 `sqrt(diag(J Sigma J^T))` from one `jacfwd` -- and `push_forward(graph,

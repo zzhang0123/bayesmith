@@ -735,7 +735,24 @@ def prior_sensitivity(
     def neg_log_posterior(x: jax.Array) -> jax.Array:
         return neg_log_rest(x) + 0.5 * jnp.sum(((x - loc) / scale) ** 2)
 
-    refuse_single_precision(neg_log_posterior(x0), doing="the log-posterior")
+    # The PREDICTION, not the log-posterior. A scalar cannot reveal a
+    # truncating graph: `neg_log_posterior` accumulates into a float64 zero
+    # (x0 is float64 under x64) and adds the prior's float64 quadratic, so it
+    # comes back float64 whatever the graph did. Measured: a graph whose
+    # constants were traced outside the x64 block sailed through this guard and
+    # failed 30 lines later as a ConvergenceError -- loud, but naming float32
+    # as one of three candidate causes and leaving the reader to pick.
+    #
+    # The observed nodes' locs are what `identifiability` guards the Jacobian
+    # OF, and they carry the graph's own consts and data, which is where a
+    # truncation actually is.
+    for name in graph.observed:
+        # `prediction`, emphatically not `loc`: `loc` is the PRIOR's mean,
+        # bound twenty lines up and read a hundred lines down. Shadowing it
+        # here did not raise -- it surfaced as a broadcast error inside
+        # `jnp.linalg.solve` with a shape mismatch and no mention of priors.
+        prediction, _ = gaussian_parts(graph, graph.node(name), env0)
+        refuse_single_precision(prediction, doing=f"the prediction at {name!r}")
 
     mode, newton_steps, converged = _newton(neg_log_posterior, x0)
     if not converged:

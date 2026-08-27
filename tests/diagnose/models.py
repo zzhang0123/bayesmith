@@ -20,7 +20,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpyro.distributions as dist
 
-from bayesmith import det, joint_prior, observe, sample, trace
+from bayesmith import const, det, joint_prior, observe, sample, trace
 
 N_TIME, N_FREQ = 8, 8
 TONE_CHANNEL, TONE_KELVIN = 3, 5000.0
@@ -375,5 +375,56 @@ def hierarchical_graph():
         child = sample("child", lambda p: dist.Normal(p, 0.5), parent)
         pred = det("pred", lambda c: c * x, child)
         observe("d", lambda mu: dist.Normal(mu, 0.3), pred, obs=data)
+
+    return trace(model)
+
+
+#: The two-component family's own constants, not the module's ``NU0`` /
+#: ``N_FREQ`` / ``N_TIME``: this fixture answers a question about PRECISION,
+#: and coupling its size to another fixture's would let a retune over there
+#: move a measurement over here without anyone rendering the two side by side.
+D9_NU0 = 75e6
+D9_N_FREQ, D9_N_TIME = 16, 8
+
+
+def two_component(delta: float, dtype, *, free_scale: bool = True):
+    """``exp(a1) (nu/nu0)^-b + exp(a2) (nu/nu0)^-(b+delta)`` over four latents.
+
+    Built INSIDE whatever precision is ambient, which is the whole point: a
+    graph whose constants were made at one dtype and evaluated at another is a
+    third thing, and measuring it would answer a question nobody asked.
+    """
+    freq = jnp.asarray(jnp.linspace(60e6, 85e6, D9_N_FREQ), dtype=dtype)
+    truth = jnp.exp(jnp.asarray(7.8, dtype)) * (freq / D9_NU0) ** jnp.asarray(-2.55, dtype)
+    data = jnp.broadcast_to(truth, (D9_N_TIME, D9_N_FREQ))
+
+    def model():
+        nu = const("nu", freq)
+        a1 = sample("a1", lambda: dist.Normal(jnp.asarray(7.5, dtype), 1.0))
+        a2 = sample("a2", lambda: dist.Normal(jnp.asarray(7.0, dtype), 1.0))
+        b = sample("b", lambda: dist.Normal(jnp.asarray(2.55, dtype), 0.1))
+
+        def shape(x, p, q, r):
+            return (jnp.exp(p) * (x / D9_NU0) ** (-r)
+                    + jnp.exp(q) * (x / D9_NU0) ** (-(r + delta)))
+
+        if free_scale:
+            scale = sample("scale", lambda: dist.Normal(jnp.asarray(1.0, dtype), 0.1))
+            pred = det(
+                "pred",
+                lambda x, p, q, r, s: jnp.broadcast_to(
+                    s * shape(x, p, q, r), (D9_N_TIME, D9_N_FREQ)
+                ),
+                nu, a1, a2, b, scale,
+            )
+        else:
+            pred = det(
+                "pred",
+                lambda x, p, q, r: jnp.broadcast_to(
+                    shape(x, p, q, r), (D9_N_TIME, D9_N_FREQ)
+                ),
+                nu, a1, a2, b,
+            )
+        observe("d", lambda m: dist.Normal(m, 0.5).to_event(2), pred, obs=data)
 
     return trace(model)
