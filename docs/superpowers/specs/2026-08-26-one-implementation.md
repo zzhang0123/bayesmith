@@ -384,6 +384,9 @@
   不是第二份实现——§〇 第 5 类明写「产品容器字段布局」属保持面;(3) 升级路径是干净的:
   哪天采纳 `over` 序,改的是门面的一行加一批重测的数字,而不是一个算法。
   **落地在 `priors` 那一批**(本行随 G13 接线登记,因为差异是在那里量到的)。
+  **【已落地 2026-08-27】** `priors._rows_in_sorted_order`,**按 span 置换而非按名字**
+  ——两个标量的块说不出这条区别,一条向量 latent 的测试说得出,而按名字置换的变异
+  (P2)恰好只被它一条杀死。证据链:`2026-08-27-wave-A-priors.md` §三、§八。
 
 - **D25 — 一个 float32 会话里的 Jeffreys 先验:新拒绝(G13 接线时新增)。**
   bayesmith 的 `JeffreysPrior.information` 在 0.4.0 里**指名拒绝** ambient float32
@@ -410,6 +413,13 @@
      ——构造期拒绝能说出「这份文档声明了 joint_prior」,追踪期只能说出一个 dtype。
   **代价与义务**:那三条 config 测试按分诊第二列**改写对适配器**,并且拒绝必须说出
   出路(在 x64 会话里跑该文档),不能只说「被拒绝了」。**落地在 `priors` 那一批。**
+  **【已落地 2026-08-27,而代价比预计小】** 拒绝住
+  `numpyro_bridge._refuse_a_joint_prior_in_single_precision`(构造期)。那三条测试
+  **一条断言未改**——config 层早有 `runtime.jax_enable_x64`(delivery 层那条 float64
+  拒绝自己点名的「remedy 2」),所以改写只是给文档补上它本来就需要的一句声明,连那条
+  真跑 NUTS 的也照样绿。**声明写在运行它的 helper 里而不是 builder 里**:fixture 普查
+  无参驱动每一个 `*_document`,而这一行在构建期就核对进程,写进 builder 会打红两条
+  毫不相干的普查测试(实测)。证据链:`2026-08-27-wave-A-priors.md` §四。
 
 ## 三、P1 — 适配器基石
 
@@ -745,6 +755,20 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 | N3 | 翻译时丢掉 `rank_rtol` | e-RHINO | KILLED(1) | KILLED(1) |
 | N4 | 块**反序**过缝 | e-RHINO | **SURVIVED**(`over` 是一元组,而一元组是自己的反序) | KILLED(2) |
 | N5 | 远端 `graph/trace.py` 不再记录声明 | **bayesmith** | KILLED(11) | KILLED(13) |
+
+### Wave A / `priors`(2026-08-27,6 条 5 杀,唯一幸存**必须**幸存)
+
+详情见 `2026-08-27-wave-A-priors.md` §八。变异集要跑**两个会话**(x64 与 float32),
+合在一起跑基线就是红的。
+
+| # | 变异 | 仓 | 判决 |
+|---|---|---|---|
+| P1 | 不做 D24 置换 | e-RHINO | KILLED(2) |
+| P2 | 置换按名字而非按 span | e-RHINO | KILLED(1,只有向量 latent 那条) |
+| P3 | 合成数据 0 → 1e4 | e-RHINO | **SURVIVED,且必须如此**——一条测试正断言它够不到答案 |
+| P4 | 远端丢掉方差自己那一项 | **bayesmith** | KILLED(11) |
+| P5 | 去掉 D25 的构造期拒绝 | e-RHINO | KILLED(1) |
+| P6 | 远端不再应用秩地板 | **bayesmith** | KILLED(1) |
 
 ## 附录 B — 拒绝文案清单
 

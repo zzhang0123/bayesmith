@@ -87,14 +87,26 @@ information matrix」,既不提 `joint_prior` 也不提是哪份文档声明的�
 `runtime.jax_enable_x64`,而且它是 delivery 层自己那条 float64 拒绝里点名的
 「remedy 2」。所以改写是**给文档补上它本来就需要的一句声明**:
 
-* `joint_prior_document()` 声明 `runtime.jax_enable_x64: true`;
-* `joint_results()` 在 x64 会话里**构建并运行**它——`build_runtime` 是**核对**而不是
-  应用,它把声明和进程实际的精度对起来,所以两半都要。
+`joint_results()` 在 x64 会话里**构建并运行**文档,并在那里给它写上
+`runtime.jax_enable_x64: true`。两半都要:`build_runtime` 是**核对**而不是应用,
+它把声明与进程实际的精度对起来,任一半缺席都被拒。
 
 三条测试的断言**一字未改**,包括那条真跑 NUTS 并要求 `d ≈ 1.2`、`a ≈ 12.0` 的。
 float64 下它们照样成立。
 
-**这是「拒绝」这一侧付得起的证明**:代价不是三条测试的语义,是文档里的一行声明。
+**这是「拒绝」这一侧付得起的证明**:代价不是三条测试的语义,是一行声明。
+
+### 而那行声明**不能**写进 builder,这是套件教的
+
+第一版写进了 `joint_prior_document()`。**两条毫不相干的 config 测试红了**
+(`test_the_built_rule_agrees_with_t2c_generated_on_every_shipped_builder`、
+`test_every_builder_in_every_helper_module_keeps_the_repair`):fixture 普查会
+**无参地驱动每一个 `*_document` builder**,而 `runtime.jax_enable_x64` 在**构建期**
+就对着进程核对,于是一个声明 float64 的 builder 在这套 float32 会话里根本**造不出来**。
+
+这不是意外,是本仓已有的形状:projector 的 helper 写 `acknowledge_float32_sky` 是
+同一个理由——**一份文档能声明什么,不只取决于它的含义,还取决于谁会去构建它**。
+声明因此住在**运行它的那个 helper** 里,builder 一字未动。
 
 ## 五、真链验收(交接页 §三.4),以及它为什么不能是「均值移动了多少」
 
@@ -159,16 +171,49 @@ beta 那一列**换了符号**。一条钉在这个数上的断言是一枚**穿
 
 `priors.py` 里现在**唯一**的 `jnp` 算术是那个置换的下标簿记。
 
-## 八、铁律 4 四件套
+## 八、变异集:6 条,5 杀 1 存,而**那一条的幸存是结论不是缺口**
+
+变异集要跑**两个会话**:`test_jeffreys_prior.py` 要 x64(它自己的 module fixture),
+而 `test_numpyro_bridge.py` 的 D25 两条要 float32 才制造得出条件。合在一条命令里跑
+**基线就是红的**——一个装成失败的用法错误,恰好是本程序反复付学费的那个形状。
+
+| # | 变异 | 仓 | 指名红 | 判决 |
+|---|---|---|---|---|
+| P1 | 不做 D24 置换,行序按 `over` | e-RHINO | `test_a_vector_latent_permutes_by_ITS_SPAN...`、`test_information_rows_are_in_sorted_order...` | KILLED(2) |
+| P2 | 置换按**名字**而不是按 span | e-RHINO | `test_a_vector_latent_permutes_by_ITS_SPAN...` | KILLED(**1**) |
+| P3 | 合成数据从 0 换成 1e4 | e-RHINO | — | **SURVIVED,见下** |
+| P4 | 远端丢掉方差自己那一项(`(1 + 2f²)`) | **bayesmith** | 平常数九点全红等 | KILLED(11) |
+| P5 | 去掉 D25 的构造期拒绝 | e-RHINO | `test_a_declared_joint_prior_is_refused_at_construction` | KILLED(1) |
+| P6 | 远端不再应用秩地板 | **bayesmith** | `test_the_eigh_route_floors_the_singular_block_to_effectively_zero` | KILLED(1) |
+
+基线前后各一次绿。**P4 与 P6 是跨仓击杀。**
+
+**P2 只红一条**,而且正是那条向量 latent 的——两个标量的块对「按名字还是按 span」
+一言不发,这是 §三 那条测试存在的全部理由,变异把它证成了。
+
+### P3:一条**必须**幸存的变异
+
+合成数据从 0 换成 1e4,整套绿。按通常读法这是「没有守卫」。**这里不是**:
+`TestTheSynthesisedInformationGraph::test_the_synthesised_data_cannot_reach_the_answer`
+**断言的就是这件事为真**——Fisher 是期望信息,残差不出现在里面,所以四个量级的数据
+变化一个比特都不动答案。**一条在这里变红的守卫会是在宣称一件关于期望信息的假话。**
+
+所以 P3 的幸存是被证明的性质,不是缺口。**但「幸存要追到底」这条仍然适用**,追下去
+发现一个真的可以出错的地方:那三条测量是拿**手搭的图**做的,而适配器是另一段代码,
+它完全可以造出一张**不同的图**,于是那些测量对它一言不发。已补上闭环——同一条测试
+最后断言 `graph_for_information` 造出的图给出的矩阵**就是**基线那一个。这一句同样
+杀不掉 P3(两边一起变),但它把「测量的对象」和「发货的对象」钉成了一个。
+
+## 九、铁律 4 四件套
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | 见下 |
-| (ii) | 接缝变异红 | 见下 |
-| (iii) | 旧实现删除、计数守卫刷新 | Fisher 装配与 `eigvalsh` 地板删除;cross-check 文件删除并记入 `SWITCHED`;README 计数 10627 → 见下 |
-| (iv) | 文档实测数字重测 | 见下 |
+| (i) | 该批测试全绿 | e-RHINO **10082 passed / 534 skipped** exit 0(350.1 s)加 **31 passed / 1 xfailed** exit 0(x64 seam,51.7 s)加 **21 passed** exit 0(e2e,62.3 s);bayesmith **1269 passed / 0 skipped** exit 0(212.0 s,1280 − 11 条随 cross-check 退役) |
+| (ii) | 接缝变异红 | 6 条 **5 杀**,唯一幸存已证明为必须幸存(§八) |
+| (iii) | 旧实现删除、计数守卫刷新 | Fisher 装配与 `eigvalsh` 地板删除;cross-check 文件删除并记入 `SWITCHED`;README 计数 10627 → **10636** |
+| (iv) | 文档实测数字重测 | 上述全部;两条登记项 D24/D25 的裁决回填 |
 
-## 九、留给下一位
+## 十、留给下一位
 
 1. **Wave A 还剩两个模块**:`numpyro_bridge`、`uncertainty`。
 2. **`numpyro_bridge` 的第一个问题是站点名**:本包用 `"prediction"` 与 `"obs"`
