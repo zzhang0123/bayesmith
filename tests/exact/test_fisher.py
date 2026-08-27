@@ -1022,3 +1022,102 @@ class TestAnObservedNodeWithMoreThanOneAxis:
             weighted_design + variance_term, rel=1e-10
         )
         assert variance_term > 0.05 * weighted_design
+
+
+class TestThePriorCurvatureIsPlacedOnTheDIAGONAL:
+    """A regression for a defect that shipped in 0.4.0 and returned a
+    symmetric, finite, plausible matrix that was wrong.
+
+    ``include_prior=True`` used to build the curvature as
+    ``jnp.diag(reshape(1 / prior_std**2, (-1,)))``. For a SCALAR ``prior_std``
+    against a vector latent that is a **1x1** matrix, which then broadcasts
+    into the whole ``values`` array -- so the curvature landed on every
+    OFF-DIAGONAL entry as well as the diagonal. The diagonal was right, the
+    matrix stayed symmetric, and nothing said anything.
+
+    It survived a release because the GRAPH route never reaches it: numpyro
+    broadcasts a ``Normal``'s scale to its batch shape, so ``linear_operator``
+    hands over a full-shaped ``prior_std`` and the concatenation happened to
+    be the right length. A hand-built block reaches it, and a COMPLEX block
+    reaches it always -- there the real degrees of freedom outnumber the
+    declared entries two to one.
+    """
+
+    @staticmethod
+    def _block(size=3, prior_std=2.0, scalar=True):
+        from bayesmith.exact.block import LinearBlock
+
+        design = jax.random.normal(jax.random.key(0), (6, size))
+
+        def forward(x):
+            return {"d": design @ x["w"]}
+
+        _, pullback = jax.vjp(forward, {"w": jnp.zeros((size,))})
+        width = (
+            jnp.asarray(prior_std) if scalar else jnp.full((size,), prior_std)
+        )
+        return design, LinearBlock(
+            names=("w",),
+            shape={"w": (size,)},
+            dtype={"w": jnp.float32},
+            offset={"d": jnp.zeros(6)},
+            forward=forward,
+            adjoint=lambda y: pullback(y)[0],
+            data={"d": jnp.zeros(6)},
+            prior_mean={"w": jnp.zeros(size)},
+            prior_std={"w": width},
+        )
+
+    @pytest.mark.parametrize("scalar", [True, False])
+    def test_a_scalar_and_a_per_entry_prior_std_give_the_same_matrix(self, scalar):
+        """Against numpy, and parametrised over both spellings of one prior.
+
+        The two ARE the same prior, so a difference between them is the
+        arithmetic and not the model -- which is what makes the pair worth
+        more than either alone.
+        """
+        sigma, prior_std = 0.5, 2.0
+        design, block = self._block(prior_std=prior_std, scalar=scalar)
+        found = fisher_information(
+            block,
+            precision=diagonal_from({"d": jnp.full((6,), sigma)}),
+            include_prior=True,
+            depends_on_prediction=False,
+        ).values
+        expected = (
+            np.asarray(design).T @ np.asarray(design) / sigma**2
+            + np.eye(3) / prior_std**2
+        )
+        assert np.allclose(np.asarray(found), expected, rtol=1e-4), np.asarray(found)
+
+    def test_the_off_diagonals_carry_no_prior_at_all(self):
+        """The assertion stated directly, because the test above would also
+        pass if the prior were added to every entry AND the reference had the
+        same mistake. The prior is diagonal; the difference between
+        ``include_prior`` on and off must be too."""
+        sigma = 0.5
+        _, block = self._block()
+        precision = diagonal_from({"d": jnp.full((6,), sigma)})
+        common = {"precision": precision, "depends_on_prediction": False}
+        added = np.asarray(
+            fisher_information(block, include_prior=True, **common).values
+        ) - np.asarray(fisher_information(block, include_prior=False, **common).values)
+        assert np.allclose(added, np.diag(np.diag(added)), atol=1e-6), added
+        assert np.allclose(np.diag(added), 1.0 / 2.0**2, rtol=1e-5)
+
+    def test_a_prior_std_that_fits_neither_shape_is_refused_loudly(self):
+        """The broadcast is per span, so a width that is neither 1 nor the
+        latent's own size cannot quietly land somewhere: it raises rather than
+        wrapping or truncating. That direction matters more than the message
+        -- the defect this class exists for was a silent broadcast."""
+        import dataclasses
+
+        _, block = self._block(size=3, scalar=False)
+        wrong = dataclasses.replace(block, prior_std={"w": jnp.full((2,), 2.0)})
+        with pytest.raises(ValueError, match="[Bb]roadcast"):
+            fisher_information(
+                wrong,
+                precision=diagonal_from({"d": jnp.full((6,), 0.5)}),
+                include_prior=True,
+                depends_on_prediction=False,
+            )

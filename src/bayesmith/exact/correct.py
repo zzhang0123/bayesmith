@@ -33,7 +33,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from bayesmith.exact.block import LinearBlock, variance_parts
+from bayesmith.exact.block import LinearBlock, real_parts, variance_parts
 from bayesmith.exact.solve import normal_operator, wiener_solve
 from bayesmith.graph.evaluate import log_joint
 from bayesmith.graph.graph import Graph
@@ -225,10 +225,27 @@ def log_weight(
         ``len(block.names)`` times the cost -- a five-member block paid five
         JVP/VJP pairs to use one leaf of each.
     """
+    split, _ = real_parts(block)
     operator = normal_operator(block, precision, variance_parts(block))
-    delta = jax.tree.map(jnp.subtract, x, mu)
+    # In PARTS space, because that is where `normal_operator` lives (its own
+    # docstring says so) and where `M` is a real symmetric form. Handing it a
+    # complex `delta` used to fail inside `jax.linearize` with a shape
+    # complaint rather than a wrong number -- but the reason to split is not
+    # that it errors: `x^T M x` over C is not the quadratic form `q` was
+    # built from, and the day it stopped erroring it would be silently the
+    # wrong scalar.
+    delta = jax.tree.map(jnp.subtract, split(x), split(mu))
     pushed = operator(delta)
-    quadratic = 0.5 * sum(jnp.sum(delta[name] * pushed[name]) for name in delta)
+    # Summed over LEAVES, so a complex member's two halves are both counted
+    # and an all-real block reads exactly as before -- for such a block
+    # `split` is the identity and the leaves are the same arrays in the same
+    # order, so the arithmetic is bitwise unchanged.
+    quadratic = 0.5 * sum(
+        jnp.sum(one * two)
+        for one, two in zip(
+            jax.tree.leaves(delta), jax.tree.leaves(pushed), strict=True
+        )
+    )
     return log_joint(graph, {**at, **x}) + quadratic
 
 

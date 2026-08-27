@@ -37,7 +37,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from bayesmith.errors import StructureError
-from bayesmith.exact.block import LinearBlock
+from bayesmith.exact.block import LinearBlock, is_complex, variance_parts
 from bayesmith.exact.gaussian import gaussian_parts, node_shape
 from bayesmith.exact.precision import diagonal_from
 from bayesmith.graph.evaluate import evaluate
@@ -99,24 +99,64 @@ class FlatMatrix(eqx.Module):
 
 
 def _spans(block: LinearBlock) -> tuple[tuple[tuple[int, int], ...], int]:
+    """``(start, stop)`` per latent over the block's REAL degrees of freedom.
+
+    A complex latent with ``n`` entries occupies ``2n`` rows -- its real half
+    first, then its imaginary half, contiguously. That is not a formatting
+    choice: every prediction here is real, so the map from complex
+    coefficients to data is R-linear and not C-linear, and the matrix a
+    caller wants is over ``R^(2n)``. The solver has said so since G9's
+    minimal surface (:func:`~bayesmith.exact.block.real_parts`); this is the
+    same statement for the DENSE route.
+    """
     spans: list[tuple[int, int]] = []
     start = 0
     for name in block.names:
         size = int(np.prod(block.shape[name], dtype=int))
+        if is_complex(block.dtype[name]):
+            size *= 2
         spans.append((start, start + size))
         start += size
     return tuple(spans), start
 
 
 def _unravel(flat: jax.Array, block: LinearBlock, spans) -> dict[str, jax.Array]:
-    return {
-        name: jnp.reshape(flat[start:stop], block.shape[name])
-        for name, (start, stop) in zip(block.names, spans, strict=True)
-    }
+    """The inverse of :func:`_spans`' layout, rebuilding complex members.
+
+    ``join(split(x)) is x`` element-wise is the property
+    :func:`~bayesmith.exact.block.real_parts` is pinned on, and this is the
+    flat-vector spelling of the same map -- so a complex latent's two halves
+    are read back in the order they were laid out and nowhere else.
+    """
+    out: dict[str, jax.Array] = {}
+    for name, (start, stop) in zip(block.names, spans, strict=True):
+        if is_complex(block.dtype[name]):
+            middle = start + (stop - start) // 2
+            out[name] = jnp.reshape(
+                flat[start:middle] + 1j * flat[middle:stop], block.shape[name]
+            )
+        else:
+            out[name] = jnp.reshape(flat[start:stop], block.shape[name])
+    return out
 
 
 def _domain_dtype(block: LinearBlock):
-    return jnp.result_type(*[block.dtype[name] for name in block.names])
+    """The dtype of the flat REAL domain :func:`_spans` lays out.
+
+    A complex latent contributes its own real part's dtype, because the flat
+    vector holds ``(re, im)`` separately: ``jacfwd`` refuses a complex input
+    outright (``jacfwd requires real-valued inputs``), and asking it to
+    differentiate holomorphically would be asking the wrong question -- the
+    objective is not holomorphic.
+    """
+    return jnp.result_type(
+        *[
+            jnp.zeros((), block.dtype[name]).real.dtype
+            if is_complex(block.dtype[name])
+            else block.dtype[name]
+            for name in block.names
+        ]
+    )
 
 
 def dense_operator(block: LinearBlock) -> jax.Array:
@@ -395,13 +435,38 @@ def fisher_information(
                 )
         values = values + 2.0 * _log_spectrum_curvature(block, rule, centre, spans)
     if include_prior:
-        curvature = jnp.concatenate(
-            [
-                jnp.reshape(1.0 / jnp.asarray(block.prior_std[name]) ** 2, (-1,))
-                for name in block.names
-            ]
-        )
-        values = values + jnp.diag(curvature)
+        # From `variance_parts`, which is the ONE spelling of "the prior's
+        # curvature per real degree of freedom" -- the same one
+        # `normal_operator` reads, so the dense route and the iterative one
+        # cannot disagree about it. A complex member's variance is duplicated
+        # across its two halves there, which is what `prior_std` means for
+        # one, and it is why this cannot be read off `prior_std` directly.
+        #
+        # Broadcast per span rather than concatenated as-is. The previous
+        # spelling reshaped `prior_std` to `(-1,)` and called `jnp.diag` on
+        # it, so a SCALAR `prior_std` against a vector latent produced a 1x1
+        # matrix -- which then broadcast into the whole `values` array and
+        # added the curvature to every OFF-DIAGONAL entry as well. Measured
+        # on a hand-built (3,) block at prior_std=2.0: every off-diagonal was
+        # 0.25 too large, and the diagonal was right, so the matrix stayed
+        # symmetric, finite and plausible. The graph route never reached it
+        # (numpyro broadcasts a Normal's scale to the batch shape, so
+        # `linear_operator` hands over a full-shaped array), which is why it
+        # survived a release; a complex block reaches it always, because
+        # there the real degrees of freedom outnumber the declared entries
+        # two to one.
+        parts = variance_parts(block)
+        pieces = []
+        for name, (start, stop) in zip(block.names, spans, strict=True):
+            leaves = jax.tree.leaves(parts[name])
+            width = (stop - start) // len(leaves)
+            for leaf in leaves:
+                pieces.append(
+                    jnp.broadcast_to(
+                        jnp.reshape(1.0 / jnp.asarray(leaf), (-1,)), (width,)
+                    )
+                )
+        values = values + jnp.diag(jnp.concatenate(pieces))
     return FlatMatrix(
         values=values,
         names=block.names,

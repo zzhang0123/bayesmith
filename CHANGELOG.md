@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+### Fixed
+
+**`fisher_information(include_prior=True)` added the prior's curvature to
+every OFF-DIAGONAL entry as well, for a scalar `prior_std` against a vector
+latent.** The curvature was built as `jnp.diag(reshape(1 / prior_std**2,
+(-1,)))`; a scalar reshapes to length 1, `jnp.diag` of that is a **1x1**
+matrix, and adding a 1x1 to an `n x n` broadcasts it into every element. The
+diagonal came out right, the matrix stayed symmetric, finite and plausible,
+and nothing said anything. Measured on a hand-built `(3,)` block at
+`prior_std = 2.0`: every off-diagonal 0.25 too large.
+
+Why it survived 0.4.0: the GRAPH route never reaches it. numpyro broadcasts a
+`Normal`'s scale to its batch shape, so `linear_operator` hands over a
+full-shaped `prior_std` and the concatenation happened to be the right length.
+A hand-built block reaches it, and a COMPLEX block reaches it always -- there
+the real degrees of freedom outnumber the declared entries two to one, which
+is how it was found.
+
+The curvature now comes from `variance_parts`, which is the same spelling
+`normal_operator` reads, so the dense route and the iterative one cannot
+disagree about it; and it is broadcast per span, so a width that is neither 1
+nor the latent's own size raises instead of wrapping.
+
+### Added
+
+**G9 in full: the complex latent reaches the dense route, the SNIS weight, vmap
+and log space.** Two of those four already worked and two did not, measured
+rather than assumed.
+
+`dense_operator` -- and therefore `fisher_information`, `parameter_covariance`
+and `propagate_covariance` -- used to raise `jacfwd requires real-valued
+inputs`. It now lays a complex latent out over its **real degrees of freedom**,
+real half first, `2n` rows for `n` entries: the same statement the iterative
+route made at G9's minimal surface, because the map from complex coefficients
+to a real prediction is R-linear and not C-linear, and JAX's complex gradient
+is the conjugate one. Checked against the dense reference that pushes real
+basis vectors through the block's own `forward`, element for element, and end
+to end against the 4x4 posterior covariance it inverts in numpy.
+
+`exact.correct.log_weight` used to raise inside `jax.linearize`. It now takes
+the quadratic form in PARTS space, where `normal_operator` lives. The reason
+is not that it raised: `x^T M x` over C is not the form `q` was built from, so
+the day it stopped raising it would have been silently the wrong scalar. For an
+all-real block the value is bitwise what it was, and a test computes the old
+spelling to say so.
+
+`jax.vmap` over `gcr_sample` with a complex latent, and the whole log route
+(`log_space`, `check_log_linearity`, a `log-gcr` block, `sample_factors`),
+both already worked and now have guards -- including one on a model whose
+`log(mu)` is R-affine in a complex latent, where the sweep recovers both
+halves of the truth.
+
+**`diagnose`'s refusal of a complex latent STAYS**, and that is a decision. A
+rank verdict over C is neither `n` nor `2n`, and splitting the diagnostic
+would be a second semantic decision -- what a null direction in R^2n means for
+a latent declared over C -- that nobody has taken. The same graph still
+solves, samples and reports a Fisher; only the two rank-style diagnostics
+stand down, and a test pins both directions.
+
 **`condition_estimate` -- the MEASURED kappa, as a diagnostic and never a
 guard (G14, ledger D15(a)).** `condition_bound` measures only the top of the
 spectrum and replaces `lambda_min` with the prior's own curvature, which makes
