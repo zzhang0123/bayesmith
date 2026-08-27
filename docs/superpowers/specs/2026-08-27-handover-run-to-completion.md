@@ -61,7 +61,7 @@
 - **CHANGELOG 的 `Unreleased`** 载着 **G2 / G9 全量 / G10 / G12 / G14 / G15 / G4 / G3**
   外加一个 **`Fixed`**(先验曲率广播缺陷)。**铁律 5 是一道硬门。**
 - **两仓提交未推送**(按 §〇 owner 的规则攒着):
-  **e-RHINO 领先 5 个,bayesmith 领先 30 个**。
+  **e-RHINO 领先 5 个,bayesmith 领先 31 个**——**这个数每次都要重数**:上一版写 30,是在改写本页的那次提交**之前**数的。一个页面关于它自己说的数字,是最容易被顺手抄下来的那种。
 - **e-RHINO** **10109 passed / 553 skipped** exit 0 加 **21 passed**(e2e)。
   README 计数 **10682**;拒绝普查 **250**;coverage floor **89**;bayesmith 地板
   `>=0.4`。e-RHINO 的 `ruff` 有 13 条**与本程序无关**且无 CI 在跑。
