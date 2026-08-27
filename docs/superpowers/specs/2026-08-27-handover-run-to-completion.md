@@ -1,8 +1,8 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-27(第十三次改写)· 交接自 **模块 4 `numpyro_bridge` 与
-> 模块 5 `uncertainty` 的第一步(`fisher_information`)** 完成之后的会话。
+> **日期**:2026-08-27(第十四次改写)· 交接自 **Wave A 全部完成 + P2 余项的
+> G2 / G10 / G12 / G14 四项完成**之后的会话。
 
 ---
 
@@ -32,17 +32,21 @@
 ## 一、第一步永远是读(按此顺序)
 
 1. **计划本体**:`docs/superpowers/specs/2026-08-26-one-implementation.md`
-   ——终局形态、七条铁律、登记簿 **D7–D25**、缺口 G1–G14、四波切换、附录 A/B/C。
-2. 本程序至今的**十九份**执行记录,同目录。**最近四份最要紧,按序读**:
-   `2026-08-27-wave-A-priors.md`、`2026-08-27-numpyro-bridge-measurements.md`、
-   `2026-08-27-wave-A-numpyro-bridge.md`、
-   `2026-08-27-wave-A-uncertainty-fisher.md`(**它的 §八 就是下一步的开工清单**)。
-   其余:`2026-08-26-wave-P0.md`、`2026-08-26-wave-P2a.md`、
-   `2026-08-27-d17-protocol.md`、`2026-08-27-d16-five-axes.md`、
+   ——终局形态、七条铁律、登记簿 **D7–D37**、缺口 G1–G15、四波切换、附录 A/B/C。
+2. 本程序至今的**二十四份**执行记录,同目录。**最近四份最要紧,按序读**:
+   `2026-08-27-wave-A-uncertainty-covariance.md`(Wave A 收尾)、
+   `2026-08-27-p2-g2-fit.md`、`2026-08-27-p2-g10-g12.md`、
+   `2026-08-27-p2-g14-condition-estimate.md`(**它的 §七 是下一步的开工清单**)。
+   再往前:`2026-08-27-ci-flat-chain.md`(**本机绿而远端红的唯一一次,读它的 §三
+   判别方法**)、`2026-08-27-wave-A-uncertainty-fisher.md`、
+   `2026-08-27-wave-A-numpyro-bridge.md`、`2026-08-27-numpyro-bridge-measurements.md`、
+   `2026-08-27-wave-A-priors.md`。其余:`2026-08-26-wave-P0.md`、
+   `2026-08-26-wave-P2a.md`、`2026-08-27-d17-protocol.md`、`2026-08-27-d16-five-axes.md`、
    `2026-08-27-wave-P1.md`、`2026-08-27-wave-P2-G1.md`、`2026-08-27-wave-P2-G13.md`、
    `2026-08-27-wave-P2-G7.md`、`2026-08-27-wave-P2-D9.md`、
    `2026-08-27-wave-A-opening.md`、`2026-08-27-wave-A-identifiability.md`、
-   `2026-08-27-wave-A-g1-wiring.md`。
+   `2026-08-27-wave-A-g1-wiring.md`、`2026-08-27-wave-A-sensitivity.md`、
+   `2026-08-27-wave-A-s6-widened.md`、`2026-08-27-wave-A-g13-wiring.md`。
 3. 前代 spec 的 §四(模块绑定契约台账)与 §六(本程序的由来):
    `2026-08-24-rheplicant-migration.md`。
 4. 两仓工作笔记(操作规则,条条是学费):`/Users/zzhang/projects/e-RHINO/CLAUDE.md`
@@ -51,28 +55,31 @@
 
 ## 二、当前状态(2026-08-27 实测,先复核再信)
 
-- **bayesmith** 见 `git log`,已推送;**0.4.0 在 PyPI 上**(tag `v0.4.0`);
-  套件 **1269 passed / 0 skipped** exit 0,207 s;`ruff check src/ tests/` 干净。
-  crosscheck 收集数 **97**(实测)。**上一版这里写 119,已过期一批**:sensitivity 那份退役时没有改,jeffreys 这批又退一份。这个数没有守卫,所以每次都要重量。CHANGELOG `Unreleased`
-  段**为空**——G1/G13/G7/D9 都在 0.4.0 里,而今天三个批次**没有动 bayesmith 的
-  `src/`**(`git log v0.4.0..HEAD -- src/` 为空),所以铁律 5 一直满足。
-- **两仓各有提交未推送**(按 §〇 owner 新增的那条攒着)。
-- **e-RHINO** 两阶段套件 **10097 passed / 534 skipped**
-  exit 0(359.0 s,`-n 4 --ignore=tests/gui/e2e`)加 **21 passed** exit 0
-  (`tests/gui/e2e -n 2`);x64 接缝会话 **31 passed / 1 xfailed** exit 0。
-  README 计数 **10651**(由守卫报数);拒绝普查 **244**;coverage floor
-  `fail_under = 89` 未动。
+- **bayesmith** 套件 **1350 passed / 0 skipped** exit 0(249.7 s);
+  `ruff check src/ tests/` **干净**——**上一版说它干净时它已经不是了**(一条 `ISC004`
+  随 `0c5ca10` 进来,本会话修掉;这个数没有 CI 在跑,所以每次都要重量)。
+  **0.4.0 在 PyPI 上**(tag `v0.4.0`)。
+- **CHANGELOG 的 `Unreleased` 段不再为空**:**G2、G10、G12、G14** 四项未发布表面。
+  **铁律 5 因此变成一件要主动做的事**——Wave B / Wave C 接线之前**必须先发一版**。
+  今天满足铁律 5 的原因只是 rheplicant 一行都还没依赖它们。
+- **两仓各有提交未推送**(按 §〇 owner 新增的那条攒着):
+  **e-RHINO 领先 4 个,bayesmith 领先 15 个**。
+- **e-RHINO** 两阶段套件 **10109 passed / 534 skipped** exit 0(341.2 s,
+  `-n 4 --ignore=tests/gui/e2e`)加 **21 passed** exit 0(`tests/gui/e2e -n 2`)。
+  README 计数 **10663**(由守卫报数);拒绝普查 **250**
+  (`StateValidationError` **64**、`ParameterSpaceError` 178、`RuntimeError` 4、
+  `Exception` 3、`TypeError` 1);coverage floor `fail_under = 89` 未动;
   bayesmith 地板 **`>=0.4`**。
+  **e-RHINO 的 `ruff check src/ tests/` 有 13 条**(`I001` 9、`F401` 3、`E501` 1),
+  全部与本程序无关且**没有 CI 在跑它**;扫不扫是一条独立的决定。
 - 两仓互为 editable 安装;两个跨仓 workflow 并行(`crosscheck.yml`、`seam.yml`)。
 - e-RHINO 根目录九份未跟踪评审/交接草稿:**不动**(附录 C 明令,且已 gitignore)。
 
 **已完成**:P0、P2a、D17 协议、D16 四条轴、P1、**P2 余项的 G1/G13/G7/D9**、
-**0.4.0 发布**、**Wave A 开工批**、**模块 1 `identifiability`**、**G1 接线**、
-**模块 2 `sensitivity`**、**S6 结清**、**G13 接线**、**模块 3 `priors`**、
-**D26/D27 先决测量**、**模块 4 `numpyro_bridge`(`to_numpyro_model` 委托)**、
-**模块 5 `uncertainty` 第一步(`fisher_information` 的似然一半)**。
+**0.4.0 发布**、**Wave A 全部五个模块**(`identifiability`、`sensitivity`、
+`priors`、`numpyro_bridge`、`uncertainty`)、以及 **P2 余项的 G2 / G10 / G12 / G14**。
 
-**登记簿 D7–D29 全部有裁决,只有 D23 例外**(见 §三)。**缺口新增 G15**。
+**登记簿 D7–D37 全部有裁决,只有 D23 例外**(见 §三)。**缺口:G15 新开且未做。**
 
 ## 三、至今各批留下的几件事(下一位会先撞到)
 
@@ -84,55 +91,48 @@
 2. **`evidence/campaign.py` 的分期切片对 `MaskedPrecision` 无规则**,会以
    「no rule for slicing a MaskedPrecision」明确报错。证据层是 Wave D,补齐还是
    保留为限制由那一波定,并上登记簿。
-3. **一条回归 oracle 会随 `uncertainty` 一起消失。**
-   `test_a_vector_latent_permutes_by_ITS_SPAN_and_not_as_one_row` 拿
-   `uncertainty.fisher_information` 当 oracle,而那是切换前的那条路。切 `uncertainty`
-   的那一批**必须同批改写它**,否则 D24 的布局声明会失去它唯一的对照。
-   测试自己的 docstring 里写了这句,但**从 `uncertainty` 那边 grep 不到**——这正是
-   「限制要有解除条件」那条教训的形状,所以也写在这里。
-4. **`numpyro_bridge` 是本程序第一个「只切了一半」的模块**,簿记如实反映了它:
-   `to_numpyro_model` 已委托,而 `init_to_declared`(契约页 §5(a):图的 latent 有
-   先验没有 `init`,没有东西可移)与 `predict_from_samples`(三条形状检查加一次
-   `vmap`,里面没有任何贝叶斯数值)**按契约留守**。因此 `numpyro_bridge.py`
-   **不在 `SWITCHED` 里**,`tests/crosscheck/test_bridge.py` **保留**——逐条读过它的
-   六条,没有一条变成「本包与本包比」。**Wave B/C/D 若再遇到同样形状,这是先例。**
-5. **`exact/fisher.py` 的模块 docstring 里写着 `propagate_covariance` 与
-   `push_forward`「are P5」**,而计划 §四 把它们放在 **G7**。过期的排期注记,
-   开工时顺手改掉即可,不必上登记簿——但要在记录页里点名。
-
-6. **附录 B 的总数曾经错了一整天,而它今天又碰巧变对了。** G1 接线把它从 241 改到
-   240 却没改附录;D27 的拒绝又加回一条。**逐文件清单已由 `_sites()` 重生成,
-   这个总数也应当照做**,而不是手抄——附录 B 的表头写着这句。
-
-7. **G15 是本程序第一条「远端还没有这个能力」的缺口,而它有解除条件。**
+3. **两个模块「只切了一半」,而簿记如实反映了这件事。**
+   `numpyro_bridge.py` 与 `uncertainty.py` **都不在 `SWITCHED` 里**,两者的
+   cross-check **都保留**。`uncertainty` 这一侧「cross-check 还能不能失败」是
+   **变异量出来的**(U6:改适配器的图 → bayesmith 的四条红),不是推的。
+   **Wave B/C/D 若再遇到同样形状,这是先例。**
+4. **G15 未做,而它的解除条件逐字写在代码里。**
    `fisher_information(space=...)` 的先验曲率暂时留守,因为远端没有一个**带先验的
-   非线性局部块**(`local_block` 故意不带、`unchecked_operator` 在零点取切线)。
-   解除条件写在 `uncertainty._prior_precision` 的 docstring 里:G15 发布之后删掉
-   该函数、调用改成 `include_prior=space is not None`,**只有那一行会变**。
+   非线性局部块**。解除条件在 `uncertainty._prior_precision` 的 docstring:G15 发布
+   之后删掉该函数、调用改成 `include_prior=space is not None`,**只有那一行会变**。
+5. **D8 的 (iv)(gcr+snis 语义升级)未做。** 分期的退场条件写在 D8 那一行:
+   (i') 的近似声明在 (iv) 落地当批撤除;若推迟,推迟本身进登记簿。G12 做的是 (i')。
+6. **一条同样的缺陷形状,在最后两批里各出现一次,值得当成检查项。**
+   G10 的 **W8** 与 G14 的 **X4**:**守卫的 fixture 够不到它存在的那个条件**,
+   两条都是变异幸存才发现的。X4 还多一层——**第一次修补也够不到**,因为它写在了
+   另一个函数上。收工前问一句「这条守卫的 fixture 真的制造出它要防的那个情形了吗」。
 
 ## 四、剩余工作(按计划 §九 的顺序)
 
-1. **Wave A 只剩 `uncertainty` 的后半**,开工清单逐条写在
-   `2026-08-27-wave-A-uncertainty-fisher.md` §八:`parameter_covariance`
-   (**D29 已裁决、范围已量、三条要改写的测试已点名**)、`propagate_covariance`
-   (先量再决定)、`push_forward` 留守、cross-check 照 `numpyro_bridge` 的先例
-   **逐条读**而不是照清单退役。**不要重新评估 D29 或 G15。**
-2. **P2 余项(计划 §九 口径,还剩五项)**:**G2** `bayesmith.fit`、**G9 全量**
-   (vmap / log 空间 / Fisher 的复数面;另登记在案的两项:`diagnose` 仍拒绝复
-   latent、`exact.correct.log_weight` 仍在域里索引)、**G10** 分区执行面(三件全做,
-   D14 已拍)、**G12**、**G14**。
+1. **P2 余项只剩 G9 全量**:vmap、log 空间、Fisher 的复数面;另登记在案的两项
+   ——`diagnose` 族对复 latent 的拒绝、`exact.correct.log_weight` 仍在域里索引。
    > 口径差,写明以免两处都读、两处都信:早先版本把 G3/G4/G5/G6 也列进「P2 余项」;
    > 计划 §九 的排期表把它们分别排在 **Wave C(+G4/G5 实现)** 与
    > **Wave D(+G3/G6 实现)**。**以 §九 为准。**
-3. **收尾发布**:P2 余项做完后发一版 bayesmith(D13)。
-4. **P3 四波**:Wave A(只剩 `uncertainty` 后半)、Wave B、Wave C、Wave D。
-5. **P4** 质量机制换防;**P5–P7**。
-6. **G15**(新):带先验的**非线性**局部块,在 bayesmith 一侧实现并发布,然后拆掉
-   rheplicant 里那条有解除条件的延期(`uncertainty._prior_precision`)。它不属于
-   P2 余项那五项,是本会话新开的缺口,排期由做它的那一批定。
+2. **收尾发布(D13)**:G9 全量做完后发一版 bayesmith。**这一步现在是硬门**
+   ——Unreleased 里已经有四项,Wave B/C 接线依赖它们。
+   **发一个新 PyPI 版本号是授权里明写要停下来问的三件事之一**(§〇 最后一条),
+   所以到这一步要停下来问 owner,除非计划已明写该动作(D13 明写了发布列车,
+   但没有明写这一版的号)。
+3. **P3 剩三波**:Wave B(求解与计划)、Wave C(calibrate/npe/reduced_basis)、
+   Wave D(chain + 证据族)。**Wave A 已完成。**
+4. **P4** 质量机制换防;**P5–P7**。
+5. **G15**:带先验的**非线性**局部块,在 bayesmith 一侧实现并发布,然后拆掉
+   rheplicant 里那条有解除条件的延期。排期由做它的那一批定。
 
-**并行候选**:**G2 `bayesmith.fit`**——Wave B 的先决,D7/D11 共同指向的 gradient-MAP
-出口,在 bayesmith 一侧、不受发布门约束。
+**Wave B 开工时已经量好、不要重量的三件**:
+- `fit` 的逐 latent 步长收的是**算好的** `step_sizes`;`_magnitude` 留在 rheplicant
+  (声明层的知识)。**两侧默认步长是否等价没有量过**,那是接线批的第一件事。
+- `condition_estimate` 两侧的默认迭代数**相同**(都是 `POWER_ITERATIONS = 12`,实测),
+  但这个数**改变答案**,所以任一侧改它都是一次数字重测。
+- **D33 改变了 Wave C 的分诊**:`fit` 拒绝一次发散的下降,而 rheplicant 的两个
+  calibrator 今天**把 NaN 交回去**。依赖那个行为的测试要走分诊第二列——**今天没有
+  量过有没有这样的测试**。
 
 **一件仍然悬着的事,是 owner 的决定**:`860703d` 的历史里含有九份评审草稿
 (`git add -A` 误提交)。已从索引移除(`f8a73eb`)并 gitignore,文件在盘上。
@@ -251,9 +251,18 @@ module 级 x64 fixture,先问它拿掉了什么条件。**
 半截。** 当上下文接近用尽:
 
 1. 把当前批次收到一个**四件套齐备**的状态(或干净回退到批次开始);
-2. 两仓提交并推送,`ls-remote` 核实;
+2. **两仓提交,但不要推送。** owner 于 2026-08-27 新增:推送攒到全部任务做完时
+   两仓一起推,因为每次推送触发两个 workflow、失败邮件太多。**这条只改推送时机,
+   不改提交纪律**——每批仍必须收到四件套齐备并本地提交,否则一次上下文用尽就会丢掉;
 3. 更新本文件(它是交接页):改写 §二 当前状态、§三 已处置的项、§四 剩余工作,
    让下一个会话能从这里直接开工;
 4. 提交这次更新,然后停。
 
 **没跑完不是失败;把一个半截批次留在工作树里才是。**
+
+> **推送攒着有一个已知代价,写在这里以免它变成一次意外**:CI 只在推送时跑,而
+> `2026-08-27-ci-flat-chain.md` 记的那次是「本机连绿五次而远端连红五次」。所以
+> **最后那一次推送之后必须去看两个 workflow 的结论**,而且要预期它可能红——积压
+> 的批次越多,一次推送要一起验证的东西就越多。那份记录页 §六 提的「把查一次 CI
+> 写进收尾清单」**仍未入登记簿**;它是一条判据改动,要走登记簿,而**没有哪一批
+> 自作主张改过铁律**。
