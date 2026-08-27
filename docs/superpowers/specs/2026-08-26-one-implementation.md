@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D25;拍板后回填本行)
+## 二、裁决登记簿(D7–D27;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -420,6 +420,40 @@
   真跑 NUTS 的也照样绿。**声明写在运行它的 helper 里而不是 builder 里**:fixture 普查
   无参驱动每一个 `*_document`,而这一行在构建期就核对进程,写进 builder 会打红两条
   毫不相干的普查测试(实测)。证据链:`2026-08-27-wave-A-priors.md` §四。
+
+- **D26 — `to_numpyro_model` 的站点名(切 `numpyro_bridge` 前新增)。**
+  本包的站点是 `"prediction"`(deterministic)与 `obs_name`(默认 `"obs"`);
+  `to_graph` 的内部节点是 `__mu__` / `__data__`。直接委托给 `bayesmith.to_numpyro`
+  会改名。**代价已实测,而且比预期小得多**:把两者改名后跑 `tests/inference` +
+  `tests/config`,**只红一条**(`test_sites_are_named_after_their_latents`)——
+  config 层把 `get_samples()` 过滤成 `space.names`,所以那个站点**无论叫什么**都
+  到不了 product。
+  **顺带查出一句写反了的注释**:`test_config_exits_npe.py` 逐字写着「按名字断言缺席
+  才是有分辨力的一半」,实测**相反**——旁边的集合断言才是(它在改名后仍然看得见
+  新名字),按名字那一行改名后就死了。四处里有注释的两处已改正,断言一行未动。
+  **【本次委托下自定,2026-08-27:取「保持站点名」;`to_graph` 增加可选节点命名
+  参数,只由 `to_numpyro_model` 使用。】** 理由:名字出现在 `to_numpyro_model` 的
+  docstring 与 `examples/tutorial_nuts.py` 里,用户读 `get_samples()["prediction"]`
+  是被文档邀请的用法,铁律 1 要公开名字保持;而保住它便宜(适配器给两个内部节点
+  命名),没有理由用一次可见的破坏换一点简洁。
+  证据链:`2026-08-27-numpyro-bridge-measurements.md` §一。
+
+- **D27 — 被抽样的 `noise_std`(切 `numpyro_bridge` 前新增)。**
+  `to_numpyro_model(noise_std=<numpyro 分布>)` 产出站点 `"noise_std"`,而 `to_graph`
+  只收具体的 `NoiseModel`。乍看像一个发布门问题。**实测不是**:
+  `bayesmith.observe(name, dist_fn, *parents, ...)` 收多个 parent,所以 scale 可以是
+  另一个节点;端到端探针一次跑通(声明 / 求值 / `log_joint` / `to_numpyro` 四步),
+  所需能力**已在 0.4.0 里**,铁律 5 满足,工作全在适配器一侧。
+  用量:全仓**两个**消费者,均在 `tests/inference/`;**config 层够不到**
+  (`config/sections/` 里没有 `Distribution`)。但它是签名的一部分(连同
+  `allow_sampled_noise_std`),铁律 1 要签名保持。
+  **【本次委托下自定,2026-08-27:取「适配器把它声明成一个名为 `"noise_std"` 的图
+  latent」。】** 理由:它本来就是**一个声明**(σ 的先验)而不是数值,换成图的词汇
+  不新增语义;另一条路是为这一个分支保留手写的似然,那就把第二份实现留在最容易
+  被忘记的分支上;而且它可被守卫钉住——`"noise_std"` 会进 `graph.latents` 而空间
+  没有声明它,所以**空间里一个同名 latent 就是一次碰撞**。
+  **那次碰撞今天是什么行为尚未量过**,实现批的第一件事是量它并按结果补拒绝。
+  证据链:`2026-08-27-numpyro-bridge-measurements.md` §二。
 
 ## 三、P1 — 适配器基石
 
