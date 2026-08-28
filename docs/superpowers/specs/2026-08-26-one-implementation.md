@@ -1264,6 +1264,39 @@
   该看见的。**推翻它需要的一条测量我没有**:远端若将来接受**声明的**分区,
   §三那 16 条就有了托付对象,判定应当重来。
 
+- **D57 — Adam 的 beta 越界:远端静默给错答案(开 `calibrate` 波时发现)。**
+  **【本次委托下自裁,2026-08-29:远端加拒绝,`[0, 1)`,仅 `method="adam"`。】**
+  `calibrate` 开波做 D48 式逐条问「这条拒绝过缝之后还在不在」,**8 条里 7 条在**
+  (前 3 条 `check_loss_sense` 甚至逐字相同,4/5 条在 `_checked_settings`),
+  **第 8 条 `beta1/beta2 must be in [0, 1)` 没有对应物**——远端把 beta 当普通浮点收下。
+  **实测这是三种结局里最坏的那种(c):远端静默作答。** `(x-3)**2` 从 x=0、
+  200 步、rate 0.1:
+
+  | 值 | 远端返回 |
+  |---|---|
+  | `beta1=1.5` | **15.384941**,有限、无警告,**真极小值的 5 倍** |
+  | `beta1=1.0` | 撞上 D33 的发散守卫(因为发散,不是因为 beta 非法) |
+  | `beta1=-0.5` | 3.0,**碰巧对** |
+  | `beta2=1.5` | 2.99994,**看起来完美** |
+
+  **这个散布是 fixture 的运气,不是第二道守卫**,正因如此才要在入口查区间。
+  `[0, 1)` 是指数衰减率的**定义**,越界后 `1 - beta**t` 会变号。
+  **为什么落在远端而不是留守近端**:`calibrate` 一旦切,近端的 calibrator 成为门面,
+  只在近端留这条就等于**把同一条规则写两遍**——本仓笔记反复说那是会走味的那一份。
+  放远端则只有一份实现,近端门面继承。
+  **一处范围收窄,由一条自相矛盾的测试逼出来**:守卫最初放在
+  `_checked_settings` 的公共段,于是 `method="gradient"` 也会被拒。而
+  `optimize.py:288` 的契约白纸黑字写着「`beta1, beta2, eps: Adam's, **ignored by**
+  `"gradient"`」——拒绝一个**证明没有进入答案**的参数,是把一个结果正确的调用挡掉。
+  **发现它的只有「测试名与断言相反」这一件事**:我写的
+  `test_the_gradient_method_is_unaffected` docstring 说「不该被拒」,断言却写成
+  `pytest.raises`,而它**通过了**。改成 Adam-only,并把该用例改成断言
+  「带不带 beta,gradient 的答案逐值相同」。
+  **共同的规则**:**改变答案的就拒绝,契约说忽略的就真忽略。**
+  守卫:`tests/test_optimize.py::TestAdamsBetasAreRefusedOutsideTheirRange`
+  (含反空洞孪生:`0.0/0.5/0.9999` 必须照收)。
+  证据链:`calibrate` 开波(本条),rheplicant `AdamCalibrator.__check_init__`。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:

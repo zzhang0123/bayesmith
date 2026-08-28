@@ -84,8 +84,8 @@
   **用 `git ls-remote` 数,不要读本地 `origin/main`。**
   推送顺序:**e-RHINO 先,bayesmith 后**(bayesmith 的 Seam job checkout 的是
   `e-RHINO@main`)。
-- 执行页共 **48** 份(含本页),探针 **18** 个。**登记簿 D7–D56**;
-  未裁决 **D39** 与 **D56**(后者是本会话新提,**故意不自裁**——见下)。
+- 执行页共 **49** 份(含本页),探针 **18** 个。**登记簿 D7–D57**;
+  未裁决 **D39** 与 **D56**(后者故意不自裁——见下)。**D57 已自裁并落地。**
   **D19 的延期部分已结清。**
 - README 计数 **10762**(+28,B1 的三处守卫);e-RHINO 全套
   **10175 passed + 21 (e2e)**。
@@ -379,6 +379,27 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
    钉着它,本会话已把那条从单 key 改成扫 key。
 
 ### 四、Wave C
+
+**`calibrate` 开波已做(`2026-08-29-wave-C-calibrate-opening.md`),它是最可切的一行:**
+**252 行、2 个公开类、8 条拒绝、私名普查零借用。** 两件已量的结论:
+
+* **8 条拒绝里 7 条过得去**,前 3 条(`check_loss_sense`)甚至**逐字相同**——
+  说明它就是近端 `_refuse_a_score_the_optimizer_would_walk_away_from` 迁过去的那份。
+* **异常类身份不过缝**,这是本行唯一不平凡的适配工作:近端
+  `ParameterSpaceError` × 3 + `StateValidationError` × 5,远端**一律** `StructureError`。
+  **近端在远端只用一个类的地方分了两个类**,所以门面要**按调用点**决定重抛成哪个,
+  不能一条 `except` 了事。
+* **第 8 条没有对应物 → D57,已落远端**:`beta1=1.5` 在 `(x-3)**2` 上返回
+  **15.384941**(真极小值 3.0),有限、无警告——三种结局里最坏的 **(c) 静默作答**。
+  落远端而非留守,因为切换后近端 calibrator 是门面,只在近端留就是同一条规则两份。
+  已记 CHANGELOG 的 Unreleased(它**改变了调用方读到的值**,按本仓惯例进 minor 位)。
+
+**下一位注意:不要在近端补 beta 检查**——已经在远端了。要写的是异常翻译层,
+并**为它写变异体**:把 `ParameterSpaceError` 换成 `StateValidationError` 若没人红,
+说明类身份根本没被测到,那才是要修的。
+
+**其余 Wave C 事项:**
+
 
 `calibrate`、`npe`、`reduced_basis`。另有:
 1. **`compress_reduced_basis`**(**D44**)与 G4 余下三名(`score_directions`、

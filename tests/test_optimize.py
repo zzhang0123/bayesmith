@@ -421,3 +421,78 @@ class TestRefusals:
                 {"z": jnp.asarray(1.0 + 1.0j)},
                 steps=10,
             )
+
+
+class TestAdamsBetasAreRefusedOutsideTheirRange:
+    """`[0, 1)` is what an exponential decay rate MEANS, and the loss is silent.
+
+    This guard exists because of what the failure looks like, not because the
+    range is written down somewhere. Measured on ``(x - 3)**2`` from ``x = 0``,
+    200 steps at rate 0.1: ``beta1=1.5`` returns **15.384941** -- finite, with
+    no warning, five times the true minimum. Nothing downstream can tell that
+    from a fit.
+
+    The other out-of-range values on that fixture happen to trip
+    :func:`minimize`'s divergence guard instead, and ``beta2=1.5`` happens to
+    return 2.99994 and look perfect. That spread is the fixture's luck rather
+    than a second guard, which is exactly why the range is checked at entry.
+
+    Discovered while opening rheplicant's ``calibrate`` row: its
+    ``AdamCalibrator`` refuses this at construction and this side did not, so
+    the refusal had no home to be delegated to. Migration ledger D57.
+    """
+
+    def _quadratic(self):
+        return (lambda p: (p["x"] - 3.0) ** 2), {"x": jnp.array(0.0)}
+
+    @pytest.mark.parametrize("name", ["beta1", "beta2"])
+    @pytest.mark.parametrize("bad", [1.0, 1.5, -0.5, float("nan")])
+    def test_out_of_range_is_refused(self, name, bad):
+        obj, at = self._quadratic()
+        with pytest.raises(StructureError, match=f"{name} must be in "):
+            minimize(obj, at, method="adam", steps=10, learning_rate=0.1, **{name: bad})
+
+    @pytest.mark.parametrize("name", ["beta1", "beta2"])
+    @pytest.mark.parametrize("ok", [0.0, 0.5, 0.9999])
+    def test_the_range_itself_is_accepted(self, name, ok):
+        """The anti-vacuity twin: a guard that refused everything would pass above."""
+        obj, at = self._quadratic()
+        out = minimize(obj, at, method="adam", steps=50, learning_rate=0.1, **{name: ok})
+        assert np.isfinite(float(np.asarray(out.values["x"])))
+
+    def test_it_refuses_before_the_wrong_answer_can_be_computed(self):
+        """Entry, not exit -- the point is that the wrong answer is never formed.
+
+        Without the guard this same call returns 15.384941. Asserting the
+        refusal alone would not distinguish "refused at entry" from "refused
+        after diverging", and only the first is what a caller can act on.
+        """
+        obj, at = self._quadratic()
+        with pytest.raises(StructureError) as caught:
+            minimize(obj, at, method="adam", steps=200, learning_rate=0.1, beta1=1.5)
+        assert "15.38" in str(caught.value), (
+            "the message no longer carries the measurement that justifies the guard"
+        )
+
+    @pytest.mark.parametrize("bad", [1.5, -0.5, float("nan")])
+    def test_the_gradient_method_is_unaffected(self, bad):
+        """``beta1, beta2, eps: Adam's, ignored by "gradient"`` is the contract.
+
+        So an out-of-range beta must NOT be refused there: the value provably
+        does not enter the answer, and refusing would reject a call whose
+        result is correct. The rule the two halves share is *refuse where it
+        changes the answer, honour "ignored" where the contract says ignored*.
+
+        This case was written the other way round first -- asserting the
+        refusal while its own docstring said the opposite -- and it passed,
+        because the guard had been put in the shared settings check without
+        anyone asking which methods it should reach. The contradiction between
+        a test's name and its assertion is the only thing that caught it.
+        """
+        obj, at = self._quadratic()
+        out = minimize(obj, at, method="gradient", steps=50, learning_rate=0.1,
+                       beta1=bad, beta2=bad)
+        assert float(np.asarray(out.values["x"])) == pytest.approx(
+            float(np.asarray(minimize(obj, at, method="gradient", steps=50,
+                                      learning_rate=0.1).values["x"]))
+        ), "the betas changed a gradient-descent answer, so they are not ignored"

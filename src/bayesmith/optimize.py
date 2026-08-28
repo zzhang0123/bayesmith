@@ -163,7 +163,9 @@ def check_loss_sense(
         )
 
 
-def _checked_settings(method: str, steps: int, learning_rate: float) -> None:
+def _checked_settings(
+    method: str, steps: int, learning_rate: float, beta1: float, beta2: float
+) -> None:
     if method not in _METHODS:
         raise StructureError(
             f"method={method!r} is not one this optimiser has; it knows "
@@ -177,6 +179,32 @@ def _checked_settings(method: str, steps: int, learning_rate: float) -> None:
     # then turn every parameter into NaN on the first step.
     if not learning_rate > 0:
         raise StructureError(f"learning_rate must be > 0, got {learning_rate}.")
+    # Adam's betas are exponential decay rates, so `[0, 1)` is what they mean
+    # rather than a taste. Outside it the bias corrections `1 - beta**t` change
+    # sign, and the result is not always loud: measured on `(x - 3)**2` from
+    # x=0, 200 steps at rate 0.1, `beta1=1.5` returns **15.38** -- finite,
+    # confidently, five times the true minimum. `beta1=1.0` and `beta2` outside
+    # the range happen to trip the divergence guard below on that fixture, but
+    # that is the fixture's luck and not a second guard; `beta2=1.5` returns
+    # 2.99994 and looks perfect. Same `not (...)` spelling as the rate above,
+    # so a NaN beta is refused rather than sailing through.
+    # Adam only, because `beta1, beta2, eps: Adam's, ignored by "gradient"` is
+    # this function's documented contract. Refusing an out-of-range beta under
+    # `method="gradient"` would reject a call whose answer is correct, for a
+    # value that provably did not enter it. The rule the two halves share:
+    # refuse where it changes the answer, honour "ignored" where the contract
+    # says ignored.
+    for name, beta in (("beta1", beta1), ("beta2", beta2)) if method == "adam" else ():
+        if not 0.0 <= beta < 1.0:
+            raise StructureError(
+                f"{name} must be in [0, 1), got {beta}. Adam's betas are "
+                "exponential decay rates on the gradient's first and second "
+                "moments; outside that range the bias correction "
+                f"`1 - {name}**t` changes sign. This is refused rather than "
+                "left to the caller because it does not announce itself: "
+                "measured, beta1=1.5 minimises (x-3)^2 to 15.38 without a "
+                "warning, a finite and wrong answer."
+            )
 
 
 def _refuse_complex(at: Any) -> None:
@@ -287,7 +315,7 @@ def minimize(
         ``learning_rate=`` is therefore a real hazard, which is why the
         non-finite result is refused rather than returned.
     """
-    _checked_settings(method, steps, learning_rate)
+    _checked_settings(method, steps, learning_rate, beta1, beta2)
     _refuse_complex(at)
     rates = _rates(at, learning_rate, step_sizes)
 

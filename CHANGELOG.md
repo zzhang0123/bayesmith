@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+**`optimize.minimize` and `optimize.fit` now refuse an Adam beta outside
+`[0, 1)`.** They took it as a plain float and, out of range, could return a
+confidently wrong answer: measured on `(x - 3)**2` from `x = 0`, 200 steps at
+rate 0.1, `beta1=1.5` returns **15.384941** -- finite, unwarned, five times the
+true minimum.
+
+`[0, 1)` is what an exponential decay rate means rather than a taste; outside
+it the bias corrections `1 - beta**t` change sign. The spread of what happens
+out of range is what makes this worth a guard rather than a note: on that same
+fixture `beta1=1.0` and `beta2` outside the range happen to trip the divergence
+check, and `beta2=1.5` happens to return 2.99994 and look perfect. That is the
+fixture's luck, not a second guard.
+
+This CHANGES VALUES a caller could have been reading -- the same position 0.3.0,
+0.4.0 and 0.5.0 took -- so it belongs in the minor slot rather than the patch
+slot whenever the next release is cut.
+
+**Adam only.** `beta1, beta2, eps: Adam's, ignored by "gradient"` is
+`minimize`'s documented contract, so a `method="gradient"` call is unaffected:
+refusing there would reject a call whose answer is correct, for a value that
+provably did not enter it. The rule the two halves share is *refuse where it
+changes the answer, honour "ignored" where the contract says ignored.*
+
+Found by asking, of rheplicant's `calibrate` row, which of its eight refusals
+survive the seam. Seven do -- three of them word for word. This was the eighth,
+and it had no counterpart here.
+
 ## 0.5.0 -- 2026-08-28
 
 Carries everything the migration had left that did not itself need a release:
