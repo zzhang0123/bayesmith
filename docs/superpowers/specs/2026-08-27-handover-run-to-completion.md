@@ -421,8 +421,20 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
    这两个类名在整个测试套里出现 0 次。** 它们**是**被结构性地跑到的
    (`epoch_residuals` 在 `test_epoch_residuals.py`、`held_out_z` 在
    `test_coherent_bias.py`),而那些测试**按字段读**(`r.z`)。所以**字段布局是被钉住
-   的、类身份不是**——这正好落在铁律 1 已经要求保住的那一项上;(b) `systematic_floor` 上游读 `memory` 并**微分**其先验
-   (`_prior_curvature`),而 bayesmith 的入口收现成的 `prior_fisher`——**那一层由谁算**。
+   的、类身份不是**——这正好落在铁律 1 已经要求保住的那一项上;(b) **【已量,2026-08-29】那一层由近端算,而且两边都是有意的——`_prior_curvature`
+   随切换**留守**。**
+   近端 `inference/diagnostics.py::_prior_curvature` 用 `jax.hessian` **微分**
+   `prior.log_prob`(按 latent 块对角、在 `init` 或 `at=` 处求值)。它的 docstring
+   给了理由,而那个理由是留守的依据:**本包的 prior 是个 duck type,唯一保证的成员
+   就是 `log_prob`**——去读 `.scale` 的助手对任何没有 `.scale` 的先验会**静默返回零
+   信息**,而那个错**指向错的方向**(先验信息越少 → sigma 越宽 → 地板拒绝越晚才响)。
+   远端 `marginal/diagnostics.py:374` **收现成的 `prior_fisher`**,只校验形状;
+   **全仓没有任何 prior 微分路径**(`grep hessian` 零命中),而且这是**有意的**——
+   `diagnose/local.py:26` 明写不把先验曲率折进那条路。
+   **所以切换时 `_prior_curvature` 留在近端并喂 `prior_fisher`**,它的拒绝
+   (在微分点上曲率非有限)**一并留守**——远端从来看不到 prior 对象,
+   证据被缝抹掉,是 **D48 的同一形状**。「在哪个点上微分的」这个参数同理:
+   远端的入口没有这个概念。
 3. `marginal/diagnostics.py` 现在 **779 行**(R9 加了 4 行;交接页原写 775,已按实测更新),项目上限 800。**下次往里加东西之前先拆。**
 
 ### 六、P4 – P7
