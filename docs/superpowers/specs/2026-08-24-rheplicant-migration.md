@@ -226,7 +226,13 @@ rheplicant 当作 cross-check 基准是安全的**——它的数值层确实还
 
 ### 4.3 不迁移
 
-- **`calibrate.py`**（`GradientCalibrator`/`AdamCalibrator`）：bayesmith 没有独立
+- **`calibrate.py`** ⚠️ **【2026-08-29:已切,与本条冲突,见登记簿 D58,待 owner 追认】**
+  下面这段写于 2026-08-24,它的第一句前提**今天为假**:`optimize.py` 在 P2 落地并随
+  **0.5.0** 发布,所以 bayesmith **有**优化器层了。近端两个 `fit` 的循环体已转调
+  `bayesmith.optimize.minimize`(逐位相同),而两个类、签名、九条拒绝、以及 config
+  的 `optimize` kind **一概不动**。**若 owner 否决,回滚 e-RHINO `7f28efd` 即可。**
+
+- ~~**`calibrate.py`**~~（`GradientCalibrator`/`AdamCalibrator`）：bayesmith 没有独立
   calibrator 层，估计出口是分派表的产物。rheplicant 侧在分离完成前原样保留
   （config 的 `optimize` kind 依赖它）。去留见 §五 D1。
   *附注：rheplicant `calibrate.py:45-80` 的入口守卫——先读声明再在完美预测处

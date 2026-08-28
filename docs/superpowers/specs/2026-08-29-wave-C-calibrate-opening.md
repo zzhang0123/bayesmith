@@ -2,7 +2,8 @@
 
 > 计划:§五 Wave C / 铁律 1、3、7;**新增裁决 D57**(已自裁并落地)。
 > 前一批次:`2026-08-28-wave-B-plan-opening.md`(D56 待裁决)。
-> **日期**:2026-08-29 · **本页状态:开波已做,D57 已落远端,切换未做。**
+> **日期**:2026-08-29 · **本页状态:开波与切换都已做,四件套齐备。**
+> 上游提交:e-RHINO `7f28efd`。
 
 ## 〇、为什么先开这一波
 
@@ -107,21 +108,38 @@ Wave B 剩下的两行各有拦路:`plan`/`engines` 卡在 **D56**(待 owner),
 `test_the_gradient_method_is_unaffected` **docstring 说不该拒、断言写成会拒,
 而且通过了**。改成 Adam-only。规则:**改变答案的就拒绝,契约说忽略的就真忽略。**
 
-## 四、切换这一批要做的(未做)
+## 四、切换(已做,e-RHINO `7f28efd`)
 
-1. 两个 calibrator 的 `fit` 转调 `bayesmith.optimize.minimize`,
-   `GradientCalibrator → method="gradient"`、`AdamCalibrator → method="adam"`。
-2. **6 条拒绝留守**(1 条 shape + 5 条构造),**照原样不动**——它们的消息、类、
-   触发时机都不变,所以那 19 条文案 pin 也不动。
-3. **一条异常映射**:近端自己先调 `check_loss_sense`,把它的 `StructureError`
-   翻成 `ParameterSpaceError`,**然后**再调 `minimize`。
-   比「在 `minimize` 外面包一个 `except StructureError`」好,因为后者是**靠论证
-   安全的**(近端构造守卫已经把 `steps`/`learning_rate`/beta 都挡在前面了,所以
-   `minimize` 里只剩 loss-sense 能响)——**而那个论证会随远端新增拒绝而失效**。
-4. **D33 的 1 条分诊**已量(见 D33):
-   `test_the_fixed_step_descent_really_does_diverge_on_the_unscaled_negation`
-   改成 `pytest.raises`,主张不变、观测渠道变。
-5. 四件套:分诊绿 / 接缝变异红 / 旧实现删除 + 计数刷新 / 文档数字重量。
+两个 `fit` 的循环体转调 `bayesmith.optimize.minimize`,两段手写 `lax.scan` 删除。
+**九条拒绝全部留守**,理由是量出来的不是谨慎:5 条构造守卫无处可托(远端是函数),
+1 条 shape 守卫远端见不到 `observed`,另 3 条**逻辑只有 13 行、包在 21 行
+指名近端路线的文案里**,委托它们会**增加代码并让消息变坏**。
+
+**D33 如期落地**:切完之后正好 1 条测试红,就是分诊点名的那条,
+改成 `pytest.raises`,主张不变。
+
+### 4.1 验收:逐位那条只能在删除之前取,而它取到了
+
+见 §二之三。切完之后近端调的就是远端,同样的比较是循环的。
+**永久可跑的换成非循环 oracle**:直线最小二乘的闭式解,NumPy 写自正规方程。
+
+### 4.2 接缝变异:7 条,7 杀 —— 而其中 3 条只有新写的 spy 能杀
+
+| 变异 | 杀它的 |
+|---|---|
+| M1 gradient 送 `method="adam"` | **spy** |
+| M2 漏传 `beta1` | **spy,而且只有 spy** |
+| M3 漏传 `eps` | spy + `test_config_exits_estimators`(它用了一个巨大的 eps) |
+| M4 `steps` 写死 1 | 闭式 oracle |
+| M5 history 槽里返回 values | 闭式 oracle |
+| M6 删 shape 守卫 | `test_observed_shape` |
+| M7 删 loss-sense 守卫 | `test_loss_sense` |
+
+**M2 是这一批最有价值的一条,而它是被「问出来」的而不是被想出来的**:切完之后我问
+「门面漏传一个旋钮,谁会红?」——实测**没人**。全套里唯一设非默认 beta 的测试用
+`beta1=0.0, beta2=0.0`,只断言「有限」和「动过了」,**两条在远端默认 0.9 下都成立**。
+补上 spy(D50 的同一补救,往下一层)之后 M2 才有人杀。
+**没问那一句,这一批会带着一个漏传的旋钮通过全部四件套。**
 
 ## 五、留给下一位
 
