@@ -72,8 +72,12 @@
 - **两仓已推送并按远端核实**(2026-08-28):e-RHINO `610d106`、
   bayesmith `38d6188` 之后 `git ls-remote` 两仓 `ahead=0`;
   本页这次改写与 `gls` 开波页在其后。
-  **CI 在 `610d106`/`38d6188` 上:rheplicant `Suite` ✅、bayesmith `Seam` ✅、
-  `Cross-check` ✅;`Coverage (serial)` 本页写就时仍在跑**,下一位先看它。
+  **CI 全绿,四个 job 逐个核过**:rheplicant `Tests` run **33180929073**
+  (`610d106`)的 `Suite (Python 3.12)` ✅ 与 `Coverage (serial)` ✅
+  ——**Coverage 跑了约 49 分钟**(15:36 → 16:25),比 `Suite` 的约 20 分钟长得多,
+  所以看结论时**按 job 等,不要按 run 等**;bayesmith 的 `Seam` ✅ 与
+  `Cross-check` ✅(`d92791b`)。**两仓第二次同时全绿**,而这一次绿在
+  `linear` 求解面已切之后。
   **用 `git ls-remote` 数,不要读本地 `origin/main`。**
   推送顺序:**e-RHINO 先,bayesmith 后**(bayesmith 的 Seam job checkout 的是
   `e-RHINO@main`)。
