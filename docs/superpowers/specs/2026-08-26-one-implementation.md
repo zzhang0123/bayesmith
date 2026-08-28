@@ -949,6 +949,42 @@
   **成本实测**:仓库内 106 处 / 29 文件,子包外的运行时 import **只有 2 行**,
   下游 e-RHINO **0 次 import**。变异 S2/S6 击杀。
   证据链:`2026-08-28-architecture-narrative.md` §6。
+- **D48 — G15 的解除是几行?以及先验准入归谁(做 G15 的 rheplicant 一半时新增)。**
+  **【自裁于委托之下,2026-08-28:解除是四处,准入留守 rheplicant。】**
+  **本条是「委托不是空白支票」的第四例**,而且冲突的是本页自己:G15 与
+  `uncertainty._prior_precision` 的 docstring **都**写着解除只改一行
+  (`include_prior=space is not None`,「委托已经照那个形状写好」)。**实测三处**
+  都得改:`_bayesmith_fisher` 建块时 `local_block(...)` **不带** `priors=`;
+  `fisher_information` 两个分支**都**硬写 `declared = None`,所以图上的 latent
+  一律是 improper flat。任一处不改,翻 `include_prior` 得到的是 `KeyError:
+  'a_vec'` 或一个空手而归的 `with` 块——**没有一个是「答案错了」的样子**。
+  两侧的**算术**确实是一份:接对之后与被删的拼写对**独立 numpy oracle**
+  逐比特相同(`0.000000e+00`,不是「在容差内」)。
+  **要害不是数目,是第四处**。原函数里有**五条拒绝**,其中三条被测试逐名钉住。
+  把它们交给远端会**全部消失**——不是变成另一个异常,是根本不到达:
+  `graph_bridge.translate` 把 `NotGaussian` 归为**无责裁定**(捕获、不外抛、
+  记在 `Seam` 上),这对「这里有没有精确路线」式的分支调用者是对的设计,而
+  `fisher_information(space=...)` 不是那个调用者。实测:Uniform / LogNormal /
+  无先验三例,`with` 块提前结束,下一行在一个从未赋值的名字上读 `.values`,
+  调用者拿到 `UnboundLocalError`。另两条(声明了 `joint_prior`、params 无名)
+  在远端**根本没有对应物**。
+  **裁决依据不是「保守」,是计划自己已有的规则**:P1 总原则——**凡图缝会抹掉证据
+  的拒绝,住在 to_graph 前的预验证**(首例 `check_noise_std_axis`)。G15 的正文
+  只是没有引用它。于是 `_prior_precision` 改名 `_declared_gaussian_priors`:
+  **算术删掉,五条准入原地不动**,返回给 `graph_for_information` 的 `priors=`。
+  **顺带量出第二处分歧,是本批更有意思的一个**:两包对「什么算高斯先验」的判据
+  差**恰好一个拼写**——bayesmith 的 `check_gaussian` 收 `Normal` 与
+  `Independent`(`.to_event(1)`)、拒 `ExpandedDistribution`(`.expand([2])`);
+  rheplicant 的 `_gaussian_parameters` 三个都拆。两条规则都站得住,但经过一条会
+  吞掉「不」的缝,分歧到用户手里就是 `UnboundLocalError`。故过缝的是**规范形**:
+  `Normal(loc, scale)` 广播到 latent 自己的形状,一种写法覆盖所有拼写。
+  **G15 点名要重测的那件,答案是「仍然够不到」,理由比原来的好**:标量
+  `Normal(0, .5)` 配 `(2,)` latent(G9 广播缺陷的入口形状)**根本到不了**门面——
+  `Latent.__check_init__` 在构造期就按名字拒绝形状不符。`.expand([2])` 是同一个
+  先验补上形状,它到得了,而规范形正是为它。
+  地板 `bayesmith>=0.4 → >=0.5`(CLAUDE.md 与 AGENTS.md 成对同改)。
+  证据链:`2026-08-28-g15-rheplicant-discharge.md`,探针
+  `docs/probes/probe_16_g15_discharge.py`。
 
 ## 三、P1 — 适配器基石
 
@@ -1555,10 +1591,14 @@ D31 的合法性是量出来的)。
 
 ## 附录 B — 拒绝文案清单
 
-> **P1 交付物,已回填(2026-08-27;2026-08-28 重测)。** 实测:`tests/inference/`
-> 下共 **252** 个 `pytest.raises(..., match=...)` 站点。按抛出的异常类:
-> `ParameterSpaceError` **179**、`StateValidationError` **64**、
+> **P1 交付物,已回填(2026-08-27;2026-08-28 重测两次)。** 实测:
+> `tests/inference/` 下共 **253** 个 `pytest.raises(..., match=...)` 站点。
+> 按抛出的异常类:`ParameterSpaceError` **180**、`StateValidationError` **64**、
 > `RuntimeError` **4**、`Exception` **3**、`TypeError` **2**。
+> (252 → 253 随 **D48**,G15 的解除:新增的一条钉的是**顺序**——先验准入跑在
+> 图存在之前。它的类**没有**变,而那正是 D48 的全部内容:交给远端的话,这条
+> 拒绝不是换一个类到达,是**根本不到达**,因为 `translate` 把 `NotGaussian`
+> 归为无责裁定。这是本清单第一次记录一条**因为缝会吞掉它而留守**的拒绝。)
 > (250 → 252 随 **D23** 的判别 fixture:曲率拒绝一条,加一条钉住
 > 「一个由别的 `Latent` 参数化的先验不是本层能表达的声明」的 `TypeError`。)
 > (244 → 250 随 `uncertainty` 后半:D29 的天花板 + D30 的类 + D31 的精度拒绝,
