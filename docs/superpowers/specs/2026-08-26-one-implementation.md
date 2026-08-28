@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D47;拍板后回填本行)
+## 二、裁决登记簿(D7–D53;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -1083,6 +1083,56 @@
   ——比例本来就不是设计。
   证据链:`2026-08-28-wave-B-opening.md`。
 
+- **D52 — 两条收敛守卫的文案在缝的两侧措辞不同。**
+  **【自裁于委托之下,2026-08-28:采纳远端措辞,两条 `match=` 改籍。】**
+  `require_convergence` 的两条消息在两侧**前缀相同**——`wiener_solve/gcr_sample
+  cannot reach require_convergence at this precision` 与 `... did not converge`
+  ——所以按前缀匹配的五处 pin 全部原样通过。差的是细节:近端写
+  「the normal operator's **condition number**」,远端写「the **condition bound**」。
+  **远端是对的。** 守卫读的是 `condition_bound()`(上界),不是
+  `condition_estimate()`(测量值,偏低),而近端**自己的 docstring** 早就写着
+  「Do not divide an accuracy target by this number」并指向 bound。近端的消息
+  因此一直在用一个它自己文档里判为错误的名字。
+  **实测:`src/` 里没有任何东西解析这两条消息**(config 层也不解析),所以文案
+  只被测试钉着,不是机器契约。两条 `match="condition number"` 改为
+  `match="condition bound"`;那条 docstring 里指向已不存在的
+  `inference/linear.py::_condition_number` 的引用同批更正。
+  证据链:`2026-08-28-wave-B-linear.md`。
+- **D53 — 同一段线性代数,两侧拼写不同:均值差 ~1 ulp,抽样对同一个 key 不同。**
+  **【自裁于委托之下,2026-08-28:采纳远端拼写;三条按单 key 钉住的守卫改断言
+  与 key 无关的性质。】**
+  一个原因,两个后果。远端把噪声当作 `Precision` **算子**收下,近端收的是一个
+  权重数组,于是同一个量在两侧的写法不同:
+  1. **均值(`wiener_solve`)。** 近端 `weight = 1/σ²` 再 `weight * r`(两次舍入),
+     远端 `r / σ²`(一次)。**σ 是标量时两者逐比特相同**(实测:
+     `test_linear_blocks` 的 `LOAD_NOISE=0.1` 一路相同);**σ 是数组时差 ~1 ulp**。
+     方向不是中性的:拿 float64 稠密解做基准,GLS 那个 fixture 上
+     **远端 1.12e-07、近端 1.57e-07**——远端更接近真解,而它**报告的残差更大**
+     (1.78e-07 对 7.02e-08)。这正是两包 docstring 都在讲的那句「残差不是误差」,
+     第一次被量出来:近端报了一个更小的残差,同时离真解更远。
+  2. **抽样(`gcr_sample`)。** 涨落项的白化,近端 `sqrt(weight) * ω`,远端
+     `ω / σ`(`Precision.whiten`)。于是**同一个 key 给出不同的抽样**——统计上等价,
+     逐值不等。
+  第 2 条的后果不是数值而是**守卫可测性**:三条测试用**一个 key** 钉住「这个解
+  必然被拒」,而那个结果**一直是 key 相关的**,只是没人量过。逐条实测(20 个 key):
+  `test_float32_is_refused_however_tight_the_tolerance` 切换前 **15/20** 被拒、
+  切换后 **12/20**;`test_the_conjugate_convergence_guard_still_raises_equinox`
+  前 **14/20**、后 **10/20**。`key(0)`/`key(1)` 只是换了边。
+  **所以这不是本次切换制造的脆弱,是本次切换照出来的。** 三条改为断言与 key
+  无关的东西:地板本身(κ·eps = **3.81** > 1e-3,两侧相同)、**每一条**拒绝的
+  **种类**(实测两侧都是 100% 的 "at this precision",一条 "did not converge"
+  都没有——因为在精度地板之下,「调紧 tol」是错的建议),以及「至少有一个 key
+  被拒」这条「守卫还能失败吗」的自检。
+  第三条是 `test_gls.py::test_a_tolerance_below_the_epsilon_never_converges`,
+  它钉的是**退出方式**(`not converged`、`iterations == 100`),而那是 float32
+  迭代停在不动点**上方一个 ulp** 还是**恰好落在其上**的产物:实测同一个 fixture
+  一侧 `delta = 6.98e-08`、另一侧 `delta = 0.0`,而 `0.0` 让任何容差都被满足,
+  于是第 8 步就"收敛"。**两个数都低于 float32 的 eps**,而那才是这条测试一直
+  在讲的事(「a relative step of 1e-8 is rounding rather than a measurement」)。
+  改为断言 `delta < eps`,并保留「两条路走到同一个解」那两行。
+  **这与 2026-08-28 CI 分诊在 arm64/x86-64 上遇到的是同一个形状**,读法也相同。
+  证据链:`2026-08-28-wave-B-linear.md`、`probe_17_linear_solve_seam.py`。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
@@ -1689,9 +1739,16 @@ D31 的合法性是量出来的)。
 ## 附录 B — 拒绝文案清单
 
 > **P1 交付物,已回填(2026-08-27;2026-08-28 重测两次)。** 实测:
-> `tests/inference/` 下共 **253** 个 `pytest.raises(..., match=...)` 站点。
+> `tests/inference/` 下共 **252** 个 `pytest.raises(..., match=...)` 站点。
 > 按抛出的异常类:`ParameterSpaceError` **180**、`StateValidationError` **64**、
-> `RuntimeError` **4**、`Exception` **3**、`TypeError` **2**。
+> `RuntimeError` **3**、`Exception` **3**、`TypeError` **2**。
+> (253 → 252 随 **Wave B 的 `linear` 切换**:`test_linear_blocks.py` 的
+> float32 地板那条不再用 `pytest.raises` 钉**一个 key** 的拒绝,改为扫二十个。
+> 那条拒绝**一直是 key 相关的**——切换前 20 个 key 里 15 个被拒,切换后 12 个
+> ——而单 key 的 pin 把一个随机结果写成了性质。它仍然断言拒绝,而且更强:
+> 地板本身(κ·eps = 3.81 > 1e-3,与 key 无关)加上**每一条**拒绝的**种类**。
+> 少掉的是 `pytest.raises` 站点,不是断言。类没有丢,另外三个文件还钉着
+> `RuntimeError`。)
 > (252 → 253 随 **D48**,G15 的解除:新增的一条钉的是**顺序**——先验准入跑在
 > 图存在之前。它的类**没有**变,而那正是 D48 的全部内容:交给远端的话,这条
 > 拒绝不是换一个类到达,是**根本不到达**,因为 `translate` 把 `NotGaussian`
@@ -1908,7 +1965,7 @@ D31 的合法性是量出来的)。
 
 </details>
 
-<details><summary><code>test_linear_blocks.py</code> — 19 条</summary>
+<details><summary><code>test_linear_blocks.py</code> — 18 条(2026-08-28 由 <code>_sites()</code> 重新生成)</summary>
 
 | 行 | 类 | `match=` |
 |---|---|---|
@@ -1917,20 +1974,19 @@ D31 的合法性是量出来的)。
 | 319 | `ParameterSpaceError` | `different` |
 | 325 | `ParameterSpaceError` | `prior_std` |
 | 345 | `ParameterSpaceError` | `not affine` |
-| 380 | `ParameterSpaceError` | `not affine` |
-| 398 | `ParameterSpaceError` | `not affine` |
 | 454 | `ParameterSpaceError` | `not affine` |
-| 477 | `ParameterSpaceError` | `not affine` |
 | 487 | `ParameterSpaceError` | `not affine` |
 | 502 | `ParameterSpaceError` | `No latent named` |
 | 516 | `ParameterSpaceError` | `which latent` |
 | 544 | `ParameterSpaceError` | `not affine` |
 | 763 | `ParameterSpaceError` | `prior_std` |
 | 837 | `ParameterSpaceError` | `not a latent` |
-| 1018 | `RuntimeError` | `condition number` |
-| 1036 | `RuntimeError` | `condition number` |
-| 1063 | `RuntimeError` | `precision\|condition number` |
-| 1190 | `RuntimeError` | `precision\|condition number` |
+| 1022 | `RuntimeError` | `condition bound` |
+| 1040 | `RuntimeError` | `condition bound` |
+| 1232 | `RuntimeError` | `precision|condition number` |
+| 380 | `ParameterSpaceError` | `not affine` |
+| 398 | `ParameterSpaceError` | `not affine` |
+| 477 | `ParameterSpaceError` | `not affine` |
 
 </details>
 

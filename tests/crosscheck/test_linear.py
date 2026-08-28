@@ -24,7 +24,43 @@ built outside arrives as float32 into a float64 graph -- measured while
 writing this file: it moved the two packages' ``condition_bound`` apart by
 4.096e-09 and made ``check_linearity`` report unresolved departures. Both
 went to bitwise agreement once the arrays moved inside.
+
+**2026-08-28, Wave B: eight of this file's fourteen tests retired, and the
+file stayed.** rheplicant's four public SOLVE names now delegate here, so
+every assertion comparing the two packages' solve arithmetic had become this
+package against itself. ``test_the_gcr_draws_reproduce_the_oracle_mean_and_
+covariance`` said so itself: its own anti-vacuity guard -- "the draws came
+out bitwise identical, which means the two packages are sharing a key stream
+-- this comparison would then be vacuous" -- is what went red on the switch,
+which is the nicest possible way for a cross-check to announce that its
+module has moved.
+
+Retired under iron law 2, with each subject IDENTIFIED in an existing home on
+this side rather than re-homed (the clause's other branch):
+
+* the CG solution and the dense oracle -> ``tests/exact/test_solve.py::
+  test_wiener_solve_matches_the_dense_oracle``;
+* GCR's mean and covariance -> ``test_gcr_draws_have_the_oracle_mean_and_
+  covariance`` and ``test_the_mean_of_many_draws_is_the_wiener_solution``;
+* the ``condition_bound`` value and its looseness -> ``test_the_bound_is_
+  never_below_the_true_condition_number`` and ``test_the_bound_is_loose_when_
+  the_data_constrains_every_direction``;
+* the two convergence verdicts and the target they flip at ->
+  ``test_the_convergence_guard_fires_on_a_deliberately_starved_solve``,
+  ``test_the_precision_floor_alone_makes_the_guard_unreachable`` and
+  ``test_the_guard_bounds_the_error_not_the_residual``.
+
+**The file is NOT deleted, and `linear.py` is NOT in ``SWITCHED``**, because
+only the solve surface moved: ``linear_operator`` and ``check_linearity`` are
+still rheplicant's own, so the six remaining tests still compare two
+implementations. Same reading as ``numpyro_bridge`` and ``uncertainty``, each
+of which is also half switched. What survives here is exactly what still has
+two sides: the linearity verdict, the ``at``-points difference, the
+``NoiseModel`` refusal (which lives in rheplicant's facade BECAUSE the seam
+would erase it -- D48's rule, see D53), the 1-D sigma ambiguity that cannot
+be stated here at all, and how over-confident the silent axis choice is.
 """
+
 
 from __future__ import annotations
 
@@ -191,200 +227,6 @@ def _bayesmith_pieces(gain0, t_ant0, tone, data, block_name):
     return block, diagonal_from({"d": jnp.full_like(data, NOISE_STD)})
 
 
-def _dense_oracle(gain0, t_ant0, tone, data, block_name):
-    """``(x*, posterior covariance)`` by dense numpy linear algebra.
-
-    Iron law 4: the two packages agreeing is not evidence. ``A`` and the
-    OFFSET are read out of the full model at basis vectors rather than
-    hand-written -- the first draft of this oracle wrote ``gain * x`` for the
-    ``t_ant`` block, silently dropping the tone (which is the offset), and
-    then disagreed with both packages by 64% while looking like a finding.
-    """
-    if block_name == "gain":
-        size = N_TIME
-
-        def mu(x):
-            return np.ravel(np.asarray(x[:, None] * (t_ant0 + tone[None, :])))
-
-    else:
-        size = N_TIME * N_FREQ
-
-        def mu(x):
-            return np.ravel(
-                np.asarray(gain0[:, None] * (x.reshape(N_TIME, N_FREQ) + tone[None, :]))
-            )
-
-    offset = mu(jnp.zeros(size))
-    design = np.stack(
-        [mu(jnp.zeros(size).at[i].set(1.0)) - offset for i in range(size)], axis=1
-    )
-    flat = np.ravel(np.asarray(data))
-    inverse_noise = np.eye(flat.size) / NOISE_STD**2
-    normal = design.T @ inverse_noise @ design + np.eye(size) / PRIOR_STD**2
-    # The prior mean is zero on both sides, so S^-1 m contributes nothing.
-    rhs = design.T @ inverse_noise @ (flat - offset)
-    return np.linalg.solve(normal, rhs), np.linalg.inv(normal)
-
-
-def _both_means(block_name):
-    """``(rheplicant, bayesmith)`` posterior means and residuals, one fixture."""
-    from rheplicant.inference.linear import wiener_solve as theirs
-
-    from bayesmith.exact.solve import wiener_solve as ours
-
-    gain0, t_ant0, tone, data = _arrays()
-    block, prior_mean, prior_std = _rheplicant_pieces(gain0, t_ant0, tone, block_name)
-    their_value, their_residual = theirs(
-        block,
-        data,
-        noise_std=NOISE_STD,
-        prior_mean=prior_mean,
-        prior_std=prior_std,
-        require_convergence=None,
-    )
-    our_block, precision = _bayesmith_pieces(gain0, t_ant0, tone, data, block_name)
-    our_value, our_residual = ours(
-        our_block, precision=precision, require_convergence=None
-    )
-    # Ravelled: the dense oracle works in the block's flat degrees of
-    # freedom, and `t_ant` is (8, 8) on both sides.
-    return (
-        np.ravel(np.asarray(their_value[block_name])),
-        float(their_residual),
-        np.ravel(np.asarray(our_value[block_name])),
-        float(our_residual),
-    )
-
-
-@pytest.mark.parametrize("block_name", ["gain", "t_ant"])
-def test_the_posterior_mean_and_residual_are_bitwise_identical(block_name):
-    """§四 4.1's "CG 解逐元素到 float64 roundoff", asserted one step stronger.
-
-    Measured as EQUALITY, not as a tolerance: same operator, same
-    right-hand side, same ``jax.scipy.sparse.linalg.cg``, so the two walk
-    the same arithmetic in the same order and any difference at all is a
-    difference in the mathematics. Writing ``rel=1e-12`` here would admit a
-    genuinely different iteration -- and it would have admitted the float32
-    fixture bug this module's docstring records, which showed up at 4e-09.
-    """
-    with jax.enable_x64(True):
-        theirs, their_residual, ours, our_residual = _both_means(block_name)
-    assert np.array_equal(theirs, ours), np.max(np.abs(theirs - ours))
-    assert their_residual == our_residual
-
-
-@pytest.mark.parametrize("block_name", ["gain", "t_ant"])
-def test_both_agree_with_a_dense_oracle_to_the_solver_tolerance(block_name):
-    """Iron law 4. Agreeing on a wrong number is still agreement.
-
-    The comparison is to CG's own ``tol`` (1e-6 by default) rather than to
-    roundoff, because that is what the solver promises: the residual is
-    bounded, the error is not. Measured: 1.24e-06 on ``gain``, 1.50e-07 on
-    ``t_ant``.
-    """
-    with jax.enable_x64(True):
-        gain0, t_ant0, tone, data = _arrays()
-        truth, _ = _dense_oracle(gain0, t_ant0, tone, data, block_name)
-        theirs, _, ours, _ = _both_means(block_name)
-    for label, got in (("rheplicant", theirs), ("bayesmith", ours)):
-        relative = np.max(np.abs(got - truth) / np.maximum(np.abs(truth), 1e-30))
-        assert relative < 2e-6, (label, relative)
-
-
-@pytest.mark.parametrize("block_name", ["gain", "t_ant"])
-def test_the_condition_bound_is_bitwise_identical(block_name):
-    """``lambda_max * max(prior_variance)``, same power iteration, same key.
-
-    The number a caller divides an accuracy target by, so a difference here
-    is a difference in every ``tol`` chosen downstream.
-    """
-    from rheplicant.inference.linear import condition_bound as theirs
-
-    from bayesmith.exact.solve import condition_bound as ours
-
-    with jax.enable_x64(True):
-        gain0, t_ant0, tone, data = _arrays()
-        block, _, prior_std = _rheplicant_pieces(gain0, t_ant0, tone, block_name)
-        their_kappa = float(theirs(block, noise_std=NOISE_STD, prior_std=prior_std))
-        our_block, precision = _bayesmith_pieces(gain0, t_ant0, tone, data, block_name)
-        our_kappa = float(ours(our_block, precision=precision))
-    assert their_kappa == our_kappa
-
-
-def _draws(block_name, count):
-    """``(rheplicant, bayesmith)`` GCR draws at the same fixed keys."""
-    from rheplicant.inference.linear import gcr_sample as theirs
-
-    from bayesmith.exact.solve import gcr_sample as ours
-
-    gain0, t_ant0, tone, data = _arrays()
-    block, prior_mean, prior_std = _rheplicant_pieces(gain0, t_ant0, tone, block_name)
-    our_block, precision = _bayesmith_pieces(gain0, t_ant0, tone, data, block_name)
-    mine, yours = [], []
-    for seed in range(count):
-        key = jax.random.key(seed)
-        drawn, _ = theirs(
-            block,
-            data,
-            noise_std=NOISE_STD,
-            key=key,
-            prior_mean=prior_mean,
-            prior_std=prior_std,
-            require_convergence=None,
-        )
-        mine.append(np.ravel(np.asarray(drawn[block_name])))
-        drawn, _ = ours(
-            our_block, precision=precision, key=key, require_convergence=None
-        )
-        yours.append(np.ravel(np.asarray(drawn[block_name])))
-    return np.stack(mine), np.stack(yours)
-
-
-@pytest.mark.slow
-def test_the_gcr_draws_reproduce_the_oracle_mean_and_covariance():
-    """§四 4.1's "GCR 的均值**与协方差**在 MC 误差内".
-
-    Against the DENSE ORACLE, not against each other: a constrained
-    realization is exact by construction, so the claim worth testing is that
-    each package's draws have the posterior's moments -- and two ports of the
-    same identity would agree with each other while both getting the
-    fluctuation scaling wrong. The covariance half is the half that catches
-    that: this package's own mutation testing recorded a prior-term division
-    written the wrong way round, which leaves the MEAN untouched and widens
-    the drawn covariance 4x.
-
-    The draws are NOT bitwise identical across packages and cannot be -- each
-    splits the key over its own pytree -- so this is the one comparison in
-    this file stated in MC error rather than in roundoff. Thresholds are the
-    design document's |z| < 4; measured at 256 fixed keys, every |z| < 3.
-    """
-    with jax.enable_x64(True):
-        gain0, t_ant0, tone, data = _arrays()
-        truth, covariance = _dense_oracle(gain0, t_ant0, tone, data, "gain")
-        theirs, ours = _draws("gain", N_DRAWS)
-    assert not np.array_equal(theirs, ours), (
-        "the draws came out bitwise identical, which means the two packages "
-        "are sharing a key stream -- this comparison would then be vacuous"
-    )
-    variance = np.diag(covariance)
-    for label, drawn in (("rheplicant", theirs), ("bayesmith", ours)):
-        z_mean = np.max(
-            np.abs(drawn.mean(axis=0) - truth) / np.sqrt(variance / N_DRAWS)
-        )
-        assert z_mean < 4.0, (label, "mean", z_mean)
-        sample = np.cov(drawn, rowvar=False)
-        # SE of a sample variance is sigma^2 sqrt(2/(n-1)); of an off-diagonal
-        # entry, sqrt((c_ii c_jj + c_ij^2)/n).
-        z_var = np.max(
-            np.abs(np.diag(sample) - variance)
-            / (variance * np.sqrt(2.0 / (N_DRAWS - 1)))
-        )
-        assert z_var < 4.0, (label, "variance", z_var)
-        se_full = np.sqrt((np.outer(variance, variance) + covariance**2) / N_DRAWS)
-        z_full = np.max(np.abs(sample - covariance) / se_full)
-        assert z_full < 4.0, (label, "covariance", z_full)
-
-
 def test_check_linearity_accepts_the_same_blocks_on_both_sides():
     """Each conditional IS affine; the pair is not. Same verdict, both ways.
 
@@ -427,90 +269,6 @@ def _refusal(fn) -> str:
     except Exception as exc:  # noqa: BLE001 -- the class is what is under test
         return f"{type(exc).__name__}: {exc}"
     return ""
-
-
-@pytest.mark.parametrize(
-    ("block_name", "target", "phrase"),
-    [
-        # kappa = 1.27e+20 here, so kappa*eps = 2.8e+04 is already above any
-        # target: the verdict is "no tol will help".
-        ("gain", 1e-3, "cannot reach"),
-        # kappa = 3.37e+12, kappa*eps = 7.5e-04 < 1e-3, so the arithmetic CAN
-        # represent the answer and the verdict is the other one.
-        ("t_ant", 1e-3, "did not converge"),
-    ],
-)
-def test_the_two_convergence_verdicts_are_the_same_verdict_on_both_sides(
-    block_name, target, phrase
-):
-    """§四 4.1's ``kappa*residual`` criterion AND its separate ``kappa*eps``
-    branch -- the "tightening tol is useless" judgement, which is a different
-    sentence because it has a different remedy.
-
-    Asserted on which BRANCH fires rather than on the wording: the two
-    packages phrase the same verdict differently (``"the normal operator's
-    condition number"`` against ``"the condition bound"``), and pinning
-    wording would pin prose. What has to agree is the decision.
-    """
-    from rheplicant.inference.linear import wiener_solve as theirs
-
-    from bayesmith.exact.solve import wiener_solve as ours
-
-    with jax.enable_x64(True):
-        gain0, t_ant0, tone, data = _arrays()
-        block, prior_mean, prior_std = _rheplicant_pieces(
-            gain0, t_ant0, tone, block_name
-        )
-        our_block, precision = _bayesmith_pieces(gain0, t_ant0, tone, data, block_name)
-        their_text = _refusal(
-            lambda: theirs(
-                block,
-                data,
-                noise_std=NOISE_STD,
-                prior_mean=prior_mean,
-                prior_std=prior_std,
-                require_convergence=target,
-            )
-        )
-        our_text = _refusal(
-            lambda: ours(our_block, precision=precision, require_convergence=target)
-        )
-    assert phrase in their_text, their_text[:400]
-    assert phrase in our_text, our_text[:400]
-
-
-@pytest.mark.parametrize("target", [1e5, 1e6])
-def test_both_flip_from_refusing_to_accepting_at_the_same_target(target):
-    """The criterion itself, not just its two branches.
-
-    ``t_ant``'s error bound is between 1e5 and 1e6, so a guard reading a
-    DIFFERENT kappa or a different residual would flip somewhere else. Both
-    packages refuse at 1e5 and accept at 1e6.
-    """
-    from rheplicant.inference.linear import wiener_solve as theirs
-
-    from bayesmith.exact.solve import wiener_solve as ours
-
-    with jax.enable_x64(True):
-        gain0, t_ant0, tone, data = _arrays()
-        block, prior_mean, prior_std = _rheplicant_pieces(gain0, t_ant0, tone, "t_ant")
-        our_block, precision = _bayesmith_pieces(gain0, t_ant0, tone, data, "t_ant")
-        their_text = _refusal(
-            lambda: theirs(
-                block,
-                data,
-                noise_std=NOISE_STD,
-                prior_mean=prior_mean,
-                prior_std=prior_std,
-                require_convergence=target,
-            )
-        )
-        our_text = _refusal(
-            lambda: ours(our_block, precision=precision, require_convergence=target)
-        )
-    refused = target == 1e5
-    assert bool(their_text) is refused, their_text[:300]
-    assert bool(our_text) is refused, our_text[:300]
 
 
 @pytest.mark.parametrize("depends_on_prediction", [False, True])
@@ -703,85 +461,6 @@ def test_bayesmith_now_carries_condition_estimate_as_a_diagnostic():
 
     assert hasattr(solve, "condition_estimate")
     assert "not a bound" in (solve.condition_estimate.__doc__ or "").lower()
-
-
-@pytest.mark.parametrize(("block_name", "ceiling"), [("gain", 1e-20), ("t_ant", 1e-12)])
-def test_rheplicants_condition_estimate_is_orders_below_its_own_bound(
-    block_name, ceiling
-):
-    """What the estimate actually is, on this fixture, in both blocks.
-
-    ``condition_estimate / condition_bound``: **8.38e-21** on ``gain``,
-    **4.43e-13** on ``t_ant``. Bounded rather than pinned, so the claim
-    survives an iteration-count retune while still failing if the estimate
-    ever becomes the bound.
-    """
-    from rheplicant.inference.linear import condition_bound, condition_estimate
-
-    with jax.enable_x64(True):
-        gain0, t_ant0, tone, _ = _arrays()
-        block, _, prior_std = _rheplicant_pieces(gain0, t_ant0, tone, block_name)
-        measured = float(
-            condition_estimate(block, noise_std=NOISE_STD, prior_std=prior_std)
-        )
-        bound = float(condition_bound(block, noise_std=NOISE_STD, prior_std=prior_std))
-    assert measured / bound < ceiling, (measured, bound)
-
-
-def test_rheplicants_condition_estimate_no_longer_claims_to_be_the_bound():
-    """A finding this row turned up, and the guard that keeps it fixed.
-
-    Measured 2026-08-25, before e-RHINO's ``0c49cae``: the public
-    ``condition_estimate`` opened with "An upper bound on the conditioning"
-    and stated "The number here is now ``λ_max · max(prior_variance)``" --
-    which is what ``condition_bound`` returns. Its implementation called
-    ``_condition_estimate``, whose own docstring says "MEASURED κ. A
-    diagnostic, and **not a bound** ... Biased low, and therefore **unsafe to
-    guard on**". A rename had left the bound paragraph in the wrong function.
-
-    The consequence was one-sided and toward danger: a caller reading it was
-    told this is the number to divide an accuracy target by, and on this
-    fixture it is 1.2e+20 times too small, so the ``tol`` computed from it is
-    too loose by that factor.
-
-    Fixed upstream in e-RHINO's ``0c49cae`` after this row reported it. This
-    test is what keeps it fixed: it asserts the docstring now names itself
-    MEASURED and warns the reader off, so a future rename cannot quietly put
-    the old sentence back.
-
-    **The branch dependency is CLOSED as of 2026-08-28.** It used to read:
-    *both sentences are on e-RHINO's ``track-a-tail`` and NOT on its
-    ``main``, measured 2026-08-25* -- the same dependency
-    ``test_dispatch.py``'s
-    ``test_rheplicants_plan_now_attributes_b1_to_the_block_type`` carried,
-    and these two were the only guards in this directory that had it.
-    Measured 2026-08-28 against the REMOTE (``git ls-remote``, then
-    ``git show origin/main:src/rheplicant/inference/linear.py``): the
-    corrected sentences are on ``origin/main`` and ``track-a-tail`` no
-    longer exists. A red here now means the docstring changed, which is the
-    only cause left, and it makes ``linear.md`` §5(a) false.
-
-    **No NUMERIC cross-check depends on the checkout.** Measured
-    independently rather than taken on report: ``main...track-a-tail``
-    touches exactly two files under ``src/rheplicant/inference/`` --
-    ``linear.py`` and ``plan.py`` -- and both are docstring-only, verified
-    by comparing ``ast.dump`` with every ``Module``/``ClassDef``/
-    ``FunctionDef`` docstring removed. Re-run that comparison rather than
-    trusting this sentence; it is a claim about a branch, and branches move.
-    """
-    import inspect
-
-    from rheplicant.inference.linear import condition_estimate
-
-    text = inspect.getdoc(condition_estimate) or ""
-    branch_note = (
-        " The branch dependency this message used to name is closed: the "
-        "corrected docstring is on e-RHINO's `origin/main`, measured "
-        "2026-08-28. So the docstring changed, and "
-        "docs/migration/linear.md section 5(a) needs updating."
-    )
-    assert text.startswith("The MEASURED conditioning"), text[:120] + branch_note
-    assert "Do not divide an accuracy target by this number" in text, branch_note
 
 
 def test_bayesmith_checks_linearity_at_more_at_points_and_says_when_it_cannot():
