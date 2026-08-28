@@ -152,6 +152,25 @@ fixture writes `κ|μ| + floor`, an additive floor. The cross-check runs at
 law and not of two spellings of a regularisation. A migration that carries
 a non-zero floor across must convert it.
 
+> **Measured 2026-08-28, and the sentence above is too mild: it cannot be
+> converted.** There is no `(κ, c)` with `κ|μ| + c = f·max(|μ|, floor)` for
+> all `μ`. Large `|μ|` forces `κ = f` and `c = 0`, which then gives `0` at
+> `μ = 0` where rheplicant gives `f·floor`. At `f = 0.2, floor = 1.5` the two
+> stand in ratios from **1.75 to 6.00** across `μ ∈ [0, 10]` — not a scale
+> factor, a different **functional form**: rheplicant's floor is a floor on
+> the *magnitude*, bayesmith's fixture's is a floor on the *sigma*.
+>
+> So a switch of this row needs the far side to be able to express
+> `f·max(|μ|, floor)` — a `det` node over `μ` feeding the scale, rather than
+> the affine `κ|μ| + floor` the fixture uses. That is a real piece of work and
+> it is invisible from the cross-check, **because the cross-check runs at
+> `floor = 0`, the one value where the difference vanishes**. `floor` is a
+> live config key (`inference.noise.floor`, dimension `prediction`), so this
+> is reachable by a user rather than hypothetical.
+>
+> This is the anti-vacuity question asked of a whole row: *what does this
+> comparison hold fixed that a user can vary?*
+
 **(d) `depends_on_prediction` is a declaration here, an attribute there.**
 rheplicant's models carry it as a `ClassVar`; a graph node takes it as a
 keyword the dispatcher checks against a probe. The claim is the same and
