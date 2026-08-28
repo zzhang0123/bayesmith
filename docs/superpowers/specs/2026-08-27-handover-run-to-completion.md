@@ -249,9 +249,33 @@ G10)。已知三件:
    (`test_the_package_guard_this_enum_mirrors_is_still_that_guard`,
    `inspect.getsource(SamplingPlan._prepare)`),**替代形态已写死在登记簿里**
    ——行为等价扫描,外加「加一个模式就要加一个候选」。
-2. **B1 在这一批到期**,而 `gls.md` §5 的最后一句说的就是它:
-   B1 must land first, or that comparison will fix the GLS-type target as the
-   reference。`test_noise_logdet.py` 的四条是 B1 的台账,**这一批才是它的归属行**。
+2. **B1 在这一批到期,而它已经被定位和量过了**(`probe_18_b1_logdet_gap.py`,
+   本会话新增)。它**不是**门面切换,是**改生产采样行为**的一条真缺陷,
+   是本程序至今第一条这样的项目 —— 所以下一位不要按前两批的节奏开工。
+
+   **定位**(逐个 grep 出来的,不是读来的):`conditional_potential` 只喂
+   **GRADIENT 块**(`plan.py:957`、`engines.py:544`);`chi2` 另外喂诊断迹线
+   (`plan.py:1052/1068/1218`)。所以「同一模型两个出口不同目标」具体是
+   **gradient 块 对 nuts 出口**。
+
+   **量级**(scipy 在纯 numpy 闭包上求极值,两包的梯度都不参与,n=2e4):
+
+   | f | 无 log-det 的极值 | 带 log-det 的极值 | 比值 | (1+f²) |
+   |---|---|---|---|---|
+   | 0.05 | 5.010654 | 4.998159 | 1.002500 | 1.0025 |
+   | 0.2 | 5.193557 | 4.993752 | 1.040011 | 1.0400 |
+   | 0.5 | 6.241192 | **4.990950** | 1.250502 | 1.2500 |
+
+   两件事:比值在每个 f 上都是 `(1+f²)` 到四位,**所以这确实是台账说的那个量**;
+   而**带 log-det 的那个极值回到真值 5.0,不带的没有**——**错的是 gradient 块**,
+   在 f=0.5 上错 **25%**。这不是舍入。
+
+   **补救没有被这次测量决定,而且很可能是两件**:给
+   `conditional_potential` 加上 `Σ log σ` 修的是 **gradient 块**;
+   **conjugate 块靠冻结 σ 丢掉同一项**,那一半的既定设计是
+   `bayesmith.exact.correct` 的重要性权重——它要一个 `Graph`(`graph_bridge.to_graph`
+   给得出),而且**会改变 `plan.sample` 的返回契约**。后者是一个 owner 会想看见的
+   改动,不是一次沉默的等价替换。
 3. `engines.py` 的 `_conjugate_transition` 用 `eqx.filter_jit` 而不是 `jax.jit`,
    而那是**正确性要求**(守卫的异常类),不是偏好——`test_conjugate_transition.py`
    钉着它,本会话已把那条从单 key 改成扫 key。
