@@ -67,10 +67,10 @@
   coverage floor **89**;bayesmith 地板 **`>=0.5`**。
 - **bayesmith** 全套 **exit 0**(含 `tests/crosscheck/`,跨仓,读的是本地
   e-RHINO 的 editable 安装);`0.5.0` 在 PyPI;工作树干净。
-- **两仓提交未推送**(owner 的推送规则:攒到全部任务做完两仓一起推)。
-  **用 `git ls-remote` 数,不要读本地 `origin/main`**。实测于本页改写之前:
-  e-RHINO 领先 **5**(remote `8fb9770a`),bayesmith 领先 **4**(remote `9043a708`);
-  两棵树干净。
+- **两仓已推送并核实**(2026-08-28,owner 批准):`git ls-remote` 两仓
+  `ahead=0`,e-RHINO `d90028f`、bayesmith `d92ed9a`,两棵树干净。
+  **CI 两仓同时全绿**,见 §四.一。
+  **用 `git ls-remote` 数,不要读本地 `origin/main`。**
 - 执行页共 **44** 份(含本页)。**登记簿 D7–D51**;未裁决只剩 **D39**。
 
 **本会话(2026-08-28 晚)落地四批**:
@@ -117,10 +117,18 @@ G6 本体(7 里的 6)、D23、多数据集联合后验推导、架构叙事审�
 见 §二。要点:两仓干净、未推送(e-RHINO 领先 5,bayesmith 领先 4);
 `0.5.0` 在 PyPI;登记簿 **D7–D51**,未裁决只剩 **D39**。
 
-### 一、CI —— 六条已全部处置,**但还没在 CI 上验过**
+### 一、CI —— **两仓同时全绿,已验证**
 
-**2026-08-28 白天那次运行(`33157771617`)两个 job 都红,六条失败已逐条查清并
-修好**,详见 `2026-08-28-ci-triage.md`。摘要:
+推送 `d90028f`(e-RHINO)/ `d92ed9a`(bayesmith)之后:
+
+```
+e-RHINO   Tests 33171191850  Suite (Python 3.12) success  +  Coverage (serial) success
+bayesmith Seam  33171200907  success        (checkout 的是 e-RHINO@main)
+bayesmith Cross-check 33171200991  success
+```
+
+**这是本程序两仓第一次同时全绿。** `Tests` 在 2026-08-27 红两次、08-28 红一次,
+两个 job 都红;六条失败已逐条查清并修好,详见 `2026-08-28-ci-triage.md`:
 
 | 失败 | 判别 | 处置 |
 |---|---|---|
@@ -131,13 +139,13 @@ G6 本体(7 里的 6)、D23、多数据集联合后验推导、架构叙事审�
 | `tsc` 找不到 ×2 | 环境 | `Coverage (serial)` 补上 Suite 的三步 Node 配置 |
 | `reweight_tol` 括号 | fixture 不存在 | **D50**:改为直接钉转发(monkeypatch + 兄弟测试) |
 
-**下一位第一件事:推送之后去看 CI。** 本地两阶段全套 exit 0,但这些修复
-**没有一条在 linux/x86-64 上跑过**,而其中五条正是关于那台机器的。若仍有红:
+**六条里五条是关于 linux/x86-64 的,现在在那台机器上验过了。**
+`Coverage (serial)` 绿也说明新增的测试没有把 coverage 压到 floor(89)以下。
 
-* `_quadratic_form` 那条应当彻底绿了(新 fixture 手搭角落,不依赖 LAPACK);
-* 三条壁钟预算若仍红,读失败消息里的 `machine factor` —— 若它 > 5,参照负载
-  与被测 pass 的**缩放不一致**,那是要重新设计参照而不是放宽界;
-* bias-budget 与 A13 应当与平台无关了。
+**若它以后又红**:按 `2026-08-27-ci-flat-chain.md` §三 的判别法——**问这条断言钉的
+是大效应还是小差值**;并注意新增的兄弟命题:**大效应也可能是守卫对着正确的数据
+开火**。三条壁钟预算若再红,读失败消息里的 `machine factor`:**若它 > 5**,是参照
+负载与被测 pass 缩放不一致,要**重新设计参照**而不是放宽界。
 
 清理:满意之后删 `git tag -d backup/pre-draft-purge-2026-08-28` 与
 `git update-ref -d refs/original/refs/heads/main`。
