@@ -1739,9 +1739,15 @@ D31 的合法性是量出来的)。
 ## 附录 B — 拒绝文案清单
 
 > **P1 交付物,已回填(2026-08-27;2026-08-28 重测两次)。** 实测:
-> `tests/inference/` 下共 **252** 个 `pytest.raises(..., match=...)` 站点。
-> 按抛出的异常类:`ParameterSpaceError` **180**、`StateValidationError` **64**、
+> `tests/inference/` 下共 **254** 个 `pytest.raises(..., match=...)` 站点。
+> 按抛出的异常类:`ParameterSpaceError` **182**、`StateValidationError` **64**、
 > `RuntimeError` **3**、`Exception` **3**、`TypeError` **2**。
+> (252 → 254 随 **Wave B 的变异集**:它发现**没有任何测试**断言
+> `condition_bound`/`condition_estimate` 的 `_require_prior_std`——删掉那一行,
+> 整个定向套件仍然全绿。不是静默错答案(`prior_std=None` 之后仍会在
+> `jnp.asarray(None) ** 2` 处炸),**没被守住的是消息**,而消息正是这条拒绝
+> 存在而不是交给数组层的**唯一**理由。两个出口各补一条,并各自钉住消息
+> **点自己的名**——三个出口共用这句话,只有 caller 参数分得开。)
 > (253 → 252 随 **Wave B 的 `linear` 切换**:`test_linear_blocks.py` 的
 > float32 地板那条不再用 `pytest.raises` 钉**一个 key** 的拒绝,改为扫二十个。
 > 那条拒绝**一直是 key 相关的**——切换前 20 个 key 里 15 个被拒,切换后 12 个
@@ -1965,28 +1971,30 @@ D31 的合法性是量出来的)。
 
 </details>
 
-<details><summary><code>test_linear_blocks.py</code> — 18 条(2026-08-28 由 <code>_sites()</code> 重新生成)</summary>
+<details><summary><code>test_linear_blocks.py</code> — 20 条(2026-08-28 由 <code>_sites()</code> 重新生成)</summary>
 
 | 行 | 类 | `match=` |
 |---|---|---|
-| 104 | `ParameterSpaceError` | `linear=True` |
-| 112 | `ParameterSpaceError` | `not affine` |
-| 319 | `ParameterSpaceError` | `different` |
-| 325 | `ParameterSpaceError` | `prior_std` |
-| 345 | `ParameterSpaceError` | `not affine` |
-| 454 | `ParameterSpaceError` | `not affine` |
-| 487 | `ParameterSpaceError` | `not affine` |
-| 502 | `ParameterSpaceError` | `No latent named` |
-| 516 | `ParameterSpaceError` | `which latent` |
-| 544 | `ParameterSpaceError` | `not affine` |
-| 763 | `ParameterSpaceError` | `prior_std` |
-| 837 | `ParameterSpaceError` | `not a latent` |
-| 1022 | `RuntimeError` | `condition bound` |
-| 1040 | `RuntimeError` | `condition bound` |
-| 1232 | `RuntimeError` | `precision|condition number` |
-| 380 | `ParameterSpaceError` | `not affine` |
-| 398 | `ParameterSpaceError` | `not affine` |
-| 477 | `ParameterSpaceError` | `not affine` |
+| 105 | `ParameterSpaceError` | `linear=True` |
+| 113 | `ParameterSpaceError` | `not affine` |
+| 320 | `ParameterSpaceError` | `different` |
+| 326 | `ParameterSpaceError` | `prior_std` |
+| 346 | `ParameterSpaceError` | `not affine` |
+| 455 | `ParameterSpaceError` | `not affine` |
+| 488 | `ParameterSpaceError` | `not affine` |
+| 503 | `ParameterSpaceError` | `No latent named` |
+| 517 | `ParameterSpaceError` | `which latent` |
+| 545 | `ParameterSpaceError` | `not affine` |
+| 764 | `ParameterSpaceError` | `prior_std` |
+| 838 | `ParameterSpaceError` | `not a latent` |
+| 1023 | `RuntimeError` | `condition bound` |
+| 1041 | `RuntimeError` | `condition bound` |
+| 1233 | `RuntimeError` | `precision|condition number` |
+| 1303 | `ParameterSpaceError` | `needs prior_std` |
+| 1307 | `ParameterSpaceError` | `<computed>` |
+| 381 | `ParameterSpaceError` | `not affine` |
+| 399 | `ParameterSpaceError` | `not affine` |
+| 478 | `ParameterSpaceError` | `not affine` |
 
 </details>
 

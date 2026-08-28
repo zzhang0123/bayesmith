@@ -2,7 +2,7 @@
 
 > 计划:§五 Wave B / 铁律 1、3、4;新增 **D52**、**D53**(裁决)。
 > 前一批次:`2026-08-28-wave-B-opening.md`。
-> **日期**:2026-08-28 · **本页状态:四件套三件已做,变异集未跑。**
+> **日期**:2026-08-28 · **本页状态:四件套齐备。**
 > 探针:`docs/probes/probe_17_linear_solve_seam.py`。
 
 ## 〇、这一批切了什么
@@ -193,16 +193,60 @@ not the error」,而这是它第一次以一个具体的数对出现在本程序
   `conjugate_support.py` 里两处**行号引用**改为**函数名引用**——其中一处写着
   `linear.py:963-973`,而那个函数在 1321,已经搬过两次。
 
-## 七、还欠的(下一位接手处)
+## 七、接缝变异集(铁律 4 第二件)—— 12 条,11 杀
 
-1. **接缝变异集没跑**(铁律 4 第二件)。靶子:`_as_far_block` 的四条分支
-   (group/单、`observed=None`、`prior_mean=None` 的 group 归一)、
-   `_from_far_domain` 的两条、`_far_precision`,以及三条改写过的测试
-   ——**改写过的测试尤其要变异**,因为它们是本页自己写的,而本程序至今
-   27 条幸存变异**每一条都在测试里**。
-2. **coverage floor 与 README 计数**未复核(全套跑完之后)。
-3. **`gls` 是下一批**,它的 `_check_solve_arguments` 借用随之到期;跨仓
+靶子是转换器的每一条分支加求解面的四条拒绝。基线 exit **0**,每一轮清
+`__pycache__`(**只扫 `src/rheplicant`,不扫 `.venv`**),恢复用
+`git checkout --` **只针对被变异的那一个文件**,**只有退出码 1 记为击杀**。
+
+| | 变异 | 结果 |
+|---|---|---|
+| M1 | `data` 完全忽略 `observed` | KILLED `test_matches_a_dense_solve` |
+| M2 | 去掉 `observed=None` 的处理 | **SURVIVED —— 等价变异**,见下 |
+| M3 | 去掉 group 的 `prior_mean=None` 归一 | KILLED `test_the_condition_estimate_matches_a_dense_eigenvalue_computation` |
+| M4 | group 的 `prior_std` 改读 `prior_mean` | KILLED `test_a_group_of_ONE_is_legal_and_answers_in_a_dict` |
+| M5 | 单 latent 的 `forward` 忽略名字 | KILLED `test_the_default_tolerance_is_refused_rather_than_trusted` |
+| M6 | `_from_far_domain` 对裸 block 也返回字典 | KILLED `test_different_keys_give_different_draws` |
+| M7 | `_from_far_domain` 两条分支对调 | KILLED 同上 |
+| M8 | `_far_precision` 递方差而不是 sigma | KILLED `test_recovers_a_noiseless_signal_under_a_weak_prior` |
+| M9 | `condition_bound` 去掉 `_require_prior_std` | **SURVIVED → 真缺口,已补** |
+| M10 | `condition_estimate` 去掉 `check_noise_std_axis` | KILLED `test_the_ambiguous_vector_is_refused_and_names_this_exit` |
+| M11 | 去掉 `NoiseModel` 拒绝 | KILLED `test_a_prediction_dependent_model_gets_the_longer_refusal` |
+| M12 | 去掉复数 offset 拒绝 | KILLED(见下) |
+
+**三条幸存,三种成因,而这一次三种都不是「补个 fixture」。**
+
+* **M12 根本不是幸存**,是**我的靶子集选错了**。杀它的测试
+  (`test_inference_unpinned_refusals.py::test_a_complex_offset_is_refused_and_names_the_exit`)
+  一直存在,只是不在我列的九个文件里。**这是 `CLAUDE.md` 记的那个陷阱的镜像**
+  ——那一条讲「变异被三个函数之外的守卫先杀了,你写的那条根本没被评估」,
+  这一条讲「**测试在,但你没跑它**」,而输出长得一模一样:都是一行 SURVIVED。
+  把靶子集扩到拒绝普查涉及的文件之后立刻击杀。
+* **M9 是真缺口。** 删掉 `condition_bound` 的 `_require_prior_std`,**整个定向
+  套件仍然全绿**。它不是静默错答案——`prior_std=None` 之后仍会在
+  `jnp.asarray(None) ** 2` 处炸——所以**没被守住的是消息**,而消息正是这条
+  拒绝存在而不是交给数组层的**唯一**理由。补了
+  `TestBothConditioningExitsRunTheSamePreconditions`,两个出口各一条,并各自
+  钉住消息**点自己的名**。**复查过红是不是自己那一条**:重跑 M9,击杀者正是
+  `test_a_missing_prior_is_refused_by_name[condition_bound]`。
+* **M2 是等价变异,而且是**能被验证**的那种。** 门面在没有 `observed` 时递一个
+  预测形状的零;换成裸 `None` 之后一切照绿——**正确地**,因为 bayesmith 的
+  整条条件数路径**从不读 `block.data`**(逐个走过 `condition_bound`、
+  `condition_estimate`、`_condition_bound`、`normal_operator`,四个都不碰)。
+  所以为它编一个 fixture 会钉一个 mock。**改为钉住让这条分支有意义的性质**:
+  条件数不依赖数据。远端哪天开始读 `data`,它就红。
+
+计数守卫因此第二次移动:拒绝普查 **252 → 254**(`ParameterSpaceError`
+180 → 182),`CENSUS`、`BY_CLASS`、总数 pin 与附录 B 同批再刷一次。
+
+## 八、还欠的(下一位接手处)
+
+1. **`gls` 是下一批**,它的 `_check_solve_arguments` 借用随之到期;跨仓
    cross-check `test_noise_logdet.py` 的 17 条按铁律 2 逐条改籍或指认。
-4. **cross-check `tests/crosscheck/test_linear.py` 未退役**——铁律 2 要求
-   与模块同批。本批只切了求解面,`linear_operator`/`check_linearity` 仍在
-   近端,所以该文件**不整删**;需要逐条分,把只关求解面的那些改籍。
+2. **cross-check 已按铁律 2 处置**:14 条退役 8 条,文件**保留**,
+   `linear.py` **不进 `SWITCHED`**(只切了求解面)。退役的每一条都在
+   `tests/exact/test_solve.py` 里**指认**了既有的家,而不是改籍重写。
+   **退役的触发者是它自己**:`test_the_gcr_draws_reproduce_the_oracle_mean_and_covariance`
+   自带的反空转守卫(「the draws came out bitwise identical, which means the
+   two packages are sharing a key stream」)就是切换当天变红的那一条——一条
+   cross-check 能**自己报告自己过时了**,这是本程序第一次见到。

@@ -12,6 +12,25 @@ this repository reads a count out of a page. Ask pytest —
 This is §四 4.1's first row and the largest single module in the ledger
 (1788 lines against three files here).
 
+> **CORRECTION, 2026-08-28 (Wave B).** The four SOLVE names in that list --
+> `wiener_solve`, `gcr_sample`, `condition_bound`, `condition_estimate` --
+> **now delegate to `bayesmith.exact.solve`**, so this row no longer compares
+> two implementations of them; it compares this package with itself. Eight of
+> this file's fourteen tests retired accordingly, each with its subject
+> identified in an existing home in `tests/exact/test_solve.py`. What is still
+> a genuine cross-check is the rest of the list: `LinearBlock`,
+> `linear_operator` and `check_linearity` are still rheplicant's own.
+>
+> `linear.py` is therefore **NOT** in `SWITCHED`, and this page is **not**
+> retired -- the same half-switched reading `numpyro_bridge` and
+> `uncertainty` already carry. Evidence:
+> `docs/superpowers/specs/2026-08-28-wave-B-linear.md`, D52 and D53.
+>
+> Written as a dated correction rather than a rewrite, per the house rule the
+> Wave B opening page set: what it says now and what it used to say are both
+> useful, and this page's own §5(a) is a standing example of what happens when
+> only one of two records is updated.
+
 ## 1. Fixtures
 
 The **bilinear `gain × T_ant` model** from rheplicant's own
@@ -58,6 +77,23 @@ package splits the PRNG key over its own pytree. The threshold is the
 design document's `|z| < 4` at ESS ≥ 400. The keys are fixed
 (`jax.random.key(s)`, `s < 256`), so every z-score is deterministic — a
 failure is a change in the arithmetic, never a bad roll.
+
+> **CORRECTION, 2026-08-28 (Wave B).** Every row of the table above, and the
+> paragraph beneath it, described two implementations. After the solve-surface
+> switch there is one, so the first three rows are now bitwise identical
+> **trivially** and the GCR row's premise is simply false: the draws ARE
+> bitwise identical, because the near side no longer has a PRNG split of its
+> own to differ by. That test's own anti-vacuity guard is what said so -- it
+> asserts `not array_equal(theirs, ours)` with the reason spelled out, and it
+> is the assertion that went red on the day of the switch.
+>
+> The one measurement worth carrying forward is what the two implementations
+> differed BY while both existed, because it is not what this table would have
+> led anyone to expect. Against a float64 dense solve on `gls`'s fixture, the
+> far side's mean is **closer** (relative error 1.12e-07 against 1.57e-07)
+> while **reporting the larger residual** (1.78e-07 against 7.02e-08). Both
+> packages' docstrings say the residual is not the error; that pair of numbers
+> is the first time this programme could point at it.
 
 ## 3. Refusal agreement
 
