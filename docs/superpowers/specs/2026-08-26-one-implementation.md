@@ -1205,6 +1205,29 @@
   证据链:`src/rheplicant/config/sections/exits.py::_a49_is_not_honourable_by_a_plan`、
   `tests/config/test_config_exits_plan.py::TestAPlanRefusesTheGLSDeclaration`。
 
+- **D56 —(待裁决,不自裁)`plan`/`engines` 这一行的数值早已迁完,剩下的不是迁移。**
+  **【状态:待 owner 裁决。本会话只提交测量与建议,没有改 §四 的表,也没有动代码。】**
+  开波普查与形状测量见 `2026-08-28-wave-B-plan-opening.md`。三条实测:
+  1. **`engines.py` 没有任何自有线性代数**——`solve`/`cholesky`/`inv`/`lstsq`/
+     `eigh`/`svd`/`qr` 全文件零出现。它建 `linear_operator` 然后调
+     `wiener_solve`/`gcr_sample`,**而这两个名字自 `linear` 批次起已是
+     `bayesmith.exact.solve` 的门面**(`linear.py:158`、`:95`)。
+     **也就是说这一行的数值部分随上上批已经过去了。**
+  2. **26 条拒绝里有 16 条**(声明语法 8 + 分区合法性 3 + engine 指派 5)守的是
+     **「模改者自己声明分区」这个面**;而远端
+     `dispatch.partition(graph, *, key=None)` **只吃图**,分区是推导的。
+     这 16 条**在远端无处可托**,不是远端漏了,是远端的模改者犯不了这些错。
+  3. 该行的 cross-check 已存在且通过(`test_dispatch.py`,10 例),**并且正是
+     它发现了 B1**——这一行已经交付过它的价值。
+  **建议**(可推翻):把 §四 4.2 这一行从「迁移」改判为「互证」。
+  **不建议**:把 `SamplingPlan` 的声明面转成图再交给 `dispatch`——那会有
+  **两个分区器**,一个声明一个推导,不一致时以谁为准没有答案(铁律 3)。
+  **为什么不自裁**:与 D55 不同,这里**没有被迫的选择**。D55 是「修了 B1 就必然
+  有一格变错,必须挑一个」;这一条**两条路都不坏,而现状是稳定的**——不改判,
+  代码一行不动,什么也不会坏。改判则会改变 §六 对这两个模块的处置,那是 owner
+  该看见的。**推翻它需要的一条测量我没有**:远端若将来接受**声明的**分区,
+  §三那 16 条就有了托付对象,判定应当重来。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
