@@ -25,6 +25,20 @@ The curvature now comes from `variance_parts`, which is the same spelling
 disagree about it; and it is broadcast per span, so a width that is neither 1
 nor the latent's own size raises instead of wrapping.
 
+**`compress` multiplied by a zero weight where it should have SELECTED on
+`seen`.** A flagged sample carries `sigma = inf`, so `whiten` gives it weight
+zero and it contributes nothing -- but `0.0 * nan` is `nan`, and a flagged
+sample is usually flagged precisely because it holds one. Measured on a
+four-sample epoch with `sigma = inf` at index 2: a NaN in the DATA there left
+`factor` clean and poisoned `target`; a NaN in the DESIGN there did the
+reverse.
+
+The first is the quiet one. `offset` stays finite and `information()` reads
+`factor.T @ factor`, which stays finite and well conditioned -- so a campaign
+audits as healthy while every density it produces is NaN, and once the term is
+folded into an accumulator that is irreversible. Both halves now select before
+whitening, and an epoch with nothing flagged is bitwise unchanged.
+
 ### Added
 
 **G5: `bayesmith.amortize` -- a posterior fitted to simulations rather than
@@ -74,6 +88,62 @@ here on the linear-Gaussian problem the tests use: 8192 pairs at 4000 steps
 comes back at **1.002**, while 512 pairs at 8000 steps comes back at **0.271**
 with its training loss still improving. Over-fitting arrives when capacity
 outruns the bank, not when the step count rises.
+
+**G6: the evidence consumption surface -- what a campaign can say about itself
+from stored terms.** `residual_summary` and `ResidualSummary`,
+`epoch_residuals`, `refuse_mixed_templates`, `template_modes`, `held_out_z`,
+`shrinkage_power`, `shrinkage_report`, `systematic_floor` and
+`tightest_direction`. Array-level throughout: the containers stay upstream
+under D12, so what comes back is a `SqrtInfo`, a NamedTuple or a dict.
+
+`residual_summary` is the half of an epoch's compression that `compress_epoch`
+did not have -- the chi-square left AFTER the epoch's own best fit, its
+degrees of freedom, and the projections of named systematic templates. It has
+to be computed while the raw data exists, because no later call can recover
+it. **It must be given every column the epoch fits, nuisances included**: leave
+them out and their contribution stays in the residual while the dof is
+over-counted by their rank. Measured over 400 clean epochs of a two-survivor
+design with a three-column nuisance -- including it gives dof 19 and a mean
+chi-square of 18.55, excluding it gives dof 22 against **1227**, a sixty-fold
+detection of nothing at all on data with no fault in it.
+
+**"This template lies inside the design's span" is a relative test, and that is
+arithmetic rather than taste.** In exact arithmetic such a template leaves
+nothing and `norm > 0.0` would be the whole check. In floating point it leaves
+roundoff -- measured at 6.0e-07 of its own norm in float32 for a template that
+IS a design column -- and the projection then divides by that roundoff norm and
+returns an arbitrary unit vector's dot with the residual, measured -0.2517: an
+ordinary-looking projection standing for "fully explained", along a direction
+the SVD's rounding picked and no other machine would pick. The cut is
+`sqrt(eps)` of the arithmetic in hand -- the same formula `numerical_rank` uses
+and a different rule, because declaring a template in-span makes it quieter and
+quieter is the safe direction for a detection statistic.
+
+`template_modes` is **not** `coherent_mode` under another name (D45). That one
+evaluates the residual at a point you choose and can be re-asked anywhere; this
+one reads what compression recorded, carries the named templates, and sums each
+epoch's OWN degrees of freedom -- `Var(sum chi2_k) = 2 sum k`, so a campaign
+whose epochs differ in flagging has a null the first term's row count cannot
+express. The two docstrings point at each other.
+
+`held_out_z` scores each epoch against the rest by subtracting one
+positive-semidefinite summand from a total formed once, never by downdating a
+QR, which cannot be un-summed stably. Checked against a leave-one-out posterior
+refitted from scratch in numpy: worst relative error 1.5e-16 over twelve
+epochs. A single rogue epoch scores +457.6 against a largest-other +8.0.
+
+`systematic_floor` watches the tightest DIRECTION of a latent's posterior
+block, not its tightest coordinate, and the difference is a basis rotation
+wide. Measured on a near-collinear campaign: both coordinate widths are 702
+while the tightest direction is 0.0583 -- twelve thousand times narrower --
+so a coordinate reading reports an error bar comfortably above a 0.1 floor
+while the campaign is well under it. The crossing epoch is computed from the
+observed width and the test reaches it rather than quoting it.
+
+`shrinkage_power` is a sanity check and says so in `shrinkage_report`'s own
+fields: `sigma_N` is data-independent for a Gaussian model, so the power is
+-0.5 by construction and a deterministic error shared across epochs cannot
+move it at all.
 
 **G3: `evidence.chain` -- the recursion that integrates a linked nuisance out
 exactly.** `LinearGaussianTransition`, `HyperTransition`,

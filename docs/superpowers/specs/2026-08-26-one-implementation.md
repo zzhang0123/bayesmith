@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D43;拍板后回填本行)
+## 二、裁决登记簿(D7–D45;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -784,6 +784,59 @@
   代价实测为零。
   证据链:`2026-08-28-g5-amortize.md` §三、§四。
 
+- **D44 — `compress_reduced_basis` 的归属波次(做 G6 时新增)。**
+  G6 的登记页把它列进七个确定缺口,并注「依赖 G4;**排期上跟 G4 走**,登记在 G6」。
+  但 **G4 的「跟着走」在那一页上没有终点**:G4 的另外三个名字(`score_directions`、
+  `build_reduced_basis`、`basis_fidelity`)归 Wave C,而本行原来没说这一个也归。
+  一条只写着「跟另一件走」的推迟,是本程序 §八「限制需要解除条件」那条已经付过四次
+  学费的形状。
+  **【本次委托下自定,2026-08-28:归 Wave C,与 G4 余下三个名字同批;计划未预见
+  此点,按「保守的一侧」规则自选。】** 理由是量出来的,不是排期偏好:
+  1. **它的数值核心本包**已经有了**。该函数自己的 docstring 逐字写着它是
+     「`compress_linear`'s QR with `S_e^T` in place of the design matrix ... the
+     same three lines rather than a second implementation of them」——把基的行当作
+     design 传给 `bayesmith.evidence.compress` 就是它,**本批实跑核实**:40 个样本、
+     5 维基,`compress({"c": rows.T}, ...)` 的 `log_prob` 对着 numpy 写的
+     `d ~ N(S^T c, s^2 I)` 精确似然,六个探点最坏相对误差 **1.76e-16**。
+  2. **它剩下的每一件都读容器。** `basis.rows`、`basis.c_ref`、
+     `basis.coefficients(values)`、`basis.reference_values`、`basis.support` 五个字段,
+     而 `ReducedBasis` 是 §2.2 的留守容器(D12)。冻结噪声代价、support 扫描、
+     偏差梯度三件都挂在这五个字段上。
+  3. **它要的 `c(theta)` 由 `build_reduced_basis` 造**,而那是 G4 归 Wave C 的三个
+     名字之一。**在造它的东西存在之前先写吃它的东西**,是对着一个没人定过的接口写实现。
+  **所以 G6 本批交付 7 个里的 6 个**,第 7 个有了确定的波次而不是一句「跟着走」。
+  证据链:`2026-08-28-g6-consumption.md` §二。
+
+- **D45 — `template_modes` 与既有 `coherent_mode`:两条统计量,还是一份实现的两次
+  拼写(同上批次新增)。**
+  G6 登记页 §2.1 把 `coherent_mode` 列进「已有对应物」,并**同时警告**「同名不等于
+  同题……哪些需要 cross-check 由那一批按铁律 2 定」。本批读了两边,**它们不是同一个
+  统计量**,四处不同,逐条实测:
+
+  | | bayesmith 的 `coherent_mode` | rheplicant 的 |
+  |---|---|---|
+  | 输入 | 存下的项 **+ 一个点** | 压缩时存下的**逐 epoch 摘要** |
+  | 残差 | 该点上的 `‖Rx − z‖²` | **出张成**的 `‖(I−P)z‖²`,过了本 epoch 自己的最佳拟合 |
+  | 自由度 | **第一个项的行数** | **逐 epoch 各自的,求和** |
+  | 命名模板 | **没有** | `{name: {mean, scatter, z}}` |
+
+  两者只在**逐 epoch 的极小点**上重合,而那不是一个 campaign 会去取值的点。
+  **【本次委托下自定,2026-08-28:新增 `template_modes`,**不改** `coherent_mode`;
+  计划未预见此点,按「保守的一侧」规则自选。】** 三条理由:
+  1. **它们回答的问题不同。** 一个可以在任意 theta 上重问,另一个**在原始数据还在的
+     那一刻**才算得出来,此后任何调用都重算不了。把后者写成前者的一个关键字,等于让
+     一个函数按参数变成两条统计量。
+  2. **`coherent_mode` 是 0.4.0 已发布的表面**,改签名要一次破坏性发版(铁律 5),
+     而这里没有任何东西需要那个代价。
+  3. **散兵自由度那条差异是实测的**,不是风格:`Var(Σχ²_k) = 2Σk`,所以求和才是
+     χ² 分布的那个量。读第一个项的行数——一个基于项的统计量只能这么做——在各 epoch
+     旗标不同的那一刻就把零假设算错了。守卫是一条**故意散兵**的 campaign
+     (`test_the_chi_square_z_uses_each_epochs_own_degrees_of_freedom`),它报
+     `chi2_dof is None` 而不是一个数。
+  **两处 docstring 互指**,写明各自读的是什么,因为「同名不同题」的代价正是没人并排
+  看过它们。
+  证据链:`2026-08-28-g6-consumption.md` §三。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
@@ -894,6 +947,21 @@ config 侧引用)。
   横跨六个批次,而**没有守卫**;补了 `tests/test_readme_count.py`。
   证据链:`2026-08-28-g5-amortize.md`。
 - **G6 证据消费面**:D12 包装所需缺口,逐项登记。
+  **【7 个里的 6 个已落地 2026-08-28,bayesmith 一侧;rheplicant 一行未动】**
+  `residual_summary` + `ResidualSummary`(§9.3 的 χ²、自由度、命名模板投影,压缩期算)、
+  `epoch_residuals`、`refuse_mixed_templates`、`template_modes`(**D45**)、
+  `held_out_z`、`shrinkage_power`/`shrinkage_report`、`systematic_floor` +
+  `tightest_direction`。全部**数组级**:容器按 D12 留守,所以返回的是 `SqrtInfo`、
+  NamedTuple 与 dict,不是上游的 `EpochResidual`/`HeldOut`。
+  第 7 个 `compress_reduced_basis` 归 **Wave C**(**D44**),而它的数值核心
+  **本包已经有了**——把基的行当 design 传给 `compress`,实测 1.76e-16。
+  oracle 三种且互不相关:`held_out_z` 对**从头重拟**的留一后验(最坏 1.5e-16)、
+  χ² 对**它自己的零分布**(400 epoch 的均值)、`shrinkage_power` 对**整数比**的幂律
+  (−0.5 与 −1.0,15 位)。
+  **顺带查出并修掉一个 0.4.0 就带着的缺陷**:`compress` 不在 `seen` 上做选择,
+  于是一个被旗标的样本上的 NaN 会污染 `target`(或 design 里的污染 `factor`),
+  而 `information()` 依然有限且良态——campaign 审计报健康,每一个密度是 NaN。
+  证据链:`2026-08-28-g6-consumption.md`。
   **【已逐项登记 2026-08-27;实现仍属 Wave D】** 证据族九个模块共 **40** 个公开名,
   逐个判决(探针 `docs/probes/probe_14_g6_enumeration.py`,判决表在探针里、总数由它
   求和):**HAVE 6**(远端已有同名对应物——**线索不是判决**,只有 `SqrtInfo` 有
@@ -902,6 +970,17 @@ config 侧引用)。
   对方在做)、**G6 7**、**OPEN 1**(`memory.reject_bad_term`:准入判据还是构造期
   契约,要读代码才知道,那一批的第一件事)。
   **所以 G6 = 7 个确定 + 1 个待判,不是 34。**
+  **【待判项已结清 2026-08-28:`memory.reject_bad_term` 判为**留守**,G6 = 7,
+  STAY 从 12 变 13,OPEN 归零。】** 判据不是那一页原本写的「结构还是统计」——读完
+  发现它六条检查里两类都有,所以那条判据判不了它。改用三条**可测**的事实:
+  (1) 唯一的两个调用方 `BayesMemory.remember` 与 `ChainMemory.remember` 都是留守
+  容器;(2) 远端**没有增量累加器**(`src/bayesmith/` 里没有任何 `remember`/`admit`/
+  `add_term`/`append`,`compress_campaign` 是一张图一次调用),所以「这个别人建的项
+  能不能加进来」在那边从不被问——迁这条规则要**先发明它所守的累加器**;(3) 它读的
+  `epoch_id`/`prior_share`/`estimator`/`inputs`/`represents` 在 `bayesmith/evidence/`
+  七个模块里出现 **0 次**。**不拆**,理由是它自己的 docstring:「一条只在一个累加器
+  里生效的规则,是一条有办法绕过去的规则」——跨两个包拆是同一缺陷高一层。
+  证据链:`2026-08-28-g6-consumption.md` §一。
   **两条限制写在页上以免被读成完备**:按公开名数,**私名普查仍要做**;同名不等于
   同题。证据链:`2026-08-27-g6-enumeration.md`。
 - **G7 bridge 补齐**:`init_to_declared`、`predict_from_samples`、

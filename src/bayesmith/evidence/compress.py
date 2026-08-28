@@ -35,10 +35,11 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from bayesmith.errors import StructureError
 from bayesmith.evidence.sqrtinfo import SqrtInfo, marginalise
@@ -166,12 +167,31 @@ def compress(
     if offset_prediction is not None:
         residual = residual - jnp.asarray(offset_prediction)
 
+    stacked = jnp.concatenate([jnp.asarray(design[name]) for name in names], axis=1)
+
+    # SELECT on `seen`, never rely on the zero weight. A flagged sample is
+    # exactly where a NaN lives -- that is usually why it was flagged -- and
+    # `0.0 * nan` is `nan`, so whitening propagates the value the mask exists
+    # to discard. Measured on a four-sample epoch with sigma = inf at index 2:
+    # a NaN in the DATA there left `factor` clean and `target` NaN, and a NaN
+    # in the DESIGN there did the reverse. Either way `offset` stays finite and
+    # `information()` -- which reads `factor.T @ factor` -- stays finite and
+    # well conditioned in the first case, so a campaign audits as healthy while
+    # every density it produces is NaN. Once folded into an accumulator that is
+    # irreversible.
+    #
+    # `seen is None` is the correlated case, where there is no per-sample "was
+    # this taken" to select on and `compress` has already refused a non-finite
+    # normaliser above.
+    if seen is not None:
+        residual = jnp.where(seen, residual, 0.0)
+        stacked = jnp.where(seen[:, None], stacked, 0.0)
+
     # Whitened COLUMN BY COLUMN, not by broadcasting the whole matrix: a
     # diagonal implementation would be right by accident either way, while a
     # circulant one FFTs along the last axis and would silently whiten the
     # wrong direction. `exact/fisher.py::_weighted_design` makes the same
     # choice for the same reason.
-    stacked = jnp.concatenate([jnp.asarray(design[name]) for name in names], axis=1)
     factor = jax.vmap(precision.whiten, in_axes=1, out_axes=1)(stacked)
     return SqrtInfo(
         factor=factor,
@@ -382,3 +402,178 @@ def _ravelled(shape: tuple[int, ...]) -> int:
     for dim in shape:
         total *= int(dim)
     return total
+
+
+class ResidualSummary(NamedTuple):
+    """Section 9.3's hundred bytes: what one epoch's residual says, after the fit.
+
+    Recorded at compression time because that is the last moment the raw data
+    exists. A campaign keeps these and discards everything else, so a fault
+    found a thousand epochs later is found in these numbers or not at all.
+
+    Attributes:
+        chi2: the whitened residual left AFTER the epoch's own best fit -- the
+            part no value of the latents could have absorbed.
+        dof: observed samples minus the rank of what the epoch fitted.
+        reduced_chi2: ``chi2 / dof``, or ``nan`` when ``dof`` is zero. An
+            epoch whose design saturates its data has no residual to speak of,
+            and a zero here would read as a perfect fit.
+        template_names: the named systematic shapes, in the stored order.
+        projections: ``(len(template_names),)`` -- each a standard normal
+            under the null -- or ``None`` when no templates were given. Stored
+            positionally, which is why :func:`epoch_residuals` refuses a
+            campaign whose epochs name them differently.
+    """
+
+    chi2: float
+    dof: int
+    reduced_chi2: float
+    template_names: tuple[str, ...]
+    projections: Any
+
+
+def residual_summary(
+    fitted: SqrtInfo,
+    precision: Any,
+    *,
+    templates: Mapping[str, jax.Array] | None = None,
+) -> ResidualSummary:
+    """One epoch's out-of-span residual and its named template projections.
+
+    **``fitted`` must be the term over EVERY column the epoch fits, nuisances
+    included, and it must not have been marginalised or QR'd yet** -- so it is
+    what :func:`compress` returns for the union of the global and nuisance
+    designs, whose ``factor`` is the whitened design and whose ``target`` is
+    the whitened residual.
+
+    Passing the GLOBAL block alone is wrong wherever nuisances are used, and
+    wrong in a way no shape catches: the nuisance's contribution stays in the
+    residual, so the chi-square is inflated by whatever the nuisance explained
+    while the dof is over-counted by its rank. Upstream measured that over
+    4000 clean epochs of a two-global design with a three-column nuisance --
+    including the nuisance gives ``dof = 3`` and a mean chi-square of 3.0000,
+    excluding it gives ``dof = 6`` against 28.44, which is a nine-sigma
+    per-epoch detection of nothing at all.
+
+    The residual is taken after the epoch's own best fit, so what is left is
+    the OUT-OF-SPAN half of any error. That is deliberate and it is also the
+    limit: the in-span half is absorbed into the latents identically in every
+    epoch and leaves nothing here, which is why a systematic floor is a
+    declaration rather than a measurement.
+
+    Templates are projected onto the part of themselves that is also out of
+    span. One lying inside the design's column space projects to exactly
+    ``0.0`` and says so, rather than reporting a small number that reads like
+    a null result -- and that reading of zero is exclusive, because a
+    non-finite or wrongly shaped template is refused by name first.
+
+    **"Inside the span" is a RELATIVE test, and it has to be.** What is left
+    of an in-span template after projection is roundoff, not zero -- measured
+    at ``6.0e-07`` of its own norm in float32 for a template that is literally
+    a design column -- and dividing by that norm returns an arbitrary unit
+    vector's dot with the residual, measured ``-0.2517``. The cut is
+    ``sqrt(eps)`` of the arithmetic in hand. It is the same FORMULA
+    :func:`~bayesmith.exact.reduced_basis.numerical_rank` uses and a different
+    RULE: that one is generous because a quadratic form squares the
+    conditioning, this one because declaring a template in-span makes it
+    quieter, and quieter is the safe direction for a detection statistic.
+
+    The projector is the flat-prior one: everything the columns COULD explain
+    is removed. That is the conservative direction -- it can only make a
+    template quieter -- and it is what makes the null exact rather than
+    dependent on whatever prior the marginalisation used.
+
+    Args:
+        fitted: the pre-marginalisation term over every fitted column.
+        precision: the epoch's ``N^-1``, so a template given in the model's own
+            units is whitened the same way the design was. The SAME object
+            :func:`compress` was given.
+        templates: ``{name: (n_data,)}`` named systematic shapes, in model
+            units. ``None`` for an epoch that names none.
+
+    Returns:
+        A :class:`ResidualSummary`.
+
+    Raises:
+        StructureError: if a template is not finite where the epoch observed,
+            or does not have one entry per sample.
+    """
+    design = jnp.asarray(fitted.factor)
+    residual = jnp.asarray(fitted.target)
+    projector = design @ jnp.linalg.pinv(design)
+    perpendicular = residual - projector @ residual
+    chi2 = float(jnp.sum(perpendicular**2))
+
+    seen = observed_mask(precision)
+    n_observed = int(design.shape[0]) if seen is None else int(jnp.sum(seen))
+    dof = n_observed - int(jnp.linalg.matrix_rank(design))
+    reduced = chi2 / dof if dof > 0 else float("nan")
+
+    names = tuple(templates or ())
+    if not names:
+        return ResidualSummary(chi2, dof, reduced, (), None)
+
+    _refuse_bad_templates(templates, seen, int(design.shape[0]))
+    rows = []
+    for name in names:
+        # SELECT on `seen` before whitening, for `compress`'s own reason: a
+        # template is supplied in model units over every sample, and a flagged
+        # sample is usually flagged because it holds a NaN.
+        column = jnp.ravel(jnp.asarray(templates[name]))
+        if seen is not None:
+            column = jnp.where(seen, column, 0.0)
+        column = precision.whiten(column)
+        whole = jnp.linalg.norm(column)
+        column = column - projector @ column
+        norm = jnp.linalg.norm(column)
+        # The in-span test, and NOTHING else -- the refusal above has already
+        # removed every template that could reach here non-finite. If it were
+        # both, a broken template and a null result would report the same 0.0,
+        # because every comparison is False for NaN.
+        #
+        # **RELATIVE, not `norm > 0.0`.** In exact arithmetic a template inside
+        # the design's column space leaves nothing, and `> 0.0` would be the
+        # whole test. In floating point it leaves roundoff -- measured at
+        # `||out|| / ||col|| = 6.0e-07` in float32 for a template that IS a
+        # design column -- and the projection then DIVIDES BY that roundoff
+        # norm, so what comes back is an arbitrary unit vector dotted with the
+        # residual: measured -0.2517, an ordinary-looking projection standing
+        # for "this template is fully explained". Worse, the direction is
+        # whatever the SVD's roundoff picked, so the number is not even stable
+        # across machines while looking like a measurement on all of them.
+        cut = float(np.sqrt(np.finfo(np.asarray(column).dtype).eps))
+        live = norm > cut * whole
+        safe = jnp.where(live, norm, 1.0)
+        rows.append(jnp.where(live, column @ perpendicular / safe, 0.0))
+    return ResidualSummary(chi2, dof, reduced, names, jnp.stack(rows))
+
+
+def _refuse_bad_templates(
+    templates: Mapping[str, jax.Array], seen: jax.Array | None, size: int
+) -> None:
+    """Every template finite where the epoch observed, and one entry per sample.
+
+    Before any arithmetic, so that ``norm > 0.0`` downstream decides ONE
+    question. A template is allowed to be non-finite where the epoch did not
+    observe -- that is the same latitude the data itself gets -- but nowhere
+    else.
+    """
+    for name, shape in templates.items():
+        column = jnp.ravel(jnp.asarray(shape))
+        if int(column.shape[0]) != size:
+            raise StructureError(
+                f"template {name!r} has {int(column.shape[0])} entries but this "
+                f"epoch has {size} samples. A template is a shape in the "
+                "model's own units, one value per sample."
+            )
+        live = column if seen is None else jnp.where(seen, column, 0.0)
+        if not bool(jnp.all(jnp.isfinite(live))):
+            raise StructureError(
+                f"template {name!r} is not finite where this epoch observed. A "
+                "non-finite template projects to a NaN, and NaN loses every "
+                "comparison a campaign audit could make about it -- so the "
+                "template would read as the quietest one in the run. It is "
+                "refused here rather than downstream because a projection of "
+                "exactly 0.0 has to keep meaning 'this template lies inside "
+                "the design's span', which is a real and different answer."
+            )

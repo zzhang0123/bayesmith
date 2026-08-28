@@ -76,8 +76,34 @@ VERDICTS: dict[str, str] = {
     "epoch_residuals": "G6", "held_out_z": "G6",
     "shrinkage_power": "G6", "shrinkage_report": "G6",
     "systematic_floor": "G6",
-    # --- undecided -------------------------------------------------------
-    "reject_bad_term": "OPEN",
+    # --- was OPEN; settled 2026-08-28 by reading it (see below) -----------
+    #
+    # STAY, and the deciding facts are measurements rather than readings of
+    # its docstring:
+    #
+    #   * its ONLY two callers are `BayesMemory.remember` and
+    #     `ChainMemory.remember`, and both classes are STAY above;
+    #   * the far side has no incremental accumulator at all -- no `remember`,
+    #     `admit`, `add_term` or `append` anywhere in `src/bayesmith/`, because
+    #     `compress_campaign` folds every epoch of ONE graph in ONE call. The
+    #     question this function answers ("here is a term someone else built --
+    #     may it join what I hold?") is never asked there, so migrating the
+    #     rule would mean inventing the accumulator it guards;
+    #   * every field it reads is a container field the far side does not have:
+    #     `epoch_id`, `prior_share`, `estimator`, `inputs` and
+    #     `Factorization.represents` occur ZERO times across all seven
+    #     `bayesmith/evidence/` modules, whose `Factorization` carries exactly
+    #     `epoch_plate`, `survivors`, `per_epoch`.
+    #
+    # It is NOT split, and that is deliberate. Two of its six checks are
+    # arithmetic claims (a tempered term would apply the prior twice; GLS plus
+    # the full Gaussian likelihood is neither estimator) and §9.5's
+    # independence rule is general Bayes rather than radio astronomy. But each
+    # reads a container field, and the function's own docstring gives the
+    # reason not to divide it: "a rule enforced in one accumulator and not the
+    # other is a rule with a way round it". Split across two PACKAGES, that is
+    # the same defect one level up.
+    "reject_bad_term": "STAY",
 }
 
 

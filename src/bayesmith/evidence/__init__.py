@@ -13,16 +13,26 @@ from bayesmith.evidence.campaign import (
     epoch_terms,
 )
 from bayesmith.evidence.compress import (
+    ResidualSummary,
     compress,
     compress_epoch,
     epoch_joint,
     nuisance_prior,
     observed_mask,
+    residual_summary,
 )
 from bayesmith.evidence.diagnostics import (
     coherent_mode,
     epoch_chi_square,
+    epoch_residuals,
+    held_out_z,
+    refuse_mixed_templates,
     refuse_undeclared_coherent_error,
+    shrinkage_power,
+    shrinkage_report,
+    systematic_floor,
+    template_modes,
+    tightest_direction,
 )
 from bayesmith.evidence.factorize import (
     Factorization,
@@ -53,4 +63,15 @@ __all__ = [
     "coherent_mode",
     "epoch_chi_square",
     "refuse_undeclared_coherent_error",
+    # G6: the evidence consumption surface
+    "ResidualSummary",
+    "residual_summary",
+    "epoch_residuals",
+    "refuse_mixed_templates",
+    "template_modes",
+    "held_out_z",
+    "shrinkage_power",
+    "shrinkage_report",
+    "systematic_floor",
+    "tightest_direction",
 ]
