@@ -180,8 +180,12 @@ bayesmith Cross-check 33171200991  success
 开火**。三条壁钟预算若再红,读失败消息里的 `machine factor`:**若它 > 5**,是参照
 负载与被测 pass 缩放不一致,要**重新设计参照**而不是放宽界。
 
-清理:满意之后删 `git tag -d backup/pre-draft-purge-2026-08-28` 与
-`git update-ref -d refs/original/refs/heads/main`。
+~~清理:满意之后删 `backup/pre-draft-purge-2026-08-28` 与
+`refs/original/refs/heads/main`~~ —— **已做,2026-08-28**。条件是「满意」,
+而满意的判据取的是**历史重写本身**已在远端且 CI 绿(`Suite` 在 `610d106`
+上 success,重写自 `d90028f` 起就在远端),不是当次 `Coverage` 的结论
+——那个 job 与重写是否可信无关。删除前逐条核过:远端 tip 是本地 HEAD 的祖先,
+两个 ref 都指向 `b2ef299`(重写前)。**这一行从此不再是待办。**
 
 ### 二、~~G15 的 rheplicant 一行~~ —— **已完成(D48)**
 
