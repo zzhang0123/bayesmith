@@ -64,6 +64,19 @@ refusal.
 
 ## 5. Intended differences — the whole point of the row
 
+> **Reading note, 2026-08-28.** The subject of the first sentence below is
+> **bayesmith**, and it is positioning bayesmith against B1 -- it is *not*
+> a contrast in which the near side carries the bias and the far side does
+> not. Measured on the Wave B `gls` opening: rheplicant's `iterative_gls` is
+> **also** frozen-sigma IRLS and also lands on `mean(u)`, at f = 0.05/0.2/0.5
+> by factors of 16785x/89861x/424500x nearer `mean(u)` than `sum(u^2)/sum(u)`.
+> B1 lives in the LIKELIHOOD's log-determinant -- the `nuts` route against the
+> `plan.sample` gradient block, §3 above -- and belongs to the `plan`/`engines`
+> row, which is what this section's own last sentence says. Nothing here is
+> wrong; the note exists because the heading plus that subject read as a
+> two-sided comparison at speed, and one reader has already lost time to it.
+> Evidence: `docs/superpowers/specs/2026-08-28-wave-B-gls-opening.md`.
+
 **bayesmith's `iterative_gls` does NOT carry this bias, and must not be
 made to.** It is frozen-sigma IRLS: each inner solve holds σ fixed and
 recomputes it afterwards, so its fixed point satisfies `w = mean(u)`,
