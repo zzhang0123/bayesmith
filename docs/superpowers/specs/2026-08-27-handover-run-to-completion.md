@@ -1,10 +1,9 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-28(第十七次改写)· 交接自 **G5 落地、G6 本体落地(7 里的 6)、
-> `reject_bad_term` 结清、D23 拍板并补上守卫** 之后的会话。
-> **不受发布门约束的工作到此清空;程序现在真的只剩发布门,而那需要 owner 在场**
-> (见 §四)。
+> **日期**:2026-08-28(第十八次改写)· 交接自 **G5、G6 本体、D23、多数据集联合后验
+> 的数学推导、架构叙事审计、`evidence/`→`marginal/` 改名、D46 复数拒绝** 之后的会话。
+> **0.5.0 已经备好,只差 owner 打 tag 与推送**(见 §四)。
 
 ---
 
@@ -61,32 +60,22 @@
 
 ## 二、当前状态(2026-08-28 实测,先复核再信)
 
-- **bayesmith** 套件 **1523 passed / 0 skipped** exit 0(237.2 s);
-  `ruff check src/ tests/` **干净**。**0.4.0 在 PyPI 上**(tag `v0.4.0`)。
-- **e-RHINO** **10119 passed / 553 skipped** exit 0(352.9 s)加 **21 passed**
-  (e2e,67.2 s)。README 计数 **10693**;拒绝普查 **252**;coverage floor **89**;
-  bayesmith 地板 `>=0.4`。e-RHINO 的 `ruff` 有 13 条**与本程序无关**且无 CI 在跑。
-- **CHANGELOG 的 `Unreleased`** 载着 **G2 / G9 全量 / G10 / G12 / G14 / G15 / G4 /
-  G3 / G5 / G6** 外加**两个 `Fixed`**(先验曲率广播缺陷;`compress` 信任零权重)。
-  **铁律 5 是一道硬门。**
-- **两仓提交未推送**(按 §〇 owner 的规则攒着)。**这个数每次都要重数,而且要用
-  `git ls-remote` 数,不要读本地的 `origin/main`**(本地那份是记录,不是远端)。
-  实测于 2026-08-28,**在改写本页的那两次提交之前**:**e-RHINO 领先 6 个,
-  bayesmith 领先 40 个**,两棵树都干净。**加上本页自己的提交,bayesmith 是 42。**
+- **bayesmith** 套件 **1544 passed / 0 skipped** exit 0(298.3 s);`ruff` 干净。
+  **PyPI 上仍是 0.4.0**;**`pyproject.toml` 已是 `0.5.0`,CHANGELOG 已切好**,
+  发布日只差 `git tag v0.5.0 && push` 与索引核实。
+- **e-RHINO** **10120 passed / 553 skipped** exit 0(349.1 s)。README 计数
+  **10693**;拒绝普查 **252**;coverage floor **89**;bayesmith 地板 `>=0.4`。
+- **两仓提交未推送**。用 `git ls-remote` 数,不要读本地 `origin/main`。
+  实测于 2026-08-28、**在改写本页的提交之前**:e-RHINO 领先 **6**,
+  bayesmith 领先 **48**;两棵树干净。
+- 执行页共 **41** 份(含本页)。
 
-  > 上一版在这里写错过一次(写 30 而实际 31,因为数在改写本页的提交之前),
-  > 而**本次第一稿又错了一次,同一个原因**——写 40,然后提交本页把它变成 41。
-  > 一个页面关于**它自己**说的数字有这条固有的绕圈,所以这里改成写「**在哪个时刻**
-  > 数的」,而不是写一个会被下一次编辑作废的数。**下一位仍然要自己数。**
-- 执行页共 **39** 份(含本页)。
+**已完成**:P0、P2a、D16、D17、P1、P2 余项全部、0.4.0 发布、Wave A 全部五模块、
+G15/G4/G3、D12 前置、G6 逐项登记、**G5**、**G6 本体(7 里的 6)**、**D23**、
+**多数据集联合后验的数学推导**、**架构叙事审计**、**`evidence/`→`marginal/`**、
+**D46**。**登记簿 D7–D47;未裁决只剩 D39**,两个方向都已钉住,归 Wave D。
 
-**已完成**:P0、P2a、D16、D17、P1、**P2 余项全部**、**0.4.0 发布**、
-**Wave A 全部五模块**、**G15/G4/G3**、**D12 读档 fixture 前置**、**G6 逐项登记**、
-**G5**、**G6 本体(7 里的 6)**、**D23 拍板并补守卫**。
-**登记簿 D7–D45;未裁决只剩 D39 一条,而它两个方向都已钉住、解除条件写在行内、
-归 Wave D。**
-
-**(甲)那一堆——不受发布门约束的工作——到此清空。**
+**0.5.0 的内容已经定稿并全部落地。**
 
 ## 三、下一位会先撞到的几件事
 
@@ -110,53 +99,36 @@
 
 ## 四、剩余工作
 
-**程序现在只剩发布门,而门后的每一件都要 owner 在场。** 上一版把剩余工作分成
-「不受发布门约束」与「发布之后」两堆;**第一堆空了**。
+### owner 在场才能做的三件(唯一挡在前面的东西)
 
-### 下一步就是发布,而它是授权明写要停下来问的三件事之一
-
-**收尾发布(D13)**。发新 PyPI 版本号**必须问 owner**。它天然落在最后那次推送旁边,
-因为发版要推 tag,而 owner 的推送规则是攒到最后两仓一起推。动作顺序照计划 §九 的
-P0 形态:
-
-1. **bayesmith 提交推送**(40 个) → 2. `git tag <新版本> && push`,`publish.yml`
-走完,**用 `/simple/` 或 `uv pip install --refresh` 确认上索引**(发布日索引有三个
-答案,两个是过期的——见 bayesmith 的 CLAUDE.md) → 3. **e-RHINO 提交推送**(6 个)
-→ 4. **`git ls-remote` 双仓核实**。
-
-> **版本号本身也要 owner 定。** `Unreleased` 段里有一个 `Fixed`(`compress` 的掩码
-> 缺陷)会改变一个今天返回 NaN 的路径的结果,还有 G5/G6 两块新表面;0.x 下这些属于
-> minor 位,但**这一行是 owner 的**。
+1. **打 tag 并推送 0.5.0**。`pyproject.toml` 与 CHANGELOG 都已就位,套件绿。
+   顺序照计划 §九 的 P0 形态:bayesmith 推送 → `git tag v0.5.0 && push` →
+   `publish.yml` 走完 → **用 `/simple/` 或 `--refresh` 确认上索引**(发布日索引
+   有三个答案,两个是过期的)→ e-RHINO 推送 → `git ls-remote` 双仓核实。
+   **推送之后必须去看两个 workflow 的结论**,并预期它可能红(§八 末尾)。
+2. **重写历史去掉九份误提交的评审草稿**。脚本已备好并自带验证:
+   `scratchpad/purge-drafts.sh`。**Claude 跑不了**——`git filter-branch` 与
+   `git filter-repo` 都被 auto-mode classifier 拦下(对一个要强推的操作,这是
+   合理的默认)。owner 自己跑,或加一条 Bash 权限规则。
+   备份 tag `backup/pre-draft-purge-2026-08-28` 已就位;九份未跟踪的工作副本
+   已另存 scratchpad,**重写只删历史不删盘上的文件**。
+3. **推送本身是强推**(第 2 项之后):`git push --force-with-lease origin main`。
 
 ### 发布之后
 
-1. **Wave B / C / D 的接线**;**G15 的 rheplicant 一行**
-   (删 `uncertainty._prior_precision`,改成 `include_prior=space is not None`)。
-2. **`compress_reduced_basis` 归 Wave C**(**D44**),与 G4 的 `score_directions` /
-   `build_reduced_basis` / `basis_fidelity` 同批。
-3. **P4** 质量机制换防(**双岗已经建好**——`seam.yml` 与 `crosscheck.yml` 都在;
-   剩下的是 cross-check 随模块退役);**P5–P7**。
+1. **Wave B / C / D 的接线**;**G15 的 rheplicant 一行**。
+2. **`compress_reduced_basis` 归 Wave C**(D44),与 G4 余下三名同批。
+3. **P4 余项**(双岗已建好,剩 cross-check 随模块退役);**P5–P7**。
+4. **多数据集联合后验**:`2026-08-28-multi-dataset-joint-posterior.md` §9 列出真正
+   要新建的东西,最上游是 **`iota`——一个被声明的跨 graph 身份映射**,理由是本包
+   已经做过的决定(`NodeRef._owner` 拒绝来自另一次 `trace()` 的 handle),从名字
+   相等推断共享 latent 会反转它。§10 是未决问题与能了断它们的测量。
+5. **架构审计放行但未做的**:`2026-08-28-architecture-narrative.md` §7 的表里还剩
+   R9(3 处 `Section 9.3` 解不到,而本轮**变糟了**——新推导页有一个主题不同的
+   `### 9.3`)与 R10 的兜底文档(`docs/plan-codes.md`,随 sdist 发)。
+   §8「不建议动的」7 条**是结论,不是待办**。
 
-**接线时已经量好、不要重量的七件**(上一版五件,本会话加两件):
-- `fit` 收算好的 `step_sizes`;`_magnitude` 留 rheplicant。**两侧默认步长是否等价
-  没有量过**。
-- `condition_estimate` 两侧默认迭代数**相同**(都是 12),但这个数**改变答案**。
-- **D33**:`fit` 拒绝发散的下降,而 rheplicant 的 calibrator 今天**交回 NaN**;
-  有没有测试依赖它**没有量过**。
-- **D19 的前提不成立**(实测):`floor=0` 的块在任何求解之前就被拒。
-- **G15 的那一行会让一件事变得够得到**:G9 修掉的先验广播缺陷今天到不了门面,
-  那一批要重跑 e-RHINO 全套并重新量它。
-- **【新】Wave C 的 `npe` 接线是三名委托、`simulate_pairs` 留守**(**D42**)。
-  **那一批要量的一件**:rheplicant 的 `NeuralPosterior` **类身份**有没有被测试钉住
-  ——若钉住,门面要包装而不是重导出,那是 D12 在证据容器上的同一形状。
-- **【新】Wave D 的证据族接线要量两件**:(a) `EpochResidual`/`HeldOut` 的类身份;
-  (b) `systematic_floor` 上游读 `memory` 并**微分**它的先验(`_prior_curvature`),
-  而 bayesmith 的入口收一个现成的 `prior_fisher`——**那一层由谁算**是第一个问题。
-
-**两件悬着的 owner 决定**:
-- `860703d` 的历史含九份误提交的评审草稿(已从索引移除并 gitignore)。**去掉它需要
-  强推**,是授权明写要停下来问的三件事之一。
-- 上面那个**新版本号**。
+**接线时已经量好、不要重量的七件**(见上一版,未变)。
 
 ## 五、批次纪律(铁律 4,每批四件套)
 

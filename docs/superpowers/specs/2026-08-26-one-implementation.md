@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D46;拍板后回填本行)
+## 二、裁决登记簿(D7–D47;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -917,6 +917,38 @@
   加拒绝会**新拒今天被接受的输入**,按铁律 4(iv) 属「接受为修正」;但发版内容是
   owner 的决定。
   证据链:`2026-08-28-multi-dataset-joint-posterior.md` §7.1。
+  **【owner 拍板并已落地 2026-08-28:取 (a),在 `SqrtInfo.__check_init__` 拒绝。】**
+  拒绝住**构造期的唯一咽喉**——每一个项都经过它,包括 `compress` 产出的那些,所以
+  一条检查覆盖全部到达路径。消息点名出路(按实自由度携带,见 `exact/block.py::
+  real_parts` 与 `ComplexNormal` 的列约定),而不只是说「被拒绝了」。
+  **代价实测为零**:`tests/marginal` + `tests/crosscheck` **289 条**一条未改。
+  **realify 层不在本批**——那是让复数**能用**的新表面,归需要它的那一波;本批做的
+  是把**静默的错答案**变成一次拒绝。守卫含一条**兄弟断言**,把拒绝所保护的那条算术
+  单独钉住(双线性和恰为 0,酉形式为 2),因为拒绝落地之后那个行为就不可达了。
+  变异 S1 击杀 5 条。
+
+- **D47 — `evidence/` 改名为 `marginal/`(架构叙事审计后新增)。**
+  **【owner 拍板并已落地 2026-08-28:改名,旧路径保留为弃用垫片,1.0 退役。】**
+  两个 workflow 在这一点上**结论相反**,而拍板取了审计那一侧:数学推导页 §0.3 建议
+  **不改**(成本高、收益小),架构审计 §6.6 倾向**改**(信心 0.6)。owner 裁决改。
+  **理由的要害不在子包内部,而在外部**:`evidence` 在本包另有 **15 处**普通英文
+  「依据」义且用得对——包括 `errors.py`,**唯一 eager import 的模块**,用户读到的第一段
+  bayesmith 散文。一个占着这个词的子包让那 15 处全部瞬间歧义,而**任何写在子包里面
+  的免责声明都够不到子包外面的散文**。子包**内部**该词有四义,最刺眼的是
+  `chain.py` 的「add one epoch's **evidence**」——单个似然因子恰恰是这个词**不**指的东西。
+  **`marginal` 是唯一零冲突的候选**:`factors/`、`streaming/`、`information/` 分别被
+  `dispatch/factor.py`、`dispatch/streaming.py`、`fisher_information` 封死;
+  `compress/`、`campaign/`、`sqrtinfo/` 与子包内模块同名,而**这个遮蔽陷阱是活的**
+  ——`compress` 被重导出之后 `type(bayesmith.marginal.compress).__name__` 实测就是
+  `'function'`,同名模块**永久被遮蔽**。
+  **垫片的形状是承重的,不是实现细节**:模块级 `__getattr__` **不支持深路径**
+  (`from pkg.old.kernel import helper` 抛 `ModuleNotFoundError`),而 0.4.0 从这个
+  子包发布的 **17 个名字与顶层 `__all__` 的交集是空集**——**每一个都只能走深路径**。
+  所以垫片走 `sys.modules` 别名,别名清单**由新包派生**而非手抄。四种 import 形式
+  逐一钉住,外加「是同一个对象而不是副本」「旧路径警告、新路径不警告」两条。
+  **成本实测**:仓库内 106 处 / 29 文件,子包外的运行时 import **只有 2 行**,
+  下游 e-RHINO **0 次 import**。变异 S2/S6 击杀。
+  证据链:`2026-08-28-architecture-narrative.md` §6。
 
 ## 三、P1 — 适配器基石
 
