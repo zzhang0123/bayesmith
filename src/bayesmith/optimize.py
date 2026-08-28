@@ -1,4 +1,4 @@
-"""Gradient MAP -- the exit an exact solve does not have (G2).
+"""Gradient MAP -- the exit an exact solve does not have.
 
 ``wiener_solve`` and ``iterative_gls`` answer a model that is affine in its
 latents; everything else has only a gradient. This module is that other exit:

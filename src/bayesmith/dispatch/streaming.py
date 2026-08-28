@@ -37,10 +37,10 @@ import equinox as eqx
 import jax.numpy as jnp
 
 from bayesmith.errors import GraphError, StructureError
-from bayesmith.evidence.campaign import epoch_observation
-from bayesmith.evidence.factorize import factorize
 from bayesmith.exact.block import isolate, unchecked_operator
 from bayesmith.graph.graph import Graph
+from bayesmith.marginal.campaign import epoch_observation
+from bayesmith.marginal.factorize import factorize
 
 __all__ = ["StreamingRoute", "streaming_route"]
 
@@ -122,7 +122,7 @@ def streaming_route(graph: Graph, *, at: dict[str, Any] | None = None) -> Stream
     """Try every plate, and report which one the evidence layer accepts.
 
     Runs the two STRUCTURAL checks ``epoch_terms`` makes before it folds --
-    :func:`~bayesmith.evidence.factorize.factorize` (plate membership, then
+    :func:`~bayesmith.marginal.factorize.factorize` (plate membership, then
     ``epoch_leakage`` to test it) and "exactly one observed node is plated on
     this axis". Running only the first would produce a route that reports a
     plate ``compress_campaign`` then refuses, which is the failure this

@@ -21,8 +21,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bayesmith.evidence import SqrtInfo, compress, marginalise
 from bayesmith.exact.precision import DiagonalPrecision
+from bayesmith.marginal import SqrtInfo, compress, marginalise
 
 N_EPOCH, N_DATA, N_GLOBAL = 5, 6, 3
 

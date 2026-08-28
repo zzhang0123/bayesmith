@@ -20,7 +20,7 @@ import pytest
 
 from bayesmith import const, det, observe, plate, sample, trace
 from bayesmith.errors import StructureError
-from bayesmith.evidence import SqrtInfo, compress_campaign, epoch_terms, marginalise
+from bayesmith.marginal import SqrtInfo, compress_campaign, epoch_terms, marginalise
 
 N_EPOCH, TAU, SIGMA, GAIN, PRIOR_MEAN = 4, 1.3, 0.55, 2.0, 0.4
 
@@ -210,8 +210,8 @@ class TestWhatTheBridgeRefuses:
         batched covariance by construction -- so this is the guard for a
         caller who builds one by hand.
         """
-        from bayesmith.evidence.campaign import _slice_precision
         from bayesmith.exact.precision import CirculantPrecision, DiagonalPrecision
+        from bayesmith.marginal.campaign import _slice_precision
 
         with jax.enable_x64(True):
             lag = np.minimum(np.arange(6), 6 - np.arange(6))
@@ -381,7 +381,7 @@ class TestTheRefusalIsMovedNotWeakened:
         refuses earlier with a better message. So the second branch is checked
         here, on the arrays, where it is reachable.
         """
-        from bayesmith.evidence.campaign import _refuse_unconstrained_epochs
+        from bayesmith.marginal.campaign import _refuse_unconstrained_epochs
 
         with jax.enable_x64(True):
             healthy = jnp.asarray([[2.0, 1.0], [2.0, 1.0], [2.0, 1.0]])
@@ -408,7 +408,7 @@ class TestTheRefusalIsMovedNotWeakened:
         An epoch carrying BOTH a poisoned pivot and a degenerate one must be
         reported as poisoned.
         """
-        from bayesmith.evidence.campaign import _refuse_unconstrained_epochs
+        from bayesmith.marginal.campaign import _refuse_unconstrained_epochs
 
         with jax.enable_x64(True):
             both = jnp.asarray([[jnp.inf, 1e-20], [2.0, 1.0]])

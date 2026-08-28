@@ -1,4 +1,4 @@
-"""`bayesmith.evidence.sqrtinfo` against the module it was ported from.
+"""`bayesmith.marginal.sqrtinfo` against the module it was ported from.
 
 The migration spec's B11 row lists this arithmetic among the kernels to be
 **preserved exactly**, having been checked line by line by two reviews. That
@@ -10,7 +10,7 @@ failure rather than as prose.
 **What is deliberately NOT compared: the exceptions.** bayesmith raises
 `StructureError` where rheplicant raises `StateValidationError`; the two
 packages have their own error families and the port is allowed to differ
-there on purpose. `tests/evidence/test_sqrtinfo.py` owns the refusals.
+there on purpose. `tests/marginal/test_sqrtinfo.py` owns the refusals.
 
 Everything here is `float64`, because that is what the evidence layer runs at
 and a `float32` comparison would agree to a tolerance that hides a real
@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bayesmith.evidence import SqrtInfo, marginalise, marginalise_arrays
+from bayesmith.marginal import SqrtInfo, marginalise, marginalise_arrays
 
 pytestmark = pytest.mark.crosscheck
 

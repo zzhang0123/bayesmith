@@ -50,7 +50,7 @@ concept the interface does not have. So the node carries the mask
 :class:`MaskedPrecision` is what :func:`~bayesmith.exact.gaussian.precision_at`
 builds from it, and :class:`DiagonalPrecision` keeps a normaliser that is never
 silently wrong. Masking is DIAGONAL and that is measured, not assumed --
-:mod:`bayesmith.evidence.compress` carries the number.
+:mod:`bayesmith.marginal.compress` carries the number.
 
 **Nothing in this module is exported, and that is the design rather than an
 oversight.** :func:`~bayesmith.exact.gaussian.precision_at` is the seam a
@@ -297,7 +297,7 @@ class MaskedPrecision(eqx.Module):
 
     ``sigma = inf`` is how an unobserved sample arrives from upstream --
     rheplicant's ``FlaggedNoise`` spells RFI that way, and
-    :func:`~bayesmith.evidence.compress.observed_mask` already reads it. What
+    :func:`~bayesmith.marginal.compress.observed_mask` already reads it. What
     this class adds is the exact path: a masked sample must contribute
     **nothing** to the quadratic form, nothing to the normaliser, nothing to
     the information, and nothing to a draw.
@@ -308,7 +308,7 @@ class MaskedPrecision(eqx.Module):
     give zero, while ``log_normalizer`` gives ``+inf`` -- correctly, because a
     sample with infinite variance has no density. Reading that ``+inf`` as
     ``0`` is a MODELLING statement ("this sample was not observed"), not an
-    arithmetic one, and :mod:`bayesmith.evidence.compress` says so at length.
+    arithmetic one, and :mod:`bayesmith.marginal.compress` says so at length.
     Making ``DiagonalPrecision`` mask silently would delete the only guard
     that distinguishes "the sigma expression produced an infinity" from "the
     sample was flagged", and those need different fixes.
@@ -386,7 +386,7 @@ def masked(precision: Any, seen: jax.Array) -> MaskedPrecision:
             unobserved sample inside a correlated epoch has no exact meaning:
             the observed submatrix of a stationary covariance is not itself
             stationary, and its log-determinant is not a subset sum of the
-            spectrum. Measured in :mod:`bayesmith.evidence.compress`: on a
+            spectrum. Measured in :mod:`bayesmith.marginal.compress`: on a
             6-point kernel with one sample dropped the observed submatrix's
             log-determinant is ``-0.7084`` and the closest subset sum of log-
             eigenvalues is 0.47 nats away.
@@ -602,7 +602,7 @@ def per_sample_sigma(
 
     **A :class:`MaskedPrecision` reports ``inf`` where it was masked**, which
     is not a second encoding but the one this package already had: it is what
-    :func:`~bayesmith.evidence.compress.observed_mask` reads, and it is how
+    :func:`~bayesmith.marginal.compress.observed_mask` reads, and it is how
     the mask reached bayesmith from upstream in the first place. So
     ``GLSResult.noise_std`` and ``Estimate.noise_std`` say "not observed" in
     the same word their caller used, and ``compress`` masks a masked

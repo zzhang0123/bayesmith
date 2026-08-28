@@ -84,3 +84,39 @@ def test_the_count_is_not_something_the_guard_could_invent():
     text = README.read_text(encoding="utf-8")
     assert len(_CLAIM.findall(text)) == 1, "the README states its count twice"
     assert _collected() > 1000
+
+
+#: How the README spells its version. Same shape as the test-count claim above:
+#: the number is stated in prose, so nothing checks it unless something does.
+_VERSION = re.compile(r"^\*\*(\d+\.\d+\.\d+)\.\*\*", re.MULTILINE)
+
+
+def test_the_readme_states_the_version_this_package_actually_is():
+    """The README said 0.4.0 while ``pyproject.toml`` said 0.5.0.
+
+    **Read from ``pyproject.toml``, NOT from ``importlib.metadata``**, and that
+    is measured rather than stylistic: in this checkout
+    ``importlib.metadata.version("bayesmith")`` returns **0.2.0**, because an
+    editable install's ``dist-info`` is written once and does not follow the
+    source. A guard reading it would go red against a correct README and
+    instruct the next person to write 0.2.0 -- worse than no guard, because it
+    would be obeyed.
+
+    ``pyproject.toml`` is also the file ``publish.yml`` compares the tag
+    against, so it is the same source of truth the release gate uses.
+    """
+    import tomllib
+
+    declared = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    version = declared["project"]["version"]
+
+    text = README.read_text(encoding="utf-8")
+    stated = _VERSION.findall(text)
+    assert len(stated) == 1, (
+        f"the README should state its version exactly once in the pinned form; "
+        f"found {stated}"
+    )
+    assert stated[0] == version, (
+        f"README.md says {stated[0]}; pyproject.toml says {version}. "
+        f"Write {version}."
+    )

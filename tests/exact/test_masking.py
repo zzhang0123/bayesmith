@@ -350,7 +350,7 @@ def test_compress_and_the_precision_agree_on_the_masked_normaliser():
     same number is the check that the encoding and the declaration describe
     one covariance rather than two.
     """
-    from bayesmith.evidence.compress import observed_mask
+    from bayesmith.marginal.compress import observed_mask
 
     graph, _, mask = flagged_line()
     precision = precision_at(graph, AT)["d"]

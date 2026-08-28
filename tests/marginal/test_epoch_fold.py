@@ -24,8 +24,8 @@ import numpy as np
 import pytest
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence import SqrtInfo, compress_epoch, marginalise
 from bayesmith.exact.precision import CirculantPrecision, DiagonalPrecision, dense
+from bayesmith.marginal import SqrtInfo, compress_epoch, marginalise
 
 N_DATA, N_GLOBAL, N_NUISANCE = 8, 2, 3
 
@@ -291,7 +291,7 @@ def test_a_unit_prior_fixture_could_not_see_the_missing_term():
     of them if the sweep is narrowed to ``prior_std = 1.0``.
     """
     with jax.enable_x64(True):
-        from bayesmith.evidence import nuisance_prior
+        from bayesmith.marginal import nuisance_prior
 
         for prior_std in (0.5, 1.0, 2.0, 7.0):
             term = nuisance_prior(

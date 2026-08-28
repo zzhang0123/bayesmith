@@ -277,11 +277,11 @@ def test_compile_is_the_function_not_the_subpackage():
 
 
 def test_the_evidence_subpackage_is_reachable_from_the_package_root():
-    """``bayesmith.evidence`` must resolve, like every other subpackage.
+    """``bayesmith.marginal`` must resolve, like every other subpackage.
 
     It did not, for the whole of B11: ``evidence`` was absent from
-    ``_LAZY_SUBMODULES``, so ``import bayesmith; bayesmith.evidence`` raised
-    ``AttributeError`` and only an explicit ``import bayesmith.evidence``
+    ``_LAZY_SUBMODULES``, so ``import bayesmith; bayesmith.marginal`` raised
+    ``AttributeError`` and only an explicit ``import bayesmith.marginal``
     reached the layer. The handover recorded the gap as "nothing in
     ``dispatch/`` calls it", which is a design gap; this is the narrower
     reachability one underneath it, and no amount of dispatcher work would
@@ -295,8 +295,8 @@ def test_the_evidence_subpackage_is_reachable_from_the_package_root():
     import bayesmith
 
     assert "evidence" in bayesmith._LAZY_SUBMODULES
-    assert bayesmith.evidence is importlib.import_module("bayesmith.evidence")
-    assert bayesmith.evidence.compress_campaign is not None
+    assert bayesmith.marginal is importlib.import_module("bayesmith.marginal")
+    assert bayesmith.marginal.compress_campaign is not None
 
 
 def test_reaching_the_evidence_layer_is_what_imports_jax_not_importing_bayesmith():
@@ -316,8 +316,8 @@ def test_reaching_the_evidence_layer_is_what_imports_jax_not_importing_bayesmith
     code = (
         "import bayesmith, sys;"
         "assert 'jax' not in sys.modules;"
-        "assert 'bayesmith.evidence' not in sys.modules;"
-        "assert bayesmith.evidence.compress_campaign is not None;"
+        "assert 'bayesmith.marginal' not in sys.modules;"
+        "assert bayesmith.marginal.compress_campaign is not None;"
         "assert 'jax' in sys.modules"
     )
     result = subprocess.run(
@@ -360,7 +360,7 @@ def test_the_diagnose_subpackage_is_reachable_from_the_package_root():
     """``bayesmith.diagnose`` must resolve, like every other subpackage.
 
     The evidence layer shipped complete and unreachable once -- absent from
-    ``_LAZY_SUBMODULES``, so ``bayesmith.evidence`` raised AttributeError
+    ``_LAZY_SUBMODULES``, so ``bayesmith.marginal`` raised AttributeError
     for the whole of B11 -- and this package must not repeat that shape.
     Checked by identity against the real module, not by ``hasattr``.
     """

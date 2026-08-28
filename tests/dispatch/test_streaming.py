@@ -23,7 +23,7 @@ import pytest
 from bayesmith import const, det, observe, plate, sample, trace
 from bayesmith.dispatch.streaming import streaming_route
 from bayesmith.errors import StructureError
-from bayesmith.evidence import compress_campaign
+from bayesmith.marginal import compress_campaign
 
 N_EPOCH, TAU, SIGMA, GAIN, PRIOR_MEAN = 4, 1.3, 0.55, 2.0, 0.4
 

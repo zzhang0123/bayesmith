@@ -23,7 +23,61 @@ are behaviour changes; under 0.x that belongs in the minor position.
 Nothing here is breaking in the API sense. Every new name is additive, every
 new keyword defaults to the old behaviour, and no existing signature changed.
 
+### Changed
+
+**`bayesmith.evidence` is now `bayesmith.marginal`.** The old path still works,
+with a `DeprecationWarning`, and retires at 1.0.
+
+The old name claimed something the package does not do. The Bayesian evidence
+is `p(d) = INT p(theta) PROD_i L_i(theta) d theta` -- the parameters integrated
+OUT, a single number, what model comparison needs -- and nothing here computes
+or consumes one. What these modules build is each dataset's marginal likelihood
+`L_i(theta)`, its own nuisances integrated away: a function of the parameters.
+
+The cost of keeping it was not confined to the subpackage. `evidence` is a word
+this package uses correctly in fifteen other places in its ordinary English
+sense -- "the grounds for a verdict" -- including in `errors.py`, the only
+eagerly imported module and so the first bayesmith prose anyone reads. A
+subpackage holding the term made every one of those ambiguous, and a disclaimer
+written inside the subpackage cannot reach the prose outside it. Inside, the
+word had four meanings at once, the sharpest being `chain.py`'s "add one
+epoch's evidence to the running joint form" -- a single likelihood factor is
+exactly what the word does not mean.
+
+`marginal` was the only candidate with no collision: `factors/`, `streaming/`
+and `information/` are blocked by `dispatch/factor.py`, `dispatch/streaming.py`
+and `fisher_information`; `compress/`, `campaign/` and `sqrtinfo/` collide with
+modules inside the subpackage, and that shadowing trap is live -- with
+`compress` re-exported, `type(bayesmith.marginal.compress).__name__` is
+`'function'`, so the module of the same name is permanently hidden.
+
+Deep imports are aliased through `sys.modules` rather than a module-level
+`__getattr__`, because `__getattr__` does not support them:
+`from pkg.old.kernel import helper` raises `ModuleNotFoundError` against one.
+That matters here -- of the seventeen names 0.4.0 published from this
+subpackage, the intersection with the top-level `__all__` was EMPTY, so every
+one was reachable only by the deep path. All four import forms are pinned.
+
 ### Fixed
+
+**`SqrtInfo` accepted a complex term and returned a silently wrong number
+(D46).** Every quantity in this form is BILINEAR -- `log_prob` takes
+`sum(residual**2)`, which is `r^T r`, and `information()` takes
+`factor.T @ factor` with no conjugate -- while a complex QR's `Q` is unitary
+and preserves `r^H r` instead. Measured on one shared complex scalar with
+`R_1 = [[1j]]` and `R_2 = [[1]]`: the summed information is exactly 0 by hand,
+`combine` returns 2.0, and nothing was raised. An absolute error equal to the
+whole of the true value.
+
+This was reachable rather than hypothetical -- `compress` accepts a complex
+design block, and the package's target domain is visibilities. `marginal/` was
+the only kernel family that neither handled nor refused one: `exact/block.py`
+has `real_parts`, `optimize.py` has `_refuse_complex`, `exact/fisher.py`
+branches on `is_complex`, and `diagnose` refuses by decision. Now refused at
+`SqrtInfo.__check_init__`, which every term passes through, with the route out
+named: carry the latent as its real degrees of freedom. Cost measured at zero
+-- 289 tests across `tests/marginal` and `tests/crosscheck` pass unchanged.
+
 
 **Three submodules were unreachable after a bare `import bayesmith`, and which
 ones worked depended on what you had touched first.** `bayesmith.optimize`,

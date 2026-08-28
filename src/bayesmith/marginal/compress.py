@@ -10,7 +10,7 @@ the log-likelihood is exactly a square-root information term::
     log p(d | x) = -1/2 ||R x - z||^2  -  1/2 log det (2 pi N)
 
 so :func:`compress` is a whitening and a normalisation, and everything after
-it is :mod:`bayesmith.evidence.sqrtinfo`'s arithmetic.
+it is :mod:`bayesmith.marginal.sqrtinfo`'s arithmetic.
 
 **This module owns the "unobserved sample" concept, and that is B11's first
 design decision made rather than assumed.** ``sigma = inf`` means a sample was
@@ -42,8 +42,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence.sqrtinfo import SqrtInfo, marginalise
 from bayesmith.exact.precision import per_sample_sigma
+from bayesmith.marginal.sqrtinfo import SqrtInfo, marginalise
 
 
 def observed_mask(precision: Any) -> jax.Array | None:
@@ -78,7 +78,7 @@ def compress(
         design: ``{latent: (n_data, n_i)}`` blocks. **Column order follows
             this mapping's iteration order**, which becomes the term's latent
             order -- the same convention rheplicant's compressor uses, and the
-            one :meth:`~bayesmith.evidence.sqrtinfo.SqrtInfo.combine` needs
+            one :meth:`~bayesmith.marginal.sqrtinfo.SqrtInfo.combine` needs
             two terms to agree on.
         data: ``(n_data,)`` this epoch's observations.
         precision: the epoch's ``N^-1``, from
@@ -89,7 +89,7 @@ def compress(
             means zero.
 
     Returns:
-        A :class:`~bayesmith.evidence.sqrtinfo.SqrtInfo` whose ``log_prob``
+        A :class:`~bayesmith.marginal.sqrtinfo.SqrtInfo` whose ``log_prob``
         is this epoch's exact Gaussian log-likelihood -- **normalisation
         included**, because that constant is what a campaign's evidence is
         made of and dropping it is invisible in every posterior.
@@ -215,14 +215,14 @@ def nuisance_prior(
     ``-sum(log std) - (n/2) log 2 pi``.
 
     **That offset is the caller's, and this is the caller.**
-    :func:`~bayesmith.evidence.sqrtinfo.marginalise` contributes
+    :func:`~bayesmith.marginal.sqrtinfo.marginalise` contributes
     ``+(n/2) log 2 pi - sum log|R_bb,ii| - 1/2 rho^2`` and deliberately not
     the prior's normalisation -- the two ``2 pi`` halves cancel and
     ``sum(log std)`` has nothing to cancel against, which is how rheplicant
     shipped it missing and why a unit-prior fixture could not see it.
 
     Emitted over the full column set rather than over the nuisances alone so
-    it can be :meth:`~bayesmith.evidence.sqrtinfo.SqrtInfo.combine`d with the
+    it can be :meth:`~bayesmith.marginal.sqrtinfo.SqrtInfo.combine`d with the
     epoch's own term, which is what puts the prior rows in BEFORE the
     marginalisation rather than after.
     """
@@ -281,9 +281,9 @@ def epoch_joint(
 
     Split out of :func:`compress_epoch` so the assembly exists once and the
     two marginalisers can both use it. ``compress_epoch`` passes the result
-    to :func:`~bayesmith.evidence.sqrtinfo.marginalise`, which checks and
+    to :func:`~bayesmith.marginal.sqrtinfo.marginalise`, which checks and
     cannot be traced; a campaign passes it to
-    :func:`~bayesmith.evidence.sqrtinfo.marginalise_arrays`, which traces and
+    :func:`~bayesmith.marginal.sqrtinfo.marginalise_arrays`, which traces and
     hands back ``pivots`` for the caller to check on every epoch at once.
     The same split as ``marginalise``/``marginalise_arrays`` one level down,
     and for the same reason.
@@ -332,13 +332,13 @@ def compress_epoch(
     The streaming analysis in one call: compress the epoch over BOTH sets,
     append the nuisances' prior rows, and marginalise them. What comes back is
     a term over the globals alone, and folding those across a campaign is
-    :meth:`~bayesmith.evidence.sqrtinfo.SqrtInfo.combine`.
+    :meth:`~bayesmith.marginal.sqrtinfo.SqrtInfo.combine`.
 
     **The prior rows go in before the marginalisation, not after**, and that
     is not a convenience. A per-epoch nuisance is integrated exactly once, so
     a prior that arrives later has nowhere to be applied -- and without one
     the block need not constrain itself, which makes the integral divergent.
-    :func:`~bayesmith.evidence.sqrtinfo.marginalise` refuses that case rather
+    :func:`~bayesmith.marginal.sqrtinfo.marginalise` refuses that case rather
     than returning the large plausible number finite arithmetic would give.
 
     Args:
@@ -363,7 +363,7 @@ def compress_epoch(
 
     Raises:
         StructureError: from :func:`compress` or from
-            :func:`~bayesmith.evidence.sqrtinfo.marginalise`; and if
+            :func:`~bayesmith.marginal.sqrtinfo.marginalise`; and if
             nuisances are named without a prior, which the marginalisation
             has no way to make convergent.
     """

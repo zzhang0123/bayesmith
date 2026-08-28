@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence import SqrtInfo, marginalise, marginalise_arrays
+from bayesmith.marginal import SqrtInfo, marginalise, marginalise_arrays
 
 
 def _term(rows, width, seed, names=("x",), shapes=None, offset=0.0):
@@ -446,3 +446,90 @@ class TestTheKernelAndTheCheckedPathAgree:
                 jax.jit(checked)(1.0)
             with pytest.raises(jax.errors.ConcretizationTypeError):
                 jax.grad(checked)(1.0)
+
+
+class TestAComplexTermIsRefusedRatherThanSilentlyWrong:
+    """D46. Every quantity in this form is BILINEAR; a complex QR is not.
+
+    ``log_prob`` takes ``sum(residual**2)`` -- that is ``r^T r`` -- and
+    ``information()`` takes ``factor.T @ factor`` with no conjugate. A complex
+    QR's ``Q`` is unitary, so it preserves ``r^H r`` instead. The two are
+    different functions, and before this refusal the disagreement arrived as a
+    finite, correctly-shaped, wrong number with no exception.
+
+    The package's target domain is visibilities, so a complex term is
+    reachable rather than hypothetical: ``compress`` accepts a complex design
+    block. ``evidence/`` was the only kernel family that neither handled nor
+    refused one -- ``exact/block.py`` has ``real_parts``, ``optimize.py`` has
+    ``_refuse_complex``, ``exact/fisher.py`` branches on ``is_complex``, and
+    ``diagnose`` refuses by decision (ledger D38).
+    """
+
+    @staticmethod
+    def _real_term():
+        return {
+            "factor": jnp.array([[2.0, 0.0], [0.0, 3.0]]),
+            "target": jnp.array([1.0, -1.0]),
+            "offset": jnp.asarray(0.5),
+            "names": ("g",),
+            "shapes": ((2,),),
+        }
+
+    def test_the_arithmetic_the_refusal_protects(self):
+        """**The sibling that makes the refusals below mean something.**
+
+        Stated as the underlying arithmetic rather than as a behaviour, because
+        the behaviour is now unreachable -- the constructor refuses it. Two
+        rank-one terms over one shared complex scalar, ``R_1 = [[1j]]`` and
+        ``R_2 = [[1]]``: the bilinear sum ``sum_i R_i^T R_i`` is EXACTLY zero
+        (``(1j)**2 + 1**2``, no rounding), while the sesquilinear sum a unitary
+        QR preserves is 2. An absolute error equal to the whole of the truth.
+        """
+        r1 = jnp.array([[1j]])
+        r2 = jnp.array([[1.0 + 0j]])
+        bilinear = complex((r1.T @ r1 + r2.T @ r2)[0, 0])
+        sesquilinear = complex((r1.conj().T @ r1 + r2.conj().T @ r2)[0, 0])
+        assert bilinear == 0j
+        assert sesquilinear == 2 + 0j
+        # ... and they are not close, so no tolerance could have hidden it.
+        assert abs(sesquilinear - bilinear) == 2.0
+
+    @pytest.mark.parametrize("part", ["factor", "target", "offset"])
+    def test_each_complex_part_is_refused_by_name(self, part):
+        fields = self._real_term()
+        fields[part] = fields[part].astype(jnp.complex64)
+        with pytest.raises(StructureError, match="complex"):
+            SqrtInfo(**fields)
+
+    def test_the_refusal_says_how_to_proceed(self):
+        fields = self._real_term()
+        fields["factor"] = fields["factor"].astype(jnp.complex64)
+        with pytest.raises(StructureError) as excinfo:
+            SqrtInfo(**fields)
+        message = " ".join(str(excinfo.value).split())
+        # Not merely "refused": it must name the route the rest of the package
+        # already takes, or a caller with visibilities has nowhere to go.
+        assert "real_parts" in message
+        assert "ComplexNormal" in message
+
+    def test_a_real_term_is_untouched(self):
+        """The sibling for the parametrised refusals: without it they would all
+        pass on a constructor that had started refusing everything."""
+        term = SqrtInfo(**self._real_term())
+        assert float(term.information()[0, 0]) == 4.0
+        assert float(term.information()[1, 1]) == 9.0
+
+    def test_the_reachable_path_is_refused_too(self):
+        """`compress` accepts a complex design block, which is how a real
+        caller would arrive here rather than through the constructor."""
+        from bayesmith.exact.precision import DiagonalPrecision
+        from bayesmith.marginal.compress import compress
+
+        design = {"g": jnp.array([[1.0 + 1j], [2.0 - 0.5j], [0.0 + 3j]])}
+        with pytest.raises(StructureError, match="complex"):
+            compress(
+                design,
+                jnp.array([1.0, 2.0, 3.0]),
+                DiagonalPrecision(sigma=jnp.ones(3)),
+                {"g": ()},
+            )

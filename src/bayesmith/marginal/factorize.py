@@ -38,7 +38,7 @@ narrow it, and each was found by building a fixture that did not work:
 The other reachable shape is an observation that is not plate-tagged at all:
 its axis is an epoch axis only by the author's intention, and nothing in the
 graph says so, which is exactly why it cannot be sliced. Both are refused,
-and ``tests/evidence/test_factorize.py`` carries one fixture for each -- the
+and ``tests/marginal/test_factorize.py`` carries one fixture for each -- the
 guard has two reachable branches and neither is decoration.
 
 **Why it matters, measured.** A per-epoch nuisance is integrated exactly once,

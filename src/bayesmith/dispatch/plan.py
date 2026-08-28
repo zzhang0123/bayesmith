@@ -338,8 +338,16 @@ class Block(eqx.Module):
 
     Attributes:
         latents: the members, sorted.
-        method: ``"gcr"``, ``"gcr+snis"``, ``"gcr+mh"`` or ``"nuts"``, as
-            :class:`~bayesmith.dispatch.classify.Classification` chose it.
+        method: ``"gcr"``, ``"gcr+snis"``, ``"gcr+mh"``, ``"log-gcr"`` or
+            ``"nuts"``. FIVE values, from two producers:
+            :class:`~bayesmith.dispatch.classify.Classification` chooses the
+            first four, and :func:`~bayesmith.dispatch.factor.factor_partition`
+            also emits ``"log-gcr"`` without going through
+            :class:`Classification` at all. Neither ``_LABELS`` here nor
+            ``FACTOR_METHODS`` there enumerates all five, and that is
+            deliberate on both sides -- each says in its own docstring which
+            row it leaves out and why -- so this attribute is the one place
+            the union is written down.
         reason: why -- naming members on a refusal, plus whatever the kappa
             sweep could not reach.
         linearity: ``check_linearity``'s per-at-point errors, or ``None``.

@@ -21,8 +21,8 @@ import numpy as np
 import pytest
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence import compress, observed_mask
 from bayesmith.exact.precision import CirculantPrecision, DiagonalPrecision, dense
+from bayesmith.marginal import compress, observed_mask
 
 
 def _pieces(n=7, k=3, seed=0):

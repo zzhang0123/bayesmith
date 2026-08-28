@@ -194,13 +194,13 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "select_svd": ("bayesmith.exact.reduced_basis", "select_svd"),
     "select_greedy": ("bayesmith.exact.reduced_basis", "select_greedy"),
     "LinearGaussianTransition": (
-        "bayesmith.evidence.chain", "LinearGaussianTransition",
+        "bayesmith.marginal.chain", "LinearGaussianTransition",
     ),
-    "HyperTransition": ("bayesmith.evidence.chain", "HyperTransition"),
-    "ornstein_uhlenbeck": ("bayesmith.evidence.chain", "ornstein_uhlenbeck"),
-    "chain_marginal": ("bayesmith.evidence.chain", "chain_marginal"),
-    "chain_log_likelihood": ("bayesmith.evidence.chain", "chain_log_likelihood"),
-    "smooth": ("bayesmith.evidence.chain", "smooth"),
+    "HyperTransition": ("bayesmith.marginal.chain", "HyperTransition"),
+    "ornstein_uhlenbeck": ("bayesmith.marginal.chain", "ornstein_uhlenbeck"),
+    "chain_marginal": ("bayesmith.marginal.chain", "chain_marginal"),
+    "chain_log_likelihood": ("bayesmith.marginal.chain", "chain_log_likelihood"),
+    "smooth": ("bayesmith.marginal.chain", "smooth"),
     "iterative_gls": ("bayesmith.exact.gls", "iterative_gls"),
     "sigma_from_graph": ("bayesmith.exact.gls", "sigma_from_graph"),
     "noise_std_at": ("bayesmith.exact.gaussian", "noise_std_at"),
@@ -219,14 +219,14 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "check_loss_sense": ("bayesmith.optimize", "check_loss_sense"),
     "MINIMIZE": ("bayesmith.optimize", "MINIMIZE"),
     "MAXIMIZE": ("bayesmith.optimize", "MAXIMIZE"),
-    "residual_summary": ("bayesmith.evidence.compress", "residual_summary"),
-    "ResidualSummary": ("bayesmith.evidence.compress", "ResidualSummary"),
-    "epoch_residuals": ("bayesmith.evidence.diagnostics", "epoch_residuals"),
-    "template_modes": ("bayesmith.evidence.diagnostics", "template_modes"),
-    "held_out_z": ("bayesmith.evidence.diagnostics", "held_out_z"),
-    "shrinkage_power": ("bayesmith.evidence.diagnostics", "shrinkage_power"),
-    "shrinkage_report": ("bayesmith.evidence.diagnostics", "shrinkage_report"),
-    "systematic_floor": ("bayesmith.evidence.diagnostics", "systematic_floor"),
+    "residual_summary": ("bayesmith.marginal.compress", "residual_summary"),
+    "ResidualSummary": ("bayesmith.marginal.compress", "ResidualSummary"),
+    "epoch_residuals": ("bayesmith.marginal.diagnostics", "epoch_residuals"),
+    "template_modes": ("bayesmith.marginal.diagnostics", "template_modes"),
+    "held_out_z": ("bayesmith.marginal.diagnostics", "held_out_z"),
+    "shrinkage_power": ("bayesmith.marginal.diagnostics", "shrinkage_power"),
+    "shrinkage_report": ("bayesmith.marginal.diagnostics", "shrinkage_report"),
+    "systematic_floor": ("bayesmith.marginal.diagnostics", "systematic_floor"),
     "NeuralPosterior": ("bayesmith.amortize", "NeuralPosterior"),
     "train_posterior": ("bayesmith.amortize", "train_posterior"),
     "TrainingHistory": ("bayesmith.amortize", "TrainingHistory"),
@@ -243,8 +243,8 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
 # `evidence` reaches jax through `sqrtinfo.py`'s module-scope import, so it is
 # listed here and NOT imported eagerly, for the same reason `exact` is not.
 # It was missing from this tuple for the whole of B11: the layer was complete,
-# dense-oracled and cross-checked, and `import bayesmith; bayesmith.evidence`
-# still raised AttributeError, so only an explicit `import bayesmith.evidence`
+# dense-oracled and cross-checked, and `import bayesmith; bayesmith.marginal`
+# still raised AttributeError, so only an explicit `import bayesmith.marginal`
 # reached it. Both halves are pinned in `tests/test_public_api.py` -- that it
 # resolves, and that resolving it is what pulls jax in rather than importing
 # this package.
@@ -266,7 +266,8 @@ _LAZY_SUBMODULES = (
     "bridge",
     "exact",
     "dispatch",
-    "evidence",
+    "marginal",
+    "evidence",  # deprecated alias for `marginal`; retires at 1.0
     "diagnose",
     "errors",
     "optimize",

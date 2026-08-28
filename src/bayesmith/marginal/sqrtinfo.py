@@ -24,7 +24,7 @@ line by two reviews. ``tests/crosscheck/test_sqrtinfo_agrees.py`` compares
 every operation here against ``rheplicant.inference.sqrtinfo`` on the same
 inputs, so "preserved" is a measurement rather than an intention. What B11
 rewrites is the layer ABOVE this -- which latents are global, per-epoch or
-linked, and where that is decided; see ``docs/evidence-layer-readiness.md``,
+linked, and where that is decided; see this package's CHANGELOG,
 which measures how much of it the graph can answer.
 
 This module knows nothing about graphs, epochs or plans. That separation is
@@ -92,6 +92,37 @@ class SqrtInfo(eqx.Module):
             raise StructureError(
                 f"SqrtInfo.factor has {self.factor.shape[1]} columns but the named "
                 f"latents {list(self.names)} ravel to {self.width} values."
+            )
+        complex_parts = [
+            name
+            for name, array in (
+                ("factor", self.factor),
+                ("target", self.target),
+                ("offset", self.offset),
+            )
+            if jnp.iscomplexobj(array)
+        ]
+        if complex_parts:
+            raise StructureError(
+                f"SqrtInfo was given a complex {' and '.join(complex_parts)}, and "
+                "this form is real by construction. Every quantity here is a "
+                "BILINEAR form -- `log_prob` takes `sum(residual**2)`, which is "
+                "`r^T r`, and `information()` takes `factor.T @ factor` with no "
+                "conjugate -- while a complex QR's Q is UNITARY and preserves "
+                "`r^H r` instead. So the two disagree, and they disagree "
+                "silently: measured on one shared complex scalar with "
+                "R_1 = [[1j]] and R_2 = [[1]], the summed information is exactly "
+                "0 by hand and `combine` returns 2.0, an absolute error equal to "
+                "the whole of the true value, with no exception raised. "
+                "The way out is the one this package already takes everywhere "
+                "else a complex latent meets real data: carry it as its REAL "
+                "DEGREES OF FREEDOM. See `bayesmith.exact.block.real_parts`, "
+                "whose docstring gives the reason -- every prediction here is "
+                "real, so the map from complex coefficients to data is R-linear "
+                "and not C-linear -- and `ComplexNormal`, which fixes the "
+                "column convention for declaring one. Split before compressing; "
+                "a term over 2n real columns is exact, and a term over n "
+                "complex ones is not a term."
             )
 
     @property
@@ -375,7 +406,7 @@ def marginalise(info: SqrtInfo, block: Sequence[str]) -> SqrtInfo:
         #
         # **This distinction is a SHAPE here, not a live guard, and the
         # mutation survives.** Measured: rewriting it as `any(<= floor)` is
-        # killed by nothing in `tests/evidence` or `tests/crosscheck`, because
+        # killed by nothing in `tests/marginal` or `tests/crosscheck`, because
         # the finiteness check above already refuses every `nan` before this
         # line runs. It is written the strong way anyway -- this is the fourth
         # refusal in this family, and the previous three each needed it; a

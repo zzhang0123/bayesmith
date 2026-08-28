@@ -27,10 +27,19 @@ What it owns, because a trace-based PPL structurally cannot:
 
 - **Structural exact inference** — conjugate / Wiener / GCR / GLS solves, and
   exact enumeration of discrete latents, selected per subgraph.
-- **Streaming evidence** — square-root information factors combined exactly
-  across datasets and observing epochs.
-- **Diagnostics on the graph** — identifiability, prior sensitivity, and
-  linearity checking of the declarations the dispatcher relies on.
+- **Streamed marginal likelihoods** (`bayesmith.marginal`) — each epoch or
+  dataset compressed to a square-root information term, combined exactly. Not
+  the Bayesian evidence `p(d)`: a term is a function of the parameters, with
+  that dataset's own nuisances integrated away. The subpackage was called
+  `evidence` through 0.4.0 and that path still works, with a
+  `DeprecationWarning`, until 1.0.
+- **Diagnostics on the graph** (`bayesmith.diagnose`) — identifiability and
+  prior sensitivity. Linearity checking lives with the solvers that exploit
+  it, in `bayesmith.exact.linearity`, because the declaration it checks is
+  what those solvers rely on.
+- **Two exits an exact solve does not have** — `bayesmith.optimize` for
+  gradient MAP on a graph or on any scalar objective, and `bayesmith.amortize`
+  for a posterior fitted to simulations rather than evaluated.
 
 Declarations such as `linear_in` are *claims about the model*, not hints, so
 they are **checked rather than trusted**: a node declared linear is probed at
@@ -46,17 +55,20 @@ pinned by ``tests/dispatch/test_factor.py``.
 
 ## Status
 
-**0.4.0.** Published so other packages can depend on it by name -- and one
-now does, in two places. rheplicant's auto-partition and log-space seams
-import `dispatch.factor.first_fit` and `exact.loglinear` from here; and its
-adapter, which presents a pipeline as a `Graph`, reads `AffinityRefused`'s
-payload and declares complex latents with `ComplexNormal`. That second pair
-is what the 0.3 floor names. Alpha in the classifier's sense: the API may
+**0.5.0.** Published so other packages can depend on it by name -- and one
+now does, from **nine** of its production modules. rheplicant's auto-partition
+and log-space seams import `dispatch.factor.first_fit` and `exact.loglinear`
+from here; its adapter, which presents a pipeline as a `Graph`, reads
+`AffinityRefused`'s payload and declares complex latents with `ComplexNormal`;
+and its diagnostics delegate to `diagnose.identifiability`,
+`diagnose.sensitivity` and `diagnose.local`. It pins `bayesmith>=0.4`.
+
+Alpha in the classifier's sense: the API may
 still move -- 0.3.0 made `reason` required on `NotGaussian` and
 `NotLogLinear`, and 0.4.0 tightens two precision refusals, each breaking for
 a caller who was relying on the wrong answer.
 
-Implemented and tested, 1525 tests: the graph core with plates and joint
+Implemented and tested, 1537 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every
 route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR

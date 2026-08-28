@@ -1,7 +1,7 @@
-"""A campaign, compressed from the graph -- the bridge B11 is for.
+"""A campaign, compressed from the graph, one epoch at a time.
 
 Everything below this module works on matrices a caller assembled:
-:func:`~bayesmith.evidence.compress.compress_epoch` takes designs, data and a
+:func:`~bayesmith.marginal.compress.compress_epoch` takes designs, data and a
 covariance and knows nothing about where they came from. This is where they
 come from a :class:`~bayesmith.graph.graph.Graph`.
 
@@ -12,7 +12,7 @@ for rewriting B11 rather than transplanting it. Every input
 ===================  ======================================================
 what                 where it comes from
 ===================  ======================================================
-the partition        :func:`~bayesmith.evidence.factorize.factorize` --
+the partition        :func:`~bayesmith.marginal.factorize.factorize` --
                      plate membership, then ``epoch_leakage`` to test it
 the designs          one ``jacfwd`` of the graph's own prediction map
 the constant part    that map evaluated at zero
@@ -35,13 +35,13 @@ import jax.numpy as jnp
 import numpy as np
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence.compress import epoch_joint
-from bayesmith.evidence.factorize import Factorization, factorize
-from bayesmith.evidence.sqrtinfo import SqrtInfo, marginalise_arrays
 from bayesmith.exact.block import isolate, unchecked_operator
 from bayesmith.exact.gaussian import gaussian_parts, precision_at
 from bayesmith.graph.evaluate import evaluate
 from bayesmith.graph.graph import Graph
+from bayesmith.marginal.compress import epoch_joint
+from bayesmith.marginal.factorize import Factorization, factorize
+from bayesmith.marginal.sqrtinfo import SqrtInfo, marginalise_arrays
 
 
 def epoch_terms(
@@ -214,7 +214,7 @@ def fold_epochs(
 
     The carry is the accumulated ``(factor, target, offset)``, and it keeps a
     FIXED shape across the whole campaign -- which is why
-    :meth:`~bayesmith.evidence.sqrtinfo.SqrtInfo.null` is square rather than
+    :meth:`~bayesmith.marginal.sqrtinfo.SqrtInfo.null` is square rather than
     zero-row. A carry whose treedef moved would retrace once per epoch and
     defeat the exercise.
 
@@ -306,7 +306,7 @@ def _refuse_unconstrained_epochs(
 ) -> None:
     """Every epoch's pivots, judged together -- the moved refusal.
 
-    :func:`~bayesmith.evidence.sqrtinfo.marginalise` makes this judgement one
+    :func:`~bayesmith.marginal.sqrtinfo.marginalise` makes this judgement one
     term at a time and therefore cannot be traced. A campaign vmaps the
     arithmetic and judges here instead, which is the same refusal at one
     comparison instead of E.

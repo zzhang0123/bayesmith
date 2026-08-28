@@ -525,7 +525,8 @@ def declared_partition(
                 "`bayesmith.exact.gibbs.assemble` for that block alone, "
                 "declare it 'nuts', or -- if what you want is sigma frozen "
                 "at the block's CURRENT value rather than corrected -- "
-                "declare it 'gcr' and read this function's note on G12, "
+                "declare it 'gcr' and read this function's note on sigma "
+                "frozen at the block's current value (the G12 note), "
                 "which is an approximation with a name rather than a "
                 "correctness proof."
             )

@@ -1,7 +1,7 @@
 """What a campaign can say about its own trustworthiness, from stored terms.
 
 Nothing here reads a graph, a prediction or a byte of raw data -- only the
-fixed-size ``[R | z]`` terms :func:`~bayesmith.evidence.compress.compress`
+fixed-size ``[R | z]`` terms :func:`~bayesmith.marginal.compress.compress`
 stored while the data still existed. A diagnostic is something you run ON a
 campaign, not something a campaign is.
 
@@ -19,7 +19,7 @@ visible from data at all:
   epoch. It leaves no residual at the displaced point, so it passes every
   statistic here and biases the answer without limit as the campaign grows.
 
-``tests/evidence/test_diagnostics.py`` measures that second half rather than
+``tests/marginal/test_diagnostics.py`` measures that second half rather than
 asserting it: an in-span injection of the same size as a detected out-of-span
 one leaves ``chi2_z`` at noise level while displacing the answer by exactly
 the injected amount. **That is not a gap to be closed with a better
@@ -38,8 +38,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence.compress import ResidualSummary
-from bayesmith.evidence.sqrtinfo import SqrtInfo
+from bayesmith.marginal.compress import ResidualSummary
+from bayesmith.marginal.sqrtinfo import SqrtInfo
 
 
 def epoch_chi_square(
@@ -201,14 +201,14 @@ def epoch_residuals(
     **Distinct from :func:`coherent_mode`, and the difference is the input.**
     That one evaluates ``||R x - z||^2`` at a point you choose, from the
     stored term, and can be re-asked at any value of the survivors. This one
-    reads what :func:`~bayesmith.evidence.compress.residual_summary` recorded
+    reads what :func:`~bayesmith.marginal.compress.residual_summary` recorded
     when the raw data still existed: the residual left after the epoch's OWN
     best fit, which no later call can recompute. The two coincide only at the
     per-epoch minimiser, which is not the point a campaign evaluates at.
 
     Args:
         summaries: one per epoch, from
-            :func:`~bayesmith.evidence.compress.residual_summary`.
+            :func:`~bayesmith.marginal.compress.residual_summary`.
 
     Returns:
         One dict per epoch with ``"chi2"``, ``"dof"``, ``"reduced_chi2"`` and
@@ -396,7 +396,7 @@ def held_out_z(
     But where every epoch carries the SAME design -- the realistic case -- a
     coherent error's in-span half shifts ``z_e`` and ``mu_-e`` by amounts that
     cancel in ``m``, and the clean and biased campaigns return the same
-    scores. ``tests/evidence/test_held_out.py`` measures both directions
+    scores. ``tests/marginal/test_held_out.py`` measures both directions
     rather than asserting them. Read this beside
     :func:`refuse_undeclared_coherent_error`, never instead of it.
 
@@ -609,7 +609,7 @@ def tightest_direction(block: Any) -> tuple[float, Any]:
     difference is a basis rotation wide. For any correlated posterior the
     smallest eigen-direction is below every diagonal entry, so a refusal
     keyed on ``min(diag(block))`` watches a quantity that is not the first to
-    go under. ``tests/evidence/test_systematic_floor.py`` measures the gap on
+    go under. ``tests/marginal/test_systematic_floor.py`` measures the gap on
     a near-collinear campaign, where the coordinate widths sit an order of
     magnitude ABOVE a floor that the tightest direction is well below.
 

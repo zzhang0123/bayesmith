@@ -1,4 +1,4 @@
-"""Reduced-basis selection and orthonormalisation (G4).
+"""Reduced-basis selection and orthonormalisation.
 
 A reduced basis is a dictionary of directions in the DATA space such that a
 model's prediction is well approximated by a combination of them:

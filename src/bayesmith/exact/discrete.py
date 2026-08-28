@@ -1,4 +1,4 @@
-"""Exact marginalisation of declared discrete latents: P4's enumeration half.
+"""Exact marginalisation of declared discrete latents, by enumeration.
 
 :attr:`~bayesmith.graph.nodes.Probabilistic.support` has carried
 ``Discrete(n)`` since P1, and its docstring said plainly that nothing read it:

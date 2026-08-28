@@ -206,8 +206,8 @@ def _masked_term(prediction, observed, sigma, flags):
     term is ``-0.5||0·x - z||² + offset`` at every ``x``, which is exactly
     the observed-node density and nothing else.
     """
-    from bayesmith.evidence.compress import compress
     from bayesmith.exact.precision import DiagonalPrecision
+    from bayesmith.marginal.compress import compress
 
     precision = DiagonalPrecision(sigma=jnp.where(flags, jnp.inf, sigma))
     term = compress(
@@ -273,8 +273,8 @@ def test_the_quadratic_half_masks_and_the_normaliser_deliberately_does_not():
     with 4.1's sentence in hand will otherwise fix it: the quadratic must
     keep masking, and the normaliser must keep refusing to.
     """
-    from bayesmith.evidence.compress import observed_mask
     from bayesmith.exact.precision import log_density, quadratic
+    from bayesmith.marginal.compress import observed_mask
 
     with jax.enable_x64(True):
         prediction, observed, sigma = _fixture()

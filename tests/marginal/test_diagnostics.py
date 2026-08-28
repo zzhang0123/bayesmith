@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence import (
+from bayesmith.marginal import (
     SqrtInfo,
     coherent_mode,
     epoch_chi_square,

@@ -714,6 +714,11 @@ def push_forward(
             shaped, wrong answer -- the same guard, and the same measurement,
             as ``predict``'s.
     """
+    # Function scope, deliberately: `exact` does not import `dispatch` at
+    # module scope (see `exact/gibbs.py`'s note on the layering, and
+    # `tests/test_layering.py`, which asserts it). Hoisting this would close a
+    # cycle rather than open one -- `classify` reads `exact.gaussian`, which
+    # imports `graph.evaluate` at module scope.
     from bayesmith.dispatch.classify import prior_environment
 
     target = _node_of(graph, node, "push_forward")

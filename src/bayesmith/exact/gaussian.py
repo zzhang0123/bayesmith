@@ -265,7 +265,7 @@ def check_gaussian(
             "An INFINITE sigma is a different intent and has a different "
             "home: it is how this package spells an unobserved (flagged) "
             "sample, and the mask that turns it into a clean zero "
-            "contribution lives in bayesmith.evidence.compress, which owns "
+            "contribution lives in bayesmith.marginal.compress, which owns "
             "that concept. A Precision is asked what density a covariance "
             "gives, and the honest answer for infinite variance is none, so "
             "it is not masked here."

@@ -34,7 +34,7 @@ wrong while looking right.** Six constants reach the answer, and the
 recursion's shape, gradient and curvature are all correct without any of them
 -- so every test that checks a mean, a width or a derivative passes on a
 version that has dropped one. Only a comparison against a dense joint density
-notices. ``tests/evidence/test_chain.py`` builds that dense reference and
+notices. ``tests/marginal/test_chain.py`` builds that dense reference and
 deletes each constant in turn to measure what it was worth.
 
 Ported from ``rheplicant.inference.chain``. The containers a campaign stores
@@ -52,7 +52,7 @@ import jax
 import jax.numpy as jnp
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence.sqrtinfo import SqrtInfo, marginalise_arrays
+from bayesmith.marginal.sqrtinfo import SqrtInfo, marginalise_arrays
 
 __all__ = [
     "HyperTransition",
@@ -83,9 +83,9 @@ class LinearGaussianTransition(eqx.Module):
     class contributes are what constrain every ``zeta_e``, so a strictly
     positive spread makes each marginalisation's block full-rank BY
     CONSTRUCTION -- and that is what lets the filter call
-    :func:`~bayesmith.evidence.sqrtinfo.marginalise_arrays` inside a
+    :func:`~bayesmith.marginal.sqrtinfo.marginalise_arrays` inside a
     ``lax.scan`` instead of the checked
-    :func:`~bayesmith.evidence.sqrtinfo.marginalise`, which concretises and
+    :func:`~bayesmith.marginal.sqrtinfo.marginalise`, which concretises and
     therefore cannot be traced or differentiated. One eager check at
     declaration, not one traced check per epoch of a thousand.
 
@@ -240,7 +240,7 @@ def _initial_log_norm(transition: LinearGaussianTransition) -> jax.Array:
     A module-level function rather than three inline terms so that a test can
     delete exactly this constant and measure what it was worth. It belongs to
     nobody else: the per-epoch blocks know nothing about the chain, and
-    :func:`~bayesmith.evidence.sqrtinfo.marginalise_arrays` carries only the
+    :func:`~bayesmith.marginal.sqrtinfo.marginalise_arrays` carries only the
     integral's own constant.
     """
     return -0.5 * transition.width * jnp.log(2.0 * jnp.pi) - jnp.sum(

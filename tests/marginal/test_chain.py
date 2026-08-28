@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence.chain import (
+from bayesmith.marginal.chain import (
     HyperTransition,
     LinearGaussianTransition,
     chain_log_likelihood,
@@ -205,7 +205,7 @@ class TestEachConstantIsWorthSomething:
         The same shape as the guards this session has already caught twice,
         and it went green in the most reassuring possible way.
         """
-        import bayesmith.evidence.chain as module
+        import bayesmith.marginal.chain as module
 
         blocks, transition = _blocks(), _transition()
         truth = float(
@@ -251,7 +251,7 @@ class TestEachConstantIsWorthSomething:
     def test_dropping_the_fold_corner_is_the_largest_of_them(self, monkeypatch):
         """The residual no choice of the latents can remove -- a chi-square per
         epoch, and it grows with the campaign."""
-        import bayesmith.evidence.chain as module
+        import bayesmith.marginal.chain as module
 
         real = module._fold
 
@@ -268,7 +268,7 @@ class TestEachConstantIsWorthSomething:
         """Why the tests above have to exist. The posterior over theta is
         unchanged by any of them, so nothing that looks at a result would
         notice."""
-        import bayesmith.evidence.chain as module
+        import bayesmith.marginal.chain as module
 
         blocks, transition = _blocks(), _transition()
         before = chain_marginal(blocks, transition, _theta(), NAMES, SHAPES)

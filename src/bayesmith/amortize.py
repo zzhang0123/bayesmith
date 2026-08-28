@@ -1,4 +1,4 @@
-"""Amortized posterior estimation -- inference that never writes a likelihood (G5).
+"""Amortized posterior estimation -- inference that never writes a likelihood.
 
 Every other route in this package evaluates a density. NUTS does it once per
 leapfrog step; :func:`~bayesmith.exact.solve.wiener_solve` exploits its

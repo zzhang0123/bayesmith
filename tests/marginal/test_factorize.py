@@ -21,7 +21,7 @@ import pytest
 
 from bayesmith import det, observe, plate, sample, trace
 from bayesmith.errors import StructureError
-from bayesmith.evidence import epoch_leakage, factorize
+from bayesmith.marginal import epoch_leakage, factorize
 
 N_EPOCH = 4
 
@@ -227,8 +227,8 @@ def test_the_measured_cost_of_folding_a_leaky_latent():
     """
     import math
 
-    from bayesmith.evidence import SqrtInfo, compress_epoch
     from bayesmith.exact.precision import DiagonalPrecision
+    from bayesmith.marginal import SqrtInfo, compress_epoch
 
     per, n_global, sigma, prior = 3, 2, 0.6, 0.8
     rng = np.random.default_rng(0)

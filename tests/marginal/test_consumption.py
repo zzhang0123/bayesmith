@@ -24,8 +24,9 @@ import numpy as np
 import pytest
 
 from bayesmith.errors import StructureError
-from bayesmith.evidence.compress import compress, residual_summary
-from bayesmith.evidence.diagnostics import (
+from bayesmith.exact.precision import DiagonalPrecision
+from bayesmith.marginal.compress import compress, residual_summary
+from bayesmith.marginal.diagnostics import (
     epoch_residuals,
     held_out_z,
     refuse_mixed_templates,
@@ -35,7 +36,6 @@ from bayesmith.evidence.diagnostics import (
     template_modes,
     tightest_direction,
 )
-from bayesmith.exact.precision import DiagonalPrecision
 
 # --- the fixture, in numpy -------------------------------------------------
 #

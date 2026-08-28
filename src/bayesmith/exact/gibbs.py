@@ -17,11 +17,20 @@ spec.
 
 **Why this module takes a graph and a name list rather than a plan object.**
 ``InferencePlan`` lives in :mod:`bayesmith.dispatch`, which is the layer
-*above* this one: ``dispatch`` reads ``exact``'s checkers and ``exact`` never
-reads ``dispatch``. Importing the plan here would invert that. So
-:func:`gibbs_factory` and :func:`assemble` take the primitives they actually
-need and the plan layer adapts to them -- a layering decision, not an
-oversight.
+*above* this one: ``dispatch`` reads ``exact``'s checkers, and **no module in
+``exact`` imports ``dispatch`` at module scope**. Importing the plan here
+would invert that. So :func:`gibbs_factory` and :func:`assemble` take the
+primitives they actually need and the plan layer adapts to them -- a layering
+decision, not an oversight.
+
+The sentence used to read "``exact`` never reads ``dispatch``", which is not
+true and had no guard: :func:`bayesmith.exact.fisher.push_forward` borrows
+``prior_environment`` from :mod:`bayesmith.dispatch.classify` inside the call.
+That one is a function-scope import and cannot be hoisted -- ``classify``
+reaches back into ``exact.gaussian`` for ``gaussian_parts``, and
+``exact/gaussian.py`` imports ``graph.evaluate`` at module scope, so moving
+the borrowed function up would close a real cycle. What is actually true, and
+what ``tests/test_layering.py`` now asserts, is the module-scope statement.
 """
 
 from __future__ import annotations
