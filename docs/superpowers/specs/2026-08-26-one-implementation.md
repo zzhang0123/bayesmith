@@ -651,8 +651,28 @@
   jit 下也能用的机制(`wiener_solve` 的同一条)。挂在**点**上而不是 objective 上,
   因为调用方先读的是点,而一个没人用的检查可能被优化掉。
   **这条改变了 Wave C 的分诊**:`calibrate` 的测试里若有依赖「NaN 也照样返回」的,
-  接线那一批要按分诊第二列处置——**今天没有量过**,量它是那一批的第一件事。
-  证据链:`2026-08-27-p2-g2-fit.md` §六.2。
+  接线那一批要按分诊第二列处置。
+  **【分诊已量,2026-08-29。】** 方法:把 D33 已裁定的实现(两个 calibrator 的
+  返回点各挂一条 `eqx.error_if`,判据是「有 leaf 非有限」)**当探针打进去**,
+  跑全部 8 个碰 calibrator 的测试文件(353 例),看谁变红——即登记簿里
+  「把正确实现当变异体」那一条。**红了 2 条,而其中只有 1 条是真依赖:**
+
+  | 测试 | 是不是真依赖 | 处置 |
+  |---|---|---|
+  | `test_loss_sense.py::TestTheControlStillWorks::test_the_fixed_step_descent_really_does_diverge_on_the_unscaled_negation` | **是** | 改写:断言 `pytest.raises`。它钉的**主张**(定步长在未缩放的负似然上发散)照旧成立,变的只是观测渠道。它的 docstring 自己写着「Pinned so the note above is a measurement and not a memory」——那条 note 仍然需要它。 |
+  | `test_loss_sense.py::TestTheGuardCostsNothingAtRunTime::test_it_runs_once_at_entry_and_not_inside_the_scan` | **不是,是它自己的 fixture 在发散** | **已修**(e-RHINO,2026-08-29) |
+
+  第二条值得单独讲,因为它是探针**顺手照出来的一个真缺陷**:它用
+  `GradientCalibrator(n_steps=50)` 的**默认** `lr=1e-2`,而**该 fixture 在这个
+  步长上发散**——实测 `losses[-1] = nan`、`fit['g']` 非有限。同一个文件顶上的
+  `CONVERGING` 用的是 `1e-4`(小一百倍)。**它一直是绿的,因为它只断言
+  `len(calls) < 10`——数 `loss_fn` 调用次数,从不看拟合结果。** 于是「守卫只在
+  入口跑一次」这个主张,一直是在一次产出 NaN 的运行上量的,而没人知道。
+  已改成 `learning_rate=1e-4` 并补一条 `isfinite` 断言(计数不变,这正是重点:
+  主张本来就是关于 tracing 的,就该在一个能跑通的拟合上做)。
+
+  **所以 D33 落地时的分诊是「1 条,改写方式已知」**,不是原先以为的「未知」。
+  证据链:`2026-08-27-p2-g2-fit.md` §六.2;分诊测量见本条。
 
 - **D34 — `declared_partition` 遇到不完整覆盖:补一个 NUTS 块还是拒绝(做 G10 时新增)。**
   `factor_partition` 把解不了的 latent 扫进一个 NUTS 块;声明入口照做会**替调用方
