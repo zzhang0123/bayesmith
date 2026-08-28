@@ -1,3 +1,7 @@
+from typing import ClassVar
+
+import pytest
+
 import bayesmith
 
 
@@ -468,3 +472,82 @@ def test_a_submodule_resolves_without_touching_anything_else_first():
             check=False,
         )
         assert proc.returncode == 0, (name, proc.stderr[-800:])
+
+
+class TestTheDeprecatedEvidencePathStillResolves:
+    """`bayesmith.evidence` was the published path through 0.4.0.
+
+    It is kept until 1.0, and the shape of the shim is load-bearing rather
+    than incidental. A module-level ``__getattr__`` -- the obvious way to
+    write this -- does NOT support deep imports: ``from pkg.old.kernel import
+    helper`` raises ``ModuleNotFoundError`` against one. That would have
+    broken every published name, because the intersection between this
+    subpackage's ``__all__`` at v0.4.0 and bayesmith's top-level ``__all__``
+    was EMPTY -- all seventeen were reachable only by the deep path.
+
+    So the shim registers ``sys.modules`` aliases, and each form below is a
+    form a 0.4.0 caller could have written.
+    """
+
+    FORMS: ClassVar[list[str]] = [
+        "from bayesmith.evidence import SqrtInfo; assert SqrtInfo",
+        "from bayesmith.evidence.compress import compress; assert compress",
+        "import bayesmith.evidence.chain as m; assert m.smooth",
+        "import bayesmith; assert bayesmith.evidence.SqrtInfo",
+    ]
+
+    @pytest.mark.parametrize("form", FORMS)
+    def test_the_form_a_040_caller_could_have_written(self, form):
+        import subprocess
+        import sys
+
+        proc = subprocess.run(
+            [sys.executable, "-W", "ignore::DeprecationWarning", "-c", form],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, (form, proc.stderr[-900:])
+
+    def test_it_is_the_same_object_and_not_a_copy(self):
+        """A shim that returned an equal-looking module would pass the forms
+        above while giving a caller a second, divergent instance."""
+        import bayesmith.evidence.compress
+
+        import bayesmith.evidence
+        import bayesmith.marginal
+        import bayesmith.marginal.compress
+
+        assert bayesmith.evidence.SqrtInfo is bayesmith.marginal.SqrtInfo
+        assert bayesmith.evidence.compress is bayesmith.marginal.compress
+
+    def test_the_old_path_warns_and_the_new_one_does_not(self):
+        import subprocess
+        import sys
+
+        def warnings_from(statement: str) -> str:
+            return subprocess.run(
+                [sys.executable, "-W", "always::DeprecationWarning", "-c", statement],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stderr
+
+        assert "DeprecationWarning" in warnings_from("import bayesmith.evidence")
+        assert "DeprecationWarning" not in warnings_from("import bayesmith.marginal")
+
+    def test_the_alias_list_is_derived_from_the_new_package(self):
+        """Not hand-listed: a module added to `marginal/` must be reachable
+        through the deprecated path too, and one deleted must stop being
+        aliased rather than leave a dangling entry."""
+        import pkgutil
+
+        import bayesmith.evidence
+        import bayesmith.marginal
+
+        on_disk = {
+            info.name
+            for info in pkgutil.iter_modules(bayesmith.marginal.__path__)
+            if not info.name.startswith("_")
+        }
+        assert set(bayesmith.evidence._ALIASED) == on_disk
