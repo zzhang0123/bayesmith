@@ -98,19 +98,35 @@ fixed point is the unbiased estimator. The gap is the gradient block, on
 the estimate exit as well as the sampling one, which is why the property is
 better stated of the block type.
 
-**Carried upstream — on a branch, not yet on `main`.** e-RHINO's
+**Carried upstream — and as of 2026-08-28 it is on `main`.** e-RHINO's
 `7f03af1` rewrote `inference/plan.py`'s module docstring around this, with
-both numbers and an attribution back to this test. Measured 2026-08-25:
-that commit is on `track-a-tail`, **unmerged and unpushed**, so a checkout
-of e-RHINO's `main` does not carry it — which is also why the guard below
-can go red for a reason that is nobody's defect — its own words: *"reading it as a
-property of one exit is what left the estimate path unexamined."*
-**Where the upstream text lives, and what does not depend on it.**
-Measured 2026-08-25: the corrected sentences are on e-RHINO's
-`track-a-tail`, **not on `main`**, so the two guards that assert them read
-whatever the editable install has checked out. Those two — here and in
-`plan.md`/`linear.md` respectively — are the only ones in
-`tests/crosscheck/` with that dependency.
+both numbers and an attribution back to this test — its own words:
+*"reading it as a property of one exit is what left the estimate path
+unexamined."*
+
+> **Correction, 2026-08-28 (Wave B opening, iron law 7).** This row said
+> that commit was on `track-a-tail`, **unmerged and unpushed**, so that a
+> checkout of e-RHINO's `main` did not carry it, and that the guard could
+> therefore go red for a reason that was nobody's defect. **Measured
+> against the remote** — `git ls-remote` for the tip, then
+> `merge-base --is-ancestor 7f03af1 origin/main` and
+> `git show origin/main:src/rheplicant/inference/plan.py` — `7f03af1` is an
+> ancestor of `origin/main`, the sentence is in the remote's own file, and
+> `track-a-tail` no longer exists. Seam CI checks out `e-RHINO@main`, so it
+> reads this text.
+>
+> **What that closes is not a cosmetic note.** While the dependency stood,
+> the two guards were green because of which branch the editable install
+> happened to be on, and mutating the docstring could never have shown it —
+> the ref was not in the variable set. e-RHINO's `CLAUDE.md` records this as
+> mutation testing's one structural blind spot, with these two guards as
+> the worked example. The lesson stands; the instance is closed.
+
+**Where the upstream text lives, and what does not depend on it.** The
+corrected sentences are on e-RHINO's `main`. The two guards that assert
+them — here and in `linear.md` — are still the only ones in
+`tests/crosscheck/` that read upstream prose at all, which is worth knowing
+whenever that prose is edited.
 
 **No numeric comparison has it.** `main...track-a-tail` touches exactly two
 files under `src/rheplicant/inference/`, `linear.py` and `plan.py`, and

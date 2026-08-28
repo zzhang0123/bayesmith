@@ -117,8 +117,27 @@ killed by the test named against them.
 
 ## 5. Intended differences
 
-**(a) `condition_estimate` is not ported, and its docstring was wrong
-upstream.** bayesmith has `condition_bound` only; the argument is already
+**(a) `condition_estimate` was not ported, and its docstring was wrong
+upstream.**
+
+> **Correction, 2026-08-28 (Wave B opening, iron law 7).** The first
+> sentence of this row is **no longer true**: **G14** landed
+> `exact/solve.py::condition_estimate` on 2026-08-27, ahead of Wave B,
+> and `conditioning.md` §"What is new" was updated for it. This page was
+> not, so the row that Wave B is required to read *before touching
+> `linear`* still said the counterpart did not exist. Everything after the
+> first sentence stands: the bias is real, the direction is certification
+> rather than refusal, and bayesmith's own docstring now carries the
+> warning in the first person (*"This is a diagnostic and not a bound.
+> Never divide an accuracy target by it, and never guard on it"*), backed
+> by an AST scan (**D37**) rather than by prose. What changed is that the
+> intended DIFFERENCE became an intended AGREEMENT-with-a-warning, and the
+> comparison Wave B owes is now value-for-value rather than presence.
+>
+> Recorded rather than rewritten, because the shape is the one this
+> programme keeps paying for: one fact in two pages, one of them updated.
+
+bayesmith had `condition_bound` only; the argument is already
 in `conditioning.md` (measuring λ_min by a second power iteration errs
 one-sidedly toward danger). Measured on this fixture, rheplicant's
 `condition_estimate / condition_bound` is **8.38e-21** on `gain` and
@@ -156,20 +175,29 @@ it; the numbers were deliberately not touched**, because §四 4.1 lists
 pin the present behaviour. So: **docstring fixed, arithmetic unchanged,
 bias still there.**
 
-**Where the upstream text lives, and what does not depend on it.**
-Measured 2026-08-25: the corrected sentences are on e-RHINO's
-`track-a-tail`, **not on `main`**, so the two guards that assert them read
-whatever the editable install has checked out. Those two — here and in
-`plan.md`/`linear.md` respectively — are the only ones in
-`tests/crosscheck/` with that dependency.
+**Where the upstream text lives.** The corrected sentences are on
+e-RHINO's `main`.
 
-**No numeric comparison has it.** `main...track-a-tail` touches exactly two
-files under `src/rheplicant/inference/`, `linear.py` and `plan.py`, and
-both are **docstring-only** — verified by comparing `ast.dump` with every
-module, class and function docstring stripped, rather than by reading the
-diff. Every number in this directory is therefore identical on both refs.
-That is a claim about a branch, so re-run the comparison rather than
-trusting this paragraph.
+> **Correction, 2026-08-28 (Wave B opening, iron law 7).** This said they
+> were on `track-a-tail` and **not on `main`**, so that the two guards
+> asserting them read whatever the editable install had checked out.
+> **Measured against the remote** (`git ls-remote` for the tip, then
+> `git show origin/main:src/rheplicant/inference/linear.py`): they are on
+> `origin/main`, and `track-a-tail` no longer exists. The paragraph that
+> followed — that `main...track-a-tail` was docstring-only, so no numeric
+> comparison depended on the checkout — described a branch that is gone;
+> its conclusion survives it, since there is now one ref.
+>
+> The dependency mattered for a reason bigger than tidiness: while it
+> stood, these two guards were green because of which branch was checked
+> out, and mutating the docstring could never have surfaced that, because
+> the ref was not in the variable set. e-RHINO's `CLAUDE.md` records it as
+> mutation testing's structural blind spot with these two as the example.
+> The lesson stands; this instance is closed.
+
+The two guards here and in `plan.md` are still the only ones in
+`tests/crosscheck/` that read upstream prose at all — worth knowing
+whenever that prose is edited.
 
 Three guards here, none of which duplicates e-RHINO's own
 `TestTheTwoConditionNumbersDivideTheLabour` — that one holds the API

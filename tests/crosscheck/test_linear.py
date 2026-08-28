@@ -749,14 +749,17 @@ def test_rheplicants_condition_estimate_no_longer_claims_to_be_the_bound():
     MEASURED and warns the reader off, so a future rename cannot quietly put
     the old sentence back.
 
-    **Both sentences are on e-RHINO's ``track-a-tail`` and NOT on its
-    ``main``**, measured 2026-08-25 -- the same branch dependency
+    **The branch dependency is CLOSED as of 2026-08-28.** It used to read:
+    *both sentences are on e-RHINO's ``track-a-tail`` and NOT on its
+    ``main``, measured 2026-08-25* -- the same dependency
     ``test_dispatch.py``'s
-    ``test_rheplicants_plan_now_attributes_b1_to_the_block_type`` carries,
-    and these two are the only guards in this directory that have it. A red
-    here means, in decreasing order of likelihood: e-RHINO is checked out on
-    ``main``, the branch was dropped in review, or the docstring changed.
-    Only the last two are defects, and both make ``linear.md`` §5(a) false.
+    ``test_rheplicants_plan_now_attributes_b1_to_the_block_type`` carried,
+    and these two were the only guards in this directory that had it.
+    Measured 2026-08-28 against the REMOTE (``git ls-remote``, then
+    ``git show origin/main:src/rheplicant/inference/linear.py``): the
+    corrected sentences are on ``origin/main`` and ``track-a-tail`` no
+    longer exists. A red here now means the docstring changed, which is the
+    only cause left, and it makes ``linear.md`` §5(a) false.
 
     **No NUMERIC cross-check depends on the checkout.** Measured
     independently rather than taken on report: ``main...track-a-tail``
@@ -772,10 +775,10 @@ def test_rheplicants_condition_estimate_no_longer_claims_to_be_the_bound():
 
     text = inspect.getdoc(condition_estimate) or ""
     branch_note = (
-        " If e-RHINO is checked out on `main`, this is expected -- the "
-        "corrected docstring is on `track-a-tail` and unmerged as of "
-        "2026-08-25. Otherwise the branch was dropped or the docstring "
-        "changed, and docs/migration/linear.md section 5(a) needs updating."
+        " The branch dependency this message used to name is closed: the "
+        "corrected docstring is on e-RHINO's `origin/main`, measured "
+        "2026-08-28. So the docstring changed, and "
+        "docs/migration/linear.md section 5(a) needs updating."
     )
     assert text.startswith("The MEASURED conditioning"), text[:120] + branch_note
     assert "Do not divide an accuracy target by this number" in text, branch_note

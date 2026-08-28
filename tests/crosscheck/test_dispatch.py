@@ -520,27 +520,41 @@ def test_rheplicants_plan_now_attributes_b1_to_the_block_type():
     ``condition_estimate`` came to open with a paragraph describing a
     different function.
 
-    **The paragraph is on e-RHINO's ``track-a-tail`` branch and NOT on its
-    ``main``**, measured 2026-08-25. So this guard reads whatever the
-    editable install has checked out, and a red here means one of three
-    things, in decreasing order of likelihood: that branch is not the one
-    checked out, the branch was dropped in review, or the docstring was
-    edited. The first is not a defect in either package; the second and
-    third mean ``docs/migration/plan.md`` §5(a)'s "Carried upstream"
-    paragraph has become false and is what needs changing.
+    **The branch dependency is CLOSED as of 2026-08-28**, and how it read
+    before is worth keeping. This guard used to say: *the paragraph is on
+    e-RHINO's ``track-a-tail`` branch and NOT on its ``main``, measured
+    2026-08-25, so this guard reads whatever the editable install has
+    checked out*. That was the honest statement of a real hazard -- the
+    guard was green because of which branch happened to be checked out, and
+    no amount of mutating the docstring text could have surfaced it, because
+    the ref was never in the variable set. e-RHINO's ``CLAUDE.md`` records
+    it as mutation testing's one structural blind spot, with this guard and
+    its sibling in ``test_linear.py`` as the worked example.
 
-    Recorded rather than softened into a skip: a guard that cannot fail is
-    worse than one that fails for a reason the message explains.
+    Measured 2026-08-28 against the REMOTE rather than a local ref
+    (``git ls-remote`` for the tip, then ``merge-base --is-ancestor`` and
+    ``git show origin/main:...``): ``7f03af1`` is an ancestor of
+    ``origin/main`` and the sentence is in the remote's own
+    ``plan.py``. ``track-a-tail`` no longer exists. So a Seam CI run, which
+    checks out ``e-RHINO@main``, reads this text -- and a red here now means
+    the docstring changed, which is the only cause left and is a real one.
+
+    **The lesson stands even though the instance closed**: a guard whose
+    greenness depends on something never varied cannot be probed by varying
+    what you have. Recorded rather than softened into a skip: a guard that
+    cannot fail is worse than one that fails for a reason the message
+    explains.
     """
     import rheplicant.inference.plan as upstream
 
     text = upstream.__doc__ or ""
     assert "It is the BLOCK TYPE that decides, not the exit" in text, (
-        "rheplicant's plan.py does not attribute B1 to the block type. If "
-        "e-RHINO is checked out on `main`, that is expected -- the paragraph "
-        "is on `track-a-tail` and unmerged as of 2026-08-25. Otherwise the "
-        "branch was dropped or the docstring changed, and "
-        "docs/migration/plan.md section 5(a) is what needs updating."
+        "rheplicant's plan.py does not attribute B1 to the block type. The "
+        "branch dependency this message used to name is closed: `7f03af1` "
+        "is an ancestor of e-RHINO's `origin/main` and the sentence is in "
+        "the remote's own plan.py, measured 2026-08-28. So the docstring "
+        "changed, and docs/migration/plan.md section 5(a) is what needs "
+        "updating."
     )
     # The numbers this row supplied, still the ones it is arguing from.
     assert "5.104558" in text and "6.248269" in text, text[:200]
