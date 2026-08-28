@@ -248,6 +248,19 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
 # reached it. Both halves are pinned in `tests/test_public_api.py` -- that it
 # resolves, and that resolving it is what pulls jax in rather than importing
 # this package.
+# The same hole was open again, three times over, and the guards could not see
+# it: `optimize`, `amortize` and `distributions` were missing here, so
+# `import bayesmith; bayesmith.optimize` raised AttributeError while
+# `bayesmith.fit` -- which resolves through _LAZY_ATTRS and imports the module
+# as a side effect -- made the very next access succeed. An attribute whose
+# presence depends on what you touched first is worse than one that is absent.
+#
+# The reason it recurred is that the tests pinned it name by name
+# (`assert "evidence" in _LAZY_SUBMODULES`), so each fix added one line and
+# covered exactly the name someone had already thought of.
+# `test_every_submodule_is_reachable_after_a_bare_import` now DERIVES the
+# expected set from the filesystem and asserts both directions, so the next
+# module added to this package is covered before anyone remembers to be.
 _LAZY_SUBMODULES = (
     "graph",
     "bridge",
@@ -256,6 +269,9 @@ _LAZY_SUBMODULES = (
     "evidence",
     "diagnose",
     "errors",
+    "optimize",
+    "amortize",
+    "distributions",
 )
 
 

@@ -25,6 +25,24 @@ new keyword defaults to the old behaviour, and no existing signature changed.
 
 ### Fixed
 
+**Three submodules were unreachable after a bare `import bayesmith`, and which
+ones worked depended on what you had touched first.** `bayesmith.optimize`,
+`bayesmith.amortize` and `bayesmith.distributions` were missing from
+`_LAZY_SUBMODULES`, so attribute access raised `AttributeError` -- unless
+something had already resolved a name that imports the module as a side
+effect. Measured: `bayesmith.optimize` raised, then `bayesmith.fit` succeeded,
+then `bayesmith.optimize` succeeded. An attribute whose presence depends on
+access order is worse than one that is simply absent.
+
+This is the third time the same hole has been repaired, and the reason it
+recurred is the guard: the tests pinned the table one name at a time
+(`assert "evidence" in _LAZY_SUBMODULES`), so each fix covered exactly the name
+someone had already thought of. The check now DERIVES the expected set from the
+package directory with `pkgutil.iter_modules` and asserts both directions, and
+a second test resolves each submodule in a fresh interpreter so the
+order-dependence itself is pinned rather than the symptom.
+
+
 **`fisher_information(include_prior=True)` added the prior's curvature to
 every OFF-DIAGONAL entry as well, for a scalar `prior_std` against a vector
 latent.** The curvature was built as `jnp.diag(reshape(1 / prior_std**2,

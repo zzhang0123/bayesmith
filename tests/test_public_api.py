@@ -399,3 +399,72 @@ def test_reaching_the_diagnose_layer_is_what_imports_jax_not_importing_bayesmith
         [sys.executable, "-c", code], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_every_submodule_is_reachable_after_a_bare_import():
+    """``import bayesmith`` then ``bayesmith.<anything>`` -- DERIVED, not listed.
+
+    The lazy attribute machinery makes a submodule reachable only if its name
+    appears in ``_LAZY_SUBMODULES``. Three names were missing at once
+    (``optimize``, ``amortize``, ``distributions``) and the suite could not see
+    it, because the tests around this one pin the table NAME BY NAME:
+    ``assert "evidence" in bayesmith._LAZY_SUBMODULES``. Every such assertion
+    is satisfied by a table containing exactly the names someone already
+    thought of, so each fix added one line and covered nothing new. Three
+    separate guards, and the hole stayed open.
+
+    So this derives the expected set from the filesystem and asserts BOTH
+    directions. A module added to the package is covered before anyone
+    remembers to be; and a name left in the table after its module is deleted
+    is caught too, which a one-way check would not do.
+
+    The failure mode it closes is worse than a plain absence, because it is
+    ORDER-DEPENDENT: ``bayesmith.fit`` resolves through ``_LAZY_ATTRS`` and
+    imports ``bayesmith.optimize`` as a side effect, so ``bayesmith.optimize``
+    raised ``AttributeError`` before that line and succeeded after it.
+    """
+    import importlib
+    import pkgutil
+
+    import bayesmith
+
+    on_disk = {
+        name
+        for _, name, _ in pkgutil.iter_modules(bayesmith.__path__)
+        if not name.startswith("_")
+    }
+    listed = set(bayesmith._LAZY_SUBMODULES)
+
+    assert on_disk == listed, (
+        "the lazy-submodule table and the package's own contents disagree: "
+        f"on disk but not listed {sorted(on_disk - listed)}; "
+        f"listed but not on disk {sorted(listed - on_disk)}"
+    )
+
+    # ... and listing a name is not the same as it resolving. Checked by
+    # identity against the real module, the way the older guards do it: a
+    # `__getattr__` returning some other object would pass a `hasattr`.
+    for name in sorted(on_disk):
+        assert getattr(bayesmith, name) is importlib.import_module(
+            f"bayesmith.{name}"
+        ), name
+
+
+def test_a_submodule_resolves_without_touching_anything_else_first():
+    """The order-dependence itself, pinned.
+
+    In a FRESH interpreter, with nothing else touched: the attribute must be
+    there. Run in a subprocess because the check is about import state, and
+    this suite has by then imported most of the package.
+    """
+    import subprocess
+    import sys
+
+    for name in ("optimize", "amortize", "distributions"):
+        proc = subprocess.run(
+            [sys.executable, "-c", f"import bayesmith; bayesmith.{name}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, (name, proc.stderr[-800:])

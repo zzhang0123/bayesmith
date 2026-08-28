@@ -1,4 +1,4 @@
-"""What :func:`compile` produces: a partition, its evidence, and how to run it.
+"""What :func:`compile` produces: a partition, its reasons, and how to run it.
 
 This is the package's most important user experience: **a model says how it
 will be fitted, and why, before it is fitted.** Everything printed here was
