@@ -1,8 +1,8 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-28(第二十一次改写)· 交接自 **Wave B 的 `linear` 求解面
-> 与 `gls` 全模块两批切换**
+> **日期**:2026-08-28(第二十二次改写)· 交接自 **Wave B 的 `linear` 求解面
+> 与 `gls` 全模块两批切换,外加 CI 三件修复**
 > 之后的会话(前一次交接自 G5、G6 本体、D23、多数据集联合后验推导、架构叙事审计、
 > `evidence/`→`marginal/` 改名、D46)。
 > **0.5.0 已发布并核实上索引;历史重写已完成并强推;两仓已同步。**
@@ -65,13 +65,15 @@
 
 - **e-RHINO** 全套 **exit 0**(`-n 4 --ignore=tests/gui/e2e`,407 s),
   e2e 第二阶段 **21 passed**(69 s)。全套 **10143 passed**。**566 skipped**(其中 `tests/evidence` 是
-  x64 子会话)。README 计数 **10729**(守卫核过,数字取自它自己的失败消息);
-  拒绝普查 **254**;coverage **89.39 %** 实测(串行,`fail_under` **89**,
-  README 写截断后的 **89.3**,不是四舍五入);bayesmith 地板 **`>=0.5`**。
+  x64 子会话)。README 计数 **10734**(守卫核过,数字取自它自己的失败消息);
+  拒绝普查 **254**;coverage 本地 **89.39 %**、**CI 89.34 %**(串行;
+  `fail_under` **89** 且 **`precision = 2` 已设**,见 §四.一;README 写本地
+  截断后的 **89.3**,不是四舍五入);bayesmith 地板 **`>=0.5`**,**现在由
+  `tests/test_bayesmith_floor.py` 按能力断言**(版本号在本 checkout 里是假的)。
 - **bayesmith** 全套 **exit 0**(含 `tests/crosscheck/` **87 passed**,跨仓,
   读的是本地 e-RHINO 的 editable 安装);README 计数 **1530**;`0.5.0` 在 PyPI。
-- **两仓已推送并按远端核实**(2026-08-28):e-RHINO `610d106`、
-  bayesmith `38d6188` 之后 `git ls-remote` 两仓 `ahead=0`;
+- **两仓已推送并按远端核实**(2026-08-28 收尾):e-RHINO **`a7bbd4f`**、
+  bayesmith **`88f4505`**,`git ls-remote` 两仓 `ahead=0`,两棵树干净;
   本页这次改写与 `gls` 开波页在其后。
   **CI 全绿,四个 job 逐个核过**:rheplicant `Tests` run **33180929073**
   (`610d106`)的 `Suite (Python 3.12)` ✅ 与 `Coverage (serial)` ✅
@@ -82,7 +84,7 @@
   **用 `git ls-remote` 数,不要读本地 `origin/main`。**
   推送顺序:**e-RHINO 先,bayesmith 后**(bayesmith 的 Seam job checkout 的是
   `e-RHINO@main`)。
-- 执行页共 **46** 份(含本页),探针 **17** 个。**登记簿 D7–D54**;
+- 执行页共 **46** 份(含本页),探针 **18** 个。**登记簿 D7–D54**;
   未裁决只剩 **D39**。**D19 的延期部分已于本会话结清。**
 
 **最近一次会话(2026-08-28)落地一批:Wave B 的 `linear` 求解面**——
@@ -210,6 +212,38 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
 上 success,重写自 `d90028f` 起就在远端),不是当次 `Coverage` 的结论
 ——那个 job 与重写是否可信无关。删除前逐条核过:远端 tip 是本地 HEAD 的祖先,
 两个 ref 都指向 `b2ef299`(重写前)。**这一行从此不再是待办。**
+
+### 一之二、coverage 门槛:声明 89、实际把关 88.5,已修(2026-08-28 收尾)
+
+**三件耦合的事,按发现顺序**:
+
+1. **门槛没在把关。** `coverage` 比较的是**按 `[tool.coverage.report] precision`
+   四舍五入后**的总数,而 `precision` 未设、默认 **0**:
+   `should_fail_under(88.96, 89, 0)` 是 `False`,因为 `round(88.96) == 89`。
+   所以 89 的地板实际在 **88.5** 把关。
+2. **而且日志天天说谎。** pytest-cov 用**未四舍五入**的数字打印它自己那行,
+   于是每一次 Coverage job 都以
+   `FAIL Required test coverage of 89.0% not reached. Total coverage: 88.96%`
+   结尾**然后退出 0 并标绿**——连续三次 88.99 / 88.97 / 88.96,全绿,
+   最早的一次在本程序开始之前。**打印的那个数和判决的那个数不是同一个。**
+3. **CI 比本地低的原因,我第一次写错了。** 交接页与我抄进 `CLAUDE.md` 的说法是
+   「`MomentRFI` 在 CI 装不上」。**`MomentRFI` 本地和 CI 都没装**,解释不了任何
+   差异。**逐文件差分**才给出真相:132 条差距 = `platform_darwin`(67)对
+   `platform_linux`(57)的**不可约**净 10 条,加上 **118 条 GUI**——而后者只因
+   `tests/gui/test_session_api.py` 的 `pytest.importorskip("httpx2")`,
+   **`httpx2` 在 `gui-react` extra 里而 CI 装的是 `gui`**。
+
+**处置**:`precision = 2`(让打印的数与判决的数一致)+ 两个 CI job 的安装行补
+`gui-react`(装**测试**依赖,不动 `gui` 的运行时语义——`gui` 故意排除 `httpx2`,
+它自己的注释说明了理由)。
+
+**实测验证**:预测 89.35 %,实测 **89.34 %**(差一条语句);拿回 **117** 条;
+`gui/api.py` 从 **64 % 回到 95.02 %**,与本地一致;那行 `FAIL` **消失**;
+两个 job 全绿。**门槛第一次真正把关,当前余量 0.34 个百分点。**
+
+> 留给下一位的一句:**汇总数字只能告诉你有问题,能被行动的信息全在分解里。**
+> 「差 10 条语句」是个真数字,但照它去补测试补的是别的地方,那 118 条会继续
+> 沉默地缺着。逐文件相减花了一分钟。
 
 ### 二、~~G15 的 rheplicant 一行~~ —— **已完成(D48)**
 
