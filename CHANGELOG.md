@@ -1,6 +1,27 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 -- 2026-08-28
+
+Carries everything the migration had left that did not itself need a release:
+the last of P2 (`optimize`, the complex face of the Fisher surface, the
+partition executor's three completions, the measured-kappa diagnostic), plus
+`evidence.chain`, `exact.reduced_basis`, `amortize`, the evidence consumption
+surface, and `local_block(priors=True)`. The release gate is what makes this a
+number rather than a milestone: rheplicant's Wave B, C and D cannot wire onto
+any of it until it is on the index, and `local_block(priors=True)` in
+particular is holding a one-line change in rheplicant's `uncertainty` that has
+been written and waiting since Wave A.
+
+Minor rather than patch, and for the reason 0.3.0 and 0.4.0 took the same
+position: two defects below CHANGE VALUES a caller could have been reading.
+The prior-curvature broadcast returned a symmetric, finite, plausible matrix
+whose off-diagonals were wrong -- measured 0.25 too large on a (3,) block at
+`prior_std = 2.0` -- and `compress` returned a term whose `information()` was
+finite and well conditioned while its `target` was NaN. Both are fixes; both
+are behaviour changes; under 0.x that belongs in the minor position.
+
+Nothing here is breaking in the API sense. Every new name is additive, every
+new keyword defaults to the old behaviour, and no existing signature changed.
 
 ### Fixed
 

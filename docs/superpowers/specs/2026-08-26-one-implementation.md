@@ -216,6 +216,14 @@
   `reason` 变必填),而 0.x 下破坏性变更属于 minor 位。把它发成 0.2.1 会让一个
   破坏性变更藏在 patch 位下,这是「静默产出错答案」的那一侧;铁律 5 关心的是
   **发布先于依赖**,版本号的选择本就是本行的职责。
+  **【版本号已定 2026-08-28:那一版是 `0.5.0`;owner 于 2026-08-28 授权「你 propose
+  一个新版本号,我都 OK」。】** 取 minor 而非 patch 的理由与 0.3.0 / 0.4.0 同一条:
+  `Unreleased` 里**没有** `Breaking` 段(每个新名字都是加法,每个新关键字默认不变,
+  没有签名改动),但两条 `Fixed` **改变了调用方可能一直在读的数值**——先验曲率广播
+  (实测在 `prior_std = 2.0` 的 (3,) 块上每个非对角大 0.25)与 `compress` 的掩码缺陷
+  (`information()` 有限良态而 `target` 是 NaN)。0.x 下这属于 minor 位。
+  **`pyproject.toml` 与 CHANGELOG 已经改好并提交**(套件 1523 passed exit 0),
+  所以发布日只剩 `git tag v0.5.0 && push` 加索引核实——**而推 tag 仍然要 owner 在场**。
 - **D14 — 分区执行面的完形(G10 的范围)。**(v2 前提已修正。)
   bayesmith **已有**执行器:`sample_factors(graph, plan, key)` 逐块扫描
   `FactorPlan`,块可手工构造。缺的是三件:(i) **每 sweep 诊断钩子**
