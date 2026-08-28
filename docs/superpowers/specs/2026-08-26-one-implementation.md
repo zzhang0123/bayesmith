@@ -407,6 +407,43 @@
   **已知的、当前无守卫的**语义差。要正式采纳曲率判据,先得造出能分辨它的 fixture
   (下游密度持住的被选 latent),那是一次**语义升级**,届时在本行拍板。
   证据链:`2026-08-27-wave-A-sensitivity.md` §四。
+  **【本次委托下拍板,2026-08-28:采纳曲率判据,并补上守卫。】** fixture 造出来了,
+  而**造出来之后本行的框架就变了**:这不是一次「要不要升级」的选择,因为 Wave A 切换
+  `prior_sensitivity` 的那一刻**曲率判据就已经在跑了**。唯一还开着的问题是**它有没有
+  守卫**,而答案是没有。所以拍板的内容是「采纳」加「钉住」,不是「改变」。
+  **两个方向逐个量过,而它们的**可达性**不同**——这一点原行没有区分,是本次的新事实:
+  1. **远端接受、秩判据拒绝**(原行论证所依据的那个方向):在图里是真的
+     ——`child ~ Normal(parent, s)`,`child` 在选择之外,实测观测雅可比秩 **0 / 1**
+     而 `prior_sensitivity` 交回 shift **−0.1096**。**但本包声明不出来**:`Latent`
+     的 prior 是**声明期**建好的 numpyro 分布,参数是具体数组,没有 latent 可指。
+     实测 `dist.Normal(<一个 Latent>, 0.5)` **构造得出来**(numpyro 什么都收),
+     而 `.sample()` 抛 `TypeError: unsupported operand type(s) for +: 'Latent' and
+     ArrayImpl`。**构造成功不是可达性**——探针第一版正是这么读的,那是一条不会失败的
+     检查。
+  2. **远端拒绝、秩判据接受**:一个**普通的两参数近共线设计**,人人可达,而且**今天
+     就在跑**。实测经**本包自己的公开 API**:
+     `data = a·g + b·(g + sep·g²)`,noise 0.05,float64——
+
+     | sep | `identifiability` 秩 | `prior_sensitivity` |
+     |---|---|---|
+     | 1e-1 | **2 / 2** | 接受 |
+     | 1e-3 | **2 / 2**(满秩) | **拒绝** |
+     | 1e-5 | **2 / 2**(满秩) | **拒绝** |
+     | 1e-7 | 1 / 2 | 拒绝(两个判据一致,**不是**判别用例) |
+
+     中间两行就是这条语义差可达的全部:**秩判据会接受,而正在跑的判据拒绝。**
+  **守卫**:e-RHINO `tests/inference/test_d23_refusal_criterion.py`(10 例)。它**先
+  断言雅可比满秩**再断言拒绝——否则那条拒绝会是两个判据都同意的一次拒绝,这份文件就
+  什么也没钉住;并配一条 `sep=1e-1` 接受的基线,和一条「拒绝信息里说了雅可比不是理由」
+  (远端在两个判据分歧时报测得的谱,而不是借一个不成立的秩判决)。
+  **方向 1 保持登记,解除条件写在这里**:若本包的声明层哪天长出层级先验(一个 latent
+  的 prior 由另一个 latent 参数化),那个方向就变得可达,届时它需要自己的守卫。
+  **顺带更正一句被切换落在后面的模块 docstring**:`inference/sensitivity.py` 到今天
+  为止还写着「a rank-deficient selection is refused, and the rank comes from
+  `identifiability`」——那描述的是**被换掉的**判据。同一形状本程序已付过学费
+  (D21 的契约页 §5.2、附录 B 过期一整批)。
+  证据链:`2026-08-28-d23-two-criteria.md`;探针
+  `docs/probes/probe_15_d23_two_criteria.py`。
 
 - **D24 — `JeffreysPrior.information` 的行序:`sorted(over)` 还是 `over`(G13 接线时新增)。**
   rheplicant 按 **`sorted(over)`** 返回行列,并在自己的 docstring 里把这条写成一个
@@ -1442,10 +1479,12 @@ D31 的合法性是量出来的)。
 
 ## 附录 B — 拒绝文案清单
 
-> **P1 交付物,已回填(2026-08-27)。** 实测:`tests/inference/` 下共
-> **250** 个 `pytest.raises(..., match=...)` 站点。按抛出的异常类:
-> `ParameterSpaceError` **178**、`StateValidationError` **64**、
-> `RuntimeError` **4**、`Exception` **3**、`TypeError` **1**。
+> **P1 交付物,已回填(2026-08-27;2026-08-28 重测)。** 实测:`tests/inference/`
+> 下共 **252** 个 `pytest.raises(..., match=...)` 站点。按抛出的异常类:
+> `ParameterSpaceError` **179**、`StateValidationError` **64**、
+> `RuntimeError` **4**、`Exception` **3**、`TypeError` **2**。
+> (250 → 252 随 **D23** 的判别 fixture:曲率拒绝一条,加一条钉住
+> 「一个由别的 `Latent` 参数化的先验不是本层能表达的声明」的 `TypeError`。)
 > (244 → 250 随 `uncertainty` 后半:D29 的天花板 + D30 的类 + D31 的精度拒绝,
 > 全部由守卫报数。)
 >
@@ -1490,6 +1529,15 @@ D31 的合法性是量出来的)。
 |---|---|---|
 | 62 | `Exception` | `learning_rate must be > 0` |
 | 69 | `Exception` | `conjugate` |
+
+</details>
+
+<details><summary><code>test_d23_refusal_criterion.py</code> — 2 条(2026-08-28 由 <code>_sites()</code> 生成)</summary>
+
+| 行 | 类 | `match=` |
+|---|---|---|
+| 161 | `ParameterSpaceError` | `curvature` |
+| 217 | `TypeError` | `unsupported operand` |
 
 </details>
 
