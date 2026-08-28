@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D53;拍板后回填本行)
+## 二、裁决登记簿(D7–D54;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -343,6 +343,19 @@
   问题(`iterations`/`delta`/`converged` 三个可观测量会随起点动),而它**只能**对着
   rheplicant 自己钉住的数字量,那些数字不在本包这一侧。**本批因此没有改起点**,
   也没有把这条推迟藏在某人的记忆里。
+  **【延期部分结清,2026-08-28,Wave B 的 `gls` 批:起点不动。】**
+  按本行写死的判别条件逐条量过,而**第一次测量一文不值,值得记下来**:把近端
+  的种子换成远端的,44 条测试全绿——但两条硬钉的步数**都是地板**
+  (`MIN_REWEIGHTS=5`,以及一条显式的 `min_reweights: 8`),**地板看不见种子**。
+  把地板降到 1、让 `iterations` 成为真正的收敛步数之后再量:两个种子确实不同
+  (σ 在数据上 `[2.940, 3.074, 2.938, 3.230]` 对 σ 在先验均值上 `[3, 3, 3, 3]`,
+  相对差 **9.2%**),而 `iterations` **两侧都是 4**;`delta` 从 1.637e-07 变到
+  3.092e-07,两个都在舍入量级、都远低于容差,`converged` 不受影响。
+  方向另查:对着 float64 跑到不动点的 IRLS,**委托版 9.61e-08、被删的本地循环
+  1.055e-07**,委托版更接近;常数 σ 路径逐比特相同。
+  **因此不新增裁决项**——这一条从 2026-08-26 拍板、2026-08-27 修正前提、
+  2026-08-28 结清数值半边,三次都写在本行里。
+  证据链:`2026-08-28-wave-B-gls-opening.md` §5.1。
 - **D20 — 掩码的声明面(G1 落地时新增)。** §四 G1 只写了「观测掩码贯通
   exact/precision(inf-σ = 零权)」,没写**谁声明**。两个读法:(a) inf-σ 本身
   即声明——`precision_parts` 见到非有限 scale 就产出掩码协方差;(b) 节点上显式
@@ -1132,6 +1145,31 @@
   改为断言 `delta < eps`,并保留「两条路走到同一个解」那两行。
   **这与 2026-08-28 CI 分诊在 arm64/x86-64 上遇到的是同一个形状**,读法也相同。
   证据链:`2026-08-28-wave-B-linear.md`、`probe_17_linear_solve_seam.py`。
+
+- **D54 — `SWITCHED` 的别名表把 `test_noise_logdet.py` 记成了 `gls` 的 cross-check。**
+  **【自裁于委托之下,2026-08-28:改别名,`gls.py` 进 `SWITCHED`。这是一次判据改动,
+  所以走登记簿。】**
+  `tests/test_migration_records.py` 的别名表写着 `"gls": ("gls", "noise_logdet")`。
+  **实测该文件与 `gls` 无关**:4 个 test 函数,`iterative_gls` 出现 **0 次**,
+  四条全部比较对数行列式估计量——那是 **B1**,归 `plan`/`engines` 行;
+  `uncertainty` 也别名同一个文件(Fisher 那半),**那一条是对的**。
+  **这条别名在两个分支上都承重**,而两个方向都错:
+  1. `gls.py` 未切时,它断言「这个模块有 cross-check」——**用一个不测它的文件
+     满足了这个断言**,也就是说这条守卫对 `gls` 从来就是绿的、且绿得没有理由。
+  2. `gls.py` 一旦进 `SWITCHED`,同一条别名会反过来要求**删掉那个文件**
+     (「a switched module that still has a cross-check ... would go green
+     forever」)。**为了记录一次它从未守护过的切换,把 B1 的台账删掉。**
+  **选项**:(a) 不把 `gls.py` 记进 `SWITCHED`,让台账漏记一个已切模块;
+  (b) 改别名为 `("gls",)`,并把 `gls.py` 记进 `SWITCHED`。
+  **取 (b)**,理由有三:漏记正是风险登记里 **W7** 点名的失效形态;
+  别名的错误是**已实测的**,不是判断题;而且 (a) 会让第 1 条那个「绿得没有理由」
+  的断言继续存在。改后 `tests/crosscheck/` 里没有任何文件名含 `gls`,
+  于是 SWITCHED 分支的 `assert not found` 成立,`uncertainty` 那一条不受影响
+  (它仍然找得到 `noise_logdet`,而它**确实**该找到)。
+  **`gls` 的独立 oracle 不随之消失**:远端自己的
+  `tests/exact/test_gls.py::test_the_fixed_point_is_the_unbiased_estimator_not_the_gls_biased_one`
+  就是它,按铁律 2 的另一支**指认而非改籍**。
+  证据链:`2026-08-28-wave-B-gls-opening.md` §三 第 3 条与 §5。
 
 ## 三、P1 — 适配器基石
 

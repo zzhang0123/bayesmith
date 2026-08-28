@@ -86,6 +86,16 @@ SWITCHED = {
     # singular block's floor (`test_the_eigh_route_floors_the_singular_block_
     # to_effectively_zero`) -- all in `tests/diagnose/test_jeffreys.py`.
     "priors.py",
+    # 2026-08-28, Wave B. `docs/superpowers/specs/2026-08-28-wave-B-gls-opening.md`.
+    # `iterative_gls` delegates to `bayesmith.exact.gls`; two refusals stayed
+    # upstream because the seam erases what they read (the `NoiseModel`
+    # requirement) or because the far side raises a different class (the
+    # reweight bounds). It has no cross-check file to retire: the one the
+    # ledger named is B1's, which is a different row -- see the alias comment
+    # below, and D54. Its independent oracle lives here already as
+    # `tests/exact/test_gls.py::test_the_fixed_point_is_the_unbiased_
+    # estimator_not_the_gls_biased_one`, identified rather than re-homed.
+    "gls.py",
 }
 
 PAGED_TODAY = {
@@ -262,7 +272,21 @@ def test_every_paged_module_actually_has_a_cross_check_test():
             # module it came from -- recorded here rather than renaming
             # tests whose names are better than the mapping.
             "priors": ("priors", "jeffreys"),
-            "gls": ("gls", "noise_logdet"),
+            # `gls` USED to alias `noise_logdet`, and that was a
+            # mis-attribution rather than a naming convenience -- corrected
+            # 2026-08-28 (D54) when the Wave B switch tripped over it.
+            # Counted: `test_noise_logdet.py` holds FOUR test functions and
+            # `iterative_gls` appears in it zero times. All four compare
+            # log-determinant estimators, which is B1 and belongs to the
+            # `plan`/`engines` row; `uncertainty` below aliases the same file
+            # for the Fisher half and keeps it, correctly.
+            #
+            # The alias mattered because it is load-bearing in BOTH branches:
+            # while `gls.py` was unswitched it asserted a cross-check exists,
+            # and the moment `gls.py` entered SWITCHED it would have demanded
+            # that same file be deleted -- taking B1's ledger with it to
+            # record a switch it never guarded.
+            "gls": ("gls",),
             "uncertainty": ("uncertainty", "noise_logdet"),
             "sqrtinfo": ("sqrtinfo",),
             # `plan.py`'s comparison is of the DISPATCH layer, and the test

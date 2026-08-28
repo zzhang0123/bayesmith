@@ -7,6 +7,25 @@ with the Fisher row — see [uncertainty.md](uncertainty.md)) plus
 not_the_gls_biased_one` on this side. Page written 2026-08-25 from those
 tests' assertions, re-run on that date; the cross-checks predate this page.
 
+> **CORRECTION, 2026-08-28 (Wave B).** `rheplicant.inference.gls.iterative_gls`
+> **now delegates to `bayesmith.exact.gls`**, so the reweighting loop is no
+> longer two implementations. Two refusals stayed upstream and did not move:
+> the `NoiseModel` requirement, because the far side takes a `sigma_of`
+> callable and cannot recognise one past the seam, and the
+> `min_reweights <= max_reweights` bound, because the far side carries that
+> sentence word for word but raises `GraphError` where iron law 1 keeps
+> `ParameterSpaceError`.
+>
+> **D19's deferred half discharged with it: the start does not move.** Measured
+> against rheplicant's own pinned observables, the two seeds -- sigma at the
+> data against sigma at the prior centre, a 9.2% gap -- give the same
+> `iterations` (4) once the floor is lowered far enough for that number to be
+> a convergence count rather than `MIN_REWEIGHTS`. Evidence:
+> `docs/superpowers/specs/2026-08-28-wave-B-gls-opening.md` §5.
+>
+> §5 below is unaffected: it is about B1 and the likelihood, not about this
+> loop -- see the reading note there.
+
 **This page is unusual: its subject is a difference, not an agreement.**
 §三 B1 is a defect in rheplicant, and iron law 5 forbids aligning a new
 implementation to a defective one. So the acceptance is a *signed, sized*

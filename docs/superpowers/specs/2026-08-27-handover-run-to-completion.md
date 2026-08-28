@@ -1,7 +1,8 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-28(第二十次改写)· 交接自 **Wave B 的 `linear` 求解面切换**
+> **日期**:2026-08-28(第二十一次改写)· 交接自 **Wave B 的 `linear` 求解面
+> 与 `gls` 全模块两批切换**
 > 之后的会话(前一次交接自 G5、G6 本体、D23、多数据集联合后验推导、架构叙事审计、
 > `evidence/`→`marginal/` 改名、D46)。
 > **0.5.0 已发布并核实上索引;历史重写已完成并强推;两仓已同步。**
@@ -63,8 +64,8 @@
 ## 二、当前状态(2026-08-28 晚,实测,先复核再信)
 
 - **e-RHINO** 全套 **exit 0**(`-n 4 --ignore=tests/gui/e2e`,407 s),
-  e2e 第二阶段 **21 passed**(69 s)。**566 skipped**(其中 `tests/evidence` 是
-  x64 子会话)。README 计数 **10722**(守卫核过,数字取自它自己的失败消息);
+  e2e 第二阶段 **21 passed**(69 s)。全套 **10143 passed**。**566 skipped**(其中 `tests/evidence` 是
+  x64 子会话)。README 计数 **10729**(守卫核过,数字取自它自己的失败消息);
   拒绝普查 **254**;coverage **89.39 %** 实测(串行,`fail_under` **89**,
   README 写截断后的 **89.3**,不是四舍五入);bayesmith 地板 **`>=0.5`**。
 - **bayesmith** 全套 **exit 0**(含 `tests/crosscheck/` **87 passed**,跨仓,
@@ -81,8 +82,8 @@
   **用 `git ls-remote` 数,不要读本地 `origin/main`。**
   推送顺序:**e-RHINO 先,bayesmith 后**(bayesmith 的 Seam job checkout 的是
   `e-RHINO@main`)。
-- 执行页共 **46** 份(含本页),探针 **17** 个。**登记簿 D7–D53**;
-  未裁决只剩 **D39**(外加 `gls` 那一条**建议中的 D54**,见 §四.三)。
+- 执行页共 **46** 份(含本页),探针 **17** 个。**登记簿 D7–D54**;
+  未裁决只剩 **D39**。**D19 的延期部分已于本会话结清。**
 
 **最近一次会话(2026-08-28)落地一批:Wave B 的 `linear` 求解面**——
 四个公开求解名委托远端,**十二条拒绝逐条问过「过缝之后还到不到得了」**,
@@ -199,11 +200,12 @@ bayesmith Cross-check 33171200991  success
 理由比原来的好」:`Latent.__check_init__` 在构造期就拒绝形状不符。
 证据链:`2026-08-28-g15-rheplicant-discharge.md`、`probe_16_g15_discharge.py`。
 
-### 三、Wave B —— **`linear` 已切,`gls` 已开波(未切)**
+### 三、Wave B —— **`linear` 与 `gls` 都已切,下一批是 `plan`+`engines`**
 
 已做:开波仪式(`2026-08-28-wave-B-opening.md`)、**`linear` 求解面**
 (`2026-08-28-wave-B-linear.md`,**D52**、**D53**、`probe_17`)、
-**`gls` 开波仪式**(`2026-08-28-wave-B-gls-opening.md`,**无新裁决项**)。
+**`gls` 全模块**(`2026-08-28-wave-B-gls-opening.md`,**D19 延期部分结清**、
+**D54**)。`gls.py` **已进 `SWITCHED`**。
 
 `linear` 那一批的四件套齐备,要点(细节在那一页,这里只留下一位需要的):
 
@@ -220,33 +222,39 @@ bayesmith Cross-check 33171200991  success
   `tests/exact/test_solve.py` 里**指认**了既有的家。
 * **保持面到期提醒**:`gls.py` 借的 `linear._check_solve_arguments` 随 `gls` 到期。
 
-**`gls` 的开波仪式已做完**,`2026-08-28-wave-B-gls-opening.md` 是那一页。
-读它,因为它把这一批**缩小了两次**,两次都是「台账指着的东西不是它说的那个」:
+**`gls` 已切完,四件套齐备**,要点(细节见那一页 §5):
 
-1. **契约页 `gls.md` §5 会被读反。** 「bayesmith's iterative_gls does NOT carry
-   this bias」的主语是**远端**,不是两侧对比。**实测:近端也是 frozen-σ IRLS,
-   也落在 `mean(u)`**(三个 f 下分别近 16 785× / 89 861× / 424 500×)。
-   B1 住在**似然的对数行列式**里,归 `plan`/`engines` 行。契约页**没有说错**,
-   所以加的是**指路注**而不是更正——与上一批的两处**过期**处置相反,
-   **先分清是哪一种**。
-2. **`test_noise_logdet.py` 不是 `gls` 的 cross-check。** 台账写「17 条,与
-   Fisher 行共享」,而**数一下**:4 个 test 函数,`iterative_gls` 出现 **0 次**,
-   四条全是对数行列式估计量。**铁律 2 在这一批无事可做**,`gls` 没有专属
-   cross-check 文件可退役。
+* **分诊表是空的** —— 44 条 gls 测试第一次运行就全绿,一条没改;全套与切换前
+  **同一个数**。原因是上一批已经把 `_check_solve_arguments` 搬进了门面。
+* **两条拒绝留守**,理由不同:`NoiseModel` 那条是**缝抹掉了证据**(远端收
+  `sigma_of` 可调用对象),是 `linear` 那条「拒绝 NoiseModel」的**镜像**;
+  reweight 边界那条是**远端类不同**(`GraphError`,而它自己的注释说这是 misfit)。
+* **D19 的延期部分结清:起点不动。** 而**第一次测量一文不值**——44 条全绿,
+  但两条硬钉的步数**都是地板**,地板看不见种子。降低地板之后 `iterations`
+  两侧都是 4,`delta` 从 1.6e-07 到 3.1e-07(都在舍入量级)。
+  方向:对 float64 不动点,委托版 **9.61e-08**、旧循环 **1.055e-07**。
+* **变异集 14/14**(第一轮 13 杀)。唯一的幸存 N13(`reweight_tol` 不转发)
+  **不是「没有测试」**:远端用同一个公式算同一个默认值,所以调用方不声明时
+  丢掉转发**恰好等价**。照 **D50 自己的办法**处理——直接钉接缝,而 D50 钉的是
+  上一跳,本批新造的这一跳没人看着。
+* **D54:`SWITCHED` 的别名表把 `test_noise_logdet.py` 记成 `gls` 的
+  cross-check,而实测它与 `gls` 无关**(4 个函数,`iterative_gls` 出现 0 次)。
+  这条别名在两个方向上都错:未切时用一个不测它的文件满足了「有 cross-check」,
+  已切时会要求删掉 B1 的台账。已改为 `("gls",)`,`uncertainty` 那条不受影响。
 
-**切换前要裁决的只有一条,而它已经量过了(该页 §三点五)**:两侧循环
-**逐行相同**、三个常量相同,**差的是种子**——近端 `noise.std(observed)`
-(在数据上),远端 `rule(domain_centre(block))`(在先验均值上)。不动点相同
-(已量),所以收敛时的 `solution`/`noise_std` 不变;**变的是 `iterations`
-(`GLSResult` 的公开字段)与所有 `converged=False` 的用例**。
-建议的保守侧写在那一页:门面自己算种子。**若采纳,登记为 D54。**
+**下一批:`plan` + `engines`**(计划 §五 Wave B 行:验证与词汇留守,执行经
+G10)。已知三件:
 
-**另外两件**:(a) `gls` 借的 `linear._check_solve_arguments` 随本批到期;
-(b) 两侧 `GLSResult` 的字段布局不同(远端存 `precision` 并派生 `noise_std`,
-近端存 `noise_std` 数组),按铁律 1 门面要转回近端布局。
-
-再之后:`plan`+`engines`(D51 第 3 条的源文本 pin 在那一批到期,替代形态已写死
-在登记簿里)、`noise`/`likelihood` 工厂化。
+1. **D51 第 3 条的源文本 pin 在这一批到期**
+   (`test_the_package_guard_this_enum_mirrors_is_still_that_guard`,
+   `inspect.getsource(SamplingPlan._prepare)`),**替代形态已写死在登记簿里**
+   ——行为等价扫描,外加「加一个模式就要加一个候选」。
+2. **B1 在这一批到期**,而 `gls.md` §5 的最后一句说的就是它:
+   B1 must land first, or that comparison will fix the GLS-type target as the
+   reference。`test_noise_logdet.py` 的四条是 B1 的台账,**这一批才是它的归属行**。
+3. `engines.py` 的 `_conjugate_transition` 用 `eqx.filter_jit` 而不是 `jax.jit`,
+   而那是**正确性要求**(守卫的异常类),不是偏好——`test_conjugate_transition.py`
+   钉着它,本会话已把那条从单 key 改成扫 key。
 
 ### 四、Wave C
 
