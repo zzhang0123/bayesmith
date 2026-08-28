@@ -106,13 +106,13 @@ G15/G4/G3、D12 前置、G6 逐项登记、**G5**、**G6 本体(7 里的 6)**、
    `publish.yml` 走完 → **用 `/simple/` 或 `--refresh` 确认上索引**(发布日索引
    有三个答案,两个是过期的)→ e-RHINO 推送 → `git ls-remote` 双仓核实。
    **推送之后必须去看两个 workflow 的结论**,并预期它可能红(§八 末尾)。
-2. **重写历史去掉九份误提交的评审草稿**。脚本已备好并自带验证:
-   `scratchpad/purge-drafts.sh`。**Claude 跑不了**——`git filter-branch` 与
-   `git filter-repo` 都被 auto-mode classifier 拦下(对一个要强推的操作,这是
-   合理的默认)。owner 自己跑,或加一条 Bash 权限规则。
-   备份 tag `backup/pre-draft-purge-2026-08-28` 已就位;九份未跟踪的工作副本
-   已另存 scratchpad,**重写只删历史不删盘上的文件**。
-3. **推送本身是强推**(第 2 项之后):`git push --force-with-lease origin main`。
+2. ~~重写历史去掉九份误提交的评审草稿~~ **已完成 2026-08-28。** `860703d~1..HEAD`
+   的 22 个提交重写为 **21**(`f8a73eb` 只做删除,变空被剪掉),**重写后 HEAD 的
+   tree 与重写前逐字节相同**(`141f8b34…`),HEAD 可达的历史里九份**一处不剩**,
+   九份**未跟踪的工作副本原样保留**。旧对象只被两个本地 ref 持有:
+   `refs/original/refs/heads/main` 与 `backup/pre-draft-purge-2026-08-28`,
+   两者都不会被推送。**满意之后删掉备份 tag**:
+   `git tag -d backup/pre-draft-purge-2026-08-28`。
 
 ### 发布之后
 
