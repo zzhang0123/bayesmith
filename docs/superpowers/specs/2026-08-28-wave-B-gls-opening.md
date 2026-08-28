@@ -84,9 +84,53 @@ row (§四 4.2): **B1 must land first**」。
 2. **远端有 `check_prediction_dependence` 和 `_dependence_probe`,近端没有。**
    那是新能力,不是差异;要问的是门面暴不暴露它(保守侧:不暴露,
    因为公开面必须保持)。
-3. **跨仓 cross-check `test_noise_logdet.py` 的 17 条与 Fisher 行共享**
-   (`uncertainty.md` 也指着它)。按铁律 2 逐条改籍或指认,**不能随文件
-   消失**——而且因为它同时属于两行,退役它需要 `uncertainty` 那一行也同意。
+3. ~~跨仓 cross-check `test_noise_logdet.py` 的 17 条要按铁律 2 处置~~
+   —— **实测:不必,而这是本页第二处「台账指着的东西不是它说的那个」。**
+   交接页与契约页都把这个文件列为 `gls` 的 cross-check(「17 条,与 Fisher
+   行共享」),于是切 `gls` 看起来要连带处置它。**数一下**:该文件有
+   **4 个 test 函数**(参数化后 17 例),而 `iterative_gls` 在里面出现
+   **0 次**。四条全部是对数行列式估计量的比较——`Σd²/Σd`、二次式的根、
+   两者之比 `1+f²`、以及 σ 不依赖预测时那个 gap 归零的反空转控制。
+   **那是似然,是 B1,归 `plan`/`engines` 行**,和 `iterative_gls` 无关。
+   
+   于是 `gls` **没有专属的 cross-check 文件可退役**:契约页写的「Test」是
+   B1 那一行的测试,加上远端自己的
+   `tests/exact/test_gls.py::test_the_fixed_point_is_the_unbiased_estimator_not_the_gls_biased_one`。
+   铁律 2 在这一批**无事可做**,而这把批次的规模显著缩小了。
+   
+   **两处误导同一个形状**:§二 那处是「标题 + 主语让人读成两侧对比」,
+   这一处是「台账把一个文件挂在这一行下,而文件内容属于另一行」。
+   两处都不是错的记录,都是**会被读错的记录**,而分辨它们的办法一样:
+   **数它,不要读它**。
+
+## 三点五、切换前要裁决的那一条(已量,不是问题,是发现)
+
+两侧的循环**结构逐行相同**——同一个 `solve_at`、同一个 `step`、同一个
+`unfinished` 的两个合取、同一个 `not depends_on_prediction` 短路,连三个常量都
+一样(`MIN_REWEIGHTS=5`、`MAX_REWEIGHTS=100`、`REWEIGHT_TOL_EPS=8.0`)。
+
+**差的是种子。**
+
+| | 循环的第一个 σ |
+|---|---|
+| 近端 | `noise.std(observed)` —— 在**数据**上求值 |
+| 远端 | `rule(centre)`,`centre = domain_centre(block)` —— 在**先验均值**上求值 |
+
+后果分三层,按严重性:
+
+1. **不动点相同。** 已量(本页 §二 那张表 + 契约页 §5):两侧都是 frozen-σ IRLS,
+   都落在 `mean(u)`。所以**收敛时的 `solution` 与 `noise_std` 不受影响**。
+2. **`iterations` 会变。** 它是 `GLSResult` 的一个字段,而按铁律 1
+   「产品容器字段布局保持」它是公开面。**任何钉住步数的断言都要重读**
+   ——上一批(D53)已经因为不动点位置吃过一次这个亏。
+3. **不收敛时答案不同。** 循环被 `max_reweights` 截断时返回的是**路径上的某一点**,
+   而两条路径从不同的地方出发。`converged=False` 的那些用例因此**不是**
+   「同一个答案,不同的步数」。
+
+**保守侧(建议,未裁决)**:门面自己算种子,即把 `noise.std(observed)` 的结果
+作为第一个 σ 递过去,而不是让远端从先验中心起步。远端的 `sigma_of` 是一个
+可调用对象,所以这做得到;代价是门面里多一行,收益是 `iterations` 与不收敛
+用例都逐位不变。**若采纳,登记为 D54。**
 
 ## 四、留给下一位的一句
 

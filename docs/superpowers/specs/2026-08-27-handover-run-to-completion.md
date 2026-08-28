@@ -69,13 +69,16 @@
   README 写截断后的 **89.3**,不是四舍五入);bayesmith 地板 **`>=0.5`**。
 - **bayesmith** 全套 **exit 0**(含 `tests/crosscheck/` **87 passed**,跨仓,
   读的是本地 e-RHINO 的 editable 安装);README 计数 **1530**;`0.5.0` 在 PyPI。
-- **两仓各有未推送的提交**:按 `git ls-remote` 实测,e-RHINO 领先 **3**
-  (remote `d90028f`),bayesmith 领先 **1**(remote `9b923ef`),外加本页这次改写。
+- **两仓已推送并按远端核实**(2026-08-28):e-RHINO `610d106`、
+  bayesmith `38d6188` 之后 `git ls-remote` 两仓 `ahead=0`;
+  本页这次改写与 `gls` 开波页在其后。
+  **CI 在 `610d106`/`38d6188` 上:rheplicant `Suite` ✅、bayesmith `Seam` ✅、
+  `Cross-check` ✅;`Coverage (serial)` 本页写就时仍在跑**,下一位先看它。
   **用 `git ls-remote` 数,不要读本地 `origin/main`。**
   推送顺序:**e-RHINO 先,bayesmith 后**(bayesmith 的 Seam job checkout 的是
   `e-RHINO@main`)。
-- 执行页共 **45** 份(含本页),探针 **17** 个。**登记簿 D7–D53**;
-  未裁决只剩 **D39**。
+- 执行页共 **46** 份(含本页),探针 **17** 个。**登记簿 D7–D53**;
+  未裁决只剩 **D39**(外加 `gls` 那一条**建议中的 D54**,见 §四.三)。
 
 **最近一次会话(2026-08-28)落地一批:Wave B 的 `linear` 求解面**——
 四个公开求解名委托远端,**十二条拒绝逐条问过「过缝之后还到不到得了」**,
@@ -188,10 +191,11 @@ bayesmith Cross-check 33171200991  success
 理由比原来的好」:`Latent.__check_init__` 在构造期就拒绝形状不符。
 证据链:`2026-08-28-g15-rheplicant-discharge.md`、`probe_16_g15_discharge.py`。
 
-### 三、Wave B —— **`linear` 求解面已切,下一批是 `gls`**
+### 三、Wave B —— **`linear` 已切,`gls` 已开波(未切)**
 
 已做:开波仪式(`2026-08-28-wave-B-opening.md`)、**`linear` 求解面**
-(`2026-08-28-wave-B-linear.md`,**D52**、**D53**、`probe_17`)。
+(`2026-08-28-wave-B-linear.md`,**D52**、**D53**、`probe_17`)、
+**`gls` 开波仪式**(`2026-08-28-wave-B-gls-opening.md`,**无新裁决项**)。
 
 `linear` 那一批的四件套齐备,要点(细节在那一页,这里只留下一位需要的):
 
@@ -208,15 +212,30 @@ bayesmith Cross-check 33171200991  success
   `tests/exact/test_solve.py` 里**指认**了既有的家。
 * **保持面到期提醒**:`gls.py` 借的 `linear._check_solve_arguments` 随 `gls` 到期。
 
-**下一批 `gls`**,注意三件:
+**`gls` 的开波仪式已做完**,`2026-08-28-wave-B-gls-opening.md` 是那一页。
+读它,因为它把这一批**缩小了两次**,两次都是「台账指着的东西不是它说的那个」:
 
-1. `gls` 的内层解现在**已经**是远端的(`wiener_solve` 已委托),所以「一个包里
-   两个求解器」的风险已经消失,这也是 `linear` 先切的全部理由。
-2. 跨仓 cross-check `test_noise_logdet.py` 的 **17 条**与 Fisher 行共享,
-   按铁律 2 逐条改籍或指认,**不能随文件消失**。
-3. `iterative_gls` 的不动点在两侧停在**不同的地方**(D53:一侧 `delta=6.98e-08`、
-   一侧 `delta=0.0`),所以任何钉住「跑到第几步」「converged 是不是 False」的
-   断言在这一批都要重读一遍——**问它钉的是退出方式还是那个低于 eps 的性质**。
+1. **契约页 `gls.md` §5 会被读反。** 「bayesmith's iterative_gls does NOT carry
+   this bias」的主语是**远端**,不是两侧对比。**实测:近端也是 frozen-σ IRLS,
+   也落在 `mean(u)`**(三个 f 下分别近 16 785× / 89 861× / 424 500×)。
+   B1 住在**似然的对数行列式**里,归 `plan`/`engines` 行。契约页**没有说错**,
+   所以加的是**指路注**而不是更正——与上一批的两处**过期**处置相反,
+   **先分清是哪一种**。
+2. **`test_noise_logdet.py` 不是 `gls` 的 cross-check。** 台账写「17 条,与
+   Fisher 行共享」,而**数一下**:4 个 test 函数,`iterative_gls` 出现 **0 次**,
+   四条全是对数行列式估计量。**铁律 2 在这一批无事可做**,`gls` 没有专属
+   cross-check 文件可退役。
+
+**切换前要裁决的只有一条,而它已经量过了(该页 §三点五)**:两侧循环
+**逐行相同**、三个常量相同,**差的是种子**——近端 `noise.std(observed)`
+(在数据上),远端 `rule(domain_centre(block))`(在先验均值上)。不动点相同
+(已量),所以收敛时的 `solution`/`noise_std` 不变;**变的是 `iterations`
+(`GLSResult` 的公开字段)与所有 `converged=False` 的用例**。
+建议的保守侧写在那一页:门面自己算种子。**若采纳,登记为 D54。**
+
+**另外两件**:(a) `gls` 借的 `linear._check_solve_arguments` 随本批到期;
+(b) 两侧 `GLSResult` 的字段布局不同(远端存 `precision` 并派生 `noise_std`,
+近端存 `noise_std` 数组),按铁律 1 门面要转回近端布局。
 
 再之后:`plan`+`engines`(D51 第 3 条的源文本 pin 在那一批到期,替代形态已写死
 在登记簿里)、`noise`/`likelihood` 工厂化。
