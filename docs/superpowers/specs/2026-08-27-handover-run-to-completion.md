@@ -1,9 +1,10 @@
 # 交接 prompt — 把「全面移交」程序跑到完全结束
 
 > 与 kickoff 同目录、同被跟踪。使用方式:把 `---` 以下整段粘贴给新 session。
-> **日期**:2026-08-28(第十八次改写)· 交接自 **G5、G6 本体、D23、多数据集联合后验
+> **日期**:2026-08-28(第十九次改写)· 交接自 **G5、G6 本体、D23、多数据集联合后验
 > 的数学推导、架构叙事审计、`evidence/`→`marginal/` 改名、D46 复数拒绝** 之后的会话。
-> **0.5.0 已经备好,只差 owner 打 tag 与推送**(见 §四)。
+> **0.5.0 已发布并核实上索引;历史重写已完成并强推;两仓已同步。**
+> 本页 §四 是**剩余工作的完整盘点**,为 compact 之后接着做而写。
 
 ---
 
@@ -97,38 +98,128 @@ G15/G4/G3、D12 前置、G6 逐项登记、**G5**、**G6 本体(7 里的 6)**、
    cross-check 都保留。
 6. **D39** 已登记未裁决,但两个方向都已钉住,归 Wave D。**D23 已结清**(§四)。
 
-## 四、剩余工作
+## 四、剩余工作(2026-08-28 全量盘点)
 
-### owner 在场才能做的三件(唯一挡在前面的东西)
+### 〇、本次会话结束时的状态,先复核再信
 
-1. **打 tag 并推送 0.5.0**。`pyproject.toml` 与 CHANGELOG 都已就位,套件绿。
-   顺序照计划 §九 的 P0 形态:bayesmith 推送 → `git tag v0.5.0 && push` →
-   `publish.yml` 走完 → **用 `/simple/` 或 `--refresh` 确认上索引**(发布日索引
-   有三个答案,两个是过期的)→ e-RHINO 推送 → `git ls-remote` 双仓核实。
-   **推送之后必须去看两个 workflow 的结论**,并预期它可能红(§八 末尾)。
-2. ~~重写历史去掉九份误提交的评审草稿~~ **已完成 2026-08-28。** `860703d~1..HEAD`
-   的 22 个提交重写为 **21**(`f8a73eb` 只做删除,变空被剪掉),**重写后 HEAD 的
-   tree 与重写前逐字节相同**(`141f8b34…`),HEAD 可达的历史里九份**一处不剩**,
-   九份**未跟踪的工作副本原样保留**。旧对象只被两个本地 ref 持有:
-   `refs/original/refs/heads/main` 与 `backup/pre-draft-purge-2026-08-28`,
-   两者都不会被推送。**满意之后删掉备份 tag**:
-   `git tag -d backup/pre-draft-purge-2026-08-28`。
+- **bayesmith `0.5.0` 已在 PyPI**,`/simple/` 有 wheel 与 sdist;**干净 venv 装
+  `bayesmith>=0.5` 实测**:版本 0.5.0、`bayesmith.marginal` 可用、
+  `bayesmith.evidence` 可用且发 `DeprecationWarning`、深路径 `from
+  bayesmith.evidence.compress import compress` 可用、D46 拒绝在已发布的 wheel 里。
+  (装的时候用 `--no-cache-dir`/`--refresh`:pip 的缓存在发布日会说 0.4.0 是最新,
+  这是 CLAUDE.md 记的那条。)
+- **两仓已推送并核实**:`git ls-remote` 双仓 `ahead=0`。
+- **e-RHINO 历史已重写**:九份草稿从**远端**消失(浅克隆实测 0 commits),
+  重写后 tree 逐字节相同,九份未跟踪工作副本原样保留。
+- 套件:bayesmith **1544 passed / 0 skipped**;e-RHINO **10120 passed / 553 skipped**。
+- 登记簿 **D7–D47**;未裁决只剩 **D39**(两个方向已钉住,归 Wave D)。
+- **`SWITCHED` 只有三个模块**:`identifiability.py`、`sensitivity.py`、`priors.py`。
+  `numpyro_bridge` 与 `uncertainty` **各只切了一半**,故意不在里面,cross-check 保留。
 
-### 发布之后
+### 一、CI —— 唯一还没确认绿的东西,**下一位第一件事**
 
-1. **Wave B / C / D 的接线**;**G15 的 rheplicant 一行**。
-2. **`compress_reduced_basis` 归 Wave C**(D44),与 G4 余下三名同批。
-3. **P4 余项**(双岗已建好,剩 cross-check 随模块退役);**P5–P7**。
-4. **多数据集联合后验**:`2026-08-28-multi-dataset-joint-posterior.md` §9 列出真正
-   要新建的东西,最上游是 **`iota`——一个被声明的跨 graph 身份映射**,理由是本包
-   已经做过的决定(`NodeRef._owner` 拒绝来自另一次 `trace()` 的 handle),从名字
-   相等推断共享 latent 会反转它。§10 是未决问题与能了断它们的测量。
-5. **架构审计放行但未做的**:`2026-08-28-architecture-narrative.md` §7 的表里还剩
-   R9(3 处 `Section 9.3` 解不到,而本轮**变糟了**——新推导页有一个主题不同的
-   `### 9.3`)与 R10 的兜底文档(`docs/plan-codes.md`,随 sdist 发)。
-   §8「不建议动的」7 条**是结论,不是待办**。
+- **bayesmith `Cross-check`:绿**(2026-08-28)。
+- **bayesmith `Seam`:2026-08-27 与 08-28 两次红,原因已查明并已修**——它 checkout
+  的是 `e-RHINO@main`,而修 flat-prior 断言的那个提交(`5ab926d`,「the flat-prior
+  chain assertion was a property of one machine」)当时还没推。e-RHINO 推送之后已
+  **手动重跑**,结果**本会话结束时尚未出来**。**去看它。**
+- **e-RHINO `Tests`:2026-08-27 两次红**,本次推送触发的那次结束时仍在跑。
+  **去看它**;若仍红,大概率是同一条 flat-prior(现已修)或另一条,按
+  `2026-08-27-ci-flat-chain.md` §三 的判别法处理:**问这条断言钉的是大效应还是
+  小差值**。
+- 清理:`git tag -d backup/pre-draft-purge-2026-08-28` 与
+  `git update-ref -d refs/original/refs/heads/main`(**满意之后再删**;删掉之前
+  旧历史仍可从这两个 ref 找回)。
 
-**接线时已经量好、不要重量的七件**(见上一版,未变)。
+### 二、G15 的 rheplicant 一行 —— **现在解锁了,最便宜的一件**
+
+0.5.0 载着 `local_block(..., priors=True)`,所以那条有解除条件的延期到期了:
+删 `uncertainty._prior_precision`(`src/rheplicant/inference/uncertainty.py:284`),
+把 `:584` 改成 `include_prior=space is not None`,**并把 e-RHINO 的地板从
+`bayesmith>=0.4` 提到 `>=0.5`**(`pyproject.toml:73`)。
+**那一批必须重跑 e-RHINO 全套并重新量一件事**:G9 全量修掉的先验广播缺陷今天
+到不了门面(门面永远传 `include_prior=False`),这条改动**正是让它够得到的**。
+
+### 三、Wave B —— 先决**全部满足**,是下一个大波
+
+`linear` 求解面、`gls`、`plan`+`engines`(验证与词汇留守,执行经 G10)、
+`noise`/`likelihood` 工厂化。D7/D8/D14 已拍,G1/G2/G9/G10/G12/G14 已落地,
+D17 协议已跑完。**P1 例 6/10 的完整形态(梯度块 estimate、每 sweep 诊断)在本波
+验收。** config 侧钉内部件的三个测试(`MIN_DRAWS` 等常量、`SamplingPlan` 源文本
+pin)本波**显式重谈**,走登记簿。
+
+### 四、Wave C
+
+`calibrate`、`npe`、`reduced_basis`。另有:
+1. **`compress_reduced_basis`**(**D44**)与 G4 余下三名(`score_directions`、
+   `build_reduced_basis`、`basis_fidelity`)同批。
+2. **`npe` 接线按 D42**:三名委托、`simulate_pairs` 留守。**那一批要量的一件**:
+   rheplicant 的 `NeuralPosterior` **类身份**有没有被测试钉住——若钉住,门面要包装
+   而不是重导出(D12 在证据容器上的同一形状)。
+3. **D33 的分诊**:`fit` 拒绝发散的下降,而 rheplicant 的 calibrator 今天**交回
+   NaN**;有没有测试依赖它,**今天没有量过**,是那一批的第一件事。
+4. **`min_scale` 的两层**:上游 config 拒绝 `min_scale: 0`,而 bayesmith 只拒绝负值。
+   两者**不冲突**(上游更严),但要有人写下来。
+5. R2 清单:`reduced_basis` 的测试族**必须**在 x64 会话(D41 已经把这半个答案定死)。
+
+### 五、Wave D
+
+`chain` + 证据族七模块。另有:
+1. **D39 拍板**(归档 manifest 与二进制不绑定)。两个方向已钉住,解除条件写在行内;
+   若绑定,是一次 `_FORMAT_VERSION` 提升,两份 fixture 要按新版本重写并**保留旧的**。
+2. **要量的两件**(`2026-08-28-g6-consumption.md` §十):(a) `EpochResidual`/`HeldOut`
+   的类身份有没有被钉住;(b) `systematic_floor` 上游读 `memory` 并**微分**其先验
+   (`_prior_curvature`),而 bayesmith 的入口收现成的 `prior_fisher`——**那一层由谁算**。
+3. `marginal/diagnostics.py` 现在 **775 行**,项目上限 800。**下次往里加东西之前先拆。**
+
+### 六、P4 – P7
+
+- **P4**:双岗已建好(`seam.yml` + `crosscheck.yml`),剩下的是 **cross-check 随模块
+  退役**——每切一个模块,同批删它的 cross-check 文件,oracle 按铁律 2 改籍或指认。
+- **P5**:18 个 run kind 逐 `_KINDS` 冒烟;每批四件套附 extractor 往返。
+- **P6**:bayesmith 的发布列车**已走完** 0.1→0.5;**rheplicant 自己的发版还欠着**
+  (计划 §七:「程序结束前 rheplicant 发版清 385 提交旧账」)。
+- **P7 具名清单**:(a) e-RHINO 的 CLAUDE.md **与** AGENTS.md **成对**改(有测试逐字节
+  钉着);(b) README 计数 pin;(c) coverage 截断值 + `fail_under`;(d)
+  `_migration-to-bayesmith.md` 整篇;(e) `rheplicant/inference/__init__.py` 的模块
+  docstring(**今日三论点在终局全假**,而它是 106 名单门户);(f)
+  `tests/test_published_contracts.py`(27 条实测)与其 docstring;(g) bayesmith
+  README/CHANGELOG。
+
+### 七、两份新推导页留下的工作
+
+**`2026-08-28-multi-dataset-joint-posterior.md`**:
+- §9 是**真正要新建的东西**,最上游是 **`iota` —— 一个被声明的跨 graph 身份映射**。
+  理由是本包已经做过的决定:`graph/trace.py` 的 `NodeRef._owner` 拒绝来自另一次
+  `trace()` 的 handle,所以**从名字相等推断共享 latent 会反转它**。其余:列见证、
+  第二个 graph 级 likelihood factor slot、**realify 层(D46 的另一半)**、
+  从 rheplicant 移植的准入闸、nuisance 先验的类型分裂、Tier 1.5 的存储契约。
+- §7 是**拒绝清单**(12 条),每条都写了它保护哪个数学陈述。**7.1 已落地(D46)**,
+  其余 11 条未落地。
+- §10 是**未决问题 + 能了断它们的测量**,9 条。
+- §11 明确标了**哪些数字未验证**——引用它们之前先量。
+
+**`2026-08-28-architecture-narrative.md`** §7 表里放行但未做的:
+- **R9**:3 处 `Section 9.3` 解不到,而且**本会话让它变糟了**——新推导页有一个主题
+  完全不同的 `### 9.3`,所以在 bayesmith 里 grep "9.3" 会得到一个**自信的错误答案**。
+- **R10** 的兜底:一份随 sdist 发布的 `docs/plan-codes.md`(`src/` 里还有 ~80 处
+  计划代号;**不能盲清**——`tests/exact/test_condition_estimate.py:243` 断言
+  `"G14" in text or "D15" in text`,而那个测试在 sdist 里)。
+- §8 的「不建议动的」**7 条是结论,不是待办**:不要改 `diagnose/`(e-RHINO 生产代码
+  钉着它)、不要把 `optimize.py`/`amortize.py` 提升为子包、不要动 `sqrtinfo.py` 的
+  位置与 `information()` 的命名、不要为「全包一致」去补齐门面(40/81 是惯例不是事故)、
+  不要碰 `Graph.joint_prior: Any`。
+
+### 八、接线时已经量好、不要重量的七件
+
+- `fit` 收算好的 `step_sizes`;`_magnitude` 留 rheplicant。**两侧默认步长是否等价
+  没有量过**。
+- `condition_estimate` 两侧默认迭代数**相同**(都是 12),但这个数**改变答案**。
+- **D33**:见 §四.3。
+- **D19 的前提不成立**(实测):`floor=0` 的块在任何求解之前就被拒。
+- **G15 的那一行**:见 §二。
+- **Wave C 的 `npe`**:见 §四.2。
+- **Wave D 的证据族**:见 §五.2。
 
 ## 五、批次纪律(铁律 4,每批四件套)
 
