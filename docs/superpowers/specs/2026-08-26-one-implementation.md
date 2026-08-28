@@ -81,7 +81,7 @@
 7. **绑定契约不在本文重述**:模块契约 = 旧 spec §四 台账行 + 其
    docs/migration 页,开工先读。
 
-## 二、裁决登记簿(D7–D45;拍板后回填本行)
+## 二、裁决登记簿(D7–D46;拍板后回填本行)
 
 - **D7 — gradient 块两个出口的目标密度。** 差异属**块类型**(rheplicant
   plan.py 自己的警告框架):gradient 块的 sample 与 estimate 都在 GLS 味
@@ -881,6 +881,42 @@
   **两处 docstring 互指**,写明各自读的是什么,因为「同名不同题」的代价正是没人并排
   看过它们。
   证据链:`2026-08-28-g6-consumption.md` §三。
+
+- **D46 — `evidence/` 对复 latent 既不处理也不拒绝(推多数据集联合后验时发现)。**
+  本包的目标域是 visibility,而 visibility 是复的。`exact/` 与 `diagnose/` 早就
+  处理或拒绝复数——`exact/block.py::real_parts` 存在的理由逐字是「the map from
+  complex coefficients to data is R-linear but not C-linear」,`optimize.py` 有
+  `_refuse_complex`,`exact/fisher.py` 三处分支于 `is_complex`,`diagnose` 按 **D38**
+  保留拒绝。**`evidence/` 是唯一两样都不做的 kernel family**:实测
+  `grep -c complex src/bayesmith/evidence/*.py` 每个文件都是 **0**。
+  **后果是静默的错答案,不是异常。** `log_prob` 算 `-0.5*sum(residual**2)`——双线性型
+  `r^T r`;而复 QR 的 `Q` 是**酉**的,保 `r^H r` **不保** `r^T r`。`information()` 是
+  `factor.T @ factor`,**没有共轭**。最小复现(本次独立实跑核实,x64):
+  一个共享复标量,`R_1=[[1j]]`、`R_2=[[1]]`、`z=0`——
+
+  | 量 | 手算真值 | 实际 |
+  |---|---|---|
+  | `sum_i R_i^T R_i` | **0**(`(1j)^2 + 1^2`,无任何舍入) | `combine(...).information()` = **2.0** |
+  | `t1.log_prob + t2.log_prob` | `0j` | `combine(...).log_prob` = **-1.0** |
+
+  **绝对误差等于真值的全部**,没有 `StructureError`,没有警告。
+  **而且不是构造器滥用**:`compress` 本身接受复设计块,返回复 `factor` 配 float
+  `offset`(「常数都对」恰是读起来正常的那一半);`compress_epoch` → `marginalise`
+  全程也不拒绝,一个圆对称复高斯返回 `-8.33 + 3.17j` 对真值 `-26.18`——**实部错
+  17.85 nat,外加一个对数概率里的虚部**。realify 路线给 `-26.18`,吻合 `1e-12`。
+  **【登记,未裁决,2026-08-28】** 修法有两半,而**选哪一半是一次语义裁决,推导里
+  没有人替它做**:(a) 在 `SqrtInfo.__check_init__` **拒绝**复 `factor`/`target`,
+  另配一个 realify 层;(b) 在 `log_prob` 与 `information` 里加共轭
+  (`jnp.abs(residual)**2` 与 `factor.conj().T @ factor`)。
+  推导页倾向 **(a) + realify**,理由是 realify 的**列序本身是设计决策**,藏进
+  `log_prob` 会让它不可声明——而 `ComplexNormal`(0.3.0)已经为复 latent 规定过
+  一次列约定,两处约定必须是同一句话。**取 (b) 则要回答**:`information()` 返回的
+  Hermitian 矩阵与 `exact/fisher.py` 按实自由度铺开的 `2n x 2n` 布局(**G9 全量**)
+  是不是同一个对象。
+  **这条与 0.5.0 的关系要 owner 定**:它是一个**已存在**的缺陷(不是本轮引入),
+  加拒绝会**新拒今天被接受的输入**,按铁律 4(iv) 属「接受为修正」;但发版内容是
+  owner 的决定。
+  证据链:`2026-08-28-multi-dataset-joint-posterior.md` §7.1。
 
 ## 三、P1 — 适配器基石
 
