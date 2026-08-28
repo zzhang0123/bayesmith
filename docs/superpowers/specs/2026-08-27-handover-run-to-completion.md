@@ -383,13 +383,32 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
 `calibrate`、`npe`、`reduced_basis`。另有:
 1. **`compress_reduced_basis`**(**D44**)与 G4 余下三名(`score_directions`、
    `build_reduced_basis`、`basis_fidelity`)同批。
-2. **`npe` 接线按 D42**:三名委托、`simulate_pairs` 留守。**那一批要量的一件**:
-   rheplicant 的 `NeuralPosterior` **类身份**有没有被测试钉住——若钉住,门面要包装
-   而不是重导出(D12 在证据容器上的同一形状)。
-3. **D33 的分诊**:`fit` 拒绝发散的下降,而 rheplicant 的 calibrator 今天**交回
-   NaN**;有没有测试依赖它,**今天没有量过**,是那一批的第一件事。
-4. **`min_scale` 的两层**:上游 config 拒绝 `min_scale: 0`,而 bayesmith 只拒绝负值。
-   两者**不冲突**(上游更严),但要有人写下来。
+2. **`npe` 接线按 D42**:三名委托、`simulate_pairs` 留守。
+   **【已量,2026-08-29】`NeuralPosterior` 的类身份没有被钉住 —— 门面可以重导出。**
+   按 AST 数 `isinstance`/`issubclass`/`type() is`/`__name__` 四种写法:
+   **27 处引用、7 个测试文件,0 处身份钉。**
+   **反空洞:该匹配器在全套上对 74 个类命中**,其中包括证据层的
+   `CompressedLikelihood`(3 处 `isinstance`)——**也就是它独立复现了 D12 的发现**,
+   所以这里的 0 是答案,不是瞎。
+3. **D33 的分诊:【已量,2026-08-29】1 条真依赖,改写方式已知。**
+   方法是把 D33 已裁定的实现当变异体打进去,跑 8 个碰 calibrator 的文件(353 例)。
+   红了 2 条,只有 1 条是真依赖(`test_the_fixed_step_descent_really_does_diverge...`,
+   改成 `pytest.raises`);另 1 条是**探针顺手照出的真缺陷**——它的 fixture 在
+   calibrator 的默认 `lr=1e-2` 上发散,而它只数 `loss_fn` 调用次数、从不看拟合,
+   **已修**(e-RHINO `e01730e`)。判据已对齐真实现复核(**点**上挂、按**目标值**判)。
+   **rheplicant 侧不需要单独落**:bayesmith 已实现,接线时继承。
+4. **`min_scale` 的两层:【已量,2026-08-29,而结论比「不冲突」重】。**
+   不冲突是真的,但**上游拒绝的理由是假的**:`MIN_SCALE` 的注释与
+   `config/sections/npe.py::_positive` 都说 `min_scale: 0` 会让某个 component
+   塌到单个训练点、log 密度到无穷。**实测:scale 是 `softplus(raw) + min_scale`
+   (`NeuralPosterior._mixture`),而 softplus 严格为正**——`raw ∈ [-80, 80]` 上最小
+   `1.8e-35`,从不为 0。`create(..., min_scale=0.0)` 建得起来,在一个刻意可塌的
+   bank 上 `log_prob` 有限(**-3.6740**,默认是 -3.6689)。
+   bayesmith 的 `amortize.MIN_SCALE` 早已独立记下同一条并只拒负值。
+   **两处解释已更正(e-RHINO `0c9a2d5`),拒绝保留**,但改按窄理由:
+   「零地板不是地板」,而不是「它会坏事」——因为它不会。
+   **留给 owner 的一问**:这一层要不要跟 bayesmith 一样放行 `0`?放行会让今天被拒的
+   文档能加载,那是 config 面的改动,不是这个 checker 该自己做的。
 5. R2 清单:`reduced_basis` 的测试族**必须**在 x64 会话(D41 已经把这半个答案定死)。
 
 ### 五、Wave D
@@ -397,10 +416,14 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
 `chain` + 证据族七模块。另有:
 1. **D39 拍板**(归档 manifest 与二进制不绑定)。两个方向已钉住,解除条件写在行内;
    若绑定,是一次 `_FORMAT_VERSION` 提升,两份 fixture 要按新版本重写并**保留旧的**。
-2. **要量的两件**(`2026-08-28-g6-consumption.md` §十):(a) `EpochResidual`/`HeldOut`
-   的类身份有没有被钉住;(b) `systematic_floor` 上游读 `memory` 并**微分**其先验
+2. **要量的两件**(`2026-08-28-g6-consumption.md` §十):(a) **【已量,2026-08-29】
+   `EpochResidual`/`HeldOut` 的类身份没有被钉住,门面可以重导出——但答案比问题大:
+   这两个类名在整个测试套里出现 0 次。** 它们**是**被结构性地跑到的
+   (`epoch_residuals` 在 `test_epoch_residuals.py`、`held_out_z` 在
+   `test_coherent_bias.py`),而那些测试**按字段读**(`r.z`)。所以**字段布局是被钉住
+   的、类身份不是**——这正好落在铁律 1 已经要求保住的那一项上;(b) `systematic_floor` 上游读 `memory` 并**微分**其先验
    (`_prior_curvature`),而 bayesmith 的入口收现成的 `prior_fisher`——**那一层由谁算**。
-3. `marginal/diagnostics.py` 现在 **775 行**,项目上限 800。**下次往里加东西之前先拆。**
+3. `marginal/diagnostics.py` 现在 **779 行**(R9 加了 4 行;交接页原写 775,已按实测更新),项目上限 800。**下次往里加东西之前先拆。**
 
 ### 六、P4 – P7
 
