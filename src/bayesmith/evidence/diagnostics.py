@@ -751,6 +751,16 @@ def systematic_floor(
         # while the same dict reports the nan. `inf` is handled by the same
         # expression and correctly -- a campaign that constrains nothing is
         # not tighter than anything.
+        #
+        # **A NaN cannot reach this line from inside this function today, and
+        # that is measured rather than assumed**: the cholesky above raises on
+        # a non-finite information matrix, and it raises long before the
+        # inverse could overflow to inf (a separation of 1e-160 is already
+        # refused while 1e-12 still gives a finite covariance of order 1e12).
+        # The form is kept because `tightest_direction` is public and DOES
+        # return nan, and because the rule is right whatever forms the
+        # covariance -- but a mutation between the two spellings survives this
+        # suite, and pretending otherwise would be the more expensive error.
         report[name] = {
             "sigma": sigma,
             "floor": floor,

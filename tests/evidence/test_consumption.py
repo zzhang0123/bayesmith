@@ -333,19 +333,53 @@ class TestTemplateModes:
         distributed. Reading a row count off the first term -- which is all a
         term-based statistic can do -- gets the null wrong the moment the
         epochs differ in flagging.
+
+        **The raggedness has to be LARGE, and the first version of this test
+        got that wrong.** It used sixty epochs at dof 19 and one at dof 0, so
+        summing and multiplying differ by 19 out of 1140 -- 1.7 % -- and a
+        mutation that replaced the sum with ``n * summaries[0].dof`` moved
+        ``chi2_z`` from -0.57 to -0.96 and SURVIVED, comfortably inside a
+        band written for noise. Half the campaign at a third of the samples
+        separates them by a factor: summed 660 against 1140 multiplied, which
+        is the difference between a z of about zero and one of about -10.
         """
-        rows = [residual_summary(fitted_term(epoch_data(s)), precision()) for s in range(60)]
-        saturating = compress(
-            {"x": jnp.eye(4)},
-            jnp.array([1.0, 2.0, 3.0, 4.0]),
-            DiagonalPrecision(sigma=jnp.ones(4)),
-            {"x": (4,)},
-        )
-        rows.append(residual_summary(saturating, DiagonalPrecision(sigma=jnp.ones(4))))
-        report = template_modes(rows)
+        wide = [
+            residual_summary(fitted_term(epoch_data(seed)), precision())
+            for seed in range(30)
+        ]
+        # Same five columns, a third of the samples: dof 8 - 5 = 3 against 19.
+        narrow_x = np.linspace(0.0, 1.0, 8)
+        narrow_design = {
+            "a": jnp.asarray(np.stack([np.ones(8), narrow_x], axis=1)),
+            "n": jnp.asarray(
+                np.stack(
+                    [np.sin(2 * np.pi * narrow_x), np.cos(2 * np.pi * narrow_x), narrow_x**2],
+                    axis=1,
+                )
+            ),
+        }
+        narrow_prec = DiagonalPrecision(sigma=jnp.full((8,), SIGMA))
+        narrow = []
+        for seed in range(100, 130):
+            rng = np.random.default_rng(seed)
+            data = jnp.asarray(
+                np.asarray(narrow_design["a"]) @ rng.normal(size=2)
+                + np.asarray(narrow_design["n"]) @ (rng.normal(size=3) * 4.0)
+                + SIGMA * rng.normal(size=8)
+            )
+            narrow.append(
+                residual_summary(
+                    compress(narrow_design, data, narrow_prec, SHAPES), narrow_prec
+                )
+            )
+
+        assert wide[0].dof == 19 and narrow[0].dof == 3
+        summed = 30 * 19 + 30 * 3
+        multiplied = 60 * 19
+        assert multiplied > 1.7 * summed, "the fixture must separate the two rules"
+
+        report = template_modes([*wide, *narrow])
         assert report["chi2_dof"] is None, "a ragged campaign has no single dof"
-        # The total is 60 * 19 + 0; using the first epoch's 19 for all 61 would
-        # inflate the expected total by a whole epoch's worth.
         assert abs(report["chi2_z"]) < 4.0
 
 
@@ -537,12 +571,33 @@ class TestSystematicFloor:
         _, direction = tightest_direction(block)
         assert direction[int(np.argmax(np.abs(direction)))] > 0.0
 
-    def test_a_poisoned_block_reports_nan_and_is_refused_by_the_comparison(self):
-        """`not (sigma > floor)`, never `sigma <= floor`: NaN is False for both,
-        so the second form waves a poisoned campaign through while the same
-        dict reports the nan."""
+    def test_a_poisoned_block_reports_nan_rather_than_raising(self):
+        """NaN cannot be eigendecomposed -- ``eigh`` raises -- and a poisoned
+        campaign has to report ``nan`` rather than a linear-algebra error, so
+        that the caller's own comparison decides what to do about it."""
         width, direction = tightest_direction(np.array([[np.nan, 0.0], [0.0, 1.0]]))
         assert np.isnan(width) and direction is None
+
+    def test_information_that_is_not_positive_definite_is_refused(self):
+        """The reachable half of the poisoned-campaign question.
+
+        ``systematic_floor``'s comparison is written ``not (sigma > floor)``
+        rather than ``sigma <= floor``, because NaN is False for both and the
+        second form would wave a poisoned campaign through while the same dict
+        reported the nan. **Measured, that branch cannot be reached from
+        here**: a non-finite information matrix makes ``cholesky`` raise
+        first, and it raises long before the inverse could overflow to inf --
+        an eigenvalue separation of 1e-160 is already refused while 1e-12
+        still returns a finite covariance of order 1e12. So the NaN-safe form
+        is defence against a future change in how the covariance is formed,
+        not against an input, and a mutation between the two forms SURVIVES
+        this suite for that reason. What is reachable, and what this pins, is
+        the refusal itself.
+        """
+        with jax.enable_x64(True):
+            term = self._near_collinear()
+            with pytest.raises(StructureError, match="positive definite"):
+                systematic_floor(term, -np.eye(2) * 1e9, {"t": 0.1}, n_epochs=1)
 
     def test_the_crossing_epoch_is_computed_and_it_is_reached(self):
         """Not quoted: the extrapolation is checked by actually growing the
