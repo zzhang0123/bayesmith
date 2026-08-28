@@ -7,18 +7,27 @@ ordering constraint **"先落 B1"**, without which "the comparison fixes the
 GLS-type target as the reference".
 
 That constraint turned out not to be reachable here, and the measurement is
-this row's main result. B1 is a property of the BLOCK TYPE, not of the exit:
+this row's main result. B1 was a property of the BLOCK TYPE, not of the exit:
 
 * on a **conjugate** block both packages land on the unbiased estimator and
   agree to 9e-12, because frozen-sigma reweighting's fixed point is the
   unbiased one on both sides;
-* on a **gradient** block rheplicant lands on the GLS-type target -- 6.2483
-  against the unbiased 5.1046 -- which is B1, live, at the dispatch layer;
+* on a **gradient** block rheplicant landed on the GLS-type target -- 6.2483
+  against the unbiased 5.1046 -- which was B1, live, at the dispatch layer;
 * and bayesmith has no gradient-block point estimate to compare it against.
   A non-linear graph goes to NUTS, whose ``Normal(mu, sigma)`` carries its
   own ``-log sigma``. So the trap the row warns about cannot be sprung: it
   needs a second place that could drop the log-determinant, and there is
   not one.
+
+**B1 closed 2026-08-28** in e-RHINO's ``74fac09``, which this row's second
+bullet had been measuring since 2026-08-25 without anyone acting on it. The
+gradient block now lands at **5.0041**, on the unbiased side. Two things
+survive the fix and are why the bullets above keep their past tense rather
+than being deleted: the BLOCK-TYPE framing is what made the defect findable
+at all, and the third bullet's argument never depended on B1 -- one side of
+the comparison still does not exist, so this row still could not have fixed
+the wrong reference even had it wanted to.
 """
 
 from __future__ import annotations
@@ -426,24 +435,45 @@ def test_a_conjugate_block_lands_on_the_unbiased_side_on_both__sides():
         assert abs(got - dropped) > 0.15 * kept, (label, "landed on the GLS target")
 
 
-def test_a_gradient_block_lands_on_the_gls_target_and_here_there_is_no_door():
-    """B1, live, at the dispatch layer -- and why this row cannot fix it in.
+def test_a_gradient_block_now_lands_on_the_unbiased_side_too():
+    """B1, closed -- and this test is the record of both states.
 
     Same noise law, latent made non-linear (``mu = exp(w) x``) so
-    rheplicant takes its GRADIENT block. Measured: **6.2483**, against the
-    unbiased 5.1046 and the GLS-type closed form 6.2588. That is §三 B1's
-    "``plan.sample``'s gradient block targets a GLS-type objective",
-    confirmed on the ESTIMATE exit too -- so the property belongs to the
-    BLOCK TYPE, not to the exit, which is a sharper statement than the
-    spec's.
+    rheplicant takes its GRADIENT block.
 
-    bayesmith has nothing to compare: a non-linear graph has no exact
-    subgraph, so ``estimate()`` refuses by name and points at ``sample()``,
-    which goes through NumPyro, whose ``Normal(mu, sigma)`` carries its own
-    ``-log sigma``. There is no second place here that could drop the
-    log-determinant, so the reference cannot be fixed to the wrong target
-    by this comparison -- not because the comparison was careful, but
-    because one side of it does not exist.
+    **What this measured until 2026-08-28: 6.2483**, against the unbiased
+    5.1046 and the GLS-type closed form 6.2588. That was §三 B1's
+    "``plan.sample``'s gradient block targets a GLS-type objective",
+    confirmed on the ESTIMATE exit too -- so the property belonged to the
+    BLOCK TYPE and not to the exit, which is a sharper statement than the
+    spec's and is the finding this row contributed.
+
+    **e-RHINO's ``74fac09`` closed it**:
+    ``Conditioning.neg_log_likelihood`` is now ``0.5 * chi2 +
+    log_determinant`` and BOTH potential builders take it -- the
+    single-argument one the optimiser gets and the lifted one NUTS gets.
+    The block lands at **5.0041**. The 2.0% still between it and the closed
+    form is the prior, not a residue: the fixture declares ``w`` with
+    ``mu = exp(w) x``, so a ``Normal(0, 100)`` on ``w`` is a ``1/scale``
+    prior on the recovered scale. Which is why upstream's own guard asserts
+    the density IDENTITY rather than a landing place
+    (``tests/inference/test_potential_carries_the_logdet.py``), and why the
+    assertion below is a SIDE and not a value.
+
+    The old number is kept in this docstring on purpose. A cross-check
+    rewritten to match new behaviour, with no trace of what it used to
+    assert, cannot be audited -- and this row's whole contribution was
+    noticing that the estimate exit showed it too.
+
+    bayesmith still has nothing to compare, which is the other half and is
+    unchanged: a non-linear graph has no exact subgraph, so ``estimate()``
+    refuses by name and points at ``sample()``, which goes through NumPyro,
+    whose ``Normal(mu, sigma)`` carries its own ``-log sigma``. There is no
+    second place here that could drop the log-determinant, so the reference
+    could not have been fixed to the wrong target by this comparison --
+    not because the comparison was careful, but because one side of it does
+    not exist. That argument never depended on B1 and does not expire with
+    it.
     """
     with jax.enable_x64(True):
         x, data = _b1_arrays()
@@ -453,10 +483,12 @@ def test_a_gradient_block_lands_on_the_gls_target_and_here_there_is_no_door():
         with pytest.raises(NotImplementedError, match="no point estimate"):
             plan.estimate()
     assert diagnostics.engines == {("w",): "gradient"}, diagnostics.engines
-    # On the GLS-type side, and nowhere near the unbiased one.
-    assert theirs == pytest.approx(dropped, rel=0.01), (theirs, dropped)
-    assert abs(theirs - kept) > 0.15 * kept, (theirs, kept)
-    # And the plan says NUTS, which is the exit that carries the log-det.
+    # The two estimators must be far apart, or the side below means nothing.
+    assert abs(dropped - kept) > 0.15 * kept, (dropped, kept)
+    # On the unbiased side now, and nowhere near the GLS-type one.
+    assert abs(theirs - kept) < abs(theirs - dropped), (theirs, kept, dropped)
+    assert abs(theirs - kept) < 0.05 * kept, (theirs, kept)
+    # And the plan says NUTS, which is the exit that always carried the log-det.
     assert "NUTS" in str(plan)
 
 

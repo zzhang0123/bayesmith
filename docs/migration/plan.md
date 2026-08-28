@@ -17,7 +17,9 @@ ordering constraint **"先落 B1"**, without which *"the comparison fixes the
 GLS-type target as the reference"*.
 
 **That constraint turned out not to be reachable here, and finding out why
-is this row's main result.** See §5(a).
+is this row's main result.** See §5(a). **B1 itself closed on 2026-08-28**,
+three days after this row measured it — the row could not land it, but it is
+what located it.
 
 ## 1. Fixtures
 
@@ -80,7 +82,7 @@ estimate dropping its reweighting.
 
 ## 5. Intended differences
 
-**(a) B1 belongs to the BLOCK TYPE, not to the exit — and this side has no
+**(a) B1 belonged to the BLOCK TYPE, not to the exit — and this side has no
 second door.** This is sharper than the spec's own statement, and measured:
 
 | exit | lands on |
@@ -90,13 +92,35 @@ second door.** This is sharper than the spec's own statement, and measured:
 | rheplicant `plan.estimate`, **conjugate** block | 5.104558 |
 | bayesmith `plan.estimate()`, same model | 5.104558 |
 | rheplicant `plan.estimate`, **gradient** block | **6.248269** |
+| *the same, after B1 closed (2026-08-28)* | **5.004059** |
 | bayesmith, same non-linear model | **refuses** |
 
 So §三 B1's analysis of frozen-sigma reweighting — made about bayesmith's
 `iterative_gls` — is equally true of rheplicant's **conjugate** block: its
-fixed point is the unbiased estimator. The gap is the gradient block, on
+fixed point is the unbiased estimator. The gap was the gradient block, on
 the estimate exit as well as the sampling one, which is why the property is
 better stated of the block type.
+
+**And that is what got it fixed.** This row measured the gradient number on
+2026-08-25 and it sat unacted-on for three days; e-RHINO's `74fac09` closed
+it by making `Conditioning.neg_log_likelihood` carry `sum log sigma` and
+giving it to **both** potential builders — the single-argument one the
+optimiser takes and the lifted one NUTS takes, since fixing one alone
+rebuilds the same two-targets defect a layer down. The remaining 2.0%
+between 5.004059 and the closed form is the prior: the fixture declares `w`
+with `mu = exp(w) x`, so a `Normal(0, 100)` on `w` is a `1/scale` prior on
+the recovered scale. Upstream's guard therefore asserts the density
+*identity* rather than a landing place, and compares the potential against
+`to_numpyro_model`'s own `log_density` across the seam B1 named.
+
+One consequence needed adjudicating and is registered as **D55**: A49 makes
+`inference.noise.include_logdet` a required declaration, and it reaches only
+the `chi2` diagnostic. Closing B1 would have made a `false` declaration
+silently overridden at a plan exit — one silent inconsistency traded for
+another — so the plan exits refuse it by name instead. Threading it down was
+rejected because GLS is a point estimator and is not a posterior, so
+`plan.sample` has no coherent reading of `false`, and "one word, two
+meanings at two exits" is the defect B1 *is*.
 
 **Carried upstream — and as of 2026-08-28 it is on `main`.** e-RHINO's
 `7f03af1` rewrote `inference/plan.py`'s module docstring around this, with

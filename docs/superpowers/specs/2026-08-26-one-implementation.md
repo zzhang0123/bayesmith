@@ -1171,6 +1171,40 @@
   就是它,按铁律 2 的另一支**指认而非改籍**。
   证据链:`2026-08-28-wave-B-gls-opening.md` §三 第 3 条与 §5。
 
+- **D55 — B1 修好之后,`inference.noise.include_logdet: false` 无处安放。**
+  **【自裁于委托之下,2026-08-28:plan 两个出口**拒绝**该声明,不向下透传。】**
+  B1 的修法本身不是判断题(缺的项就是缺的),但它照出一件计划没预见的事:
+  config 的 **A49** 把 `include_logdet` 定为**必须显式声明**的键,理由写在拒绝
+  文案里——`false` 是「a DIFFERENT estimator, biased high by (1 + f^2)」。
+  而这个声明**今天只到 `chi2` 诊断**(`docs/config-inference.md` 自己写着
+  「`chi2` is the **first** consumer」),从不到 plan。
+  于是修好 B1 之前和之后,各有一格是错的,方向相反:
+
+  | 声明 | 修前的 plan | 只修 B1 之后 |
+  |---|---|---|
+  | `true` | GLS ✗(**这就是 B1**) | 全密度 ✓ |
+  | `false` | GLS ✓(碰巧对) | 全密度 ✗(**新的静默覆盖**) |
+
+  **只修 B1 是拿一个静默的不一致换另一个**,而后者更糟:它静默地推翻了一条
+  用户**明确写下**的声明,而 A49 这条检查存在的全部理由就是防止这件事。
+  **选项**:(a) 只修 B1,`false` 被静默覆盖;(b) 把 flag 透传进 `Conditioning`
+  与 `SamplingPlan`;(c) plan 两个出口**拒绝** `false`,并指出仍然honour它的路。
+  **取 (c)**,理由有三:
+  1. (b) 会让同一个词在两个出口意思不同——GLS 是个**合法的点估计**,但**不是
+     后验**,所以 `plan.sample` 对 `false` 没有连贯的解释。「同一个词在两个出口
+     意思不同」**正是 B1 本身**,拿它当修法是把病灶搬了个家。
+  2. (c) 不增加公共签名,也不新造 schema 的 A 码——A 码是 schema 层的东西,
+     为一个出口的不连贯造一个新码是把 B1 的范围撑大。拒绝写在
+     `sections/exits.py`,与 `_a29_estimate_takes_no_seed` 同处,那是先例。
+  3. (c) **可逆**:将来若真要透传,替换掉这条拒绝即可,而被拒绝过的人不会
+     因此拿到过错的答案。
+  **实测该组合在测试与文档里都没有被走过**(`include_logdet` 为 false 的
+  32 处引用里,config 侧只有 `exit_helpers.GCR_RADIOMETER` 与
+  `test_config_section_noise.py`,前者只喂 `conjugate.gcr`),所以这条拒绝
+  不推翻任何现存文档。反空洞对照:同一份文档写 `true` 时两个出口都照跑。
+  证据链:`src/rheplicant/config/sections/exits.py::_a49_is_not_honourable_by_a_plan`、
+  `tests/config/test_config_exits_plan.py::TestAPlanRefusesTheGLSDeclaration`。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:

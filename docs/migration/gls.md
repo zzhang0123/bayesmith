@@ -111,3 +111,26 @@ found it**; the correction is recorded in §三 B1 itself, marked
 
 Consequence for the pending `plan`/`engines` row (§四 4.2): B1 must land
 first, or that comparison will fix the GLS-type target as the reference.
+
+> **B1 is closed, 2026-08-28** — and the ordering constraint above was
+> discharged twice over, in opposite ways, which is worth separating.
+>
+> The `plan`/`engines` row ran **before** B1 landed and its
+> `docs/migration/plan.md` §5(a) records why that was safe: a non-linear
+> graph has no exact subgraph here, so `estimate()` refuses and `sample()`
+> goes through NumPyro's own `-log sigma`. There is no second place in this
+> package that could drop the term, so the comparison could not have fixed
+> the wrong reference — *not because it was careful, but because one side of
+> it does not exist*. That argument never depended on B1 and does not expire
+> with it.
+>
+> B1 then landed in e-RHINO's `74fac09`:
+> `Conditioning.neg_log_likelihood` is `0.5 * chi2 + log_determinant`, given
+> to **both** potential builders. The gradient block moved from **6.2483** to
+> **5.0041** against an unbiased closed form of 5.1046. What this page says
+> about `iterative_gls` is unchanged — it was never the biased side, and
+> nothing was done to it.
+>
+> One adjudication came with the fix and is registered as **D55**: a plan
+> exit refuses `inference.noise.include_logdet: false` rather than silently
+> overriding it, because GLS is a point estimator and is not a posterior.
