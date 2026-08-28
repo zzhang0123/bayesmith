@@ -435,7 +435,22 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
    (在微分点上曲率非有限)**一并留守**——远端从来看不到 prior 对象,
    证据被缝抹掉,是 **D48 的同一形状**。「在哪个点上微分的」这个参数同理:
    远端的入口没有这个概念。
-3. `marginal/diagnostics.py` 现在 **779 行**(R9 加了 4 行;交接页原写 775,已按实测更新),项目上限 800。**下次往里加东西之前先拆。**
+3. `marginal/diagnostics.py` 现在 **779 行**(R9 加了 4 行;交接页原写 775,已按实测更新),
+   项目上限 800。**下次往里加东西之前先拆。**
+   **【拆法已量,2026-08-29,但本次没拆——触发条件没到。】** 记下来免得下一位重新找:
+   * **缝在 §342 之前**,两组关注点是真的不同:
+     **A(45–332,约 290 行)** 逐 epoch 的残差族——`epoch_chi_square`、
+     `coherent_mode`、`refuse_undeclared_coherent_error`、`epoch_residuals`、
+     `refuse_mixed_templates`、`template_modes`;
+     **B(342–779,约 440 行)** campaign 级的宽度/地板族——`_campaign_arrays`、
+     `held_out_z`、`_shrinkage_table`、`shrinkage_power`、`shrinkage_report`、
+     `tightest_direction`、`systematic_floor`。
+   * **炸射面很小:全仓 12 处引用该模块路径**,集中在
+     `bayesmith/__init__.py` 的惰性映射(6 条)、`marginal/__init__.py`(docstring +
+     import)、`tests/marginal/test_consumption.py`(1 条)。
+     **顶层公开名不受影响**——它们走惰性映射,`bayesmith.systematic_floor` 不变。
+   * **本次不拆的理由**:这条债的条件是「**往里加东西之前**」,而本会话没往里加。
+     为重构而重构会在一次迁移中间平添审查面而不推进任何东西。
 
 ### 六、P4 – P7
 
