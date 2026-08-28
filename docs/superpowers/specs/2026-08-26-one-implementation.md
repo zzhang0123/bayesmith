@@ -1049,6 +1049,39 @@
   时该键**根本不出现**。这比数值括号**更强**——一个恰好与默认值相同的声明骗不过它。
   变异验证:从 `_GLS_KNOB_SPECS` 删掉 `reweight_tol` 一行,该测试逐名击杀。
   证据链:`2026-08-28-ci-triage.md`。
+- **D51 — config 侧钉 inference 内部件的三个测试(Wave B 开波,计划点名要「显式重谈」)。**
+  **【自裁于委托之下,2026-08-28:一条现在就搬,两条给出解除条件、留到 `plan` 切换那批。】**
+  计划 §五 Wave B 行写着这三条「本波显式重谈,走登记簿」。**逐条量过之后,三条不是
+  同一件事**:
+  1. **`test_the_defaults_come_from_the_package_and_not_from_here`
+     (`test_preflight_fitting.py`)。** 它带着
+     `assert (MIN_SWEEPS, DEFAULT_MAX_ITER) == (3, 100)`,而**实测:这是这两个值
+     在整个仓库里仅有的 pin**——`tests/inference/` 一处也没有。也就是说,唯一钉住
+     这两个数的东西,住在**消费它们的那一层**,而不是声明它们的那一层。
+     **这与 Wave B 无关也是缺陷**,所以现在就搬:新增
+     `tests/inference/test_plan.py::TestTheDefaultsTheConfigLayerQUOTES`(3 条),
+     config 侧只留「消息由常量派生」那一半(那本来就是它的主题),并留下指路注释。
+     顺带把 `MIN_DRAWS` 也钉成**派生**的而不是字面 4:经包自己的 `_halves`,
+     「两半各二」是方差存在的最小切分,少一个就不是二。
+  2. **`test_check_identifiability_is_a_closed_enum_read_from_the_package`。**
+     它比较 `_A25_CHECK_MODES == (False, CHECK_ONCE, CHECK_EACH_SWEEP)`——**这是
+     派生,不是 pin**,两边读同一批常量。`plan` 切换后只要这两个名字仍从门面导出
+     (铁律 1 要求公开名保持),它原样重放。**判定:留守,归「原样重放」列。**
+  3. **`test_the_package_guard_this_enum_mirrors_is_still_that_guard`——真正的
+     源文本 pin。** 它 `inspect.getsource(SamplingPlan._prepare)`,断言一行**逐字**
+     的守卫表达式。它存在的理由是对的,而且第 2 条做不到:值相等看不见 `plan.py`
+     里到来的**第四个**模式,因为两边比的是同一批名字。
+     **判定:留到 `plan` 切换那一批,解除条件写死在这里**——`_prepare` 是私名,
+     切换后它可能不存在、或那条判断住到远端去。届时的保守替代**不是删掉**,而是
+     换成**行为等价扫描**:对一串候选值(`False`/`True`/`0`/`1`/`'once'`/
+     `'each_sweep'`/`'banana'`/大小写变体/`None`/`2`)逐个比较「config 拒不拒」与
+     「包拒不拒」,两个判定必须一致。那比源文本对重排版稳健,对「第四个模式」的
+     强度则取决于候选表——所以候选表本身要写明:**加一个模式就要加一个候选**。
+  **顺带量到的一件小事**:`MIN_SWEEPS` 的 `#:` 注释说它是 `MIN_REWEIGHTS` 的
+  「a third the count」,而两者是 **3 对 5**(0.60)。改成陈述**成立的关系**
+  (一次 sweep 比一次 reweight 贵,所以问之前花得更少),而不是改一个比例数字
+  ——比例本来就不是设计。
+  证据链:`2026-08-28-wave-B-opening.md`。
 
 ## 三、P1 — 适配器基石
 
