@@ -179,6 +179,19 @@ optimize.py:118          "evidence a caller has"
 
 `evidence/` 的三处全是 `Section 9.3`，指向 e-RHINO 的 `docs/superpowers/specs/2026-08-04-streaming-evidence-design.md`，那份文档 `## 9. Diagnostics that can actually fire`（第 420 行）**没有 9.3 这个标题**，检索不到。**而且今天变得更糟**：`ffb46d5` 引入的 `docs/superpowers/specs/2026-08-28-multi-dataset-joint-posterior.md:1050` 现在有一个 `### 9.3 第二个 graph 级 likelihood factor slot`——**主题完全不同**。一个在 bayesmith 里 grep "9.3" 的读者现在会得到一个自信的错误答案。
 
+> **R9 已落地,2026-08-28。** 三处都改成**引用内容而不是引用编号**。
+> 追下去发现「Section 9.3」指的不是一个 `### 9.3` 标题,而是那一节**编号列表的
+> 第 3 项**(「a fixed-size (~100 byte) per-epoch residual summary: chi-square,
+> DOF, and the residual projected onto a handful of NAMED systematic
+> templates」)——所以任何 grep 都解不到它,不是因为文档改了,是因为那个编号
+> 从来就不是一个可检索的锚点。**而且那份文档在 e-RHINO 里是未跟踪的**
+> (`docs/superpowers` 被 gitignore),所以 clone 这个仓库的人根本够不到它。
+> 现在那句话**被引在 `ResidualSummary` 的 docstring 里**,另外两处指向它;
+> 本仓那个主题无关的 `### 9.3` 造成的「自信的错误答案」也在同一处点名了。
+> **顺带一笔**:`marginal/diagnostics.py` 从 775 行到 **779**(上限 800)。
+> 交接页说的「往里加东西之前先拆」**仍然欠着**——这次是一处必须做的更正,
+> 加了四行,不是新功能。
+
 **应该换成什么**：代码本身在正文里多数是**有用的**（`exact/precision.py:24` "exactly defect B1, where one engine dropped `sum log sigma`" 自带解释）。所以不建议全清。建议：(a) 清掉 6 处第一行；(b) 把 `factor.py:528` 的 `G12` 改成"（G12 note：sigma frozen at the block's current value）"这种**保留锚点、补上含义**的形式；(c) 修掉 3 处 `Section 9.3`；(d) 其余用一份随 sdist 发布的 `docs/plan-codes.md` 兜底。注意**不能盲清**：`tests/exact/test_condition_estimate.py:243` 有 `assert "G14" in text or "D15" in text`，断言的是 `bayesmith.exact.conditioning.__doc__`，而这个测试在 sdist 里。
 
 ---
@@ -294,7 +307,7 @@ pyproject.toml          → version = "0.5.0"
 | **R6** | `dispatch/factor.py:528`：把 "read this function's note on G12" 改成"保留 G12 锚点 + 补上含义"，**不是删除** | **SURVIVES（须修正）**：原理由"指向未发布的中文文档"是**假的**——那条 note 就在同一函数 docstring（`factor.py:454`），随 wheel 发布。缺陷是标签不透明，不是悬空引用。删除会切断 `factor.py:454` / `CHANGELOG.md` / `TestG12...` 四处交叉索引 | 一行 | 否 | **3** |
 | **R7** | 把 `chain.py` 的六个名字补进 `evidence/__init__.py` | **REJECTED**，我的实测支持驳回：门面缺口是**全包惯例**（40/81：`graph` 17/17、`bridge` 4/4、`dispatch` 7/9 含 `compile`），单修 `evidence` 会让它成为唯一穷尽的子包，制造一条在一处为真、四处为假的新声明；且它在改名决定之前把广告面从 27 扩到 33，其中 `chain_marginal`/`smooth` 正是与"evidence"冲突最狠的两个 | — | — | **改为**：R2 的 docstring 里写明 `chain` 在 `bayesmith` 顶层导出；门面规则若要立，须一次覆盖全部六个子包，且在改名之后 |
 | **R8** | 修 `exact/gibbs.py:19-24` 的散文（"never reads dispatch" → "no module in `exact` imports `dispatch` at module scope；`fisher.py` 在调用内借一个函数"）；给四处无注释的延迟 import 各加一行注释；加一个断言模块级子包 DAG 无环、且 `exact/` 不在模块级 import `dispatch/` 的测试 | 卷宗里那条"把 `prior_environment` 搬到 `graph/evaluate.py`"的版本被 **REJECTED**，我独立确认它**必然失败**：`_latent_centre`（`classify.py:108,130`）用 `exact.gaussian` 的 `gaussian_parts`/`node_shape`（`classify.py:45-46`），而 `exact/gaussian.py:52` 在模块作用域 import `graph.evaluate`——搬过去就是硬循环。这里保留的是被驳回提案里**唯一有价值的那一半**：那个测试在 HEAD 上原样就通过 | ~20 行测试 + 5 处注释/散文 | 否 | **3** |
-| **R9** | 修 3 处 `Section 9.3`（`evidence/compress.py:408`、`diagnostics.py:195,271`）；其余 8 处 `Section N.N` 至少注明指向哪份规范 | 卷宗里"11 处全解不了"被我推翻：8 处能解到 `docs/superpowers/specs/2026-08-23-p3b-dispatch-execution-design.md`；只有 `9.3` 解不了，**而且今天变糟了**——`ffb46d5` 新增的 `2026-08-28-multi-dataset-joint-posterior.md:1050` 有一个主题完全不同的 `### 9.3` | 3–11 行 | 否 | **3** |
+| **R9** ✅ **已做 2026-08-28** | ~~修 3 处 `Section 9.3`~~（`evidence/compress.py:408`、`diagnostics.py:195,271`）；其余 8 处 `Section N.N` 至少注明指向哪份规范 | 卷宗里"11 处全解不了"被我推翻：8 处能解到 `docs/superpowers/specs/2026-08-23-p3b-dispatch-execution-design.md`；只有 `9.3` 解不了，**而且今天变糟了**——`ffb46d5` 新增的 `2026-08-28-multi-dataset-joint-posterior.md:1050` 有一个主题完全不同的 `### 9.3` | 3–11 行 | 否 | **3** |
 | **R10** | plan codes：清 6 处第一行 + `factor.py:528`；其余用随 sdist 发布的 `docs/plan-codes.md` 兜底 | 卷宗里"全清 90 处"被 **REJECTED**，我确认了那条驳回的核心证据：`tests/exact/test_condition_estimate.py:243` 断言 `"G14" in text or "D15" in text`，断言对象是 `bayesmith.exact.conditioning.__doc__`，而这个测试在 sdist 里，盲清会让"sdist 自带测试跑绿"这条性质失效 | 6 处编辑 + 一份文档 | 否 | **4** |
 | **R11** | `Block.method` 的 docstring（`plan.py:341-342`）：补上 `"log-gcr"`，去掉"由 `Classification` 选择"的错误归因 | 卷宗里"抽一个共享五方法模块"被 **REJECTED**（`factor.py:80` 与 `gibbs.py:53-55` 各自写明某一行**故意缺席**，分歧本身就是规格；且 `FACTOR_METHODS[:2]` 的顺序是承重的） | 3 行 | 否 | **3** |
 | — | 把 `JeffreysPrior` 搬到顶层 `bayesmith/priors.py` | **REJECTED**：`bayesmith.priors` 会成为读者去找 `joint_prior`（在 `graph/trace.py`）和逐节点先验（节点的 `dist_fn`）的地方，而两者都不在里面——用一个窄的错架子换一个宽的假承诺；且垫片会让 `tests/test_public_api.py` 的身份断言变成恒真 | — | — | **不做** |

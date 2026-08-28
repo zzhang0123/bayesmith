@@ -192,7 +192,10 @@ def refuse_undeclared_coherent_error(
 def epoch_residuals(
     summaries: Sequence[ResidualSummary],
 ) -> tuple[dict[str, Any], ...]:
-    """Section 9.3's per-epoch table, in the order the summaries were given.
+    """The per-epoch table, in the order the summaries were given.
+
+    Per-epoch half of the design quoted in
+    :class:`~bayesmith.marginal.compress.ResidualSummary` (R9).
 
     Order is preserved rather than sorted by anything. For a chained campaign
     the archive order IS the time order, and a diagnostic that reordered it
@@ -268,7 +271,8 @@ def refuse_mixed_templates(
 def template_modes(summaries: Sequence[ResidualSummary]) -> dict[str, Any]:
     """Is there a fault shaped like one of the named templates?
 
-    The named half of section 9.3, and the counterpart to
+    Named-template half of the design quoted in
+    :class:`~bayesmith.marginal.compress.ResidualSummary` (R9), counterpart to
     :func:`coherent_mode`'s unnamed one. Neither substitutes for the other: a
     chi-square z needs no guess about what the fault looks like and therefore
     cannot say what it IS, while a named template says what it is and is

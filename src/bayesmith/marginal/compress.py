@@ -405,7 +405,18 @@ def _ravelled(shape: tuple[int, ...]) -> int:
 
 
 class ResidualSummary(NamedTuple):
-    """Section 9.3's hundred bytes: what one epoch's residual says, after the fit.
+    """A hundred bytes saying what one epoch's residual shows, after the fit.
+
+    The design this implements asks for "a fixed-size (~100 byte) per-epoch
+    residual summary: chi-square, DOF, and the residual projected onto a
+    handful of NAMED systematic templates", so that "a common mode then shows
+    as a nonzero MEAN at sqrt(N) significance with correct scatter". That
+    sentence is quoted rather than cited: it lived in a numbered list item of
+    an e-RHINO design note which is untracked there, so no reader of this
+    repository could reach it, and the "Section 9.3" this docstring used to
+    say resolved to nothing -- while THIS repository has since grown an
+    unrelated `### 9.3`, so grepping the number returns a confident wrong
+    answer (R9).
 
     Recorded at compression time because that is the last moment the raw data
     exists. A campaign keeps these and discards everything else, so a fault
