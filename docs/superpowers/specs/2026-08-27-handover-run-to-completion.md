@@ -59,94 +59,119 @@
    (与 AGENTS.md 逐字节一致,有测试钉着)与 `/Users/zzhang/projects/bayesmith/CLAUDE.md`。
    **两份都在 2026-08-27 补了第 (0) 条的第二半**,见 §六。
 
-## 二、当前状态(2026-08-28 实测,先复核再信)
+## 二、当前状态(2026-08-28 晚,实测,先复核再信)
 
-- **bayesmith** 套件 **1544 passed / 0 skipped** exit 0(298.3 s);`ruff` 干净。
-  **PyPI 上仍是 0.4.0**;**`pyproject.toml` 已是 `0.5.0`,CHANGELOG 已切好**,
-  发布日只差 `git tag v0.5.0 && push` 与索引核实。
-- **e-RHINO** **10120 passed / 553 skipped** exit 0(349.1 s)。README 计数
-  **10693**;拒绝普查 **252**;coverage floor **89**;bayesmith 地板 `>=0.4`。
-- **两仓提交未推送**。用 `git ls-remote` 数,不要读本地 `origin/main`。
-  实测于 2026-08-28、**在改写本页的提交之前**:e-RHINO 领先 **6**,
-  bayesmith 领先 **48**;两棵树干净。
-- 执行页共 **41** 份(含本页)。
+- **e-RHINO** 全套 **exit 0**(`-n 4 --ignore=tests/gui/e2e`,402 s),
+  e2e 第二阶段 **21 passed**(72 s)。**566 skipped**(其中 `tests/evidence` 是
+  x64 子会话)。README 计数 **10719**(守卫核过);拒绝普查 **253**;
+  coverage floor **89**;bayesmith 地板 **`>=0.5`**。
+- **bayesmith** 全套 **exit 0**(含 `tests/crosscheck/`,跨仓,读的是本地
+  e-RHINO 的 editable 安装);`0.5.0` 在 PyPI;工作树干净。
+- **两仓提交未推送**(owner 的推送规则:攒到全部任务做完两仓一起推)。
+  **用 `git ls-remote` 数,不要读本地 `origin/main`**。实测于本页改写之前:
+  e-RHINO 领先 **5**(remote `8fb9770a`),bayesmith 领先 **4**(remote `9043a708`);
+  两棵树干净。
+- 执行页共 **44** 份(含本页)。**登记簿 D7–D51**;未裁决只剩 **D39**。
 
-**已完成**:P0、P2a、D16、D17、P1、P2 余项全部、0.4.0 发布、Wave A 全部五模块、
-G15/G4/G3、D12 前置、G6 逐项登记、**G5**、**G6 本体(7 里的 6)**、**D23**、
-**多数据集联合后验的数学推导**、**架构叙事审计**、**`evidence/`→`marginal/`**、
-**D46**。**登记簿 D7–D47;未裁决只剩 D39**,两个方向都已钉住,归 Wave D。
+**本会话(2026-08-28 晚)落地四批**:
 
-**0.5.0 的内容已经定稿并全部落地。**
+1. **G15 的 rheplicant 一半**(**D48**)——解除是**四处**不是计划写的一处;
+   算术委托后与被删拼写**逐比特相同**;五条准入按 P1 总原则留守。
+2. **CI 全量分诊**(**D49**、**D50**)——六条红里 **一条是真缺陷**
+   (`_reject_a_foreign_block` 比较了一个非不变量),五条是守卫/环境。
+3. **Wave B 开波**——铁律 1 普查、铁律 7 契约阅读,读出**两处过期契约**,
+   其中一处关掉了 `CLAUDE.md` 记的那个「变异测试结构性盲点」的样本。
+4. **D51**——计划点名要「显式重谈」的三条 config 侧测试,逐条裁决。
+
+**已完成**:P0、P2a、D16、D17、P1、P2 余项全部、0.4.0 与 **0.5.0** 发布、
+Wave A 全部五模块、G15(**两侧都完成了**)、G4/G3、D12 前置、G6 逐项登记、G5、
+G6 本体(7 里的 6)、D23、多数据集联合后验推导、架构叙事审计、
+`evidence/`→`marginal/`、D46、**e-RHINO 历史净化**、**CI 六条全处置**、
+**Wave B 开波仪式**。
 
 ## 三、下一位会先撞到的几件事
 
-1. **一条缺陷形状,本程序至今出现八次,当成收尾检查项**:**守卫够不到它要守的那个
-   条件**。G10 的 W8、G14 的 X4、X4 的第一次修补、G3 的常数类、**G5 的 Z9**(断言读的
-   是**正在被优化的那个量**,所以符号翻转之后它通过得更漂亮)、**G6 的 M6**(「散兵
-   campaign」只散了 **1.7 %**)、**D23 探针第一版**(检查构造函数抛不抛,而 numpyro
-   从不抛)、以及 **D23 判别 fixture 的第一版**(第二列是第一列的标量倍数,于是四行
-   都是另一个方向的秩亏)。收工前问:**「这条守卫真的制造出它要防的那个情形了吗?」**
-2. **另一条**:**手加的总数**。能派生就不要手抄。G6 页第一版三个总数错了两个;
-   本会话给 bayesmith 补了 `tests/test_readme_count.py`,因为那个 README 的计数
-   **漂了 204 条、横跨六个批次**而没有任何东西会说。
-3. **一个幸存的变异有三种成因,不要当成一种**。本会话实测:**真缺口**(M6)、
-   **变异的是够不到的代码**(M11:`cholesky` 先抛,NaN 到不了那一行)、**等价变异**
-   (M12:`centred` 均值为零,两个写法是同一个斜率)。给后两种编 fixture 是更贵的错误。
-4. **退出码,又值了两次。** 本会话两次:harness 的完成通知说「exited with code 0」,
-   而 `run.exit` 说 `PYTEST_EXIT=1`,两次都真有一条红的。**把退出码写进自己的文件再读。**
-5. **两个模块只切了一半**(`numpyro_bridge`、`uncertainty`),都不在 `SWITCHED` 里,
-   cross-check 都保留。
-6. **D39** 已登记未裁决,但两个方向都已钉住,归 Wave D。**D23 已结清**(§四)。
+1. **一条缺陷形状,本程序至今出现十次,当成收尾检查项**:**守卫够不到它要守的
+   那个条件**。G10 的 W8、G14 的 X4、X4 的第一次修补、G3 的常数类、G5 的 Z9、
+   G6 的 M6、D23 探针第一版、D23 判别 fixture 第一版、**G15 顺序守卫的
+   monkeypatch(删掉它套件还是绿的,S1 第一轮 SURVIVED)**、
+   **`_quadratic_form` 的第三个系数(没有任何 fixture 在 `rho != 0` 处问过它)**。
+   收工前问:**「这条守卫真的制造出它要防的那个情形了吗?」**
+2. **本会话新增一条,和上面是一对**:**一条守卫可能对着正确的数据开火**。
+   `_reject_a_foreign_block` 在 x86-64 上抛 `StateValidationError` 指控「这条链被
+   打乱了」,而块是对的。**大效应不等于真缺陷,但它值得先查**——判别法
+   (`ci-flat-chain.md` §三)只告诉你哪些**不必**查。
+3. **手加的总数**:能派生就不要手抄。README 计数本会话被守卫抓了**四次**。
+4. **一个幸存的变异有三种成因**,不要当成一种(真缺口 / 够不到的代码 / 等价变异)。
+5. **退出码**:本会话 harness 又说了两次「exited with code 0」而 `run.exit` 是
+   `PYTEST_EXIT=1`。**把退出码写进自己的文件再读。**
+6. **两个模块只切了一半**(`numpyro_bridge`、`uncertainty`),都不在 `SWITCHED` 里。
+7. **`CLAUDE.md` 记的「变异测试结构性盲点」的那个实例已闭**(分支已并,按远端量过),
+   **教训未变**,并补了方法:**问一条绿守卫依赖着什么你从未变动过的东西,
+   并且用「量远端」来回答**。
 
 ## 四、剩余工作(2026-08-28 全量盘点)
 
-### 〇、本次会话结束时的状态,先复核再信
+### 〇、本次会话结束时的状态
 
-- **bayesmith `0.5.0` 已在 PyPI**,`/simple/` 有 wheel 与 sdist;**干净 venv 装
-  `bayesmith>=0.5` 实测**:版本 0.5.0、`bayesmith.marginal` 可用、
-  `bayesmith.evidence` 可用且发 `DeprecationWarning`、深路径 `from
-  bayesmith.evidence.compress import compress` 可用、D46 拒绝在已发布的 wheel 里。
-  (装的时候用 `--no-cache-dir`/`--refresh`:pip 的缓存在发布日会说 0.4.0 是最新,
-  这是 CLAUDE.md 记的那条。)
-- **两仓已推送并核实**:`git ls-remote` 双仓 `ahead=0`。
-- **e-RHINO 历史已重写**:九份草稿从**远端**消失(浅克隆实测 0 commits),
-  重写后 tree 逐字节相同,九份未跟踪工作副本原样保留。
-- 套件:bayesmith **1544 passed / 0 skipped**;e-RHINO **10120 passed / 553 skipped**。
-- 登记簿 **D7–D47**;未裁决只剩 **D39**(两个方向已钉住,归 Wave D)。
-- **`SWITCHED` 只有三个模块**:`identifiability.py`、`sensitivity.py`、`priors.py`。
-  `numpyro_bridge` 与 `uncertainty` **各只切了一半**,故意不在里面,cross-check 保留。
+见 §二。要点:两仓干净、未推送(e-RHINO 领先 5,bayesmith 领先 4);
+`0.5.0` 在 PyPI;登记簿 **D7–D51**,未裁决只剩 **D39**。
 
-### 一、CI —— 唯一还没确认绿的东西,**下一位第一件事**
+### 一、CI —— 六条已全部处置,**但还没在 CI 上验过**
 
-- **bayesmith `Cross-check`:绿**(2026-08-28)。
-- **bayesmith `Seam`:2026-08-27 与 08-28 两次红,原因已查明并已修**——它 checkout
-  的是 `e-RHINO@main`,而修 flat-prior 断言的那个提交(`5ab926d`,「the flat-prior
-  chain assertion was a property of one machine」)当时还没推。e-RHINO 推送之后已
-  **手动重跑**,结果**本会话结束时尚未出来**。**去看它。**
-- **e-RHINO `Tests`:2026-08-27 两次红**,本次推送触发的那次结束时仍在跑。
-  **去看它**;若仍红,大概率是同一条 flat-prior(现已修)或另一条,按
-  `2026-08-27-ci-flat-chain.md` §三 的判别法处理:**问这条断言钉的是大效应还是
-  小差值**。
-- 清理:`git tag -d backup/pre-draft-purge-2026-08-28` 与
-  `git update-ref -d refs/original/refs/heads/main`(**满意之后再删**;删掉之前
-  旧历史仍可从这两个 ref 找回)。
+**2026-08-28 白天那次运行(`33157771617`)两个 job 都红,六条失败已逐条查清并
+修好**,详见 `2026-08-28-ci-triage.md`。摘要:
 
-### 二、G15 的 rheplicant 一行 —— **现在解锁了,最便宜的一件**
+| 失败 | 判别 | 处置 |
+|---|---|---|
+| `Block 0 does not come from epoch 'collinear'` | **大效应**(2e1 对 2e-6 带) | **真缺陷**:`_quadratic_form` 比较 `z.z + offset`,而 `combine` 不保它;真不变量是 `offset - z.z/2`。已修 + 12 条新测试 |
+| bias-budget 排序反转 | 小差值(两个量 ~1e-11) | 命题随随机 key 变号,不是方法的性质;换成**单位不变性**(argmax 翻转) |
+| 三条壁钟预算 | 小差值(硬件) | 新增 `machine_factor()`,三个数字一个没放宽,标定表全保留 |
+| A13 `336 Hz` 文案 | 小差值(半个 ulp) | 并入本模块**已有**的派生器 + 命名空间扫描守卫 |
+| `tsc` 找不到 ×2 | 环境 | `Coverage (serial)` 补上 Suite 的三步 Node 配置 |
+| `reweight_tol` 括号 | fixture 不存在 | **D50**:改为直接钉转发(monkeypatch + 兄弟测试) |
 
-0.5.0 载着 `local_block(..., priors=True)`,所以那条有解除条件的延期到期了:
-删 `uncertainty._prior_precision`(`src/rheplicant/inference/uncertainty.py:284`),
-把 `:584` 改成 `include_prior=space is not None`,**并把 e-RHINO 的地板从
-`bayesmith>=0.4` 提到 `>=0.5`**(`pyproject.toml:73`)。
-**那一批必须重跑 e-RHINO 全套并重新量一件事**:G9 全量修掉的先验广播缺陷今天
-到不了门面(门面永远传 `include_prior=False`),这条改动**正是让它够得到的**。
+**下一位第一件事:推送之后去看 CI。** 本地两阶段全套 exit 0,但这些修复
+**没有一条在 linux/x86-64 上跑过**,而其中五条正是关于那台机器的。若仍有红:
 
-### 三、Wave B —— 先决**全部满足**,是下一个大波
+* `_quadratic_form` 那条应当彻底绿了(新 fixture 手搭角落,不依赖 LAPACK);
+* 三条壁钟预算若仍红,读失败消息里的 `machine factor` —— 若它 > 5,参照负载
+  与被测 pass 的**缩放不一致**,那是要重新设计参照而不是放宽界;
+* bias-budget 与 A13 应当与平台无关了。
 
-`linear` 求解面、`gls`、`plan`+`engines`(验证与词汇留守,执行经 G10)、
-`noise`/`likelihood` 工厂化。D7/D8/D14 已拍,G1/G2/G9/G10/G12/G14 已落地,
-D17 协议已跑完。**P1 例 6/10 的完整形态(梯度块 estimate、每 sweep 诊断)在本波
-验收。** config 侧钉内部件的三个测试(`MIN_DRAWS` 等常量、`SamplingPlan` 源文本
-pin)本波**显式重谈**,走登记簿。
+清理:满意之后删 `git tag -d backup/pre-draft-purge-2026-08-28` 与
+`git update-ref -d refs/original/refs/heads/main`。
+
+### 二、~~G15 的 rheplicant 一行~~ —— **已完成(D48)**
+
+**不是一行,是四处**;算术与被删拼写逐比特相同;五条准入按 P1 总原则留守;
+两包对「什么算高斯先验」差**恰好一个拼写**(`.expand([2])`),故过缝的是规范形。
+地板已提到 `>=0.5`。计划点名要重测的那件(G9 广播缺陷)答案是「**仍然够不到**,
+理由比原来的好」:`Latent.__check_init__` 在构造期就拒绝形状不符。
+证据链:`2026-08-28-g15-rheplicant-discharge.md`、`probe_16_g15_discharge.py`。
+
+### 三、Wave B —— **已开波,下一批是 `linear` 求解面**
+
+开波仪式见 `2026-08-28-wave-B-opening.md`。已做:
+
+* **铁律 1 私名普查**(六个模块)。**注意本会话新增了一条依赖**:
+  `uncertainty` 现在借 `linear._numpyro_distributions`,它从此是保持面。
+* **铁律 7 契约阅读**,读出**两处过期**并已更正(`linear.md` §5(a) 的
+  「condition_estimate is not ported」已被 G14 推翻;`plan.md` 的分支依赖已闭)。
+* **D51**:计划点名的三条 config 侧测试逐条裁决(一条现在就搬、一条原样重放、
+  一条留到 `plan` 切换并写死替代形态)。
+
+**下一批是 `linear` 求解面,不是 `gls`**,理由在那页 §五:`gls` 的内层解就是
+`wiener_solve`,先切 `gls` 会让一个包里有两个求解器。
+
+`linear` 那一批的核心工作是**两侧 `LinearBlock` 形状不同**(上游单观测节点、
+数组形;远端多名字多节点、字典形),四个公开求解名两侧同名,所以门面是
+**形状转换 + 拒绝前置**。**开工第一件事**(D48 的先例):逐条问
+`linear` 求解面的每一条拒绝——`_check_solve_arguments`、`_require_prior_std`、
+`_refuse_a_noise_model_at_the_conjugate_seam` ——**过缝之后还到不到得了**。
+
+切 `gls` 时另有一件:跨仓 cross-check `test_noise_logdet.py` 的 **17 条**与
+Fisher 行共享,按铁律 2 逐条改籍或指认,不能随文件消失。
 
 ### 四、Wave C
 
