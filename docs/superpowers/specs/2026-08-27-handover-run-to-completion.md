@@ -383,20 +383,24 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
 **`calibrate` 开波已做(`2026-08-29-wave-C-calibrate-opening.md`),它是最可切的一行:**
 **252 行、2 个公开类、8 条拒绝、私名普查零借用。** 两件已量的结论:
 
-* **8 条拒绝里 7 条过得去**,前 3 条(`check_loss_sense`)甚至**逐字相同**——
-  说明它就是近端 `_refuse_a_score_the_optimizer_would_walk_away_from` 迁过去的那份。
-* **异常类身份不过缝**,这是本行唯一不平凡的适配工作:近端
-  `ParameterSpaceError` × 3 + `StateValidationError` × 5,远端**一律** `StructureError`。
-  **近端在远端只用一个类的地方分了两个类**,所以门面要**按调用点**决定重抛成哪个,
-  不能一条 `except` 了事。
+* **9 条拒绝(不是 8 条),其中 6 条必须留守,0 条文案 pin 会断。**
+  分界线正好落在异常类上:3 条 `ParameterSpaceError`(`check_loss_sense`,
+  远端**逐字相同**)全部委托;5 条 `StateValidationError` 在 `__check_init__` 里、
+  **构造时**触发,而远端 `minimize` **是函数不是类,没有构造这一步**,所以全部留守;
+  另 1 条 `check_observed_shape` 留守——远端从不见 `observed`。
+  于是异常翻译只是**一条映射**,不是「按调用点」。
+* **数值逐位相同**:两个方法、两个参数、整条 120 步 loss 历史,`max|Δ| = 0.0`。
+  **这一行的数值风险为零。**
 * **第 8 条没有对应物 → D57,已落远端**:`beta1=1.5` 在 `(x-3)**2` 上返回
   **15.384941**(真极小值 3.0),有限、无警告——三种结局里最坏的 **(c) 静默作答**。
   落远端而非留守,因为切换后近端 calibrator 是门面,只在近端留就是同一条规则两份。
   已记 CHANGELOG 的 Unreleased(它**改变了调用方读到的值**,按本仓惯例进 minor 位)。
+  注意 D57 **不影响近端**:beta 守卫在 `__check_init__` 里,属于留守的 5 条。
 
-**下一位注意:不要在近端补 beta 检查**——已经在远端了。要写的是异常翻译层,
-并**为它写变异体**:把 `ParameterSpaceError` 换成 `StateValidationError` 若没人红,
-说明类身份根本没被测到,那才是要修的。
+**下一位注意**:近端的 beta 守卫**留守**(D57 是给远端自己的调用方的,两边各一份
+是对的——它们守的是不同的入口)。要写的是**一条**异常映射:近端先自己调
+`check_loss_sense` 并把 `StructureError` 翻成 `ParameterSpaceError`,**再**调
+`minimize`。并**为它写变异体**:换成另一个异常类若没人红,说明类身份根本没被测到。
 
 **其余 Wave C 事项:**
 

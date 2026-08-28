@@ -8,7 +8,9 @@
 
 Wave B 剩下的两行各有拦路:`plan`/`engines` 卡在 **D56**(待 owner),
 `noise`/`likelihood` 卡在 **floor 换不过去**。`calibrate` 是**最可切的一行**:
-**252 行、2 个公开类、8 条拒绝、私名普查零借用**。
+**252 行、2 个公开类、9 条拒绝、私名普查零借用**,
+而且**数值逐位相同**(§二之三)。注意「9 条」是修正后的数字——初稿写 8 条,
+漏掉的那条见 §二之二。
 
 ## 一、铁律 1 私名普查 —— 干净
 
@@ -16,7 +18,7 @@ Wave B 剩下的两行各有拦路:`plan`/`engines` 卡在 **D56**(待 owner),
 两个私名(`_refuse_mis_shaped_observed`、
 `_refuse_a_score_the_optimizer_would_walk_away_from`)都只在本模块内用。
 
-## 二、铁律 7 + D48 式逐条问:8 条拒绝,7 条过得去
+## 二、铁律 7 + D48 式逐条问(**初稿,下一节更正**)
 
 | # | 近端 | 远端 |
 |---|---|---|
@@ -30,41 +32,63 @@ Wave B 剩下的两行各有拦路:`plan`/`engines` 卡在 **D56**(待 owner),
 前三条逐字相同说明 `check_loss_sense` 就是
 `_refuse_a_score_the_optimizer_would_walk_away_from` 迁过去的那一份。
 
-**但异常类身份不过缝**,这是切换时的真约束:近端是
-`ParameterSpaceError` × 3 + `StateValidationError` × 5,远端**一律**
-`StructureError` × 13。**近端在远端只用一个类的地方分了两个类**,所以门面不能
-一条 `except StructureError: raise X` 了事——**要按是哪一个调用点决定重抛成哪一个**。
-这与 `linear` 那一批的形状相同。
+**这张表漏了一条,而且把「过得去」和「应该过去」混为一谈了——见下一节。**
 
-## 二之二、文案 pin:23 条,**12 条会断**,而断的是两句
+**异常类身份不过缝**:近端是 `ParameterSpaceError` × 3 +
+`StateValidationError` × 5,远端**一律** `StructureError` × 13。
+初稿由此推论「门面要按调用点决定重抛成哪一个」——**下一节说明为什么不必**:
+那条分界线正好和「哪些拒绝真的过缝」重合。
 
-这一条把本行的估工改了,所以单独一节。逐句数(`grep` 全 `tests/`):
+## 二之二、**上面那张表数错了,而且是我数的** —— 真结构是 9 条,6 条留守
 
-| 近端句子 | pin 数 | 远端 |
-|---|---|---|
-| `declares sense=` | 1 | **逐字相同** |
-| `not finite at entry` | 1 | **逐字相同** |
-| `scores a PERFECT` | 2 | **逐字相同** |
-| `learning_rate must be > 0` | 7 | **逐字相同** |
-| **`n_steps must be a positive int`** | **8** | 远端说 **`steps`** ✗ |
-| **`beta1/beta2 must be in`** | **4** | 远端说 **`beta1 must be in`** ✗ |
+**先把结论写在前面**:`calibrate` 的拒绝是 **9 条不是 8 条**,其中 **6 条必须留守**,
+**0 条文案 pin 会断**。本节的初稿说「23 条 pin 里 12 条会断」,**那是错的**,
+错法比结论有用。
 
-**注意 `learning_rate` 那句逐字相同**——所以不是远端整体另起炉灶,断的**只是
-参数名和消息形状**这两处。而且 `n_steps` 那 8 条里有一条在 `tests/config/`,
-不在 `tests/inference/`。
+**两处漏数,两种形状:**
 
-**两句的处置不一样,而且理由不同——不要一刀切:**
+1. **`check_observed_shape` 不是 `raise`,是调用一个帮手。** 我的 AST 普查扫的是
+   `ast.Raise`,于是 `_refuse_mis_shaped_observed` 整条看不见。
+   **与「按名字 grep 私名普查」是同一族**:匹配器只认一种写法,其余读成「不存在」。
+2. **5 条构造守卫在 `__check_init__` 里,是**构造时**触发的。** 而远端
+   `minimize` **是个函数,不是类**——**根本没有构造这一步可以镜像**。
+   `AdamCalibrator(learning_rate=-1)` 近端当场拒;委托下去就要等到 `.fit()`。
+   **一条拒绝什么时候响,是它契约的一部分**,而且被
+   `test_inference_construction_guards.py` 钉着——文件名就是它的主张。
 
-* **`n_steps` 必须由适配层翻译回来。** 近端的公开参数**就叫** `n_steps`;
-  用户写 `n_steps=0`,却被告知「`steps` must be a positive int」,
-  **消息指了一个他没用过的参数**。这不是口味问题,是消息的正确性。
-* **beta 那句应当改判 pin,不是保留。** 近端说
-  「`beta1/beta2 must be in [0, 1), got 1.5, 0.999`」(**两个值都报**),
-  远端说「`beta1 must be in [0, 1), got 1.5`」(**只报出错的那个**)。
-  **远端那句更好**——它指名了是哪一个。按 D52 的先例改写测试并记下理由。
+**真结构,而且分界线干净得出奇:**
 
-这正是 `linear` 那批 D52/D53 的同一形状:**先问「这条测试到底在主张什么」,
-再决定保留还是改判**,而不是按「哪边先写的」决定。
+| 组 | 条数 | 异常类 | 何时响 | 判定 |
+|---|---|---|---|---|
+| `check_observed_shape` | 1 | 帮手的 | `fit()` 入口 | **留守**——远端从不见 `observed` |
+| `_refuse_a_score_...` | 3 | `ParameterSpaceError` | `fit()` 入口 | **可委托**,远端逐字相同 |
+| `__check_init__` × 2 类 | 5 | `StateValidationError` | **构造时** | **留守**——远端没有对象可构造 |
+
+**分界线正好落在异常类上**:3 条 `ParameterSpaceError` 全部委托,
+5 条 `StateValidationError` 全部留守。于是:
+
+* **异常翻译不是「按调用点」的,是一条映射**:`StructureError → ParameterSpaceError`,
+  只对 loss-sense 那一条。§四 初稿把它说成本行最不平凡的工作,**也是高估了**。
+* **文案 pin 一条都不断**:`n_steps`(8 条)、`beta1/beta2`(4 条)、
+  `learning_rate`(7 条)全在 `__check_init__` 里,**留守则消息不变**;
+  剩下 4 条 pin 的三句在远端**逐字相同**。
+
+**为什么初稿会错**:我比对了缝两侧的**文案**,却**没有先问哪些拒绝真的过缝**。
+于是把一批**根本不会被替换**的句子拿去和远端比,比出了 12 条「会断」。
+**顺序错了:先定哪些过缝,再比文案。** 反过来做,每一句都能比出差异,而差异
+全是假的。
+
+## 二之三、数值验收:**逐位相同**
+
+切换前先量了(纯 numpy/jax,两侧同一 `forward` 与 `loss_fn`,`y = a x + b`,32 点):
+
+| 方法 | `|Δa|` | `|Δb|` | 120 步 loss 历史 |
+|---|---|---|---|
+| `gradient` | **0.000e+00** | **0.000e+00** | `max|Δ| = 0.0` |
+| `adam` | **0.000e+00** | **0.000e+00** | `max|Δ| = 0.0` |
+
+**逐位相同,连整条 loss 历史都是。** 所以这一行的数值风险为零,
+剩下的全部是拒绝与文案的适配。
 
 ## 三、D57:第 8 条是最坏的一种
 
@@ -72,8 +96,10 @@ Wave B 剩下的两行各有拦路:`plan`/`engines` 卡在 **D56**(待 owner),
 `(x-3)**2` 上返回 **15.384941**——有限、无警告、真极小值的 5 倍。这是三种结局里的
 **(c) 远端静默作答**,不是消息损失而是**正确性损失**。
 
-**已落在远端而不是留守近端**,因为 `calibrate` 一切,近端 calibrator 就成了门面,
-只在近端留这条等于把同一条规则写两遍。
+**已落在远端**,理由是远端**自己的调用方**今天拿得到一个静默的错答案。
+**近端那条不撤**——它在 `__check_init__` 里、构造时触发,而远端 `minimize` 是函数,
+没有构造这一步。两边各一份守的是**两个不同的入口**,不是一条规则的两份拷贝。
+(D57 初稿的第二条理由说反了,已在登记簿里更正。)
 
 **顺带收窄了一次范围,而逼出它的是一条自相矛盾的测试。** 守卫最初放在
 `_checked_settings` 公共段,`method="gradient"` 也会被拒;而 `optimize.py:288`
@@ -85,12 +111,13 @@ Wave B 剩下的两行各有拦路:`plan`/`engines` 卡在 **D56**(待 owner),
 
 1. 两个 calibrator 的 `fit` 转调 `bayesmith.optimize.minimize`,
    `GradientCalibrator → method="gradient"`、`AdamCalibrator → method="adam"`。
-2. **异常类翻译**:按调用点把 `StructureError` 重抛成
-   `ParameterSpaceError`(前 3 条)或 `StateValidationError`(后 5 条)。
-   铁律 1 要求类身份保持。
-3. **文案:`n_steps` 那句翻译回来(8 条 pin),beta 那句改判 pin(4 条)**——
-   理由分别见 §二之二。这两件加起来是本行**真正的适配工作量**,
-   而开波之前它是看不见的:8 条拒绝里 7 条「过得去」会让人以为这一行几乎是免费的。
+2. **6 条拒绝留守**(1 条 shape + 5 条构造),**照原样不动**——它们的消息、类、
+   触发时机都不变,所以那 19 条文案 pin 也不动。
+3. **一条异常映射**:近端自己先调 `check_loss_sense`,把它的 `StructureError`
+   翻成 `ParameterSpaceError`,**然后**再调 `minimize`。
+   比「在 `minimize` 外面包一个 `except StructureError`」好,因为后者是**靠论证
+   安全的**(近端构造守卫已经把 `steps`/`learning_rate`/beta 都挡在前面了,所以
+   `minimize` 里只剩 loss-sense 能响)——**而那个论证会随远端新增拒绝而失效**。
 4. **D33 的 1 条分诊**已量(见 D33):
    `test_the_fixed_step_descent_really_does_diverge_on_the_unscaled_negation`
    改成 `pytest.raises`,主张不变、观测渠道变。
