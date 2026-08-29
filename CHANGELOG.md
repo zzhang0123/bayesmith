@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Known defect
+
+**`marginal.chain.smooth` loses its conditioning on a stiff chain, and there is
+now a test that says so.** It assembles the explicit precision over
+`zeta_1:N` and calls `jnp.linalg.inv`, paying `kappa(F)`, where
+`chain_marginal` in the same module assembles the information square root and
+pays `sqrt(kappa(F))`. That module's own docstring says the square-root form is
+what keeps a thousand-epoch accumulation inside float64 where the explicit
+`(F, b)` form goes indefinite -- so this is the smoother departing from the
+design the module states, not a tolerance to widen.
+
+Deciding it needs no oracle. With `phi = 1` and `process_std` falling the chain
+freezes, so the smoothed mean must converge. It walks from `-0.200652` to
+`-0.469638` between `1e-6` and `1e-8` -- with the across-epoch spread reading
+`7.2e-16`, so the answer *looks* settled -- and every variance is `nan` at
+`1e-9`. On rheplicant's fixture the same sweep gives `0.931437` where the limit
+is `0.454969`, exactly twice, before going `nan`.
+
+`tests/marginal/test_chain_conditioning.py` carries three `xfail(strict=True)`
+cells, so they pass today and **go red the moment the smoother is repaired**.
+The passing cells at `1e-6`, `1e-7` and `1e-8` are deliberately unmarked: a fix
+that made `1e-9` finite by breaking `1e-8` shows up as a new failure rather
+than as a marker to delete.
+
+Not yet fixed here. `rheplicant` keeps its own square-root smoother rather than
+delegating to this one, which is how it was found -- every `process_std` in
+`tests/marginal/test_chain.py` is at or above `0.02`, and every smoother
+fixture on the rheplicant side used `0.7071`, so swapping the implementations
+passed all 91 of its chain tests.
+
 ### Fixed
 
 **`optimize.minimize` and `optimize.fit` now refuse an Adam beta outside
