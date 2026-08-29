@@ -123,3 +123,25 @@ config 的 `npe:` 语法是**从这个签名派生的**——哪些键存在、�
 这条预言机从「两包互证」降为「同包两模块互证」。已量规模:8 个模块已委托、
 11 个测试文件的被测与预言机双方都路由到 bayesmith。**不是缺陷,是会静默退化的
 性质**,判据写在 D59 里:**问的是「两条不同的推导,还是同一条走两遍」。**
+
+### 6.4 接缝变异:8 条,8 杀 —— 而旋钮那三条是**既有守卫**杀的
+
+| 变异 | 杀它的 |
+|---|---|
+| M1 `create` 重抛远端类而不翻译 | `test_npe::test_mismatched_bank_halves_are_refused` |
+| M2 `create` 吞掉拒绝 | 同上 |
+| M3 `train_posterior` 重抛远端类 | `test_inference_construction_guards::test_a_non_positive_step_count_is_refused` |
+| M4 `n_components` 写死 | `..._non_positive_component_count_is_refused` |
+| M5 漏传 `validation_fraction` | `..._validation_fraction_outside_the_unit_interval_is_refused` |
+| **M6 `width` 写死默认值** | **`config/test_config_exits_npe::TestTheEstimator::test_the_declared_knobs_land_on...`** |
+| **M7 `depth` 写死默认值** | 同上 + `TestTheTrainedPosterior::test_the_draws_follow_th...` |
+| **M8 `embed` 写死 `jnp.ravel`** | **`TestTheEstimator::test_the_embed_reaches_create_a...`** |
+
+**M6–M8 是专门挑「没有拒绝守着的旋钮」问的**,因为 M4 那种「写死一个值」其实是被
+**拒绝测试**杀的——拒绝不再触发,所以红;那不等于「用错的值被发现了」。
+`width`/`depth`/`embed` 没有任何拒绝,所以它们才是真正的旋钮问题。
+
+**答案是:早就有人看着,而且是 config 层自己的测试。**
+这与 `calibrate` 那一批**正好相反**——在那边,「漏传 `beta1`」**没有任何测试**杀得了,
+我得手写一个 spy。两相对照说明的不是「npe 更好」,而是:
+**`calibrate` 的 config 面比 `npe` 的薄**,而薄在哪里只有这样问一次才知道。
