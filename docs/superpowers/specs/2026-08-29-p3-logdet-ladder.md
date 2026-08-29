@@ -68,7 +68,13 @@ j e_j(X)=\sum_{q=1}^{j}(-1)^{q-1}e_{j-q}(X)\operatorname{Tr}(X^q),
 
 截断有限和是 \(\theta\) 的确定性、可微函数；JAX 对这个截断对象直接求导即可。固定的 common-random-number 探针也令 Hutchinson 估计在运行时成为同一个确定性函数。相反，每次调用重抽探针会令相同状态有不同势能，leapfrog 不再可逆，因而绝不能进入 HMC 目标。
 
-结构、rank、精确迹提供者和 \(\rho\) 的检查在 eager 的 NumPy 层完成。`*_runtime` 函数是静态 order 的纯 JAX 内核：它们没有 Python 收敛守卫、可 `jit` 且可微。这不是遗漏检查，而是避免在 traced HMC 内伪造一个可运行的 \(\theta\)-依赖分支。
+结构、rank、精确迹提供者和 \(\rho\) 的检查在 eager 的 NumPy 层完成。公开的
+`make_trace_log_plan` / `make_frozen_trace_log_plan` 工厂把 warmup 证书所选 order
+以及不可变探针绑定进只读执行计划；调用时只接收随 \(\theta\) 变化的数据，不能逐次降阶、
+换探针或重抽探针。底层 `*_runtime` 内核是私有的纯 JAX 实现：它们没有 Python
+收敛守卫、可 `jit` 且可微。精确迹证据逐位验证而非以 `allclose` 近似验证，因此公开的
+analytic tail bound 不会漏掉另一个未计入的 provider tolerance。这不是遗漏检查，而是避免在
+traced HMC 内伪造一个可运行的 \(\theta\)-依赖分支。
 
 ## D82 — 问题：\(\rho(X(\theta))\) 随参数变动时，如何不把一次局部检查说成全程保证？；裁决：warmup 探针集测最大值并加 margin 后选固定 order，运行时不检查，保留样本事后审计越界。
 

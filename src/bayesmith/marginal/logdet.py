@@ -43,6 +43,7 @@ from bayesmith.exact.fisher import condition_ceiling
 __all__ = [
     "AuditReport",
     "FrozenProbes",
+    "FrozenTraceLogPlan",
     "KroneckerStructure",
     "LadderConfig",
     "LadderResult",
@@ -51,6 +52,7 @@ __all__ = [
     "PremiseVerdict",
     "ResamplingRefused",
     "RhoCertificate",
+    "TraceLogPlan",
     "audit_retained_rho",
     "certify_warmup_rho",
     "check_logdet_premises",
@@ -59,16 +61,16 @@ __all__ = [
     "dispatch_logdet",
     "finite_perturbation_logdet",
     "frozen_hutchinson_trace_logdet",
-    "frozen_hutchinson_trace_logdet_runtime",
     "lambda_logdet",
     "low_rank_logdet",
+    "make_frozen_trace_log_plan",
+    "make_trace_log_plan",
     "resampled_trace_logdet",
     "spectral_radius",
     "state_space_logdet",
     "structured_logdet",
     "trace_log_tail_bound",
     "truncated_trace_logdet",
-    "truncated_trace_logdet_runtime",
     "whole_trace_log_tail_bound",
 ]
 
@@ -84,6 +86,9 @@ _METHODS = (
     "frozen Hutchinson trace-log",
     "per-call resampling",
 )
+
+_NEWTON_EXPANSIVE_DEGREE_LIMIT = 8
+_PLAN_TOKEN = object()
 
 
 class ResamplingRefused(RuntimeError):
@@ -292,6 +297,26 @@ class RhoCertificate:
     tolerance: float
     multiplicity: int
 
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.measured_max < 1.0:
+            raise ValueError("a rho certificate needs measured_max < 1")
+        if not 0.0 <= self.certified_rho < 1.0:
+            raise ValueError("a rho certificate needs certified_rho < 1")
+        if self.certified_rho < self.measured_max:
+            raise ValueError("certified_rho must cover measured_max")
+        if self.margin < 0.0 or self.tolerance <= 0.0 or self.multiplicity < 1:
+            raise ValueError("rho certificate margin/tolerance/multiplicity are invalid")
+        expected_order = choose_trace_order(
+            self.certified_rho,
+            self.tolerance,
+            multiplicity=self.multiplicity,
+        )
+        if self.order != expected_order:
+            raise ValueError(
+                f"rho certificate order must be the bound-selected {expected_order}, "
+                f"got {self.order}"
+            )
+
 
 @dataclasses.dataclass(frozen=True)
 class AuditReport:
@@ -300,6 +325,62 @@ class AuditReport:
     passed: bool
     measured_max: float
     violations: tuple[int, ...]
+
+
+@dataclasses.dataclass(frozen=True, slots=True, init=False)
+class TraceLogPlan:
+    """Validated fixed-order JAX execution plan for exact power traces.
+
+    Construct with :func:`make_trace_log_plan`; direct construction is
+    refused. Runtime arguments are only the theta-dependent Lambda logdet and
+    exact trace values. There is no per-call order argument to weaken.
+    """
+
+    _order: int
+
+    def __init__(self, token: object, order: int):
+        if token is not _PLAN_TOKEN:
+            raise TypeError("TraceLogPlan must be created by make_trace_log_plan")
+        object.__setattr__(self, "_order", int(order))
+
+    @property
+    def order(self) -> int:
+        """The certificate-selected immutable truncation order."""
+        return self._order
+
+    def __call__(self, lambda_logdet_value: Any, exact_power_traces: Any) -> jnp.ndarray:
+        return _truncated_trace_logdet_runtime(
+            lambda_logdet_value, exact_power_traces, order=self._order
+        )
+
+
+@dataclasses.dataclass(frozen=True, slots=True, init=False)
+class FrozenTraceLogPlan:
+    """Validated fixed-order JAX plan capturing immutable frozen probes."""
+
+    _order: int
+    _probes: FrozenProbes
+
+    def __init__(self, token: object, order: int, probes: FrozenProbes):
+        if token is not _PLAN_TOKEN:
+            raise TypeError(
+                "FrozenTraceLogPlan must be created by make_frozen_trace_log_plan"
+            )
+        object.__setattr__(self, "_order", int(order))
+        object.__setattr__(self, "_probes", probes)
+
+    @property
+    def order(self) -> int:
+        """The certificate-selected immutable truncation order."""
+        return self._order
+
+    def __call__(self, lambda_logdet_value: Any, x_matrix: Any) -> jnp.ndarray:
+        return _frozen_hutchinson_trace_logdet_runtime(
+            lambda_logdet_value,
+            x_matrix,
+            self._probes.values,
+            order=self._order,
+        )
 
 
 def _read_only_array(value: Any, *, ndim: int | None = None) -> np.ndarray:
@@ -389,10 +470,33 @@ def lambda_logdet(lambda_matrix: Any) -> float:
     return float(2.0 * np.sum(np.log(np.diag(factor))))
 
 
+def _newton_stability(
+    lambda_matrix: Any, perturbation: Any, termination: int
+) -> tuple[bool, float]:
+    """Conservative cancellation gate for the power-sum Newton recurrence.
+
+    Expansive spectra make alternating Newton sums catastrophically
+    ill-conditioned at moderate degree. Degrees through eight remain useful
+    for boundary/oracle work; above that, the recurrence is accepted only
+    while ``rho(X) <= 1``. This gate makes no determinant computation.
+    """
+    rho = spectral_radius(lambda_matrix, perturbation)
+    stable = termination <= _NEWTON_EXPANSIVE_DEGREE_LIMIT or rho <= 1.0
+    return stable, rho
+
+
 def _newton_logdet(lambda_matrix: Any, perturbation: Any, *, termination: int) -> float:
     lam, perturb = _matrix_pair(lambda_matrix, perturbation)
     if not _is_positive_definite(lam):
         raise ValueError("Lambda must be symmetric positive definite")
+    stable, rho = _newton_stability(lam, perturb, termination)
+    if not stable:
+        raise ValueError(
+            "Newton stability cannot certify an expansive spectrum at "
+            f"degree {termination}: measured rho={rho:.8g}, safe expansive "
+            f"degree limit={_NEWTON_EXPANSIVE_DEGREE_LIMIT}. Fall through to "
+            "a stable exact rung."
+        )
     x = _x_matrix(lam, perturb)
     elementary = [1.0]
     power = np.ones_like(x) if x.ndim == 1 else np.eye(x.shape[0], dtype=x.dtype)
@@ -562,6 +666,31 @@ def spectral_radius(lambda_matrix: Any, perturbation: Any) -> float:
     return float(np.max(np.abs(np.linalg.eigvals(x)), initial=0.0))
 
 
+def _validate_strict_rho(
+    lambda_matrix: np.ndarray,
+    perturbation: np.ndarray,
+    certified_rho: float | None,
+) -> tuple[float, float]:
+    """Eagerly require both measured and certified rho to be strictly below one."""
+    actual_rho = spectral_radius(lambda_matrix, perturbation)
+    certificate = actual_rho if certified_rho is None else float(certified_rho)
+    if not actual_rho < 1.0:
+        raise ValueError(
+            f"measured rho={actual_rho} does not satisfy strict rho < 1"
+        )
+    if not 0.0 <= certificate < 1.0:
+        raise ValueError(
+            f"trace-log convergence requires certified rho < 1; got {certificate}"
+        )
+    if actual_rho > certificate and not np.isclose(
+        actual_rho, certificate, rtol=1e-12, atol=1e-14
+    ):
+        raise ValueError(
+            f"rho certificate {certificate} understates measured rho {actual_rho}"
+        )
+    return actual_rho, certificate
+
+
 def _computed_power_traces(
     lambda_matrix: np.ndarray, perturbation: np.ndarray, order: int
 ) -> tuple[float, ...]:
@@ -587,10 +716,7 @@ def _power_traces_match(
     derived = np.asarray(
         _computed_power_traces(lambda_matrix, perturbation, order), dtype=float
     )
-    return bool(
-        np.all(np.isfinite(supplied))
-        and np.allclose(supplied, derived, rtol=2e-11, atol=2e-13)
-    )
+    return bool(np.all(np.isfinite(supplied)) and np.array_equal(supplied, derived))
 
 
 def trace_log_tail_bound(rho: float, order: int) -> float:
@@ -642,14 +768,7 @@ def truncated_trace_logdet(
     a diagonal, block, or circulant ``Lambda`` may reduce rho.
     """
     lam, perturb = _matrix_pair(lambda_matrix, perturbation)
-    actual_rho = spectral_radius(lam, perturb)
-    certified_rho = actual_rho if rho is None else float(rho)
-    if not 0.0 <= certified_rho < 1.0:
-        raise ValueError(f"trace-log convergence requires rho < 1; got {certified_rho}")
-    if actual_rho > certified_rho * (1.0 + 2e-12) + 2e-14:
-        raise ValueError(
-            f"rho certificate {certified_rho} understates measured rho {actual_rho}"
-        )
+    _validate_strict_rho(lam, perturb, rho)
     if exact_power_traces is None:
         raise ValueError(
             "rung 6 requires deterministic exact power traces; one generic "
@@ -669,7 +788,7 @@ def truncated_trace_logdet(
     return lambda_logdet(lam) + correction
 
 
-def truncated_trace_logdet_runtime(
+def _truncated_trace_logdet_runtime(
     lambda_logdet_value: Any,
     exact_power_traces: Any,
     *,
@@ -700,16 +819,7 @@ def frozen_hutchinson_trace_logdet(
 ) -> float:
     """Rung 7: frozen-probe Taylor trace-log after an eager strict-rho check."""
     lam, perturb = _matrix_pair(lambda_matrix, perturbation)
-    actual_rho = spectral_radius(lam, perturb)
-    certified_rho = actual_rho if rho is None else float(rho)
-    if not 0.0 <= certified_rho < 1.0:
-        raise ValueError(
-            f"frozen Taylor trace-log convergence requires rho < 1; got {certified_rho}"
-        )
-    if actual_rho > certified_rho * (1.0 + 2e-12) + 2e-14:
-        raise ValueError(
-            f"rho certificate {certified_rho} understates measured rho {actual_rho}"
-        )
+    _validate_strict_rho(lam, perturb, rho)
     x = _x_matrix(lam, perturb)
     if probes.values.shape[1] != _n(lam):
         raise ValueError("frozen probe width must equal the matrix dimension")
@@ -728,7 +838,7 @@ def frozen_hutchinson_trace_logdet(
     return lambda_logdet(lam) + correction
 
 
-def frozen_hutchinson_trace_logdet_runtime(
+def _frozen_hutchinson_trace_logdet_runtime(
     lambda_logdet_value: Any,
     x_matrix: Any,
     frozen_probe_values: Any,
@@ -911,11 +1021,16 @@ def check_logdet_premises(
     except ValueError:
         rank = n
         rank_evidence_valid = False
+    actual_rho = spectral_radius(lam, perturb)
+    newton_stable = (
+        rank <= _NEWTON_EXPANSIVE_DEGREE_LIMIT or actual_rho <= 1.0
+    )
     base = bool(np.array_equal(sigma, lam))
     has_algebraic_evidence = perturb.ndim == 1 or problem.low_rank_factors is not None
     low_rank = (
         rank_evidence_valid
         and has_algebraic_evidence
+        and newton_stable
         and rank <= config.low_rank_max
         and rank <= config.low_rank_fraction * n
     )
@@ -959,10 +1074,12 @@ def check_logdet_premises(
     dtype = sigma.dtype if np.issubdtype(sigma.dtype, np.inexact) else np.dtype(float)
     ceiling = condition_ceiling(dtype)
     dense = n <= config.dense_max_n and condition < ceiling and sigma_spd
-    finite = n <= config.finite_max_n or rank <= config.finite_max_rank
-    actual_rho = spectral_radius(lam, perturb)
+    finite = (
+        n <= config.finite_max_n or rank <= config.finite_max_rank
+    ) and newton_stable
     rho = actual_rho if problem.certified_rho is None else problem.certified_rho
-    rho_covers_input = actual_rho <= rho * (1.0 + 2e-12) + 2e-14
+    measured_rho_converges = actual_rho < 1.0
+    rho_covers_input = actual_rho <= rho
     traces_verified = (
         problem.exact_power_traces is not None
         and problem.trace_order is not None
@@ -970,10 +1087,20 @@ def check_logdet_premises(
             lam, perturb, problem.exact_power_traces, problem.trace_order
         )
     )
-    trace = traces_verified and rho_covers_input and 0.0 <= rho < 1.0
-    frozen = (
+    trace = (
+        traces_verified
+        and measured_rho_converges
+        and rho_covers_input
+        and 0.0 <= rho < 1.0
+    )
+    frozen_width_valid = (
         problem.frozen_probes is not None
+        and problem.frozen_probes.values.shape[1] == n
+    )
+    frozen = (
+        frozen_width_valid
         and problem.trace_order is not None
+        and measured_rho_converges
         and rho_covers_input
         and 0.0 <= rho < 1.0
     )
@@ -990,8 +1117,17 @@ def check_logdet_premises(
             1,
             _METHODS[1],
             low_rank,
-            f"verified rank {rank}; limits are {config.low_rank_max} and {config.low_rank_fraction:g}*n",
-            {"n": n, "rank": rank},
+            (
+                f"verified rank {rank}; limits are {config.low_rank_max} and "
+                f"{config.low_rank_fraction:g}*n; Newton stability={newton_stable} "
+                f"at rho={actual_rho:.8g}"
+            ),
+            {
+                "n": n,
+                "rank": rank,
+                "rank_evidence_valid": rank_evidence_valid,
+                "newton_stable": newton_stable,
+            },
         ),
         PremiseVerdict(
             2,
@@ -1024,8 +1160,17 @@ def check_logdet_premises(
             5,
             _METHODS[5],
             finite,
-            f"n={n} (limit {config.finite_max_n}); rank={rank} (limit {config.finite_max_rank})",
-            {"n": n, "rank": rank},
+            (
+                f"n={n} (limit {config.finite_max_n}); rank={rank} "
+                f"(limit {config.finite_max_rank}); Newton stability="
+                f"{newton_stable} at rho={actual_rho:.8g}"
+            ),
+            {
+                "n": n,
+                "rank": rank,
+                "rank_evidence_valid": rank_evidence_valid,
+                "newton_stable": newton_stable,
+            },
         ),
         PremiseVerdict(
             6,
@@ -1050,8 +1195,17 @@ def check_logdet_premises(
             frozen,
             "immutable probes, a fixed order, and a strict rho<1 certificate are present"
             if frozen
-            else "immutable FrozenProbes, a fixed order, and a conservative rho<1 certificate are required",
-            {"rho": rho, "measured_rho": actual_rho, "order": problem.trace_order},
+            else (
+                f"immutable FrozenProbes of width n={n}, a fixed order, and a "
+                f"conservative rho<1 certificate are required; probe_width_valid="
+                f"{frozen_width_valid}, measured_rho={actual_rho:.8g}"
+            ),
+            {
+                "rho": rho,
+                "measured_rho": actual_rho,
+                "order": problem.trace_order,
+                "probe_width_valid": frozen_width_valid,
+            },
         ),
         PremiseVerdict(
             8,
@@ -1059,6 +1213,55 @@ def check_logdet_premises(
             False,
             "per-call resampling is always refused because noisy logdet breaks HMC reversibility",
         ),
+    )
+
+
+def _validate_plan_certificate(
+    problem: LogDetProblem, certificate: RhoCertificate
+) -> None:
+    if problem.trace_order != certificate.order:
+        raise ValueError(
+            "runtime plan order must be the warmup certificate-selected order "
+            f"{certificate.order}; problem carries {problem.trace_order}"
+        )
+    _validate_strict_rho(
+        problem.lambda_matrix,
+        problem.perturbation,
+        certificate.certified_rho,
+    )
+
+
+def make_trace_log_plan(
+    problem: LogDetProblem, certificate: RhoCertificate
+) -> TraceLogPlan:
+    """Validate exact traces and bind the certificate-selected runtime order."""
+    _validate_plan_certificate(problem, certificate)
+    if problem.exact_power_traces is None or not _power_traces_match(
+        problem.lambda_matrix,
+        problem.perturbation,
+        problem.exact_power_traces,
+        certificate.order,
+    ):
+        raise ValueError(
+            "runtime trace plan requires bitwise exact power-trace evidence "
+            "through the certificate-selected order"
+        )
+    return TraceLogPlan(_PLAN_TOKEN, certificate.order)
+
+
+def make_frozen_trace_log_plan(
+    problem: LogDetProblem, certificate: RhoCertificate
+) -> FrozenTraceLogPlan:
+    """Validate and capture immutable probes and certificate-selected order."""
+    _validate_plan_certificate(problem, certificate)
+    if problem.frozen_probes is None:
+        raise ValueError("frozen runtime plan requires FrozenProbes")
+    if problem.frozen_probes.values.shape[1] != _n(problem.lambda_matrix):
+        raise ValueError(
+            "frozen runtime probe width must equal the matrix dimension"
+        )
+    return FrozenTraceLogPlan(
+        _PLAN_TOKEN, certificate.order, problem.frozen_probes
     )
 
 
@@ -1098,7 +1301,11 @@ def dispatch_logdet(
             value = finite_perturbation_logdet(
                 problem.lambda_matrix,
                 problem.perturbation,
-                factors=problem.low_rank_factors,
+                factors=(
+                    problem.low_rank_factors
+                    if verdict.details["rank_evidence_valid"]
+                    else None
+                ),
             )
         elif verdict.level == 6:
             value = truncated_trace_logdet(
