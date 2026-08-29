@@ -14,6 +14,7 @@ from bayesmith.marginal.logdet import (
     KroneckerStructure,
     LadderConfig,
     LogDetProblem,
+    LowRankFactors,
     check_logdet_premises,
     dense_cholesky_logdet,
     finite_perturbation_logdet,
@@ -70,14 +71,15 @@ def main() -> None:
         f"{base_verdict.satisfied}: {base_verdict.reason}",
     )
 
-    low_problem = LogDetProblem(lam, perturbation)
+    low_factors = LowRankFactors(factor)
+    low_problem = LogDetProblem(lam, perturbation, low_rank_factors=low_factors)
     low_verdict = check_logdet_premises(
         low_problem, config=LadderConfig(low_rank_fraction=0.5)
     )[1]
     _print_row(
         1,
         "low-rank Newton termination",
-        low_rank_logdet(lam, perturbation),
+        low_rank_logdet(lam, perturbation, factors=low_factors),
         sigma,
         f"{low_verdict.satisfied}: {low_verdict.reason}",
     )
@@ -184,7 +186,9 @@ def main() -> None:
     _print_row(
         7,
         "frozen Hutchinson trace-log",
-        frozen_hutchinson_trace_logdet(lam, trace_perturbation, probes, order=order),
+        frozen_hutchinson_trace_logdet(
+            lam, trace_perturbation, probes, order=order, rho=rho
+        ),
         trace_sigma,
         f"{frozen_verdict.satisfied}: {frozen_verdict.reason}",
         tail_bound=bound,

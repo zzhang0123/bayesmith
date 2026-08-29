@@ -18,6 +18,14 @@ The finite exact route obtains elementary symmetric polynomials from power
 traces using Newton identities.  When ``rank(P) = k``, all ``e_j(X)`` above
 ``k`` vanish, so the low-rank rung is precisely the sparse termination of the
 same routine rather than a second determinant-lemma implementation.
+
+The file has two deliberately different numerical layers. Eager NumPy
+functions verify structure, rank evidence, rho certificates, and trace
+providers before sampling. Functions ending in ``_runtime`` are pure JAX
+kernels: their order is static, their inputs come from those verified
+providers, and they contain no Python convergence guard. This split is what
+keeps the deterministic approximation differentiable inside HMC without
+pretending a theta-dependent premise can be checked there.
 """
 
 from __future__ import annotations
@@ -27,6 +35,7 @@ import math
 from collections.abc import Iterable, Sequence
 from typing import Any, Literal
 
+import jax.numpy as jnp
 import numpy as np
 
 from bayesmith.exact.fisher import condition_ceiling
@@ -37,6 +46,7 @@ __all__ = [
     "KroneckerStructure",
     "LadderConfig",
     "LadderResult",
+    "LowRankFactors",
     "LogDetProblem",
     "PremiseVerdict",
     "ResamplingRefused",
@@ -49,6 +59,7 @@ __all__ = [
     "dispatch_logdet",
     "finite_perturbation_logdet",
     "frozen_hutchinson_trace_logdet",
+    "frozen_hutchinson_trace_logdet_runtime",
     "lambda_logdet",
     "low_rank_logdet",
     "resampled_trace_logdet",
@@ -57,6 +68,7 @@ __all__ = [
     "structured_logdet",
     "trace_log_tail_bound",
     "truncated_trace_logdet",
+    "truncated_trace_logdet_runtime",
     "whole_trace_log_tail_bound",
 ]
 
@@ -97,9 +109,17 @@ class KroneckerStructure:
 
 @dataclasses.dataclass(frozen=True)
 class FrozenProbes:
-    """Immutable common-random-number probes reused on every evaluation."""
+    """Immutable common-random-number probes reused on every evaluation.
 
-    values: np.ndarray
+    The backing store is ``bytes``, not a NumPy array with a reversible
+    ``writeable=False`` flag. :attr:`values` exposes a fresh read-only view,
+    so neither source mutation nor changing flags on a returned array can
+    alter later evaluations.
+    """
+
+    _payload: bytes = dataclasses.field(repr=False)
+    shape: tuple[int, int]
+    dtype: str
 
     def __init__(self, values: Any):
         array = _read_only_array(values, ndim=2)
@@ -107,7 +127,47 @@ class FrozenProbes:
             raise ValueError("FrozenProbes needs a non-empty (probes, n) array")
         if not np.all(np.isfinite(array)):
             raise ValueError("FrozenProbes values must all be finite")
-        object.__setattr__(self, "values", array)
+        contiguous = np.ascontiguousarray(array)
+        object.__setattr__(self, "_payload", contiguous.tobytes())
+        object.__setattr__(self, "shape", tuple(contiguous.shape))
+        object.__setattr__(self, "dtype", contiguous.dtype.str)
+
+    @property
+    def values(self) -> np.ndarray:
+        """A read-only view whose immutable bytes cannot be made writeable."""
+        return np.frombuffer(self._payload, dtype=np.dtype(self.dtype)).reshape(
+            self.shape
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LowRankFactors:
+    """Algebraic evidence ``P = left @ right.T`` with a fixed column count.
+
+    A factorisation proves ``rank(P) <= k`` without a scale-dependent SVD
+    tolerance. Dependent columns only make the bound conservative: Newton
+    identities still terminate by degree ``k``.
+    """
+
+    left: np.ndarray
+    right: np.ndarray
+
+    def __init__(self, left: Any, right: Any | None = None):
+        left_array = _read_only_array(left, ndim=2)
+        right_array = (
+            _read_only_array(left, ndim=2)
+            if right is None
+            else _read_only_array(right, ndim=2)
+        )
+        if left_array.shape[1] != right_array.shape[1]:
+            raise ValueError("low-rank factors must have the same column count")
+        object.__setattr__(self, "left", left_array)
+        object.__setattr__(self, "right", right_array)
+
+    @property
+    def rank_bound(self) -> int:
+        """The algebraic termination degree proved by the factor widths."""
+        return int(self.left.shape[1])
 
 
 @dataclasses.dataclass(frozen=True)
@@ -153,6 +213,7 @@ class LogDetProblem:
         None
     )
     structure: KroneckerStructure | None = None
+    low_rank_factors: LowRankFactors | None = None
     exact_power_traces: tuple[float, ...] | None = None
     frozen_probes: FrozenProbes | None = None
     trace_order: int | None = None
@@ -167,6 +228,7 @@ class LogDetProblem:
         structure_kind: Literal["diagonal", "circulant", "toeplitz", "kronecker"]
         | None = None,
         structure: KroneckerStructure | None = None,
+        low_rank_factors: LowRankFactors | None = None,
         exact_power_traces: Sequence[float] | None = None,
         frozen_probes: FrozenProbes | None = None,
         trace_order: int | None = None,
@@ -178,6 +240,7 @@ class LogDetProblem:
         object.__setattr__(self, "chain_block_size", chain_block_size)
         object.__setattr__(self, "structure_kind", structure_kind)
         object.__setattr__(self, "structure", structure)
+        object.__setattr__(self, "low_rank_factors", low_rank_factors)
         object.__setattr__(
             self,
             "exact_power_traces",
@@ -279,15 +342,25 @@ def _n(value: np.ndarray) -> int:
     return int(value.shape[0])
 
 
-def _rank(value: np.ndarray) -> int:
+def _algebraic_rank_bound(
+    value: np.ndarray, factors: LowRankFactors | None = None
+) -> int:
+    """A safe Newton termination degree, never a numerical-rank estimate."""
+    if factors is not None:
+        if (
+            factors.left.shape[0] != value.shape[0]
+            or factors.right.shape[0] != value.shape[0]
+        ):
+            raise ValueError("low-rank factor row counts must equal perturbation size")
+        reconstructed = factors.left @ factors.right.T
+        if value.ndim != 2 or not np.allclose(
+            reconstructed, value, rtol=2e-11, atol=2e-13
+        ):
+            raise ValueError("low-rank factors do not reconstruct the perturbation")
+        return factors.rank_bound
     if value.ndim == 1:
-        tolerance = (
-            np.finfo(value.dtype).eps
-            * max(1, value.size)
-            * max(1.0, float(np.max(np.abs(value), initial=0.0)))
-        )
-        return int(np.count_nonzero(np.abs(value) > tolerance))
-    return int(np.linalg.matrix_rank(value))
+        return int(np.count_nonzero(value != 0.0))
+    return int(value.shape[0])
 
 
 def _is_positive_definite(value: np.ndarray) -> bool:
@@ -337,16 +410,34 @@ def _newton_logdet(lambda_matrix: Any, perturbation: Any, *, termination: int) -
     return lambda_logdet(lam) + math.log(determinant_ratio)
 
 
-def low_rank_logdet(lambda_matrix: Any, perturbation: Any) -> float:
+def low_rank_logdet(
+    lambda_matrix: Any,
+    perturbation: Any,
+    *,
+    factors: LowRankFactors | None = None,
+) -> float:
     """Rung 1: the rank-``k`` sparse termination of Newton identities."""
     _, perturb = _matrix_pair(lambda_matrix, perturbation)
-    return _newton_logdet(lambda_matrix, perturb, termination=_rank(perturb))
+    return _newton_logdet(
+        lambda_matrix,
+        perturb,
+        termination=_algebraic_rank_bound(perturb, factors),
+    )
 
 
-def finite_perturbation_logdet(lambda_matrix: Any, perturbation: Any) -> float:
+def finite_perturbation_logdet(
+    lambda_matrix: Any,
+    perturbation: Any,
+    *,
+    factors: LowRankFactors | None = None,
+) -> float:
     """Rung 5: finite exact Newton expansion, terminating at verified rank."""
     _, perturb = _matrix_pair(lambda_matrix, perturbation)
-    return _newton_logdet(lambda_matrix, perturb, termination=_rank(perturb))
+    return _newton_logdet(
+        lambda_matrix,
+        perturb,
+        termination=_algebraic_rank_bound(perturb, factors),
+    )
 
 
 def _is_block_chain(
@@ -577,15 +668,47 @@ def truncated_trace_logdet(
     return lambda_logdet(lam) + correction
 
 
+def truncated_trace_logdet_runtime(
+    lambda_logdet_value: Any,
+    exact_power_traces: Any,
+    *,
+    order: int,
+) -> jnp.ndarray:
+    """Pure JAX runtime kernel for a warmup-certified fixed trace order.
+
+    Warmup must verify the exact trace provider, measure a conservative rho
+    maximum plus margin, and choose the static ``order`` before tracing. This
+    kernel deliberately performs no rho check: runtime checking would put a
+    Python branch inside HMC. Retained samples are rechecked afterward. The
+    warmup rho certificate is, like solver ``tol``, the only number between
+    the user and silent error.
+    """
+    traces = jnp.asarray(exact_power_traces)[:order]
+    powers = jnp.arange(1, order + 1, dtype=traces.dtype)
+    signs = jnp.where(powers % 2 == 1, 1.0, -1.0)
+    return jnp.asarray(lambda_logdet_value) + jnp.sum(signs * traces / powers)
+
+
 def frozen_hutchinson_trace_logdet(
     lambda_matrix: Any,
     perturbation: Any,
     probes: FrozenProbes,
     *,
     order: int,
+    rho: float | None = None,
 ) -> float:
-    """Rung 7: deterministic Hutchinson trace-log with immutable probes."""
+    """Rung 7: frozen-probe Taylor trace-log after an eager strict-rho check."""
     lam, perturb = _matrix_pair(lambda_matrix, perturbation)
+    actual_rho = spectral_radius(lam, perturb)
+    certified_rho = actual_rho if rho is None else float(rho)
+    if not 0.0 <= certified_rho < 1.0:
+        raise ValueError(
+            f"frozen Taylor trace-log convergence requires rho < 1; got {certified_rho}"
+        )
+    if actual_rho > certified_rho * (1.0 + 2e-12) + 2e-14:
+        raise ValueError(
+            f"rho certificate {certified_rho} understates measured rho {actual_rho}"
+        )
     x = _x_matrix(lam, perturb)
     if probes.values.shape[1] != _n(lam):
         raise ValueError("frozen probe width must equal the matrix dimension")
@@ -602,6 +725,30 @@ def frozen_hutchinson_trace_logdet(
         for power in range(1, order + 1)
     )
     return lambda_logdet(lam) + correction
+
+
+def frozen_hutchinson_trace_logdet_runtime(
+    lambda_logdet_value: Any,
+    x_matrix: Any,
+    frozen_probe_values: Any,
+    *,
+    order: int,
+) -> jnp.ndarray:
+    """Pure JAX frozen-probe Taylor kernel at a warmup-certified fixed order.
+
+    ``frozen_probe_values`` must come from immutable :class:`FrozenProbes`
+    data and the caller must have certified strict ``rho < 1`` eagerly. No
+    convergence check is repeated inside the trace.
+    """
+    x = jnp.asarray(x_matrix)
+    vectors = jnp.asarray(frozen_probe_values).T
+    images = vectors
+    correction = jnp.asarray(0.0, dtype=jnp.result_type(x, vectors))
+    for power in range(1, order + 1):
+        images = x @ images
+        trace_estimate = jnp.mean(jnp.sum(vectors * images, axis=0))
+        correction = correction + ((-1.0) ** (power + 1) / power) * trace_estimate
+    return jnp.asarray(lambda_logdet_value) + correction
 
 
 def resampled_trace_logdet(
@@ -748,26 +895,60 @@ def check_logdet_premises(
     perturb = problem.perturbation
     sigma = lam + perturb
     n = _n(lam)
-    rank = _rank(perturb)
+    sigma_symmetric = sigma.ndim == 1 or bool(
+        np.allclose(
+            sigma,
+            sigma.T,
+            rtol=config.structure_rtol,
+            atol=config.structure_atol,
+        )
+    )
+    sigma_spd = sigma_symmetric and _is_positive_definite(sigma)
+    try:
+        rank = _algebraic_rank_bound(perturb, problem.low_rank_factors)
+        rank_evidence_valid = True
+    except ValueError:
+        rank = n
+        rank_evidence_valid = False
     base = bool(np.array_equal(sigma, lam))
-    low_rank = rank <= config.low_rank_max and rank <= config.low_rank_fraction * n
+    has_algebraic_evidence = perturb.ndim == 1 or problem.low_rank_factors is not None
+    low_rank = (
+        rank_evidence_valid
+        and has_algebraic_evidence
+        and rank <= config.low_rank_max
+        and rank <= config.low_rank_fraction * n
+    )
 
     if problem.chain_block_size is None or sigma.ndim != 2:
         chain = False
         chain_reason = "no dense matrix and chain block size were supplied"
     else:
-        chain = _is_block_chain(
+        chain_structure = _is_block_chain(
             sigma,
             problem.chain_block_size,
             rtol=config.structure_rtol,
             atol=config.structure_atol,
         )
-        chain_reason = (
-            "all blocks beyond the first off-diagonal were numerically zero"
-            if chain
-            else "the supplied matrix is not block tridiagonal at that block size"
-        )
+        chain = chain_structure and sigma_spd
+        if not chain_structure:
+            chain_reason = (
+                "the supplied matrix is not block tridiagonal at that block size"
+            )
+        elif not sigma_symmetric:
+            chain_reason = "the block-tridiagonal matrix is not symmetric"
+        elif not sigma_spd:
+            chain_reason = "the symmetric block chain is not positive definite"
+        else:
+            chain_reason = (
+                "block-tridiagonal structure, symmetry, and positive definiteness "
+                "were verified"
+            )
     structure_kind, structured, structure_reason = _structure_request(problem, config)
+    if structured and not sigma_spd:
+        structured = False
+        structure_reason = f"{structure_reason}, but Sigma is " + (
+            "not symmetric" if not sigma_symmetric else "not positive definite"
+        )
 
     condition = (
         float(np.max(sigma) / np.min(sigma))
@@ -776,7 +957,7 @@ def check_logdet_premises(
     )
     dtype = sigma.dtype if np.issubdtype(sigma.dtype, np.inexact) else np.dtype(float)
     ceiling = condition_ceiling(dtype)
-    dense = n <= config.dense_max_n and condition < ceiling
+    dense = n <= config.dense_max_n and condition < ceiling and sigma_spd
     finite = n <= config.finite_max_n or rank <= config.finite_max_rank
     actual_rho = spectral_radius(lam, perturb)
     rho = actual_rho if problem.certified_rho is None else problem.certified_rho
@@ -789,7 +970,12 @@ def check_logdet_premises(
         )
     )
     trace = traces_verified and rho_covers_input and 0.0 <= rho < 1.0
-    frozen = problem.frozen_probes is not None and problem.trace_order is not None
+    frozen = (
+        problem.frozen_probes is not None
+        and problem.trace_order is not None
+        and rho_covers_input
+        and 0.0 <= rho < 1.0
+    )
 
     return (
         PremiseVerdict(
@@ -820,8 +1006,18 @@ def check_logdet_premises(
             4,
             _METHODS[4],
             dense,
-            f"n={n} (limit {config.dense_max_n}); condition={condition:.8g} (strict ceiling {ceiling:.8g})",
-            {"n": n, "condition": condition, "condition_ceiling": ceiling},
+            (
+                f"n={n} (limit {config.dense_max_n}); condition={condition:.8g} "
+                f"(strict ceiling {ceiling:.8g}); symmetric={sigma_symmetric}; "
+                f"positive_definite={sigma_spd}"
+            ),
+            {
+                "n": n,
+                "condition": condition,
+                "condition_ceiling": ceiling,
+                "symmetric": sigma_symmetric,
+                "positive_definite": sigma_spd,
+            },
         ),
         PremiseVerdict(
             5,
@@ -851,10 +1047,10 @@ def check_logdet_premises(
             7,
             _METHODS[7],
             frozen,
-            "immutable probes and a fixed order are present"
+            "immutable probes, a fixed order, and a strict rho<1 certificate are present"
             if frozen
-            else "immutable FrozenProbes and a fixed order are required",
-            {"order": problem.trace_order},
+            else "immutable FrozenProbes, a fixed order, and a conservative rho<1 certificate are required",
+            {"rho": rho, "measured_rho": actual_rho, "order": problem.trace_order},
         ),
         PremiseVerdict(
             8,
@@ -880,7 +1076,11 @@ def dispatch_logdet(
         if verdict.level == 0:
             value = lambda_logdet(problem.lambda_matrix)
         elif verdict.level == 1:
-            value = low_rank_logdet(problem.lambda_matrix, problem.perturbation)
+            value = low_rank_logdet(
+                problem.lambda_matrix,
+                problem.perturbation,
+                factors=problem.low_rank_factors,
+            )
         elif verdict.level == 2:
             value = state_space_logdet(sigma, block_size=int(problem.chain_block_size))
         elif verdict.level == 3:
@@ -895,7 +1095,9 @@ def dispatch_logdet(
             value = dense_cholesky_logdet(sigma)
         elif verdict.level == 5:
             value = finite_perturbation_logdet(
-                problem.lambda_matrix, problem.perturbation
+                problem.lambda_matrix,
+                problem.perturbation,
+                factors=problem.low_rank_factors,
             )
         elif verdict.level == 6:
             value = truncated_trace_logdet(
@@ -911,6 +1113,7 @@ def dispatch_logdet(
                 problem.perturbation,
                 problem.frozen_probes,
                 order=int(problem.trace_order),
+                rho=float(verdict.details["rho"]),
             )
         return LadderResult(verdict.level, verdict.method, value, tuple(rejected))
     raise ResamplingRefused(
