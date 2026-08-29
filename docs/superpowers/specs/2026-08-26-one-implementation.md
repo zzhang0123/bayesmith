@@ -1741,6 +1741,22 @@
   本条只更正记录并就 `chain` 给出替代理由;`sqrtinfo`、`compressed`、`factorize`、
   `memory`、`archive` 的 D12 归属**未重审**。
 
+  **随本条一起悬置的还有 `ornstein_uhlenbeck`,它有明确的解除条件。**
+  它是**构造器**:远端那一版在内部构造**远端的** `LinearGaussianTransition`,
+  所以拒绝在任何调用方重包装之前就以 `StructureError` 抛出,消息也是远端的
+  514 字符版——**丢掉近端多出的那 71 个字符**
+  (`; and a quantity that is constant across the campaign is scope="global".`),
+  而那句是 rheplicant 的 config 词汇。要么丢语义(违铁律 3),要么在失败路径上
+  把三行算术抄一遍(两份规则,本仓最贵的反模式)。
+
+  > **解除条件(写在这里而不是只写在 docstring 里,因为从交接页 grep 不到
+  > docstring)**:*`LinearGaussianTransition` 的归属一经裁定,
+  > `ornstein_uhlenbeck` 随之落地,不需要新的测量* —— 它的算术已量:
+  > 8 个 `(tau, sigma, width)` 组合(含 `tau=1e4` 与 `tau=0.1`)四个字段
+  > **32/32 逐位相同**,16 格边界扫描两侧接受/拒绝**完全一致**,只差异常类。
+  > 若裁定容器**留守**,则 `ornstein_uhlenbeck` 也留守,本条了结;
+  > 若裁定容器**委托**,则两者同批,消息问题随容器的翻译子类一并解决。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
