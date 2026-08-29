@@ -26,9 +26,15 @@ they disagree. If the table and that test ever disagree, the test is right.
 | 4.2 | `priors.py` → `diagnose/` | `test_diagnose_jeffreys.py` | ✅ |
 | 4.2 | `numpyro_bridge.py` → `bridge/` | — | — |
 | 4.3* | `sqrtinfo` (rewritten; kernel preserved per B11) | `test_sqrtinfo_agrees.py` | ✅ |
+| 4.3* | `calibrate.py` → `optimize` (**switched** per D11; 4.3 superseded) | — (retired: never existed) | ✅ `calibrate.md` |
 
 `*` — has a page but **no source row of its own** in §四, and the test
-records why. `conditioning.py` appears only in the `linear.py` row's
+records why. `calibrate.py` is the third such entry and the first to reach
+the table through the SWITCHED branch rather than by naming a cross-check
+test: a switched module is asserted to have *no* cross-check, since one would
+compare this package with itself. §4.3 listed it under 不迁移; that entry was
+superseded by the owner's 2026-08-26 ruling and by D11, and **D58 records what
+reading the stale entry as live authority cost**. `conditioning.py` appears only in the `linear.py` row's
 DESTINATION cell (upstream moved it to `rheplicant.core` so `radio` could
 use it without importing `inference`); `sqrtinfo` belongs to the evidence
 layer, which §四 4.3 marks 不迁移 — rewritten under iron law 2, with its

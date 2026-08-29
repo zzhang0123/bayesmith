@@ -96,6 +96,22 @@ SWITCHED = {
     # `tests/exact/test_gls.py::test_the_fixed_point_is_the_unbiased_
     # estimator_not_the_gls_biased_one`, identified rather than re-homed.
     "gls.py",
+    # 2026-08-29, Wave C. `docs/superpowers/specs/2026-08-29-wave-C-calibrate-opening.md`,
+    # authorised by D11 -- the old spec's 4.3 lists this module under 不迁移
+    # and was superseded twice, which D58 records along with what it cost.
+    # Both `fit` methods delegate their descent to `bayesmith.optimize.minimize`;
+    # six of nine refusals stayed upstream, and the three that crossed are
+    # wrapped for their exception class and their remedy sentence.
+    #
+    # No cross-check file to retire, and that is not an omission: a
+    # do-not-migrate module never had one written, so iron law 2's retirement
+    # clause is vacuous here and its oracle clause has nothing to re-home. The
+    # law's other branch applies instead -- the descent's independent oracle
+    # lives here already as `tests/test_optimize.py::
+    # TestAgainstTheClosedFormPosterior` (the conjugate formula in numpy,
+    # differentiating nothing; plus a case whose oracle is a different
+    # algorithm). Identified rather than re-filed.
+    "calibrate.py",
 }
 
 PAGED_TODAY = {
@@ -111,6 +127,7 @@ PAGED_TODAY = {
     "gls.py",
     "uncertainty.py",
     "sqrtinfo.py",
+    "calibrate.py",
 }
 
 #: Rows whose module column names no single rheplicant file (a group, or a
@@ -146,7 +163,24 @@ NOT_A_SINGLE_MODULE = {
 #: re-read every other mention. It has its own cross-check and its own
 #: rejected function (`extreme_eigenvalues`), so it earns a page; what it
 #: does not have is a ledger row.
-OUT_OF_LEDGER = {"sqrtinfo.py", "conditioning.py"}
+#: `calibrate.py` is the third, and it WIDENS what this set means -- said
+#: here rather than left for the next reader to infer from a passing suite.
+#: The paragraph above promises "an entry here must name a cross-check test
+#: that exists ... the exception buys a page, never a free pass". Both earlier
+#: entries clear that bar directly. `calibrate.py` clears it through the
+#: SWITCHED branch instead: a switched module is asserted to have NO
+#: cross-check, because one would compare this package with itself. So the
+#: rule the paragraph states is really "a page must be answerable to
+#: `test_every_paged_module_actually_has_a_cross_check_test`", and that test
+#: has two answers, not one. It is still not a free pass -- the switched
+#: branch is an assertion, and a `test_calibrate.py` appearing in
+#: `tests/crosscheck/` would fail it.
+#:
+#: It is in the ledger's §四 only as a §4.3 BULLET, never a table row, so
+#: `_spec_module_names` (which parses pipe rows) cannot see it. That is the
+#: same accident `conditioning.py` had for a different reason, and it is why
+#: this set is a set rather than a rule.
+OUT_OF_LEDGER = {"sqrtinfo.py", "conditioning.py", "calibrate.py"}
 
 
 def _spec_module_names() -> set[str]:
