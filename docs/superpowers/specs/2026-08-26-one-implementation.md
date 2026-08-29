@@ -1374,6 +1374,46 @@
   钉住了,外加一条反空洞证明文本确实来自远端而非本地重写。
   接缝变异 **9 条 9 杀**,含专为这条静默失效写的 M8。
 
+- **D59 —(**需要 owner 知悉,不需要裁决**)独立预言机的「独立」正在悄悄变质。**
+  **【记录于 2026-08-29 开 `npe` 波时;不是缺陷,是一个会静默退化的性质。】**
+
+  `npe` 的验收预言机是 `tests/inference/test_npe.py` 的闭式后验——均值取自
+  `wiener_solve`、宽度取自 4000 次 `gcr_sample` 精确受约束实现。**而那两个名字
+  自 `linear` 批次起已是 `bayesmith.exact.solve` 的门面**,同时被测的
+  `NeuralPosterior` 现在是 `bayesmith.amortize` 的子类。
+  **于是这条预言机从「两个包互证」变成了「同一个包的两个模块互证」。**
+
+  **规模已量(2026-08-29)**:rheplicant 的 `inference/` 下**已有 8 个模块**
+  委托远端(`calibrate`、`gls`、`identifiability`、`linear`、`loglinear`、
+  `npe`、`partition`、`sensitivity`);**11 个测试文件**的被测对象与预言机
+  **双方都已路由到 bayesmith**:
+
+      config/test_config_exits_diagnostics · config/test_config_section_inference
+      config/test_postflight_fitting · config/test_preflight_fitting
+      inference/test_auto_partition · inference/test_d23_refusal_criterion
+      inference/test_degenerate_partition · inference/test_gls
+      inference/test_inference_construction_guards · inference/test_loglinear
+      inference/test_prior_sensitivity
+
+  **这不等于那些测试变差了**,而这正是要写清楚的地方。要问的不是「两边还在不在
+  两个包里」,而是:
+
+  > **这是两条不同的推导,还是同一条推导走了两遍?**
+
+  `wiener_solve`(精确线性解)对 NPE(训练出来的神经密度估计)是**两条不同的
+  推导**——其中一条错了不会让另一条跟着错同样的错。这类仍然是真预言机,
+  只是它的独立性**从「包隔离」降级为「模块隔离」**。
+  而「同一条推导走两遍」的那类**已经不是预言机了**,只是一次自证。
+
+  **为什么现在记**:铁律 4 第 4 步写着「独立预言机:解析真值 / 手写 NumPyro /
+  scipy / 变异」——那张单子写于两个包还没有任何共用实现的时候。**每切一个模块,
+  就有另外某个模块的预言机降一级,而没有任何东西会为此变红。** 这是那种
+  「本来为真、后来悄悄不再为真」的性质,本仓的笔记反复在修的正是这一类。
+
+  **建议(不需现在做)**:P4 做 cross-check 换防时,对每条预言机回答上面那一问,
+  并把答案写在它旁边。**降级到「模块隔离」的可以留,降到「自证」的必须换。**
+  这一条不需要裁决,需要的是下一位读到它之前不要把「有预言机」当成「有独立预言机」。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
