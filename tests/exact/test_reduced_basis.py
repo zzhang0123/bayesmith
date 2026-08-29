@@ -169,7 +169,26 @@ class TestOrthonormalTransform:
         twice = np.asarray(orthonormalise(jnp.asarray(candidates)))
         error_once = np.abs(once @ once.T - np.eye(len(once))).max()
         error_twice = np.abs(twice @ twice.T - np.eye(len(twice))).max()
-        assert error_twice < error_once, (error_once, error_twice)
+        # `<=`, not `<`, and the reason is measured rather than defensive.
+        # The reference above is MODIFIED Gram-Schmidt -- it subtracts against
+        # vectors already normalised -- and MGS is itself stable, losing
+        # orthogonality only in proportion to the condition number. So on any
+        # fixture this file can build in float64, both passes reach the eps
+        # floor and the comparison ties. It has now tied twice: the comment
+        # above records 2.2e-16 against a 1e-9 perturbation, and on
+        # jax 0.11.1 / numpy 2.5.2 the 1e-12 fixture ties at 1.11e-16.
+        #
+        # Sweeping an explicit condition number does separate them -- at
+        # kappa = 1e10 the single pass reaches 4.1e-07 against 1.1e-09 -- but
+        # it separates them partly by keeping a direction `orthonormalise`
+        # drops, so it compares bases of different sizes and measures rank
+        # honesty rather than orthogonality. That is a different claim and it
+        # deserves its own test rather than being smuggled in here.
+        #
+        # What survives on every version tried: two passes are never worse,
+        # and are good in absolute terms. The absolute bound is the assertion
+        # with teeth.
+        assert error_twice <= error_once, (error_once, error_twice)
         assert error_twice < 1e-10
 
     def test_an_empty_candidate_set_is_empty_rather_than_an_error(self):

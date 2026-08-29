@@ -2,7 +2,20 @@
 
 ## Unreleased
 
-## 0.6.0 -- 2026-08-29
+## 0.6.1 -- 2026-08-29
+
+**0.6.0 was tagged and never shipped, so there is no 0.6.0 on the index.** Its
+wheel-test job failed on two assertions that had nothing to do with the release
+and everything to do with where they were run: the publish job builds a fresh,
+completely unpinned environment, which resolved `jax==0.11.1` and
+`numpy==2.5.2` where development had `0.11.0` and `2.3.5`. Both assertions were
+tighter than the arithmetic they were checking, and both are repaired here.
+
+The tag `v0.6.0` is left where it is rather than moved. Moving it would make it
+point at something other than what shipped, and a tag that disagrees with the
+index is worse than a gap in the numbering.
+
+## 0.6.0 -- tagged 2026-08-29, never published
 
 The minor slot rather than the patch slot, because both entries below CHANGE
 VALUES a caller could have been reading -- the smoother's on stiff chains, the

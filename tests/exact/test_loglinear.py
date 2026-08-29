@@ -14,12 +14,14 @@ sigma, so the posterior is Gaussian with precision ``n / f^2 + 1 / s0^2``.
 first-order equivalence is actually used, not at a round number.
 """
 
+import math
+
 import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
 import pytest
 
-from bayesmith import det, observe, sample, trace
+from bayesmith import det, joint_prior, observe, sample, trace
 from bayesmith.errors import NotLogLinear
 from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.loglinear import (
@@ -31,6 +33,7 @@ from bayesmith.exact.loglinear import (
     multiplicative_log_data,
 )
 from bayesmith.exact.solve import gcr_sample, wiener_solve
+from bayesmith.graph.evaluate import log_joint
 
 N = 24
 SKY = (
@@ -263,3 +266,107 @@ class TestTheArraySeam:
         assert jnp.allclose(y, jnp.log(observed) + F**2 / 2, rtol=1e-6)
         assert jnp.shape(sigma) == jnp.shape(y)
         assert jnp.all(sigma == jnp.asarray(F, dtype=sigma.dtype))
+
+
+#: A block prior's centre and width, deliberately off the evaluation point and
+#: deliberately NOT 1.0. At ``std=1`` the ``-log s`` term of a Gaussian is
+#: exactly zero, so half of a dropped prior's evidence vanishes for free; this
+#: repository has had defects hide behind that number before.
+BLOCK_MEAN = -1.3
+BLOCK_STD = 0.35
+BLOCK_AT = 0.5
+
+
+class _BlockPrior:
+    """A joint prior over ``log_gain``, standing in for ``JeffreysPrior``.
+
+    ``Graph`` checks a joint prior structurally -- it must answer ``over`` and
+    ``log_density``, and its block must name latents -- so the transform's
+    obligation to CARRY the field is testable without also dragging in the
+    Fisher arithmetic of the real prior, its ``ImproperUniform`` requirement on
+    covered latents, and the float64 those need. What is under test here is
+    the graph rebuild, and a double keeps it that way.
+    """
+
+    over = ("log_gain",)
+
+    def log_density(self, graph, values):
+        return dist.Normal(BLOCK_MEAN, BLOCK_STD).log_prob(values["log_gain"])
+
+
+def _graph_with_block_prior():
+    """The multiplicative fixture, carrying a joint prior over its latent."""
+    data = _observed("multiplicative")
+
+    def model(observed):
+        joint_prior(_BlockPrior())
+        lam = sample("log_gain", lambda: dist.Normal(0.0, PRIOR_STD))
+        mu = det("mu", lambda l: jnp.exp(l) * SKY, lam)
+        observe("d", lambda m: dist.Normal(m, F * m), mu, obs=observed)
+
+    return trace(model, data), data
+
+
+def _gaussian_log_prob(value, loc, scale):
+    """``log N(value; loc, scale)`` written out, so the expectation is
+    arithmetic this file did rather than arithmetic it asked the package for."""
+    z = (value - loc) / scale
+    return -0.5 * z**2 - jnp.log(scale) - 0.5 * math.log(2.0 * math.pi)
+
+
+class TestTheJointPriorSurvivesTheTransform:
+    """``log_space`` rebuilds the graph, and a rebuild may not lose a field.
+
+    ``Graph.joint_prior`` defaults to ``None``, so ``Graph(nodes=..., plates=...)``
+    is a legal call that silently drops it -- there is no construction-time
+    complaint, because ``__check_init__`` only inspects the field when it is
+    NOT ``None``. The loss is then invisible where anyone would look for it:
+    a block prior shifts and re-curves the density, and every consumer of
+    ``LogSpace`` in this file reports a MEAN and a WIDTH. So these assertions
+    are on the absolute density, which is the only quantity that moves.
+    """
+
+    def test_the_transformed_graph_still_carries_the_declared_prior(self):
+        graph, _ = _graph_with_block_prior()
+        assert graph.joint_prior is not None
+        ls = log_space(graph)
+        assert ls.graph.joint_prior is graph.joint_prior
+
+    def test_the_log_joint_of_the_transformed_graph_includes_the_prior_term(self):
+        """The ABSOLUTE density, against a closed form written out here.
+
+        Not the difference between two graphs, and not the posterior's shape:
+        the whole number, so that a prior which failed to survive is a term
+        missing from a value this test states in full. ``log_gain`` sits
+        ``(0.5 + 1.3) / 0.35 = 5.14`` widths off the block prior's centre, so
+        the term is about -13.1 nats against a total near -524 -- far outside
+        any tolerance, and far outside the ~0.006 nats that separate this
+        posterior's mean from the one without a prior at all.
+        """
+        graph, data = _graph_with_block_prior()
+        ls = log_space(graph)
+        at = {"log_gain": jnp.asarray(BLOCK_AT)}
+
+        # Written from the model, not read back off the transform: the
+        # log-space likelihood is Normal(log mu, F) at the shifted data, the
+        # latent keeps its own Normal(0, PRIOR_STD), and the block prior is
+        # the third term -- the one at issue.
+        latent = _gaussian_log_prob(jnp.asarray(BLOCK_AT), 0.0, PRIOR_STD)
+        y = jnp.log(data) + F**2 / 2.0
+        likelihood = jnp.sum(
+            _gaussian_log_prob(y, jnp.log(jnp.exp(BLOCK_AT) * SKY), F)
+        )
+        prior = _gaussian_log_prob(jnp.asarray(BLOCK_AT), BLOCK_MEAN, BLOCK_STD)
+        expected = float(latent + likelihood + prior)
+
+        assert float(prior) < -13.0  # the term is large; it cannot round away
+        assert float(log_joint(ls.graph, at)) == pytest.approx(expected, rel=1e-4)
+
+    def test_a_graph_without_a_joint_prior_still_has_none(self):
+        """The repair carries the field; it does not invent one.
+
+        Stated because 'preserve it' and 'default it' are one edit apart, and
+        every other graph in this file predates the field.
+        """
+        ls = log_space(_graph("multiplicative"))
+        assert ls.graph.joint_prior is None

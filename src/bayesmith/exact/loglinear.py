@@ -441,7 +441,22 @@ def log_space(graph: Graph) -> LogSpace:
             per_node=skipped_reasons,
         )
     return LogSpace(
-        graph=Graph(nodes=tuple(nodes), plates=graph.plates),
+        # Carried, not defaulted. Only OBSERVED nodes are rebuilt above, so
+        # the latents -- and therefore the block any `joint_prior` is over --
+        # are the same set on both sides of the transform, and the field
+        # survives `__check_init__` unchanged. It has to be named explicitly
+        # because it DEFAULTS to None: `Graph(nodes=..., plates=...)` is a
+        # legal call that drops it silently, and `__check_init__` inspects the
+        # field only when it is not None, so nothing downstream complains. A
+        # graph that lost it here would solve in log space against a different
+        # posterior than the one declared -- and a block prior moves the
+        # DENSITY while barely moving the mean and width that every consumer
+        # of `LogSpace` reports, so the loss would not show where anyone looks.
+        graph=Graph(
+            nodes=tuple(nodes),
+            plates=graph.plates,
+            joint_prior=graph.joint_prior,
+        ),
         kind=kind,
         fractional=fractional,
         skipped=skipped,

@@ -105,7 +105,19 @@ class TestTheDenseRouteOverRealDegreesOfFreedom:
         design = np.asarray(dense_operator(block), dtype=np.float64)
         expected = design.T @ (np.eye(4) / NOISE_STD**2) @ design
         assert found.kind == "fisher"
-        assert np.allclose(np.asarray(found.values), expected, rtol=1e-5)
+        # `atol` scaled to the matrix, because the two sides are not the same
+        # dtype: `found.values` is float32 and `expected` is a float64 dense
+        # assembly. numpy's default `atol=1e-8` is a float64-era constant, and
+        # it was always too tight here -- float32's resolution at this matrix's
+        # scale (entries run 0.16 to 7.08) is about 8e-7. It passed only while
+        # the roundoff happened to land under it: on jax 0.11.1 / numpy 2.5.2
+        # a structurally-zero off-diagonal came back as 2.68e-08 on one side
+        # and exactly 0.0 on the other, and the comparison failed on arithmetic
+        # noise rather than on anything about the Fisher.
+        scale = float(np.abs(expected).max())
+        assert np.allclose(
+            np.asarray(found.values), expected, rtol=1e-5, atol=1e-5 * scale
+        )
 
     def test_with_the_prior_it_inverts_to_the_dense_posterior_covariance(self):
         """End to end, and the strongest oracle here: the covariance a caller
