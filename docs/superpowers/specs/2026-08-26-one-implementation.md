@@ -1919,6 +1919,36 @@
   `DiagonalPrecision.log_spectrum` 已经用安全写法 `2*log(sigma)`,**这条路径
   没有用它**。同样只登记不改:它改的是极端 sigma 下的返回值。
 
+- **D69 — Wave D 第 5、6 步(`memory`、`archive`)**确认留守**,而这次是**逐名量过**
+  的确认,不是沿用开波页的判定。**
+  **【本次委托下自裁,2026-08-29。】**
+
+  开波页把这两个模块判成留守,理由写得很短。**本会话第 2、3 步各有一次判定
+  在实测后翻转**,所以这两条也重新量了一遍——结论不变,但现在有据。
+
+  **`memory`(1045 行):远端连一个可比的东西都没有。**
+
+  | 近端 | 远端 |
+  |---|---|
+  | `BayesMemory`(`eqx.Module`,字段 `factorization`/`accumulated`/`_archive`/`coefficients`/`basis`;方法 `remember`/`audit`/`fisher`/`log_posterior`/`to_numpyro_model`) | **不存在** |
+  | `reject_bad_term(term: CompressedLikelihood, held, ids, duplicate, latents_ok, represents, shared_inputs, repeat_remedy)` | **不存在**(G6 消费页 §一 已判留守) |
+  | `_Archive` | **不存在** |
+
+  **唯一同名的是 `fold_epochs`,而它不是同一件事**:远端
+  `fold_epochs(designs, targets, offsets, width)` 收**裸数组**、一次折一批
+  (`lax.scan`);近端 `BayesMemory.remember` 是**有状态的累加器**,一次折一条,
+  并且带来源(provenance)与拒绝。**按名字看是「有对应物」,按签名看不是。**
+  这正是开波页 `Factorization` 那一格的同一个教训。
+
+  **`archive`(444 行):在盘格式,远端没有任何东西。**
+  `save_memory`/`load_memory` 远端**都不存在**,`_describe`/`_reject_bad_archive`
+  写的是 manifest 的形状。**它仍然卡在 D39 第 3 步**(摘要 + 二进制内的逐 term
+  身份),而那一条是 owner 的:顺序已钉死为 **字节检查(已做)→ 转换器 → 才是绑定**,
+  **先绑定而不备转换器会毁掉不可恢复的归档**。
+
+  **所以 Wave D 的次序里,第 5、6 步没有代码要写**;第 6 步的**唯一**待办是 D39
+  第 3 步,而那不属于本委托。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
