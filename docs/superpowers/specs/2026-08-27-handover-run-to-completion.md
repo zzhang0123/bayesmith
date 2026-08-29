@@ -460,7 +460,42 @@ shrinkage 名字委托(e-RHINO `b2ae646`,逐位,变异 4/4)、**第 2 步 `chain
 (e-RHINO `bdeafd4`,变异 6/6)。
 **第 3 步(`compressed` + `compress`)也已做完,而它是一个**确认批次**:
 两个模块都留守,一行都没切。** 见下。
-**下一件是第 4 步:`diagnostics` 的消费面。**
+**第 4 步已量完(D70),代码未切**;**第 5、6 步经 D69 确认无代码可写**;
+**第 7 步 `sqrtinfo` 的干净一半已落地**(`marginalise_arrays` 委托,e-RHINO `b87e44f`,
+变异 3/3)。**下一件见「剩下的三件」。**
+
+#### 第 4 步(D70):第一次「远端没有数值缺陷」,拦路的是拒绝
+
+远端 `held_out_z` 与近端**逐行同算法、逐位相同**;`tightest_direction` 逐位;
+`systematic_floor` 对 60 位 mpmath 在 16 个数量级上精确;
+近端 `coherent_mode` 对远端 `template_modes` 五个顶层键 + 每个嵌套键**全部逐位**,
+**且这次扛住了参差 dof + 15 个数量级的 fixture**(与本会话被证伪的那条「逐位」不同)。
+
+**拦路的是拒绝,而且两个方向都有**:近端 `epoch_residuals` **一条 `raise` 都没有**
+(空 campaign 返回 `()`,模板列表不一致时按位置静默混用),远端两样都拒绝——
+**这一格委托是净收益**;反过来远端 `held_out_z` 对零行 epoch 返回 `z=nan`,
+近端按名字拒绝,**而远端自己的 NaN 守卫查的是 `chi2`,`0.0` 照常通过**。
+`systematic_floor` **硬留守**:远端要 `term.information()`,近端 `SqrtInfo` 没有。
+
+**已补四条守卫**(`test_diagnostics_unguarded.py`,变异 3/3),其中三条是
+**散文辩护的选择**——一句 docstring、九行注释、`docs/` 引的一个数字,
+**全都可以随便改而整套不红**。
+
+#### 剩下的三件(按可做性排序)
+
+1. **第 4 步的委托本身**,先决两条:(a) 把两条 **D61 比较塌缩**的测试改成对独立
+   预言机(`test_held_out.py:92` 拿同一对象的两个字段互验;`:103` 两个操作数都会变远端);
+   (b) 包装器留住零行拒绝。适配器已量出来,写在 D70。
+2. **`marginalise` 的委托**(第 7 步剩下的一半)。五条拒绝两侧逐案一致,
+   **只有一条消息不同**:近端多出 `" Recompress that epoch."`。做法与 `calibrate`
+   的补救句替换同形。**但它是 D67 那条门槛的载体**,建议等 owner 对 D67 定了再动。
+3. **`smooth` 的委托**,**卡在发布**:修复已在 bayesmith `main`,而 e-RHINO 的 CI 装
+   PyPI 的 `bayesmith>=0.5`,`v0.5.0` 里还是 `linalg.inv`。解除条件写在 D64。
+
+> **一条新的例行检查,本会话用两次各得一个相反答案**:委托一个远端名字之前,
+> **先 `git show v<发布版本>:<路径>` 看那个函数在**已发布**的版本里是什么样**。
+> `smooth` 的修复只在 `main`(所以不能委托);`marginalise_arrays` 在 `v0.5.0` 里
+> **与 HEAD 逐字节相同**(所以可以)。**本地 editable checkout 不是 CI 装的东西。**
 
 #### 第 3 步:两个模块都留守,而值钱的是查出来的四件事
 

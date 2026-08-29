@@ -1949,6 +1949,60 @@
   **所以 Wave D 的次序里,第 5、6 步没有代码要写**;第 6 步的**唯一**待办是 D39
   第 3 步,而那不属于本委托。
 
+- **D70 — Wave D 第 4 步(`diagnostics` 消费面)。**这是本波第一次「远端没有数值缺陷」,
+  而拦路的全是**拒绝的不对称**,并且**两个方向都有**。**
+  **【本次委托下自裁,2026-08-29。】**
+
+  **先说与第 2、3 步不同的地方**:那两步各查出一个远端的**静默错答案**。
+  这一步**没有**。远端 `held_out_z` 与近端逐行同算法、逐位相同;
+  `tightest_direction` 逐位相同(95 个 SPD 格,条件数 1e0–1e18,外加恰好奇异);
+  `systematic_floor` 对 **60 位 mpmath** 参照在 **16 个数量级**上精确。
+  近端 `coherent_mode` 对远端 `template_modes` **五个顶层键 + 每个嵌套模板键全部逐位**,
+  而且这次**扛住了更狠的 fixture**(参差 dof、15 个数量级的量级散布)——
+  与本会话被证伪的那条「逐位」不同,这条是真的。
+
+  | 名字 | 判定 | 定它的那条事实 |
+  |---|---|---|
+  | `_tightest_direction` | **可委托(最干净)** | 逐位,两侧零拒绝 |
+  | `coherent_mode` → 远端 `template_modes` | 可委托,需适配器 | 逐位;要现搭 `ResidualSummary`,并把 `epoch_id` 拉回来 |
+  | `epoch_residuals` | 可委托,**且会多拿两条拒绝** | 见下 |
+  | `held_out_z` | **可委托但包装器必须留住一条拒绝** | 见下 |
+  | `systematic_floor` | **留守(硬)** | 远端要 `term.information()`,近端 `SqrtInfo` 没有,**直接 AttributeError** |
+
+  **拒绝的不对称,两个方向:**
+
+  1. **近端更弱**:近端 `epoch_residuals` **一条 `raise` 都没有**。空 campaign 返回 `()`,
+     模板列表不一致时**按位置静默混用**。远端两样都拒绝。所以这一格委托是**净收益**。
+  2. **远端更弱**:近端 `_campaign_arrays` 拒绝**零行 epoch**;远端没有,返回
+     `{'chi2': 0.0, 'dof': 0, 'z': nan}`。**远端自己的 NaN 守卫抓不到**——它查的是
+     `chi2`,而 `0.0` 有限非负、照常通过。**远端制造的正是它自己注释说要防的那件事。**
+  3. **`systematic_floor` 还有一条**:远端先 Cholesky 再查有限性,于是在 NaN 污染的项上
+     报「information is not positive definite」——**正是近端明确防的那种自信的错诊断**;
+     近端 `_posterior_covariance` 先 `np.all(np.isfinite(...))`。
+
+  **一条近端自己的假陈述**(实测):近端 `diagnostics.py:271` 说零行 factor 是
+  `SqrtInfo.null` 产生的东西。**两个仓的 `SqrtInfo.null` 实测都返回 `(width, width)`
+  的方阵零 factor。** 拒绝本身是对的,它给的理由不是。
+
+  **六条「没有守卫」,已补四条**(`tests/evidence/test_diagnostics_unguarded.py`,
+  变异 3/3 杀;第四条 `at=` 因需要 `BayesMemory` fixture 留给下一位):
+  按第一个 epoch 的 dof 充当全campaign(**参差 dof 的缺陷,而目录里每个 fixture 都给
+  每个 epoch 同一个 dof**,所以两种写法分不开);`scatter` 由总体散布改成样本散布
+  (`ddof=0`→`1`,九行注释辩护过,`docs/evidence.md` 引了 1.00200);
+  `reduced_chi2` 在 `dof==0` 时返回 `0.0` 而不是 `nan`(它自己的 docstring 写着
+  「a zero here would read as a perfect fit」);`systematic_floor` **完全忽略 `at=`**
+  (全仓无人传过它)。另两条是 `_prior_curvature` 与 `_posterior_covariance` 的拒绝,
+  删掉整套仍绿。
+
+  > **三条里有三条是「散文辩护的选择」**——一句 docstring、九行注释、`docs/` 里引的一个
+  > 数字,**全都由懂这个选择的人写下,而全都不可校验**。这与本会话反复出现的那一条
+  > 同源:**问题不是没人想过,是没有东西会因为想错而变红。**
+
+  **两条 D61 的比较塌缩**(实测):`test_the_score_is_the_chi_square_of_the_held_out_residual`
+  拿同一个返回对象的两个字段互相验证,委托后是远端对远端;
+  `test_a_repeated_design_makes_the_held_out_score_blind` 的两个操作数都会变成远端。
+  **委托这一格之前要先把这两条改成对独立预言机。**
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
