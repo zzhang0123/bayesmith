@@ -2,35 +2,50 @@
 
 ## Unreleased
 
-### Known defect
+### Fixed
 
-**`marginal.chain.smooth` loses its conditioning on a stiff chain, and there is
-now a test that says so.** It assembles the explicit precision over
-`zeta_1:N` and calls `jnp.linalg.inv`, paying `kappa(F)`, where
-`chain_marginal` in the same module assembles the information square root and
-pays `sqrt(kappa(F))`. That module's own docstring says the square-root form is
-what keeps a thousand-epoch accumulation inside float64 where the explicit
-`(F, b)` form goes indefinite -- so this is the smoother departing from the
-design the module states, not a tolerance to widen.
+**`marginal.chain.smooth` now assembles the information square root instead of
+inverting the explicit precision.** It paid `kappa(F)` where `chain_marginal`,
+in the same module, pays `sqrt(kappa(F))` -- and this module's header already
+said which of those is right: the square-root form is what keeps a
+thousand-epoch accumulation inside float64 where the explicit `(F, b)` form
+goes indefinite. The smoother was not following its own module's design.
 
-Deciding it needs no oracle. With `phi = 1` and `process_std` falling the chain
-freezes, so the smoothed mean must converge. It walks from `-0.200652` to
-`-0.469638` between `1e-6` and `1e-8` -- with the across-epoch spread reading
-`7.2e-16`, so the answer *looks* settled -- and every variance is `nan` at
-`1e-9`. On rheplicant's fixture the same sweep gives `0.931437` where the limit
-is `0.454969`, exactly twice, before going `nan`.
+**What it cost, and how it was decided without an oracle.** With `phi = 1` and
+`process_std` falling the chain freezes, so the smoothed posterior must
+converge. It did not: the mean walked from `-0.200652` to `-0.469638` between
+`1e-6` and `1e-8` -- with the across-epoch spread reading `7.2e-16`, so the
+answer *looked* settled -- and every variance was `nan` at `1e-9`. On
+rheplicant's fixture the same sweep returned `0.931437` where the limit is
+`0.454969`, exactly twice, before going `nan`. The `0.93` was the dangerous
+value, not the `nan`.
 
-`tests/marginal/test_chain_conditioning.py` carries three `xfail(strict=True)`
-cells, so they pass today and **go red the moment the smoother is repaired**.
-The passing cells at `1e-6`, `1e-7` and `1e-8` are deliberately unmarked: a fix
-that made `1e-9` finite by breaking `1e-8` shows up as a new failure rather
-than as a marker to delete.
+`process_std = 1e-9` is a documented input: `LinearGaussianTransition`'s
+docstring says a chain that genuinely does not move is `1e-9` rather than `0.0`.
 
-Not yet fixed here. `rheplicant` keeps its own square-root smoother rather than
-delegating to this one, which is how it was found -- every `process_std` in
-`tests/marginal/test_chain.py` is at or above `0.02`, and every smoother
-fixture on the rheplicant side used `0.7071`, so swapping the implementations
+**THIS CHANGES VALUES** on stiff chains -- from wrong ones to right ones, but
+callers who stored smoothed variances from a stiff chain will see them move.
+Against `rheplicant`'s independent square-root smoother the repaired version is
+now **bitwise identical at every stiffness tested**, `1e-1` down to `1e-9`.
+
+`tests/marginal/test_chain_conditioning.py` was written first, against the
+broken implementation, with three `xfail(strict=True)` cells -- so it passed
+while the defect stood and turned **red on the repair**, as an XPASS naming the
+markers to delete. The markers are gone and the file is an ordinary regression
+guard. The cells at `1e-6` through `1e-8` were never marked, so a fix that
+bought `1e-9` by breaking `1e-8` would have surfaced as a new failure rather
+than as a marker to remove.
+
+Found because `rheplicant` declined to delegate its smoother here during the
+Wave D migration. Neither suite could see it: every `process_std` in
+`tests/marginal/test_chain.py` was at or above `0.02`, and every smoother
+fixture on the rheplicant side used `0.7071`. Swapping the implementations
 passed all 91 of its chain tests.
+
+**`rheplicant` cannot delegate to this until it ships.** Its CI installs
+`bayesmith>=0.5` from the index, and `v0.5.0` carries the `linalg.inv`
+spelling, so the delegation would be green on an editable checkout and red on
+CI. That is the release gate doing its job rather than an obstacle.
 
 ### Fixed
 

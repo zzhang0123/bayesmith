@@ -457,6 +457,101 @@ def chain_log_likelihood(
     return chain_marginal(blocks, transition, values, names, shapes).log_prob(values)
 
 
+def _zeta_joint(
+    blocks: tuple[jax.Array, jax.Array, jax.Array],
+    transition: Any,
+    values: dict[str, jax.Array],
+    names: tuple[str, ...],
+    shapes: tuple[tuple[int, ...], ...],
+) -> tuple[jax.Array, jax.Array, int, int]:
+    """The block-tridiagonal joint over ``zeta_1:N``, as a SQUARE ROOT.
+
+    Three kinds of row and nothing else: each epoch's stored rows with ``theta``
+    moved to the right-hand side, ``zeta_1``'s prior, and one coupling
+    ``Q^-1/2 (zeta_{e+1} - phi zeta_e)`` per transition. The offsets are not
+    read -- a constant cannot move a mean or a covariance -- which is why this
+    returns no offset and :func:`smooth` reports no density.
+
+    **Why rows and a QR rather than the precision and an inverse.** The two are
+    the same quantity and not the same arithmetic. Assembling ``F = R^T R``
+    squares the condition number, and this module's own header says what that
+    costs: the square-root form is what keeps a long accumulation inside
+    float64 where the explicit ``(F, b)`` form goes indefinite. The rows carry
+    ``1 / process_std``; the precision would carry its square, so a chain at
+    ``process_std = 1e-9`` asks float64 to hold ``1e18``, and ``1e18 * eps`` is
+    ``220``.
+
+    That was not hypothetical. Before this assembly existed, ``smooth`` inverted
+    the precision, and on a frozen chain (``phi = 1``, ``process_std`` falling,
+    so every epoch shares one latent and the answer must converge) it returned
+    a smoothed mean that walked from ``-0.200652`` to ``-0.469638`` between
+    ``1e-6`` and ``1e-8`` -- while the across-epoch spread read ``7.2e-16``, so
+    the answer *looked* settled -- and ``nan`` at ``1e-9``.
+    ``tests/marginal/test_chain_conditioning.py`` is that story as tests.
+
+    The QR always has at least ``T + 1`` rows to work with: the assembled matrix
+    has ``N n_theta + 2 N n_zeta`` of them against ``T = N n_zeta`` columns, so
+    the slices below never under-run, for any ``N >= 1``.
+
+    Returns:
+        ``(triangular (T, T), rhs (T,), n_epochs, n_zeta)``.
+    """
+    factors, targets, _ = blocks
+    resolved = transition.at(values)
+    n_zeta = resolved.width
+    n_theta = sum(int(jnp.zeros(shape).size) for shape in shapes)
+    _check_block_width(factors, names, n_theta, n_zeta)
+    n_epochs = int(factors.shape[0])
+    total = n_epochs * n_zeta
+    theta = (
+        jnp.concatenate([jnp.ravel(jnp.asarray(values[name])) for name in names])
+        if names
+        else jnp.zeros(0)
+    )
+
+    rows, rhs = [], []
+    # Each epoch's evidence. theta is CONDITIONED on, not marginalised: it moves
+    # to the right-hand side rather than becoming more columns.
+    for e in range(n_epochs):
+        rows.append(
+            jnp.zeros((factors.shape[1], total))
+            .at[:, e * n_zeta : (e + 1) * n_zeta]
+            .set(factors[e][:, n_theta:])
+        )
+        rhs.append(targets[e] - factors[e][:, :n_theta] @ theta)
+
+    # zeta_1's prior.
+    rows.append(
+        jnp.zeros((n_zeta, total))
+        .at[:, :n_zeta]
+        .set(jnp.diag(1.0 / resolved.initial_std))
+    )
+    rhs.append(resolved.initial_mean / resolved.initial_std)
+
+    # The couplings. `diag(1/q) @ phi`, NOT `phi @ diag(1/q)` -- the same line
+    # the filter's transition rows are built from, and the same one that no
+    # scalar and no equal-spread fixture can tell apart.
+    inverse_process = 1.0 / resolved.process_std
+    for e in range(n_epochs - 1):
+        coupling = jnp.zeros((n_zeta, total))
+        coupling = coupling.at[:, e * n_zeta : (e + 1) * n_zeta].set(
+            -inverse_process[:, None] * resolved.phi
+        )
+        coupling = coupling.at[:, (e + 1) * n_zeta : (e + 2) * n_zeta].set(
+            jnp.diag(inverse_process)
+        )
+        rows.append(coupling)
+        rhs.append(jnp.zeros(n_zeta))
+
+    upper = jnp.linalg.qr(
+        jnp.concatenate(
+            [jnp.concatenate(rows, axis=0), jnp.concatenate(rhs)[:, None]], axis=1
+        ),
+        mode="r",
+    )
+    return upper[:total, :total], upper[:total, total], n_epochs, n_zeta
+
+
 def smooth(
     blocks: tuple[jax.Array, jax.Array, jax.Array],
     transition: Any,
@@ -470,65 +565,30 @@ def smooth(
     answers is "given this receiver model, what did the drift do?", and
     marginalising theta would answer a different one with the same shapes.
 
-    **Not the classical backward pass, and the same quantity.** The joint
-    precision over ``zeta_1:N`` given theta is block-tridiagonal and small
-    enough to assemble: ``N * width`` is the number of epochs times the chain's
-    width, not the data size. Assembling and solving it gives the exact
-    smoothed mean and marginal variances in one step, with no forward/backward
-    pair to keep consistent -- and the two halves of an RTS smoother
-    disagreeing is a defect that reads as a physical result.
+    **Not the classical backward pass, and the same quantity.** The joint form
+    over ``zeta_1:N`` given theta is block-tridiagonal and small enough to
+    assemble: ``N * width`` is the number of epochs times the chain's width, not
+    the data size. Assembling and solving it gives the exact smoothed mean and
+    marginal variances in one step, with no forward/backward pair to keep
+    consistent -- and the two halves of an RTS smoother disagreeing is a defect
+    that reads as a physical result.
+
+    **Assembled as a square root, and :func:`_zeta_joint` says why at length.**
+    In short: the precision would carry ``(1 / process_std) ** 2``, and a stiff
+    chain then asks float64 to hold a number whose product with ``eps`` is not
+    small. This function used to form it that way and returned confidently
+    wrong answers on chains this package documents as supported.
 
     Returns:
         ``(mean (N, width), variance (N, width))`` -- the smoothed marginal of
         each epoch's chain state.
     """
-    factors, targets, _ = blocks
-    resolved, n_theta, n_zeta, _, inverse_initial, _ = _plan(
+    triangular, rhs, epochs, n_zeta = _zeta_joint(
         blocks, transition, values, names, shapes
     )
-    epochs = int(factors.shape[0])
     size = epochs * n_zeta
-
-    theta = jnp.concatenate(
-        [jnp.reshape(jnp.asarray(values[name]), (-1,)) for name in names]
-    ) if n_theta else jnp.zeros(0)
-
-    # Each epoch's rows, with theta's columns moved to the right-hand side --
-    # conditioning on theta is exactly that substitution.
-    precision = jnp.zeros((size, size))
-    rhs = jnp.zeros(size)
-    for epoch in range(epochs):
-        rows = factors[epoch]
-        chain_columns = rows[:, n_theta:]
-        residual = targets[epoch] - rows[:, :n_theta] @ theta
-        start = epoch * n_zeta
-        precision = precision.at[
-            start : start + n_zeta, start : start + n_zeta
-        ].add(chain_columns.T @ chain_columns)
-        rhs = rhs.at[start : start + n_zeta].add(chain_columns.T @ residual)
-
-    # zeta_1's own prior.
-    initial = jnp.diag(inverse_initial**2)
-    precision = precision.at[:n_zeta, :n_zeta].add(initial)
-    rhs = rhs.at[:n_zeta].add(initial @ resolved.initial_mean)
-
-    # The transition couples consecutive epochs: the block-tridiagonal part.
-    inverse_q = jnp.diag((1.0 / resolved.process_std) ** 2)
-    coupling = -resolved.phi.T @ inverse_q
-    for epoch in range(epochs - 1):
-        here, nxt = epoch * n_zeta, (epoch + 1) * n_zeta
-        precision = precision.at[here : here + n_zeta, here : here + n_zeta].add(
-            resolved.phi.T @ inverse_q @ resolved.phi
-        )
-        precision = precision.at[nxt : nxt + n_zeta, nxt : nxt + n_zeta].add(inverse_q)
-        precision = precision.at[here : here + n_zeta, nxt : nxt + n_zeta].add(coupling)
-        precision = precision.at[nxt : nxt + n_zeta, here : here + n_zeta].add(
-            coupling.T
-        )
-
-    covariance = jnp.linalg.inv(precision)
-    mean = covariance @ rhs
-    return (
-        jnp.reshape(mean, (epochs, n_zeta)),
-        jnp.reshape(jnp.diagonal(covariance), (epochs, n_zeta)),
-    )
+    mean = jax.scipy.linalg.solve_triangular(triangular, rhs, lower=False)
+    inverse = jax.scipy.linalg.solve_triangular(triangular, jnp.eye(size), lower=False)
+    # var = diag((R^T R)^-1) = the row norms of R^-1, without forming R^-1 R^-T.
+    variance = jnp.sum(inverse**2, axis=1)
+    return jnp.reshape(mean, (epochs, n_zeta)), jnp.reshape(variance, (epochs, n_zeta))

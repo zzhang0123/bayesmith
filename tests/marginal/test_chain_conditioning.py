@@ -34,19 +34,21 @@ Measured (x64, ``rheplicant``'s ``chain_bank`` fixture, theta = (0.4, -1.1)):
 The ``0.93`` is the entry that matters. A ``nan`` announces itself; a value that
 is exactly twice the right answer does not.
 
-**On this file's own fixture** the symptom is slightly different from the table
-above and worth stating exactly, because the table was measured elsewhere: here
-the smoothed mean walks from -0.200652 to -0.469638 between ``process_std``
-1e-6 and 1e-8 -- while the across-epoch spread reads 7.2e-16, so the answer
-*looks* converged -- and every returned variance is ``nan`` at 1e-9. No
-negative variance appears on this fixture.
+**FIXED 2026-08-29**, and this file is now an ordinary regression guard.
+``smooth`` assembles the information square root -- see
+:func:`~bayesmith.marginal.chain._zeta_joint` -- and pays ``sqrt(kappa(F))``
+like ``chain_marginal`` beside it.
 
-**The markers are the point of the file.** These are ``xfail(strict=True)``, so
-they pass today as known failures and go **red the moment the smoother is
-fixed** -- at which point the markers come off and the tests become ordinary
-guards. Without them a repair here has nothing to turn green, which is the
-state this module was in when the defect was found: neither package had a test
-that could see it.
+**What the file looked like on the way there is worth keeping.** It was written
+against the broken implementation with three ``xfail(strict=True)`` cells, so
+it passed while the defect stood and turned **red on the repair** -- an XPASS,
+naming the markers to delete. That is why the repair could be *checked* rather
+than asserted. On this fixture the old symptom was: the smoothed mean walked
+from -0.200652 to -0.469638 between ``process_std`` 1e-6 and 1e-8 -- while the
+across-epoch spread read 7.2e-16, so the answer *looked* converged -- and every
+variance was ``nan`` at 1e-9. No negative variance ever appeared here; that
+was rheplicant's fixture, and the difference is worth noting, because a guard
+written only against the symptom seen on one fixture would have missed this one.
 """
 
 from __future__ import annotations
@@ -86,25 +88,17 @@ _THETA = {"gain": jnp.asarray(0.4), "offset": jnp.asarray(-1.1)}
         1e-6,
         1e-7,
         1e-8,
-        pytest.param(
-            1e-9,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="the inverted precision goes indefinite here and every "
-                "returned variance is nan. Fix by assembling the information "
-                "square root, as chain_marginal does; then remove this marker.",
-            ),
-        ),
+        1e-9,
     ),
 )
 @pytest.mark.parametrize("n_epochs", (6, 64))
 def test_every_smoothed_variance_is_positive(process_std, n_epochs):
     """A variance is finite and positive. No tolerance, no reference value.
 
-    Marked cell by cell rather than wholesale: 1e-6 through 1e-8 **pass** on this
-    fixture and are here to keep the failing cell honest -- a repair that made
-    1e-9 finite by breaking 1e-8 would show up as a new failure rather than as a
-    marker to delete.
+    Every cell passes now. They were marked cell by cell while the defect stood,
+    which is what let the repair be checked rather than asserted: 1e-6 through
+    1e-8 were unmarked throughout, so a fix that bought 1e-9 by breaking 1e-8
+    would have shown up as a new failure instead of a marker to delete.
     """
     transition = LinearGaussianTransition(
         phi=jnp.eye(1),
@@ -120,12 +114,6 @@ def test_every_smoothed_variance_is_positive(process_std, n_epochs):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a frozen chain has a limit and this smoother does not reach it: the "
-    "smoothed mean walks 0.269 between process_std 1e-6 and 1e-8, then goes nan. "
-    "Same cause and same fix as the variance test above.",
-)
 def test_a_frozen_chain_converges_to_one_latent():
     """``phi = 1``, ``process_std -> 0``: one latent, so the mean must settle.
 
