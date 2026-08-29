@@ -48,11 +48,16 @@ class Graph(eqx.Module):
             identifiability, the double-prior refusal -- belongs to
             :class:`~bayesmith.diagnose.priors.JeffreysPrior` and fires where
             it is evaluated.
+        evidence_terms: likelihood factors produced by graph reduction. Each
+            answers ``over`` and ``log_density(graph, values)``. Unlike a
+            ``joint_prior``, these terms require the retained latents to keep
+            their own priors, so the two blocks must be disjoint.
     """
 
     nodes: tuple[Node, ...]
     plates: tuple[Plate, ...]
     joint_prior: Any = None
+    evidence_terms: tuple[Any, ...] = ()
 
     def __check_init__(self) -> None:
         plate_names: set[str] = set()
@@ -159,6 +164,30 @@ class Graph(eqx.Module):
 
         if self.joint_prior is not None:
             self._check_joint_prior(seen)
+        if not isinstance(self.evidence_terms, tuple):
+            raise GraphError(
+                "evidence_terms must be a tuple of graph-level likelihood "
+                "terms. Use `(term,)` for one term; a mutable second node "
+                "list could drift away from the graph that owns it."
+            )
+        for index, term in enumerate(self.evidence_terms):
+            self._check_evidence_term(index, term, seen)
+
+        if self.joint_prior is not None:
+            prior_names = set(self.joint_prior.over)
+            for index, term in enumerate(self.evidence_terms):
+                overlap = sorted(prior_names & set(term.over))
+                if overlap:
+                    raise GraphError(
+                        f"evidence_terms[{index}] over {list(term.over)} overlaps "
+                        f"joint_prior on {overlap}. A joint prior such as "
+                        "JeffreysPrior requires every covered latent to be "
+                        "ImproperUniform, while a likelihood evidence term "
+                        "requires the retained latent to keep its proper prior. "
+                        "Keep the two blocks disjoint; otherwise declare a "
+                        "different model whose one graph-level density has the "
+                        "intended semantics."
+                    )
 
     def _check_joint_prior(self, latents: set[str]) -> None:
         """Structural checks on a declared joint prior, at construction.
@@ -195,6 +224,62 @@ class Graph(eqx.Module):
                 f"{list(self.latents)}. The block would be assembled from the "
                 "names that DO match, which is a prior over a smaller block -- "
                 "a different density, and not a marginal of the declared one."
+            )
+
+    def _check_evidence_term(
+        self, index: int, term: Any, declared_names: set[str]
+    ) -> None:
+        """Check one reduced-likelihood term before any sampler can read it."""
+        for attribute in ("over", "log_density"):
+            if not hasattr(term, attribute):
+                raise GraphError(
+                    f"evidence_terms[{index}] is a {type(term).__name__}, which "
+                    f"has no {attribute!r}. Provide an object with both `over` "
+                    "(the retained latents its likelihood depends on) and "
+                    "`log_density(graph, values)` (the scalar term that "
+                    "log_joint and to_numpyro will add)."
+                )
+        if not isinstance(term.over, tuple):
+            raise GraphError(
+                f"evidence_terms[{index}].over must be a tuple of retained "
+                f"latent names, got {type(term.over).__name__}. Use `(name,)` "
+                "for one latent so the declared block is immutable."
+            )
+        non_names = [name for name in term.over if not isinstance(name, str)]
+        if non_names:
+            raise GraphError(
+                f"evidence_terms[{index}].over contains non-string names "
+                f"{non_names!r}. Name retained latent nodes with strings."
+            )
+        duplicates = sorted({name for name in term.over if term.over.count(name) > 1})
+        if duplicates:
+            raise GraphError(
+                f"evidence_terms[{index}].over repeats {duplicates}. Name "
+                "each retained latent once; repetition does not multiply a "
+                "density and makes the declared dependency block ambiguous."
+            )
+        if not callable(term.log_density):
+            raise GraphError(
+                f"evidence_terms[{index}].log_density must be callable as "
+                "`log_density(graph, values)`, not "
+                f"{type(term.log_density).__name__}."
+            )
+        declared = {
+            name
+            for name in declared_names
+            if any(
+                node.name == name and isinstance(node, Probabilistic) and node.is_latent
+                for node in self.nodes
+            )
+        }
+        unknown = [name for name in term.over if name not in declared]
+        if unknown:
+            raise GraphError(
+                f"evidence_terms[{index}] is over {list(term.over)}, and "
+                f"{unknown} are not latents of this graph; its latents are "
+                f"{list(self.latents)}. Keep evidence over remaining latents "
+                "of the reduced graph. If the term still names a removed "
+                "quantity, marginalise that quantity in the term first."
             )
 
     @property

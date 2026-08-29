@@ -18,12 +18,26 @@ import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
 from bayesmith.distributions import ComplexNormal
-from bayesmith.graph.evaluate import apply_deterministic, apply_probabilistic
+from bayesmith.graph.evaluate import (
+    apply_deterministic,
+    apply_probabilistic,
+    graph_density,
+)
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
+from bayesmith.graph.reduction import ReducedGraph, _as_graph
 
 
-def to_numpyro(graph: Graph) -> Callable[..., dict[str, Any]]:
+def _evidence_site_name(graph: Graph, index: int) -> str:
+    """Choose a factor name outside NumPyro's global site namespace."""
+    name = f"evidence_{index}"
+    occupied = set(graph.names) | {plate.name for plate in graph.plates}
+    while name in occupied:
+        name = f"_{name}"
+    return name
+
+
+def to_numpyro(graph: Graph | ReducedGraph) -> Callable[..., dict[str, Any]]:
     """Build a NumPyro model that declares the same joint distribution.
 
     Latent and observed nodes become ``numpyro.sample`` sites carrying the
@@ -52,6 +66,8 @@ def to_numpyro(graph: Graph) -> Callable[..., dict[str, Any]]:
     other reading has to exist rather than be assumed.
     """
 
+    graph = _as_graph(graph)
+
     def model(observed: Mapping[str, Any] | None = None) -> dict[str, Any]:
         def data_for(node: Probabilistic) -> Any:
             if observed is None:
@@ -72,9 +88,7 @@ def to_numpyro(graph: Graph) -> Callable[..., dict[str, Any]]:
                     env[node.name] = _complex_site(node, distribution)
                 elif node.plate:
                     name = node.plate[0]
-                    with _masked(node), numpyro.plate(
-                        name, graph.plate_size(name)
-                    ):
+                    with _masked(node), numpyro.plate(name, graph.plate_size(name)):
                         env[node.name] = numpyro.sample(
                             node.name, distribution, obs=data_for(node)
                         )
@@ -92,8 +106,27 @@ def to_numpyro(graph: Graph) -> Callable[..., dict[str, Any]]:
             # diagnostic healthy.
             numpyro.factor(
                 "joint_prior",
-                graph.joint_prior.log_density(
-                    graph, {name: env[name] for name in graph.latents}
+                graph_density(
+                    graph,
+                    graph.joint_prior,
+                    env,
+                    label="joint_prior",
+                    names=graph.latents,
+                ),
+            )
+        # This loop is deliberately after the node loop, not beside the
+        # observed sample that was absorbed. A factor emitted while a
+        # `numpyro.plate` handler is active is scaled by that plate's size,
+        # silently counting the whole reduced likelihood once per member.
+        for index, term in enumerate(graph.evidence_terms):
+            numpyro.factor(
+                _evidence_site_name(graph, index),
+                graph_density(
+                    graph,
+                    term,
+                    env,
+                    label=f"evidence_terms[{index}]",
+                    names=term.over,
                 ),
             )
         return env
@@ -165,7 +198,7 @@ def _complex_site(node: Any, distribution: ComplexNormal) -> jax.Array:
     return numpyro.deterministic(node.name, real + 1j * imag)
 
 
-def init_to_declared(graph: Graph) -> Any:
+def init_to_declared(graph: Graph | ReducedGraph) -> Any:
     """A NumPyro init strategy that starts where the graph's priors sit.
 
     Pass it as ``nuts(graph, key, nuts_options={"init_strategy":
@@ -200,12 +233,13 @@ def init_to_declared(graph: Graph) -> Any:
 
     from bayesmith.dispatch.classify import prior_environment
 
+    graph = _as_graph(graph)
     declared = prior_environment(graph)
     return init_to_value(values={name: declared[name] for name in graph.latents})
 
 
 def nuts(
-    graph: Graph,
+    graph: Graph | ReducedGraph,
     key: jax.Array,
     *,
     num_warmup: int = 1000,
@@ -280,7 +314,9 @@ def nuts(
 
 
 def predict(
-    graph: Graph, samples: Mapping[str, Any], key: jax.Array | None = None
+    graph: Graph | ReducedGraph,
+    samples: Mapping[str, Any],
+    key: jax.Array | None = None,
 ) -> dict[str, jax.Array]:
     """Posterior predictive: every node's value over a stack of draws.
 
@@ -329,6 +365,7 @@ def predict(
     from bayesmith.dispatch.classify import prior_environment
     from bayesmith.errors import GraphError
 
+    graph = _as_graph(graph)
     declared = prior_environment(graph)
     draws: set[int] = set()
     for name in graph.latents:

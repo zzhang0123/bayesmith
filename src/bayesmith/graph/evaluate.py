@@ -16,6 +16,7 @@ import jax.numpy as jnp
 from bayesmith.errors import GraphError
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
+from bayesmith.graph.reduction import ReducedGraph, _as_graph
 
 Env = dict[str, Any]
 
@@ -94,7 +95,9 @@ def apply_probabilistic(graph: Graph, node: Probabilistic, env: Env) -> Any:
     return jax.vmap(node.dist_fn, in_axes=in_axes)(*args)
 
 
-def evaluate(graph: Graph, values: Mapping[str, Any] | None = None) -> Env:
+def evaluate(
+    graph: Graph | ReducedGraph, values: Mapping[str, Any] | None = None
+) -> Env:
     """Compute every node's value.
 
     Args:
@@ -110,6 +113,7 @@ def evaluate(graph: Graph, values: Mapping[str, Any] | None = None) -> Env:
         GraphError: if a latent node has no value, or ``values`` names
             something that is not a latent node.
     """
+    graph = _as_graph(graph)
     values = dict(values or {})
     unknown = set(values) - set(graph.latents)
     if unknown:
@@ -161,7 +165,34 @@ def evaluate(graph: Graph, values: Mapping[str, Any] | None = None) -> Env:
     return env
 
 
-def log_joint(graph: Graph, values: Mapping[str, Any] | None = None) -> jax.Array:
+def graph_density(
+    graph: Graph,
+    term: Any,
+    env: Env,
+    *,
+    label: str,
+    names: tuple[str, ...],
+) -> jax.Array:
+    """Evaluate one graph-level term and require one scalar contribution.
+
+    Shared by both density scans. NumPyro otherwise sums a vector-valued
+    ``factor`` while :func:`log_joint` broadcasts it, so accepting a vector
+    would make the two scans disagree without either one raising.
+    """
+    density = jnp.asarray(term.log_density(graph, {name: env[name] for name in names}))
+    if density.shape != ():
+        raise GraphError(
+            f"{label}.log_density must return one scalar graph-level density; "
+            f"got shape {density.shape}. Sum independent contributions inside "
+            "the term so log_joint and to_numpyro cannot assign different "
+            "semantics to the same declaration."
+        )
+    return density
+
+
+def log_joint(
+    graph: Graph | ReducedGraph, values: Mapping[str, Any] | None = None
+) -> jax.Array:
     """The joint log-density of the graph at ``values``.
 
     Every probabilistic node contributes ``log_prob`` of its value under the
@@ -175,6 +206,7 @@ def log_joint(graph: Graph, values: Mapping[str, Any] | None = None) -> jax.Arra
     went to infinity, and the two differ by exactly the ``log sigma`` that
     would have sent the joint to ``-inf``.
     """
+    graph = _as_graph(graph)
     env = evaluate(graph, values)
     total = jnp.zeros(())
     for node in graph.nodes:
@@ -184,13 +216,21 @@ def log_joint(graph: Graph, values: Mapping[str, Any] | None = None) -> jax.Arra
             if node.observed_mask is not None:
                 term = jnp.where(node.observed_mask, term, 0.0)
             total = total + jnp.sum(term)
+    # Densities over SEVERAL latents are terms of the joint rather than any
+    # node's own density. Read the prior and the reduced-likelihood terms in
+    # ONE loop: adding another scan here would let one of the graph-level
+    # slots drift out of a future evaluator while every node-level test stayed
+    # green. `to_numpyro` reads the same two declarations after every plate.
+    graph_terms = tuple(
+        (f"evidence_terms[{index}]", term, term.over)
+        for index, term in enumerate(graph.evidence_terms)
+    )
     if graph.joint_prior is not None:
-        # A density over SEVERAL latents, so it is a term of the joint and not
-        # a node's own. Read HERE and in `to_numpyro`, from the one
-        # declaration, because the two are two scans of one graph and a prior
-        # honoured by one of them is a different posterior wearing the same
-        # model's name.
-        total = total + graph.joint_prior.log_density(
-            graph, {name: env[name] for name in graph.latents}
-        )
+        # A JeffreysPrior may depend on retained nuisance latents outside its
+        # ``over`` block through the forward model, so it receives the full
+        # latent environment. Evidence terms receive exactly their declared
+        # block, making ``over`` an enforceable dependency boundary.
+        graph_terms = (("joint_prior", graph.joint_prior, graph.latents), *graph_terms)
+    for label, term, names in graph_terms:
+        total = total + graph_density(graph, term, env, label=label, names=names)
     return total
