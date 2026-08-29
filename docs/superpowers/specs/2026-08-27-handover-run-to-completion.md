@@ -424,8 +424,21 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
 `calibrate`、`npe`、`reduced_basis`。另有:
 1. **`compress_reduced_basis`**(**D44**)与 G4 余下三名(`score_directions`、
    `build_reduced_basis`、`basis_fidelity`)同批。
-2. **`npe` 接线按 D42**:三名委托、`simulate_pairs` 留守。
-   **【已量,2026-08-29】`NeuralPosterior` 的类身份没有被钉住 —— 门面可以重导出。**
+2. **`npe` 开波已做**(`2026-08-29-wave-C-npe-opening.md`),接线按 **D10**(owner
+   2026-08-27 授权)+ **D42**:三名委托、`simulate_pairs` 留守。
+   **验收:整条缝逐位相同**——未训练 `log_prob`、**训练 200 步后**的 `log_prob`、
+   以及 `TrainingHistory` 三个字段全部 `max|Δ| = 0.0`,签名逐字符相同,
+   九个字段逐名相同。**这条只能在删除之前量。**
+   **形状由异常类决定,不是由身份决定**:六条文案 pin 全部成立(逐条把正则真跑到
+   远端消息上验过),但 **7 个守卫测试钉着 `StateValidationError`** 而远端一律
+   `StructureError`——**裸重导出会一次打断 7 条**,这给了 D10(3)「薄包装」一个
+   可测的依据。
+   **建议子类化**:三条拒绝在 `create`(`@classmethod`)里而**不在
+   `__check_init__`**,两侧都以 `return cls(...)` 收尾,所以 **D12 的「子类化无法
+   翻译」在这里不适用**——覆写 `create` 做类翻译,算术继承,字段与 pytree 结构
+   自动保持。唯一没实测的一环见该页 §四末。
+   **【已量,2026-08-29】`NeuralPosterior` 的类身份没有被钉住(27 处引用 0 处身份钉),
+   所以 `TrainingHistory` 可直接重导出;但类身份不被钉 ≠ 异常类不被钉,后者是 7 条。**
    按 AST 数 `isinstance`/`issubclass`/`type() is`/`__name__` 四种写法:
    **27 处引用、7 个测试文件,0 处身份钉。**
    **反空洞:该匹配器在全套上对 74 个类命中**,其中包括证据层的

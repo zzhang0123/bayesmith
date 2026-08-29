@@ -1,0 +1,86 @@
+# 执行页 Wave C / `npe` 开波 —— 全缝逐位相同,而形状由 7 条异常类 pin 决定
+
+> 计划:§五 Wave C / 铁律 1、7;裁决 **D10**(owner 2026-08-27 授权)+ **D42**。
+> 前一批次:`2026-08-29-wave-C-calibrate-opening.md`。
+> **日期**:2026-08-29 · **本页状态:开波已做,验收已量,切换未做。**
+
+## 〇、铁律 7 两问(新清单第一次实战)
+
+1. **§四 哪一栏?** → **§4.3 不迁移**,和 `calibrate` 同一栏。
+2. **最新点名裁决?** → **D10「NPE 迁移(`bayesmith.amortize`)」**,
+   **owner 2026-08-27 授权**;由 **D42**(2026-08-28 自裁)细化范围。
+
+**清单有效,而且顺手照出了 §4.3 整节作废**(名下只有两条,两条都被点名推翻)。
+**它自己也被用出两个洞**,已回填规则:搜推翻要 `-i`(D10 标题写作大写「NPE」,
+按 `npe.py` 搜会漏),以及要**整栏数**而不是逐个模块查。
+
+## 一、铁律 1 私名普查 —— 干净
+
+`from rheplicant.inference.npe import _*`:**全仓 0 处**。唯一私名
+`_standardize` 只在本模块内用。
+
+## 二、验收:**整条缝逐位相同**,而且必须现在量
+
+| 量 | near vs far |
+|---|---|
+| 未训练 `log_prob` | **0.0** |
+| **训练 200 步后** `log_prob` | **0.0** |
+| `TrainingHistory.train` (200,) | `max\|Δ\| = 0.0` |
+| `TrainingHistory.validation` (200,) | `max\|Δ\| = 0.0` |
+| `TrainingHistory.best_step` | `0` |
+| `create` / `train_posterior` 签名 | **逐字符相同** |
+| `NeuralPosterior` 字段布局 | **九个字段逐名相同** |
+
+`('train', 'validation', 'best_step')` 两侧同名同序。
+**训练那一行是关键**:200 步 Adam、批采样、验证集划分,全部逐位重合,说明两侧
+连 key 的拆法都一样。**这条和 `calibrate` 一样只能在删除之前量**,删完之后
+近端调远端,同样的比较是循环的。
+
+## 三、八条拒绝:六条过缝,两条留守(D42),**而形状由异常类决定**
+
+| 位置 | 类 | 何时 | 判定 |
+|---|---|---|---|
+| `simulate_pairs` ×2 | `ParameterSpaceError` ×1 + `StateValidationError` ×1 | call | **留守**(D42:`simulate_pairs` 不迁) |
+| `NeuralPosterior.create` ×3 | `StateValidationError` | **`create` 内,不是 `__check_init__`** | 过缝 |
+| `train_posterior` ×3 | `StateValidationError` | call | 过缝 |
+| *(远端多一条)* `min_scale` 非负 | `StructureError` | call | 近端无对应物 |
+
+**六条文案 pin 全部成立**——不是看出来的,是**把每条 pin 的正则真跑到远端消息上**
+得到的(`calibrate` 那一批我在这件事上错了两次,方法记在那一页)。
+
+**但异常类不成立,而且被钉了 7 处**:
+`test_inference_construction_guards.py` 里有 **7 个 npe 守卫测试**
+`pytest.raises(StateValidationError, ...)`,远端一律 `StructureError`。
+**所以裸重导出会一次打断 7 条**——这正是 D10(3)「**薄包装**保持三名」的理由,
+而那句话现在有了可测的依据而不只是指示。
+
+## 四、切换该长什么样(建议,未做)
+
+**D12 的「子类化无法翻译」在这里不适用,而理由是可测的。** D12 说的是
+`__check_init__`:异常在**构造期**抛、基类先行,所以子类改不了。
+**而 `npe` 的三条拒绝在 `create` 里**(`@classmethod`),不在 `__check_init__`。
+两侧的 `create` **都以 `return cls(...)` 收尾**(远端 `amortize.py:204`、
+近端 `npe.py:244`),所以子类覆写 `create` 是干净的。
+
+于是建议形状:
+
+* `rheplicant...NeuralPosterior` **子类化** `bayesmith.amortize.NeuralPosterior`,
+  只覆写 `create`——做三条拒绝的类翻译,其余(`log_prob`/`sample`/`_mixture`)
+  **继承**,于是算术只有一份。
+* **字段布局与 pytree 结构自动保持**(九个字段逐名相同,14 个叶子),
+  这比「持有一个远端实例」好:后者会把 pytree 变成嵌套的,而
+  `NeuralPosterior` 是 `eqx.Module`,config 层读它的 `create` 签名与
+  `sample` 的位置参数契约。
+* `train_posterior` 薄包装:翻译三条拒绝后转调。
+* `TrainingHistory` 字段同名同序,**可直接重导出**(无身份 pin——实测 27 处
+  引用 0 处身份钉)。
+* `simulate_pairs` **原样留守**(D42),它是唯一碰 `ParameterSpace`/pipeline/
+  `NoiseModel` 的一个。
+
+**下一位第一件事**:确认 `eqx.Module` 子类化在这里不会改 `__init__` 的参数序
+(equinox 的冻结 dataclass 语义),那是这个建议唯一没被实测的一环。
+
+## 五、留给下一位的一句
+
+**验收数字(§二)在删除之后就取不到了**,而它是这一行最强的证据。若切换分几次
+做,**先把 §二 那张表当成回归钉住**(近端对闭式/独立 oracle),再动实现。
