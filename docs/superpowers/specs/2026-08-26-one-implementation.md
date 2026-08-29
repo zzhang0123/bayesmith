@@ -1494,6 +1494,32 @@
   所以委托会把它上移。八处引用随本批更新,并加一条守卫钉住「该范围仍含那段
   比较顺序注释」——否则下一次任何改动都会重演。
 
+- **D61 — 切换顺序在这一波由**证据**决定,而不是由依赖决定;`sqrtinfo` 要**最后**切。**
+  **【本次委托下自定,2026-08-29(Wave D 开波);计划未预见此点,按「保守的一侧」自选。】**
+
+  **依赖图说先切它,证据纪律说最后切它,而后者赢。**
+
+  证据族的 intra-family import 边(实测):`compressed→sqrtinfo`、
+  `compress→compressed,sqrtinfo`、`memory→compressed,diagnostics,factorize,sqrtinfo`、
+  `archive→compressed,factorize,memory,sqrtinfo`、`chain→memory,sqrtinfo`。
+  **`sqrtinfo` 是叶子,人人依赖它**——照惯例这意味着先切它。
+
+  **但这一波每一条验收比较,都是拿 `SqrtInfo` 的字段表达的**:
+  `factor`、`target`、`offset`、`log_prob`、`fisher`(实测该容器的字段与方法)。
+  本会话已量到的逐位相同里,`chain_marginal` 那一条**五个字段全部**如此。
+
+  > **一旦近端 `SqrtInfo` 变成远端那个,所有这些比较的两侧都是远端。**
+  > 它们**不会变红**——它们会永远通过,因为它们在拿远端和远端自己比。
+
+  **这比 D59 更狠。** D59 说的是预言机的独立性**降级**(包隔离→模块隔离,
+  但仍是两条不同的推导);这一条是**比较本身塌掉**,而且塌得悄无声息。
+
+  **所以顺序是**:先把所有以 `SqrtInfo` 字段表达的验收数字**量完并落进测试**,
+  再切 `sqrtinfo`。开波页 §四 给了完整次序,`sqrtinfo` 排第 7(最后)。
+
+  **可推广的一条**(值得写进铁律 4 的邻近):**一个「谁先切」的问题,先问的不该是
+  「谁依赖谁」,而是「谁是别人验收的量具」。量具最后动。**
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
