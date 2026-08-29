@@ -1757,6 +1757,146 @@
   > 若裁定容器**留守**,则 `ornstein_uhlenbeck` 也留守,本条了结;
   > 若裁定容器**委托**,则两者同批,消息问题随容器的翻译子类一并解决。
 
+- **D66 — `compress_linear` **留守**;`compressed` 四个名字远端**根本不存在**。
+  第 3 步是一个**确认批次**,不是切换批次。**并且开波页那句「逐位相同」是错的。**
+  **【本次委托下自裁,2026-08-29。】**
+
+  **先更正一条已发布的数字。** 开波页 §四 把 `compress_linear.info` 对
+  `compress_epoch` 列进「已量到的逐位相同」。**640 格扫描**(8 seed × n_phi ∈
+  {0,1,3,12} × sigma ∈ {0.1,0.3,1,7} × prior_std ∈ {0.7,1,20} × flagged 开关):
+
+  | 字段 | 逐位格数 | 最差 \|diff\| |
+  |---|---|---|
+  | `factor` | **640/640** | 0.0 |
+  | `target` | **368/640** | 2.84e-14 |
+  | `offset` | **355/640** | 4.97e-14 |
+
+  **成因不是算术,是乘除之别**:近端预算 `weight = 1.0/sigma` 然后**乘**
+  (`compress.py:363-367`),远端 `DiagonalPrecision.whiten` **除** `omega / sigma`。
+  实测 20 万个随机 double,`x*(1/s) != x/s` 在 s=0.1 时 71108 次、s=0.3 时 **0 次**。
+  **所以「逐位」是 fixture 撞对了 sigma**——按 sigma 拆开,0.3 与 1.0 是 160/160,
+  0.1 是 30/160,7.0 是 18/160。**一个只在 sigma=0.3 上取样的验收会报告「逐位」
+  并且完全诚实。**
+
+  **无 nuisance 时两者甚至不是同一个形状**:近端返回 QR 约化的三角形
+  (factor `(2,2)`),远端短路回 `compress`,返回**未三角化**的白化设计阵
+  (`(40,2)`),offset 也因此是**两个不同的量**(近端含本 epoch 自身的最佳拟合
+  chi-square,远端只有掩码归一化;实测差 11.06 / 189.45 / 3.93 / 10.42)。
+  **补法已在远端**:再调一次 `marginalise_arrays(f.factor, f.target, f.offset, 0)`
+  就逐位复现近端的存储形式。所以这一条是「两步拼法」,不是「做不到」。
+
+  **本条的三条理由中,有两条在写下之后被同一批测量推翻了,更正见行末「§更正」。
+  结论(留守)不变,但支撑它的事实变了。原文如下:**
+
+  1. **远端 `residual_summary` 不可 trace,而近端的可以。** 远端用
+     `chi2 = float(jnp.sum(perpendicular**2))` 具体化,在 `jax.grad` 与
+     `jax.vmap` over `observed` 下都抛 `ConcretizationTypeError`。近端
+     `residual_chi2` 是动态叶子,**近端自己的字段注释就写着为什么**,并由
+     `test_compress.py:304`(grad)与 `:311`(vmap)钉着。
+     **解除条件**:远端把 `chi2`/`dof` 从 `float`/`int` 改成数组,不再具体化。
+  2. **近端两条拒绝远端没有对应物,其中一条正是「静默少数据」。**
+     近端 `compress.py:100` 拒绝 NaN 的 `noise_std`;**远端把 NaN sigma 静默
+     重分类为「未观测」**,在剩下的样本上把项建出来——**逐字就是近端 docstring
+     说这条守卫存在的理由**(「silently shrinking `n_observed` ... finite,
+     self-consistent, and quietly short of data」)。另一条是 `:70` 的 jit 拒绝,
+     而**远端是刻意要能 trace 的**,所以那一条不该照搬。
+     **解除条件**:远端补 NaN-sigma 拒绝(jit 那条不必)。
+  3. **委托会让这条路径**新**受一个放错位置的门槛管辖。** 见 D67。
+
+  **反方向也量了,写下来免得下一位重做**:委托会**多**两条拒绝
+  (远端按名字拒绝行数不匹配的设计块,近端只漏出 jax 的广播错误;
+  以及非有限对数归一的相关协方差)。**接口翻译是无损的**:
+  `precision = DiagonalPrecision(sigma=broadcast_to(as_noise_model(noise_std).std(prediction), observed.shape))`,
+  四种噪声形式(标量、逐样本、`HomoscedasticNoise`、`FlaggedNoise`)sigma
+  **全部逐位往返**。
+
+  **§更正(同日,由 guards lane 的变异实测推翻本条上面两条理由):**
+
+  我上面写的理由 1 与 2 都假设了一种**整体委托**——把 `residual_summary` 与
+  sigma 的构造一并交给远端。**guards lane 实测的是一种更窄的委托,而它成立**:
+  只把 `.info` 的算术交出去,**近端保留自己的守卫、自己的 residual summary、
+  以及三角化的存储契约**。
+
+  * `d01_delegate_to_far`(近端建 `DiagonalPrecision`、调 `compress_epoch`、
+    在远端返回未约化 factor 时补一次三角化):**整个 evidence 套件 542 passed,
+    exit 0**。
+  * **而且这个绿不是空的**:`d02`(同一委托 + offset 加 1 nat)**49 failed**,
+    与近端自身 `m05_offset_plus_one_nat` 的失败集合**逐个相同,对称差为空**。
+
+  **所以理由 1(远端 `residual_summary` 不可 trace)与理由 2(NaN-sigma 拒绝丢失)
+  对这种窄委托都不成立**——那两样东西根本不过户。**理由 3(D67 的门槛)成立**,
+  因为 `compress_epoch` 总是路由经过 `marginalise`。
+
+  **新增两条真正的阻挡,都是这一批量出来的:**
+
+  4. **`shapes` 规范化不同,而 `combine` 会因此拒绝。** 近端存调用方给的对象
+     (`([2],)`),远端 `tuple(tuple(...))` 规范化(`((2,),)`);
+     `SqrtInfo.combine` 在 `first.shapes != second.shapes` 上拒绝,所以一个近端
+     建的项与一个远端建的项**在同一批 latent 上无法合并**。
+  5. **三条「没有守卫」,必须先补,再谈委托**(见交接页):
+     `offset_prediction` 整仓 **0 个测试、0 个调用方**,删掉它整套仍 542 passed;
+     `nuisance_prior_mean` **0 个测试**,把先验均值归零整套仍绿;
+     `compress_linear` **自己的两条拒绝从未被套件执行过**(插桩:40542 条
+     entry 记录,`empty_design` 与 `missing_prior` 各 **0** 次),把它们换成远端的
+     `StructureError` 整套仍绿。
+
+  > **这一格我自己犯了本会话第二次同型的错**:D64 教的是「先问哪一侧对,
+  > 再问容差」;这一条教的是**「先问委托的是哪一块,再问它带走什么」**。
+  > 我把「整体委托的代价」当成了「委托的代价」,而实际可委托的是更小的一块。
+  > **裁定仍是留守**(理由 3、4、5),但如果我不更正,下一位会因为两条已被
+  > 推翻的理由而不再去量。
+
+  **`compressed.py` 留守是被证否尝试之后确认的,而理由比 D12 更硬**:
+  bayesmith **没有任何 `*Likelihood` 类**,四个名字一个都没有对应物,
+  **所以连可供子类化的基类都不存在**——D65 那条「子类能翻译」的路子在这里
+  无处可挂。唯一的重叠是远端 `ResidualSummary` 对近端的扁平残差字段,
+  而采用它会**改变在盘格式**:近端序列化 5 个动态叶子,嵌套后变 8 个,
+  并把 `residual_dof`/`template_names` 从 manifest 移进二进制、新增
+  `reduced_chi2`。那是一次 `_FORMAT_VERSION` 提升(现为 3),**不是顺手改**。
+
+- **D67 — 一个放错位置的门槛,**两仓同一份规则**,近端因为路由绕开了自己的那一份。**
+  **【本次委托下自裁,2026-08-29;由 D64 新设的「远端到底对不对」那条 lane 查出。】**
+
+  远端 `compress_epoch` **拒绝一批积分完全收敛的 epoch**,报
+  `StructureError: The block [...] does not constrain one of its own directions
+  ... the integral over it diverges`。近端在同样输入上返回**正确值**,对 100 位
+  mpmath 预言机 rel_err 2.4e-16 ~ 4.8e-16。
+
+  **机制,从远端自己的数组读出来**:门槛是 `sqrt(eps) * max(pivots)`,而
+  `max()` 跑遍**整个联合项的所有列**,却拿去与**被积块自己的 pivot** 比。
+  于是 —— 实测 —— **把 nuisance 列、它的先验、数据、sigma 全部固定不动,
+  只缩放全局设计阵,就能让远端从接受翻成拒绝**;在一个普通 epoch 上
+  **追加一列无关的大范数全局列**同样翻转(`big=1e8` 接受,`1e9` 拒绝)。
+  **拒绝与被积掉的那个块无关**,而它的 docstring 的理由(「行是白化过的数据,
+  所以尺度就是本 epoch 的 1/sigma」)**假设整个 epoch 只有一个 sigma**,
+  异方差与弱耦合 nuisance 都能破坏这个假设。
+
+  **而这条规则不是远端发明的。** 它**逐字节**就是近端
+  `src/rheplicant/inference/sqrtinfo.py:450-458` 的同一条,**在同一个边界上拒绝**。
+  差别只在**路由**:`compress_linear` 自己做内联 QR、**从不调 `marginalise`**,
+  于是**绕过了近端自己的守卫**;`compress_epoch` 总是走它。
+
+  > **这一条改变了「委托进口了一个外来 bug」的读法**:委托没有进口什么,
+  > 它是**把这条路径新纳入一条本仓已经在发布、且已经放错位置的守卫**。
+  > 近端今天的正确,靠的是**没走到那条守卫**,不是那条守卫是对的。
+
+  **两侧都看不见**:远端唯一测这条拒绝的用例把一整列**清零**(pivot 恰为 0),
+  任何门槛都抓得住;没有任何东西测「小而合法的 pivot」。近端 fixture 是同方差、
+  量级 0.2–0.5,离边界几个数量级。**float32 下(即任何不带 `JAX_ENABLE_X64`
+  的运行)误拒区还要宽约 4.5 个数量级**,sigma 动态范围到 1e5 就开始。
+
+  **裁定**:本条**只登记不改**——它是一条**已发布的拒绝**,改门槛会放行今天被
+  拒的输入,属于会改变行为的裁决,且两仓都要动。**留给 owner。**
+  已补的是**能让它可见的东西**:见交接页第 3 步一节。
+
+- **D68 — 两侧共有的一条溢出,一行可修,但同样是已发布行为。**
+  **【本次委托下自裁**仅登记**,2026-08-29。】**
+  两侧都把高斯归一化写成 `log(2 * pi * sigma**2)`,而 `sigma**2` 在
+  `|sigma|` 超出约 `1e-154 .. 1e+154` 时**溢出 float64 指数**:整个项变成
+  `±inf`,而 `factor` 与 `target` **仍然有限**。远端自己的
+  `DiagonalPrecision.log_spectrum` 已经用安全写法 `2*log(sigma)`,**这条路径
+  没有用它**。同样只登记不改:它改的是极端 sigma 下的返回值。
+
 ## 三、P1 — 适配器基石
 
 `rheplicant/inference/graph_bridge.py`:
