@@ -353,10 +353,11 @@ def _algebraic_rank_bound(
         ):
             raise ValueError("low-rank factor row counts must equal perturbation size")
         reconstructed = factors.left @ factors.right.T
-        if value.ndim != 2 or not np.allclose(
-            reconstructed, value, rtol=2e-11, atol=2e-13
-        ):
-            raise ValueError("low-rank factors do not reconstruct the perturbation")
+        if value.ndim != 2 or not np.array_equal(reconstructed, value):
+            raise ValueError(
+                "low-rank factors do not exactly reconstruct the perturbation; "
+                "a tolerance is not algebraic rank evidence"
+            )
         return factors.rank_bound
     if value.ndim == 1:
         return int(np.count_nonzero(value != 0.0))

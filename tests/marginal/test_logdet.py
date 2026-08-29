@@ -166,6 +166,49 @@ def test_dense_low_rank_premise_requires_factors_and_uses_their_algebraic_rank()
     assert low_rank == pytest.approx(_oracle(lam + perturbation), rel=2e-13)
 
 
+def test_low_rank_factor_proof_refuses_a_tiny_unrepresented_amplified_residual():
+    """An allclose residual is not algebraic rank evidence after Lambda^-1."""
+    lam = np.diag([0.1, 1.0e-20])
+    left = np.array([[0.2], [1.0e-11]])
+    factors = LowRankFactors(left)
+    represented = left @ left.T
+    perturbation = represented + np.diag([0.0, 5.0e-21])
+    sigma = lam + perturbation
+    order = 30
+    traces = _independent_power_traces(lam, perturbation, order)
+    x_matrix = np.linalg.solve(lam.T, perturbation.T).T
+    rho = float(np.max(np.abs(np.linalg.eigvals(x_matrix))))
+
+    problem = LogDetProblem(
+        lam,
+        perturbation,
+        low_rank_factors=factors,
+        exact_power_traces=traces,
+        trace_order=order,
+        certified_rho=rho,
+    )
+    config = LadderConfig(
+        low_rank_max=1,
+        low_rank_fraction=1.0,
+        dense_max_n=0,
+        finite_max_n=0,
+        finite_max_rank=1,
+    )
+    verdicts = check_logdet_premises(problem, config=config)
+    assert verdicts[1].satisfied is False
+    assert verdicts[5].satisfied is False
+    with pytest.raises(ValueError, match="exactly reconstruct"):
+        low_rank_logdet(lam, perturbation, factors=factors)
+    with pytest.raises(ValueError, match="exactly reconstruct"):
+        finite_perturbation_logdet(lam, perturbation, factors=factors)
+
+    safe_exact = finite_perturbation_logdet(lam, perturbation)
+    assert safe_exact == pytest.approx(_oracle(sigma), rel=2e-13)
+    result = dispatch_logdet(problem, config=config)
+    assert result.level == 6
+    assert result.value == pytest.approx(_oracle(sigma), rel=2e-10)
+
+
 def test_state_space_recursion_matches_slogdet_on_a_verified_block_chain():
     """Dropping an LDL Schur update gives the wrong determinant."""
     diagonal = [
