@@ -55,7 +55,7 @@ pinned by ``tests/dispatch/test_factor.py``.
 
 ## Status
 
-**0.5.0.** Published so other packages can depend on it by name -- and one
+**0.6.0.** Published so other packages can depend on it by name -- and one
 now does, from **nine** of its production modules. rheplicant's auto-partition
 and log-space seams import `dispatch.factor.first_fit` and `exact.loglinear`
 from here; its adapter, which presents a pipeline as a `Graph`, reads

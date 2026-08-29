@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.6.0 -- 2026-08-29
+
+The minor slot rather than the patch slot, because both entries below CHANGE
+VALUES a caller could have been reading -- the smoother's on stiff chains, the
+optimiser's outside Adam's documented beta range. Same position 0.3.0, 0.4.0
+and 0.5.0 took.
+
+Cut so that `rheplicant` can delegate its smoother here: the migration's release
+gate says a commit making its main depend on a bayesmith surface must be
+preceded by a release carrying it, and `v0.5.0` still carries the `linalg.inv`
+spelling this release replaces.
+
 ### Fixed
 
 **`marginal.chain.smooth` now assembles the information square root instead of
@@ -46,8 +58,6 @@ passed all 91 of its chain tests.
 `bayesmith>=0.5` from the index, and `v0.5.0` carries the `linalg.inv`
 spelling, so the delegation would be green on an editable checkout and red on
 CI. That is the release gate doing its job rather than an obstacle.
-
-### Fixed
 
 **`optimize.minimize` and `optimize.fit` now refuse an Adam beta outside
 `[0, 1)`.** They took it as a plain float and, out of range, could return a
