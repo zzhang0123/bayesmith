@@ -552,9 +552,18 @@ def test_an_unwrapped_reduced_graph_cannot_enter_a_public_exact_block_builder():
     ).names == ("gain",)
 
 
-def test_partition_and_compile_check_raw_evidence_against_the_derived_nuts_block():
+def test_partition_and_compile_check_raw_evidence_against_the_derived_nuts_block(
+    monkeypatch,
+):
+    import bayesmith.exact.block as exact_block
     from bayesmith import compile as compile_graph
     from bayesmith.dispatch.classify import partition
+
+    # Isolate the dispatch boundary: exact.block deliberately repeats this
+    # guard for callers that bypass partition entirely.
+    monkeypatch.setattr(
+        exact_block, "check_evidence_nuts_boundary", lambda graph, nuts: None
+    )
 
     bare = _collapsible_graph()
     unsafe = Graph(
