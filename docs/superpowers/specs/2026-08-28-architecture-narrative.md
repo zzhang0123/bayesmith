@@ -1,3 +1,7 @@
+> **历史状态：** 产品定位、公共概念模型与长期路线图已由
+> [`2026-08-30-bayesmith-top-level-design.md`](2026-08-30-bayesmith-top-level-design.md)
+> 取代；本文仅保留为测量记录与历史审计。
+>
 > **测量页 — bayesmith 架构叙事审计**。本页是**评估**,不是一个实现批次。
 > **日期**:2026-08-28 · 起因是 owner:「整体 check 一下 bayesmith 的架构叙事,
 > 把 evidence 模块改名也一起考虑一下。」

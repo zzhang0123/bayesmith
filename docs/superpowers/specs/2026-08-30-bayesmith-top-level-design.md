@@ -82,6 +82,39 @@ bayesmith 不应：
 9. **失败是一等 artifact。** Refusal 应说明证据、失败前提和可采取的修复，不只是异常文本。
 10. **先消元再蛮力。** 能可靠识别并精确消除的结构，优先于通用高成本算法。
 
+### 1.5 First-party ownership 与 upstream-first
+
+“优先复用上游”不是“上游出现同名函数就删除本地实现”。是否由 bayesmith 自己拥有，取决于能力的统计职责、实现边界和长期维护成本。
+
+bayesmith 应继续 first-party 拥有：
+
+- Graph 语义、结构发现、前提验证和 task-aware compilation；
+- exact elimination、normalization accounting 和 posterior reconstruction；
+- 范围有限、数学清楚、可独立验证且体现领域优势的 exact algorithms，包括现有 linear-Gaussian sampler、GLS、sqrt-information 和相关 chain 路径；
+- evidence eligibility、Refusal、diagnostic applicability、quality gate 和 artifact lineage；
+- astronomy-shaped compiler passes 和 graph-native scientific diagnostics。
+
+bayesmith 原则上不自行扩张以下通用算法族：
+
+- 通用 MCMC、SMC、VI、Pathfinder、Laplace runtime 和 nested sampling；
+- 通用 optimizer、neural training loop 和 amortized density-estimator zoo；
+- 通用 distribution、constraint 和 transform library；
+- R-hat、ESS、MCSE、BFMI、PSIS、LOO、WAIC 等成熟通用统计量；
+- 通用 ODE、线性代数、checkpoint 或 workflow scheduler 基础设施。
+
+first-party algorithm 可以使用 JAX 或其他成熟依赖提供的低层数值原语。这不转移算法所有权：例如 linear sampler 可以由 bayesmith 决定 normal operator、随机右端项、收敛证书和 reconstruction，同时把 Krylov kernel 交给 JAX。只有当上游替换不会丢失这些语义，并在真实 problem family 上证明了覆盖面和效率，才考虑替换整个能力。
+
+一个上游实现只有同时满足以下条件，才足以让 bayesmith 放弃同层自研：
+
+1. 对目标 problem family 足够通用，而不是只覆盖 demo；
+2. 与 JAX、JIT、PyTree、x64、目标 device 和随机数语义兼容，或有可测且可接受的边界成本；
+3. 在 correctness、compile time、runtime 和 memory 上通过代表性 benchmark；
+4. 维护活跃、版本和失败行为可追踪，能暴露 termination 与必要 diagnostics；
+5. adapter 足够薄，不需要复制一套上游内部状态机，也不把 backend 对象变成核心 API；
+6. optional dependency 缺失或升级时能明确 Refuse，并有 contract test 与独立 oracle。
+
+多个实现可以并存，但必须各自带来不同适用域、可测性能优势、独立 cross-check 或不同 failure mode。默认由 Plan 选择 `auto` route；高级用户可以显式指定 backend；关键结果可以请求多路 cross-check。backend 数量本身不是成熟度指标。
+
 ---
 
 ## 2. 五层架构
@@ -162,10 +195,12 @@ Plan、Result、Report 和 Refusal 应可序列化；Graph 可以仍是 runtime 
 
 - task；
 - failed premise；
-- evidence；
+- grounds；
 - scope；
 - suggested remedy；
 - 是否存在更保守的 fallback。
+
+`grounds` 是支持拒绝判决的结构化 findings，不使用 `evidence` 作为字段名，避免与 Bayesian evidence 的统计对象混淆。
 
 bayesmith 已有面向天文观测问题的结构识别能力，例如 linear block、log-linear、log-Gaussian 和相关特例。这些能力应继续作为 first-party compiler passes 发展，但输出通用的 Plan 和 CompiledProblem，而不是让顶层 API 被某一应用领域限定。
 
@@ -183,20 +218,25 @@ bayesmith 已有面向天文观测问题的结构识别能力，例如 linear bl
 
 执行可以来自：
 
-- bayesmith 自有 exact kernels；
+- bayesmith 自有 exact kernels，包括 first-party linear-Gaussian samplers；
 - NumPyro posterior inference；
 - 可选的 BlackJAX MCMC、SMC、VI 或 nested sampling；
-- optimization 或 Laplace 路径；
+- optimization、Laplace 与 amortized inference 路径：路径语义与结果封装由 bayesmith 拥有，通用 kernel 依 §1.5 交给成熟上游；
 - 未来其他明确适配的 backend。
 
 NumPyro 保持当前 Graph 的通用 posterior fallback 和既有 bridge；引入 BlackJAX 不意味着替换 NumPyro。BlackJAX 更适合作为可选的 inference runtime：接收 compiler 已经锁定语义的 log density 或分离的 log-prior/log-likelihood，提供 bayesmith 不应自行重写的算法。
+
+first-party 与 upstream backend 可以通过同一 CompiledProblem 并存。默认 route 由 Plan 根据结构、规模、device、精度和 quality requirement 选择；显式 backend override 必须记录在 Plan 中，不能绕过 eligibility；cross-check mode 可以执行两个具有独立验证价值的 route。对 exact linear posterior，bayesmith native route 是默认且长期受支持的实现；dense small-problem route 可以作为 oracle，NumPyro 或 BlackJAX 可以作为通用 posterior cross-check。低层 linear-solve kernel 是否来自 JAX 或其他库是内部数值决定，不改变该 route 的统计所有权。
 
 结果使用 tagged union，而不是一个含义随路径变化的大字典：
 
 - PosteriorResult；
 - EvidenceResult；
+- PredictiveResult；
 - PointEstimateResult；
 - SimulationResult。
+
+五类 Task 成功执行后的五类 Result 主映射必须穷尽且稳定：PosteriorTask → PosteriorResult、EvidenceTask → EvidenceResult、PredictiveTask → PredictiveResult、PointEstimateTask → PointEstimateResult、SimulationTask → SimulationResult。编译或执行不适用时仍可以产生 Refusal；一个 Result 可以被后续 EvaluationReport 评价，但 Report 不取代任务本身的数据产物。
 
 所有结果都引用一个共同的 RunRecord：
 
@@ -213,11 +253,22 @@ NumPyro 保持当前 Graph 的通用 posterior fallback 和既有 bridge；引�
 
 PosteriorResult 至少区分：
 
-- draws 或 analytic posterior representation；
+- draws、weighted draws、analytic posterior 或 fitted conditional posterior representation；
 - reconstructed eliminated variables；
 - chain/sample geometry；
 - log density 或 pointwise log-likelihood 的可用性；
 - 是否可直接进入 predictive evaluation。
+
+amortized posterior 是 PosteriorResult 的一种 representation，而不是在 Task/Result 体系外游离的功能。它必须标记为 amortized/heuristic approximation，并引用 simulation-bank identity、training/validation provenance、estimator/backend identity 和 calibration report。BlackJAX 不提供通用 NPE；候选上游应从专门的 SBI 工具中评估。bayesmith 不继续发展自己的 flow、score model 或 NPE architecture zoo；现有轻量 Gaussian-mixture NPE 先作为 reference/compatibility implementation 保留，只有当 BayesFlow、sbiJAX 或其他候选在真实 workload 上通过 §1.5 的替换门槛后才退役。
+
+PredictiveResult 至少包含：
+
+- conditioning dataset 与来源 PosteriorResult 的 identity；
+- prediction design、future covariates 和被解除条件的 sites；
+- predictive draws 或 analytic predictive representation；
+- latent predictive quantities 与 replicated observations 的区分；
+- pointwise predictive density 的可用性及 observation unit；
+- 进入后续 model-checking report 所需的 grouping 与 provenance。
 
 EvidenceResult 不能只是一个浮点数。它至少应包含：
 
@@ -362,6 +413,8 @@ PredictiveTask 应明确：
 - discrepancy 或 summary；
 - 是否保留 latent predictive quantities。
 
+PredictiveTask 的直接产物是 PredictiveResult；PPC、coverage、LOO 或 discrepancy judgment 是随后引用它的 EvaluationReport。这样 held-out predictive draws 或新设计点的预测分布不会被误装成“评价报告”。
+
 模型检验的基础能力包括：
 
 **Prior predictive checks**
@@ -451,17 +504,19 @@ Nested sampling 也不等于 model checking。它解决的是积分和 posterior
 
 ### 3.6 Point estimate 与 simulation
 
-MAP、Laplace、profile 或其他 point-estimate 路径必须明确其统计含义。PointEstimateResult 不得冒充 PosteriorResult。
+MAP、MLE、profile 或其他 point-estimate 路径必须明确其统计含义。PointEstimateResult 不得冒充 PosteriorResult。Laplace 若只产出 mode，可以同时引用一个 PointEstimateResult；一旦携带局部 Gaussian posterior approximation，其主产物就是带 approximation class 的 PosteriorResult，而不是 point estimate。
 
-SimulationTask 则统一承载：
+SimulationTask 拥有“给定参数来源的前向生成”这一执行语义；PredictiveTask 拥有 conditioning、prediction design 以及与 observed/held-out data 的关系，并可以消费 SimulationResult 或调用同一底层生成 primitive。两者不能仅因都产生模拟数据而合并。
+
+SimulationTask 统一承载：
 
 - prior simulation；
-- posterior predictive simulation；
+- 给定 posterior draws 或其他显式参数来源的 forward simulation primitive；
 - SBC data generation；
 - synthetic oracle construction；
 - experimental design 所需的 forward simulation。
 
-这样 simulation 不再只是测试辅助函数，而成为 model criticism、校准和未来 agent loop 的基础动作。
+PredictiveTask 则将这些 forward draws 放回明确的 conditioning 与 prediction 语义中，形成 PredictiveResult。这样 simulation 不再只是测试辅助函数，也不会与 predictive inference 重复拥有同一统计含义。
 
 ---
 
@@ -524,6 +579,18 @@ Gate 必须：
 - 说明阻止哪些 action；
 - 说明哪些修复动作仍合法；
 - 在依赖失效时自动回退。
+
+每个 gate 必须声明 required reports、optional reports 和 applicability policy；不能把多份报告交给调用者临时聚合。规范的聚合顺序是：
+
+1. dependency invalidation、运行错误，或被评价的 artifact 及其上游输入（Result、Plan 等）缺失或失效，单独记录为 gate execution failure，不伪装成统计 FAIL；
+2. 任一 required 且 APPLICABLE 的报告为 FAIL，则 gate 为 FAIL；
+3. required 报告为 UNVERIFIABLE、ABSTAIN 或从未产出，则 gate 为 ABSTAIN；
+4. INAPPLICABLE 只有在 gate schema 预先声明该报告可选时才被忽略；若它是 required requirement，则 gate 为 ABSTAIN；
+5. 只有全部 required、applicable reports 为 PASS，且没有上述情况时，gate 才能 PASS。
+
+规则 1 与规则 3 的边界：required 报告从未被尝试产出，是不完整而非故障，gate 为 ABSTAIN 并指出缺失的报告；存在产出尝试但运行出错，或报告已因上游变更失效，才属于规则 1 的 execution failure。两种情形都可以从产物记录中区分，不允许靠猜。
+
+该聚合函数必须版本化并接受 truth-table tests；报告的排列顺序不得改变 verdict。
 
 ### 4.4 Refusal 与 exception
 
@@ -655,8 +722,10 @@ LLM 不可以：
 
 - analytic posterior；
 - hybrid exact plus sampled posterior；
+- first-party linear-Gaussian posterior sampling；
 - NUTS/MCMC；
-- optimization 和 Laplace；
+- amortized/heuristic posterior representation；
+- optimization-derived mode 与 Laplace posterior approximation 的区分；
 - eliminated variable reconstruction；
 - unified PosteriorResult；
 - sampling geometry 与 quality diagnostics。
@@ -666,6 +735,7 @@ LLM 不可以：
 - prior predictive；
 - posterior predictive；
 - future or held-out prediction；
+- PredictiveResult；
 - user-defined discrepancy；
 - pointwise log-likelihood；
 - LOO/WAIC bridge；
@@ -701,7 +771,14 @@ LLM 不可以：
 
 ### 7.1 保留现有强项
 
-现有 graph、dispatch、exact、marginal、diagnose、bridge、optimize 和 amortize 等职责应作为演进起点，不进行仅为“看起来更整齐”的大规模搬家。
+现有模块不因顶层设计变化而进行仅为“看起来更整齐”的大规模搬家，但它们的长期 ownership 必须区分：
+
+- graph、dispatch、exact、marginal 和 graph-native diagnose 是战略核心；
+- first-party linear-Gaussian sampler、GLS、sqrt-information、exact discrete oracle 和 chain 路径继续由 bayesmith 拥有；
+- bridge 是稳定的 integration seam；
+- graph-aware `fit` 的 full-density、block、loss-sense 和结果语义属于 bayesmith，通用 optimizer kernel 不属于；
+- amortized PosteriorResult、simulation-bank contract 和 calibration gate 属于 bayesmith，具体 NPE architecture 与训练算法原则上属于上游；
+- 当前 generic optimizer 与本地 NPE 可以作为兼容或 reference implementation 迁移，但不因此获得长期扩展成 algorithm zoo 的承诺。
 
 顶层设计需要新增的是概念边界，而不是立即新增许多 package：
 
@@ -716,7 +793,9 @@ LLM 不可以：
 
 ### 7.2 Namespace 约束
 
-当前若已有 deprecated namespace 或 compatibility alias，不应在其上建设新的长期实现。特别是 evidence 相关名称，应先核对现有兼容承诺，再选择不会与退役路径冲突的新归属。
+当前若已有 deprecated namespace 或 compatibility alias，不应在其上建设新的长期实现。
+
+`bayesmith.evidence` 在兼容期结束后成为永久 tombstone：可以被移除或保留为只会给出迁移说明的拒绝入口，但不被新的 EvidenceTask 体系收复。新的 evidence 能力必须选择其他明确归属。原因是旧代码若在 1.0 后重新解析到同名但语义完全不同的模块，会把一次清晰的 import failure 变成更危险的 silent semantic substitution。artifact 中的 EvidenceTask、EvidenceResult 和统计术语 evidence 不受这条 namespace tombstone 影响。
 
 具体模块命名留给每阶段实现计划决定，但依赖方向必须保持：
 
@@ -742,16 +821,29 @@ model/graph
 6. 升级 backend 时如何检测语义漂移？
 7. 它要求的目标表示是否能由 CompiledProblem 无损提供，而不让 backend 重新解释 Graph？
 8. 如果已有 adapter 能完成任务，第二个 adapter 是否带来独立验证或新的适用域，而不只是增加算法数量？
+9. 它是否通过 §1.5 的 generality、JAX compatibility、correctness、compile/runtime/memory、maintenance 和 observability 门槛？
 
 不以 backend 数量作为成熟度指标。
 
-backend 评估必须针对具体 Task 和 compiled problem family，不能笼统宣布某个 library 为全局首选。对 posterior，NumPyro 可以继续是默认通用 fallback；对 residual evidence，BlackJAX NS 与 JAXNS 通过同一 oracle suite 竞争；对某些 geometry，未来也可以由 Plan 选择 BlackJAX 的专门算法。无论选择哪一个，公共 Result、Report 和 gate 不随 backend 改变。
+backend 评估必须针对具体 Task 和 compiled problem family，不能笼统宣布某个 library 为全局首选。公共控制面应支持三种选择语义，但不在本文冻结具体 Python 函数签名：
+
+- `auto`：Plan 根据结构、规模、device、精度、预算和 gate requirement 选择；
+- explicit：用户指定一个已注册且仍通过 eligibility 的 backend；
+- cross-check：执行两个具有独立验证价值的 route，并生成比较报告。
+
+对 posterior，NumPyro 可以继续是默认通用 fallback，BlackJAX 提供可选的专门算法；对 residual evidence，BlackJAX NS 与 JAXNS 通过同一 oracle suite 竞争；对 amortized posterior，BayesFlow 与 sbiJAX 等专门 SBI 工具进入独立评估，不能因为 BlackJAX 已接入就假设它提供 NPE；对 exact linear posterior，bayesmith native route 继续是默认 first-party 实现。无论选择哪一个，公共 Result、Report 和 gate 不随 backend 改变。
+
+成熟上游优先承担通用数值算法，但不应为了统一 backend 而牺牲一个简单、已验证、由领域专家维护的 first-party route。反过来，已有本地代码也不是继续扩张的理由：generic `minimize`、NPE network family 或 sampler adaptation 只有在上游未通过硬门槛且真实需求已经出现时，才允许新增 first-party 实现。
 
 ---
 
 ## 8. 路线图
 
 路线图按能力门槛推进，不绑定日历时间。编号表示依赖顺序，不要求每个阶段对应一个 release。
+
+所有阶段共享一条 consumer compatibility 门槛：每个阶段宣告完成前，必须在记录了 checkout revision 的 sibling 环境中，以候选版本的 bayesmith 运行 rheplicant 自己的测试套件，确认没有回归；若改变属于有意的公共迁移，则必须已有双方协调的 migration record。rheplicant 是 owner-controlled consumer，不计入 R8 所要求的两个独立 consumer；但完全迁移使它对 bayesmith 的依赖面变宽而不是消失，这条 integration seam 在 R0–R8 期间不可省略。
+
+`tests/crosscheck/` 是迁移期的 port-fidelity harness，不承担这条门槛：凡 rheplicant 已改为直接导入 bayesmith 之处，它的两侧比较退化为 self-consistency，按 §9.1 不再具有独立证明力；仍在钉住有意分歧或比较 rheplicant 保留实现的测试继续有效。逐项保留与退役由 migration spec 在其原位裁决，本文不复制该决定。
 
 ### R0 — 稳定现有核心与基线
 
@@ -765,12 +857,13 @@ backend 评估必须针对具体 Task 和 compiled problem family，不能笼统
 - 明确现有公共对象的实际语义；
 - 修正 README 和文档中 posterior、marginal term 与 evidence 的措辞；
 - 记录现有 route、fallback 和 refusal；
-- 建立可重复的 full-suite、lint 和 wheel-level 验证；
+- 建立可重复的 full-suite、lint 和 wheel-level 验证；这里的 lint 明确指 `ruff check src/ tests/`，不包括 `ruff format --check`，也不授权清扫当前故意保留的 format drift；
+- 标记现有实现的长期 ownership：first-party core、thin adapter、reference/compatibility 或待评估 upstream candidate；
 - 不在此阶段追求新的 API 广度。
 
 **完成门槛**
 
-- 全量测试、lint 和 package 验证可复现；
+- 全量测试、`ruff check` 和 package 验证可复现；
 - exact 和 fallback 路径有独立 oracle；
 - 公共文档与实际行为一致；
 - 当前核心对象有清晰 owner 和兼容性策略。
@@ -785,9 +878,11 @@ backend 评估必须针对具体 Task 和 compiled problem family，不能笼统
 
 - 定义 Task family；
 - 定义 AnalysisReport、InferencePlan、Refusal；
-- 定义 tagged Result 和 RunRecord；
+- 定义五类 Task 到 PosteriorResult、EvidenceResult、PredictiveResult、PointEstimateResult、SimulationResult 的穷尽映射，以及共同 RunRecord；
+- 将 Refusal 的机器字段固定为 `grounds`，不使用会与统计对象混淆的 `evidence`；
 - 建立 schema version、fingerprint 和 lineage；
 - 建立最小 invalidation rules；
+- 定义 required/optional report 的确定性 gate aggregation truth table；
 - 将现有 posterior routes 适配到新协议；
 - 保留兼容层并制定 deprecation 路径。
 
@@ -797,6 +892,7 @@ backend 评估必须针对具体 Task 和 compiled problem family，不能笼统
 - 同一运行可被稳定记录和读取；
 - 数据或 Graph 改动会使相关 artifact 明确失效；
 - method inapplicability 不再依赖解析异常字符串；
+- 每类 Task 都有唯一主 Result 类型，gate 聚合不依赖报告顺序；
 - 数值结果与迁移前保持一致。
 
 ### R2 — 完整 posterior 与 predictive seam
@@ -807,9 +903,11 @@ backend 评估必须针对具体 Task 和 compiled problem family，不能笼统
 
 **主要工作**
 
-- 明确 PosteriorResult 的 analytic 与 sample representations；
+- 明确 PosteriorResult 的 analytic、sample、weighted-sample 与 fitted-conditional representations；
+- 将现有 amortized posterior 明确编码为 heuristic PosteriorResult representation，记录 training-bank、validation、backend 和 calibration provenance；
 - 统一 eliminated variable reconstruction；
 - 建立显式 PredictiveTask；
+- 使 PredictiveTask 产出 PredictiveResult，并固定其与 SimulationTask 的边界；
 - 正确区分 conditioning observations 与 replicated observations；
 - 记录 pointwise log-likelihood 和 observation grouping；
 - 提供可选 ArviZ export；
@@ -819,6 +917,7 @@ backend 评估必须针对具体 Task 和 compiled problem family，不能笼统
 
 - exact、factorized 和 NUTS 路径可进入同一 predictive API；
 - observed-data replay 不会被误当 posterior predictive；
+- PredictiveResult 可独立持久化并被多个 EvaluationReport 消费；
 - analytic posterior 与 predictive moments 有独立 oracle；
 - pointwise likelihood 的 observation unit 可审计；
 - 缺少 predictive 所需信息时返回 Refusal 或 ABSTAIN。
@@ -838,6 +937,7 @@ backend 评估必须针对具体 Task 和 compiled problem family，不能笼统
 - LOO/WAIC integration；
 - prior sensitivity；
 - identifiability reports；
+- 在 SBC 与 calibration protocol 可用后，以同一 simulation bank、同一校准套件和同一资源预算评估 BayesFlow、sbiJAX 等 amortized backend；
 - PASS、FAIL、ABSTAIN 和 applicability 协议。
 
 **完成门槛**
@@ -846,6 +946,8 @@ backend 评估必须针对具体 Task 和 compiled problem family，不能笼统
 - 已知错误或 misspecified fixtures 能失败；
 - 不足以判断的 fixtures 能 ABSTAIN；
 - SBC 能同时覆盖 exact 与 sampled routes；
+- 随机校准验收使用固定 seed、固定预算和预先声明的误报率或容忍区间，不允许失败后反复换 seed 直到通过；
+- 本地 reference NPE 只有在候选 upstream 通过 §1.5 门槛后才允许退役；若没有候选通过，记录结论而不伪造唯一 production winner；
 - ArviZ round-trip 不丢失 observation 或 chain 语义；
 - report 不依赖人工阅读原始 sampler 日志。
 
@@ -1040,6 +1142,8 @@ backend 评估必须针对具体 Task 和 compiled problem family，不能笼统
 
 性能门槛应先基于测量建立，再决定是否硬性阻断。不能把未经基准证明的“更快”写成设计事实。
 
+SBC、coverage、repeated evidence 或其他本质随机的验收测试必须固定 seed 与计算预算，并预先声明统计量、容忍区间和可接受误报率。需要多 seed 时，seed set 也是 fixture 的一部分。CI 不允许以 rerun-until-pass 处理红灯；若测试的预期误报率不适合 blocking CI，应把它降为定期 calibration job，而不是让随机失败逐渐失去警示作用。
+
 ### 9.4 Evidence 专项
 
 Evidence 测试至少覆盖：
@@ -1155,6 +1259,11 @@ Evidence 测试至少覆盖：
 **风险：** 为未来 agent 构建庞大框架，却没有真实统计 workflow 验证。  
 **缓解：** R1 只建立最小协议；R2–R5 用 posterior、model checking 和 evidence 实际驱动；完整控制面推迟到 R7。
 
+### 11.9 错误的 upstream 替换或 backend 膨胀
+
+**风险：** 仅因上游存在同名能力就替换简单、成熟的 first-party exact route，丢失结构语义和证书；或反过来为“提供选择”长期维护多个没有独立价值的 adapter。
+**缓解：** 使用 §1.5 的硬门槛和 problem-family benchmark；保留 native linear sampler 等战略核心；第二实现必须证明适用域、性能、cross-check 或 failure-mode 价值，否则只保留一个 production route。
+
 ---
 
 ## 12. 成熟度判据
@@ -1181,6 +1290,8 @@ bayesmith 达到“通用 Bayesian workflow 工具”的成熟状态，不以支
 以下事项不是当前路线图的前置条件：
 
 - 自研通用 nested sampler；
+- 在统一 PosteriorResult 与 calibration gate 建立前扩展自研 NPE、flow 或 score-model architecture；
+- 未经 benchmark 预先指定唯一 amortized inference backend；
 - 通用分布语言；
 - 任意 Python Graph 的完全序列化；
 - 开放式第三方 compiler rewrite marketplace；
@@ -1202,7 +1313,11 @@ bayesmith 达到“通用 Bayesian workflow 工具”的成熟状态，不以支
 4. Evidence 应建设为独立、task-aware 的产品能力。
 5. Nested sampling 应接入现成工具但不进入核心依赖；BlackJAX NS 与 JAXNS 先通过同一 oracle-driven evaluation，再选择至少一个 production adapter。
 6. bayesmith 的独特 evidence 优势应是先精确消元，再对 residual problem 做 nested sampling。
-7. astronomy-oriented structural optimizations 继续作为 first-party compiler capabilities，但不限制顶层定位。
-8. agent 是未来外部控制策略；typed artifact、gate 和 Action protocol 才是核心。
-9. 先完成 posterior predictive、SBC、LOO/WAIC 和 evidence contracts，再建设完整 agent loop。
-10. 以后所有阶段性计划以本文为北极星，并用客观 gate 而不是日期或功能数量定义完成。
+7. first-party linear-Gaussian sampler、GLS、sqrt-information 和范围有限的 exact routes 继续由 bayesmith 拥有；使用上游低层 kernel 不改变其统计所有权。
+8. 成熟上游优先承担通用 sampler、optimizer、diagnostic、distribution 和 amortized estimator 算法；替换必须通过 generality、效率、维护和 oracle 门槛。
+9. 多个 backend 可以在 `auto`、explicit 和 cross-check 语义下并存，但每个长期实现必须证明不同适用域、性能或验证价值。
+10. amortized inference 是 heuristic PosteriorResult representation；不继续扩张本地 NPE algorithm zoo，专门 SBI 上游通过真实 workload 评估后再决定迁移。
+11. astronomy-oriented structural optimizations 继续作为 first-party compiler capabilities，但不限制顶层定位。
+12. agent 是未来外部控制策略；typed artifact、gate 和 Action protocol 才是核心。
+13. 先完成 posterior predictive、SBC、LOO/WAIC 和 evidence contracts，再建设完整 agent loop。
+14. 以后所有阶段性计划以本文为北极星，并用客观 gate 而不是日期或功能数量定义完成。

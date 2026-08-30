@@ -2,6 +2,10 @@
 
 > 本文是设计（spec），不是实施计划。已于 2026-08-23 经用户批准。
 > 实施计划见 `docs/superpowers/plans/`，按 §五 分解的 P1…P7 逐个展开。
+>
+> **历史状态：** 产品定位、公共概念模型与长期路线图已由
+> [`2026-08-30-bayesmith-top-level-design.md`](2026-08-30-bayesmith-top-level-design.md)
+> 取代；本文仅保留为早期设计与既有实现决策的历史记录。
 
 ## Context
 
