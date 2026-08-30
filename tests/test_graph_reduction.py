@@ -598,12 +598,20 @@ def test_partition_and_compile_check_raw_evidence_against_the_derived_nuts_block
     assert sampled is not None and "gain" in sampled.latents
 
 
-def test_factor_dispatch_checks_raw_graph_evidence_at_plan_and_execution_edges():
+def test_factor_dispatch_checks_raw_graph_evidence_at_plan_and_execution_edges(
+    monkeypatch,
+):
+    import bayesmith.exact.block as exact_block
     from bayesmith.dispatch.factor import (
         declared_partition,
         estimate_factors,
         factor_partition,
         sample_factors,
+    )
+
+    # Isolate the four factor boundaries from exact.block's independent guard.
+    monkeypatch.setattr(
+        exact_block, "check_evidence_nuts_boundary", lambda graph, nuts: None
     )
 
     bare = _collapsible_graph()
