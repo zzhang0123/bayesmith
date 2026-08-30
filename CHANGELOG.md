@@ -2,7 +2,18 @@
 
 ## Unreleased
 
-## 0.6.1 -- 2026-08-29
+## 0.6.2 -- 2026-08-30
+
+**0.6.1 was tagged and never published either**, and for a third reason
+unrelated to the first two: its wheel test found the README's test count stale.
+That number was written from a failure message taken before a parametrize
+widened, so it was already behind when it was committed.
+
+Both earlier tags are left where they are. A tag pointing at something other
+than what shipped is worse than a gap in the numbering, and neither reached the
+index, so nothing can depend on them.
+
+## 0.6.1 -- tagged 2026-08-29, never published
 
 **0.6.0 was tagged and never shipped, so there is no 0.6.0 on the index.** Its
 wheel-test job failed on two assertions that had nothing to do with the release
