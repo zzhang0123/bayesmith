@@ -25,7 +25,7 @@ from bayesmith.graph.evaluate import (
 )
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
-from bayesmith.graph.reduction import ReducedGraph, _as_graph
+from bayesmith.graph.reduction import ReducedGraph, as_graph
 
 
 def _evidence_site_name(graph: Graph, index: int) -> str:
@@ -66,7 +66,7 @@ def to_numpyro(graph: Graph | ReducedGraph) -> Callable[..., dict[str, Any]]:
     other reading has to exist rather than be assumed.
     """
 
-    graph = _as_graph(graph)
+    graph = as_graph(graph)
 
     def model(observed: Mapping[str, Any] | None = None) -> dict[str, Any]:
         def data_for(node: Probabilistic) -> Any:
@@ -233,7 +233,7 @@ def init_to_declared(graph: Graph | ReducedGraph) -> Any:
 
     from bayesmith.dispatch.classify import prior_environment
 
-    graph = _as_graph(graph)
+    graph = as_graph(graph)
     declared = prior_environment(graph)
     return init_to_value(values={name: declared[name] for name in graph.latents})
 
@@ -365,7 +365,7 @@ def predict(
     from bayesmith.dispatch.classify import prior_environment
     from bayesmith.errors import GraphError
 
-    graph = _as_graph(graph)
+    graph = as_graph(graph)
     declared = prior_environment(graph)
     draws: set[int] = set()
     for name in graph.latents:

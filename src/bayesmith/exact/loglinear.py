@@ -456,6 +456,7 @@ def log_space(graph: Graph) -> LogSpace:
             nodes=tuple(nodes),
             plates=graph.plates,
             joint_prior=graph.joint_prior,
+            evidence_terms=graph.evidence_terms,
         ),
         kind=kind,
         fractional=fractional,

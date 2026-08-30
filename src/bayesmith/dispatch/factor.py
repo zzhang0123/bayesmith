@@ -74,6 +74,7 @@ from bayesmith.exact.loglinear import LOG_DEFAULT_SCALES, LogSpace, log_space
 from bayesmith.exact.solve import gcr_sample
 from bayesmith.graph.evaluate import log_joint
 from bayesmith.graph.graph import Graph
+from bayesmith.graph.reduction import check_evidence_nuts_boundary
 
 #: The methods a factor block can carry. ``"gcr"`` and ``"log-gcr"`` are the
 #: two :func:`sample_factors` sweeps; ``"nuts"`` is the remainder block.
@@ -212,6 +213,11 @@ def factor_partition(
     Returns:
         A :class:`FactorPlan`. Its ``str`` is the readable form, in the same
         shape the package front page sketches.
+
+    Raises:
+        GraphError: if an evidence term covers a latent assigned to an exact
+            block, whose conditional solve would omit that term. Put the
+            covered latent in NUTS or keep its likelihood explicit.
     """
     key = jax.random.key(0) if key is None else key
     env = prior_environment(graph)
@@ -416,10 +422,12 @@ def factor_partition(
                 ),
             )
         )
-    return FactorPlan(
+    plan = FactorPlan(
         blocks=tuple(blocks),
         log_space=transformed if any(b.method == "log-gcr" for b in blocks) else None,
     )
+    check_evidence_nuts_boundary(graph, plan.nuts)
+    return plan
 
 
 def declared_partition(
@@ -496,6 +504,9 @@ def declared_partition(
         A :class:`FactorPlan`.
 
     Raises:
+        GraphError: if an evidence term covers a latent the declaration puts
+            in an exact block; that conditional solve cannot consume the
+            graph-level term.
         StructureError: for any of the bookkeeping errors listed above.
     """
     key = jax.random.key(0) if key is None else key
@@ -605,10 +616,12 @@ def declared_partition(
                 epsilon=epsilon,
             )
         )
-    return FactorPlan(
+    plan = FactorPlan(
         blocks=tuple(built),
         log_space=transformed if any(b.method == "log-gcr" for b in built) else None,
     )
+    check_evidence_nuts_boundary(graph, plan.nuts)
+    return plan
 
 
 def _movement_of(
@@ -717,10 +730,13 @@ def sample_factors(
         GraphError: if the plan has no closed-form block at all -- run
             :func:`~bayesmith.bridge.numpyro_bridge.nuts` instead, and this
             refusal names it -- or if a block carries a method this module
-            does not sweep.
+            does not sweep; or if an evidence term covers one of the plan's
+            exact latents, including when a cached plan came from another
+            graph state.
         StructureError: if ``on_sweep`` is given for a plan with a NUTS
             remainder.
     """
+    check_evidence_nuts_boundary(graph, plan.nuts)
     exact = plan.exact
     if not exact:
         raise GraphError(
@@ -918,11 +934,13 @@ def estimate_factors(
 
     Raises:
         StructureError: for a non-positive ``sweeps``.
-        GraphError: if a block carries a method this module does not sweep.
+        GraphError: if a block carries a method this module does not sweep,
+            or if an evidence term covers one of the plan's exact latents.
     """
     from bayesmith.exact.solve import wiener_solve
     from bayesmith.optimize import fit
 
+    check_evidence_nuts_boundary(graph, plan.nuts)
     if not isinstance(sweeps, int) or isinstance(sweeps, bool) or sweeps < 1:
         raise StructureError(f"sweeps must be a positive int, got {sweeps!r}.")
     exact = plan.exact

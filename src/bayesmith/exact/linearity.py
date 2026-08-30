@@ -813,6 +813,11 @@ def linear_operator(
     ``unchecked_operator`` inside it: the claim is a property of the model,
     not of the sweep, so re-checking every sweep pays for the same answer
     repeatedly. The at-points this checks at are what make that safe.
+
+    Raises:
+        GraphError: if an evidence term covers a member of the requested
+            exact block, in addition to the structural refusals documented by
+            :func:`~bayesmith.exact.block.unchecked_operator`.
     """
     check_linearity(
         graph, names, at, scales=scales, rtol=rtol, at_points=at_points, key=key

@@ -149,6 +149,17 @@ def test_an_evidence_term_without_over_is_refused_and_the_protocol_is_reachable(
             )(),
             "tuple",
         ),
+        (
+            type(
+                "NonStringOver",
+                (),
+                {
+                    "over": ([1],),
+                    "log_density": lambda self, graph, values: 0.0,
+                },
+            )(),
+            "non-string",
+        ),
         (_term("x", "x"), "repeats"),
     ],
 )
@@ -509,6 +520,121 @@ def test_the_reduction_result_is_nuts_only_and_generic_compile_refuses_it():
     )
 
 
+def test_an_unwrapped_reduced_graph_cannot_enter_a_public_exact_block_builder():
+    from bayesmith import linear_operator
+
+    reduced = _reduce(
+        _collapsible_graph(unrelated_branch=True),
+        _integrated_term(),
+        nuts_latents=("gain", "offset", "z"),
+    )
+    raw = reduced.as_graph()
+    at = {"offset": jnp.asarray(-0.1), "z": jnp.asarray(0.4)}
+    with pytest.raises(
+        GraphError,
+        match=r"evidence_terms\[0\].*outside the NUTS block.*keep.*explicit",
+    ):
+        linear_operator(
+            raw,
+            ("gain",),
+            at=at,
+            at_points=(at,),
+            scales=(1.0,),
+        )
+
+    term_free = Graph(nodes=raw.nodes, plates=raw.plates)
+    assert linear_operator(
+        term_free,
+        ("gain",),
+        at=at,
+        at_points=(at,),
+        scales=(1.0,),
+    ).names == ("gain",)
+
+
+def test_compile_checks_raw_graph_evidence_against_its_derived_nuts_block():
+    from bayesmith import compile as compile_graph
+
+    bare = _collapsible_graph()
+    unsafe = Graph(
+        nodes=bare.nodes,
+        plates=bare.plates,
+        evidence_terms=(_term("x"),),
+    )
+    with pytest.raises(
+        GraphError,
+        match=(
+            r"evidence_terms\[0\].*outside the NUTS block.*"
+            r"Exact and conditional.*put.*NUTS.*keep.*explicit"
+        ),
+    ):
+        compile_graph(unsafe)
+
+    safe = Graph(
+        nodes=bare.nodes,
+        plates=bare.plates,
+        evidence_terms=(_term("gain"),),
+    )
+    sampled = compile_graph(safe).sampled
+    assert sampled is not None and "gain" in sampled.latents
+
+
+def test_factor_dispatch_checks_raw_graph_evidence_at_plan_and_execution_edges():
+    from bayesmith.dispatch.factor import (
+        declared_partition,
+        estimate_factors,
+        factor_partition,
+        sample_factors,
+    )
+
+    bare = _collapsible_graph()
+    unsafe = Graph(
+        nodes=bare.nodes,
+        plates=bare.plates,
+        evidence_terms=(_term("x"),),
+    )
+    with pytest.raises(
+        GraphError,
+        match=r"evidence_terms\[0\].*outside the NUTS block.*keep.*explicit",
+    ):
+        factor_partition(unsafe)
+
+    safe = Graph(
+        nodes=bare.nodes,
+        plates=bare.plates,
+        evidence_terms=(_term("gain"),),
+    )
+    assert "gain" in factor_partition(safe).nuts
+
+    declared = (("x",), "gcr"), (("gain", "offset"), "nuts")
+    with pytest.raises(
+        GraphError,
+        match=r"evidence_terms\[0\].*outside the NUTS block.*keep.*explicit",
+    ):
+        declared_partition(unsafe, declared, measure=False)
+    assert "gain" in declared_partition(safe, declared, measure=False).nuts
+
+    # A plan can be cached or supplied by a caller. Reusing one derived from
+    # the term-free graph must not bypass either execution boundary.
+    old_plan = factor_partition(bare)
+    with pytest.raises(
+        GraphError,
+        match=r"evidence_terms\[0\].*outside the NUTS block.*keep.*explicit",
+    ):
+        sample_factors(
+            unsafe,
+            old_plan,
+            jax.random.key(12),
+            num_warmup=0,
+            num_samples=1,
+        )
+    with pytest.raises(
+        GraphError,
+        match=r"evidence_terms\[0\].*outside the NUTS block.*keep.*explicit",
+    ):
+        estimate_factors(unsafe, old_plan, sweeps=1, steps=1)
+
+
 def test_a_live_probabilistic_descendant_of_the_removed_block_is_refused():
     graph = _collapsible_graph()
     with pytest.raises(
@@ -518,6 +644,30 @@ def test_a_live_probabilistic_descendant_of_the_removed_block_is_refused():
         _reduce(graph, _integrated_term(), absorb_observed=())
 
     assert "d" not in _reduce(graph, _integrated_term()).names
+
+
+def test_an_absorbed_observation_must_descend_from_the_removed_frontier():
+    graph = _collapsible_graph(unrelated_branch=True)
+    with pytest.raises(
+        GraphError,
+        match=(
+            r"absorb_observed.*\['z_data'\].*not descendants.*"
+            r"Keep independent likelihoods explicit.*separate reduction"
+        ),
+    ):
+        _reduce(
+            graph,
+            _integrated_term(),
+            absorb_observed=("d", "z_data"),
+            nuts_latents=("gain", "offset", "z"),
+        )
+
+    accepted = _reduce(
+        graph,
+        _integrated_term(),
+        nuts_latents=("gain", "offset", "z"),
+    )
+    assert "z_data" in accepted.names
 
 
 def test_every_existing_or_new_evidence_term_must_be_over_the_nuts_block():
@@ -636,17 +786,13 @@ def _absolute_density_vectors(
     oracle = np.asarray(
         [_dense_integral_over_x(original, point) for point in PARAMETER_POINTS]
     )
-    if isinstance(candidate, ReducedGraph):
+    if isinstance(candidate, ReducedGraph) or "x" not in candidate.latents:
         found = np.asarray(
             [float(log_joint(candidate, point)) for point in PARAMETER_POINTS]
-        )
-    elif "x" in candidate.latents:
-        found = np.asarray(
-            [_dense_integral_over_x(candidate, point) for point in PARAMETER_POINTS]
         )
     else:
         found = np.asarray(
-            [float(log_joint(candidate, point)) for point in PARAMETER_POINTS]
+            [_dense_integral_over_x(candidate, point) for point in PARAMETER_POINTS]
         )
     return oracle, found
 

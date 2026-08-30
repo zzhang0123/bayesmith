@@ -34,6 +34,7 @@ from bayesmith.exact.loglinear import (
 )
 from bayesmith.exact.solve import gcr_sample, wiener_solve
 from bayesmith.graph.evaluate import log_joint
+from bayesmith.graph.graph import Graph
 
 N = 24
 SKY = (
@@ -370,3 +371,37 @@ class TestTheJointPriorSurvivesTheTransform:
         """
         ls = log_space(_graph("multiplicative"))
         assert ls.graph.joint_prior is None
+
+
+class _EvidenceTerm:
+    """A graph-level likelihood whose value is independent of this transform."""
+
+    over = ("log_gain",)
+
+    def log_density(self, graph, values):
+        del graph
+        return 13.09 + 0.7 * values["log_gain"]
+
+
+def test_log_space_carries_evidence_terms_and_their_absolute_density():
+    data = _observed("multiplicative")
+    bare = _graph("multiplicative", observed=data)
+    evidence = _EvidenceTerm()
+    graph = Graph(
+        nodes=bare.nodes,
+        plates=bare.plates,
+        evidence_terms=(evidence,),
+    )
+    transformed = log_space(graph).graph
+    at = {"log_gain": jnp.asarray(BLOCK_AT)}
+
+    latent = _gaussian_log_prob(jnp.asarray(BLOCK_AT), 0.0, PRIOR_STD)
+    y = jnp.log(data) + F**2 / 2.0
+    likelihood = jnp.sum(
+        _gaussian_log_prob(y, jnp.log(jnp.exp(BLOCK_AT) * SKY), F)
+    )
+    evidence_density = 13.09 + 0.7 * BLOCK_AT
+    expected = float(latent + likelihood + evidence_density)
+
+    assert transformed.evidence_terms == (evidence,)
+    assert float(log_joint(transformed, at)) == pytest.approx(expected, rel=1e-4)

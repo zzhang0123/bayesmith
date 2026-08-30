@@ -33,7 +33,6 @@ class ReducedGraph(eqx.Module):
     """
 
     _graph: Graph
-    nuts_latents: tuple[str, ...] = eqx.field(static=True)
 
     @staticmethod
     def _refuse_generic(attribute: str) -> Never:
@@ -64,11 +63,15 @@ class ReducedGraph(eqx.Module):
         """The evidence declarations atomically attached by reduction."""
         return self._graph.evidence_terms
 
+    def as_graph(self) -> Graph:
+        """Expose the underlying graph to explicitly evidence-aware code."""
+        return self._graph
 
-def _as_graph(graph: Graph | ReducedGraph) -> Graph:
+
+def as_graph(graph: Graph | ReducedGraph) -> Graph:
     """Unwrap a reduced graph for an explicitly evidence-aware consumer."""
     if isinstance(graph, ReducedGraph):
-        return graph._graph
+        return graph.as_graph()
     return graph
 
 
@@ -82,6 +85,25 @@ def _names(values: Iterable[str], *, argument: str) -> tuple[str, ...]:
             "changing the graph."
         )
     return names
+
+
+def check_evidence_nuts_boundary(
+    graph: Graph, nuts_latents: Iterable[str]
+) -> None:
+    """Refuse a graph-level likelihood that an exact block would omit."""
+    nuts = set(nuts_latents)
+    for index, term in enumerate(graph.evidence_terms):
+        outside = [name for name in term.over if name not in nuts]
+        if outside:
+            raise GraphError(
+                f"evidence_terms[{index}] covers non-NUTS latents {outside}, "
+                f"outside the NUTS block {sorted(nuts)}; its full block is "
+                f"{list(term.over)}. Exact and conditional samplers do not "
+                "read graph-level density terms, so they would silently omit "
+                "this likelihood. Add it to nuts_latents (put it in NUTS), "
+                "or keep the likelihood explicit and do not absorb those "
+                "observations."
+            )
 
 
 def reduce_with_evidence(
@@ -131,11 +153,18 @@ def reduce_with_evidence(
             "deterministic descendants are removed automatically."
         )
 
-    dropped = set(remove) | set(absorbed)
+    dropped = set(remove)
+    unreached_absorbed = set(absorbed)
     for node in graph.nodes:
-        if node.name in dropped or not any(
-            parent in dropped for parent in node.parents
-        ):
+        if node.name in dropped:
+            continue
+        downstream = any(parent in dropped for parent in node.parents)
+        if node.name in unreached_absorbed:
+            if downstream:
+                dropped.add(node.name)
+                unreached_absorbed.remove(node.name)
+            continue
+        if not downstream:
             continue
         if isinstance(node, Probabilistic):
             destination = "remove_latents" if node.is_latent else "absorb_observed"
@@ -147,6 +176,15 @@ def reduce_with_evidence(
                 "that density, or do not remove this block."
             )
         dropped.add(node.name)
+
+    if unreached_absorbed:
+        unrelated = sorted(unreached_absorbed)
+        raise GraphError(
+            f"absorb_observed names {unrelated}, which are not descendants "
+            "of remove_latents or another dropped node. Keep independent "
+            "likelihoods explicit, or collapse them in a separate reduction "
+            "whose evidence_term includes those observations."
+        )
 
     reduced = Graph(
         nodes=tuple(node for node in graph.nodes if node.name not in dropped),
@@ -165,18 +203,6 @@ def reduce_with_evidence(
             "graph, after the integrated block has been removed."
         )
 
-    nuts_set = set(nuts)
-    for index, term in enumerate(reduced.evidence_terms):
-        outside = [name for name in term.over if name not in nuts_set]
-        if outside:
-            raise GraphError(
-                f"evidence_terms[{index}] covers non-NUTS latents {outside}; "
-                f"its full block is {list(term.over)}. Exact and dispatch "
-                "conditional samplers do not read graph-level density terms, "
-                "so conditioning that block would silently omit this "
-                "likelihood. Add it to nuts_latents if NUTS should sample it, "
-                "or keep the likelihood explicit and do not absorb those "
-                "observations."
-            )
+    check_evidence_nuts_boundary(reduced, nuts)
 
-    return ReducedGraph(_graph=reduced, nuts_latents=nuts)
+    return ReducedGraph(_graph=reduced)

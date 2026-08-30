@@ -55,6 +55,7 @@ from bayesmith.exact.solve import wiener_solve
 from bayesmith.graph.evaluate import apply_deterministic, apply_probabilistic
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
+from bayesmith.graph.reduction import check_evidence_nuts_boundary
 
 SIGMA_RTOL = 1e-8
 """Relative sigma movement above which a block counts as prediction-dependent.
@@ -103,6 +104,12 @@ class Classification:
     linearity: dict[int, dict[float, float]] | None
     sigma_movement: float | None
     sigma_needs_rebuild: bool
+
+
+def _evidence_safe(graph: Graph, result: Classification) -> Classification:
+    """Validate the derived split against graph-level likelihood terms."""
+    check_evidence_nuts_boundary(graph, result.nuts)
+    return result
 
 
 def _latent_centre(graph: Graph, node: Probabilistic, env: dict[str, Any]) -> jax.Array:
@@ -582,9 +589,12 @@ def partition(graph: Graph, *, key: jax.Array | None = None) -> Classification:
     for observed in graph.observed:
         ok, why = _is_gaussian(graph, observed, env)
         if not ok:
-            return _all_to_nuts(
-                latents,
-                f"observed node {observed!r} is not a diagonal Gaussian: {why}",
+            return _evidence_safe(
+                graph,
+                _all_to_nuts(
+                    latents,
+                    f"observed node {observed!r} is not a diagonal Gaussian: {why}",
+                ),
             )
 
     qualified, why_not = [], {}
@@ -617,7 +627,11 @@ def partition(graph: Graph, *, key: jax.Array | None = None) -> Classification:
     block = tuple(sorted(set(qualified) - ejected))
 
     if not block:
-        return _all_to_nuts(
-            latents, "; ".join(f"{n!r}: {w}" for n, w in sorted(why_not.items()))
+        return _evidence_safe(
+            graph,
+            _all_to_nuts(
+                latents,
+                "; ".join(f"{n!r}: {w}" for n, w in sorted(why_not.items())),
+            ),
         )
-    return _classify_block(graph, block, latents, env, key)
+    return _evidence_safe(graph, _classify_block(graph, block, latents, env, key))

@@ -41,6 +41,7 @@ from bayesmith.exact.gaussian import (
 from bayesmith.graph.evaluate import apply_deterministic, evaluate
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
+from bayesmith.graph.reduction import check_evidence_nuts_boundary
 
 
 @dataclasses.dataclass(frozen=True)
@@ -488,7 +489,9 @@ def unchecked_operator(
             is not a latent, names a member of this block (silently discarded
             otherwise -- see :func:`_validated_at`), or omits a latent that
             is outside the block; or if the graph has no observed node, so
-            there is nothing for a linear block to condition on.
+            there is nothing for a linear block to condition on; or if an
+            evidence term covers a member of this exact block, whose solve
+            would omit that term.
         NotGaussian: if a member or an observed node is not a diagonal
             Gaussian, or if a member is an ancestor of another member.
         StructureError: if a node's own ``log_prob`` disagrees with the
@@ -510,6 +513,10 @@ def unchecked_operator(
         ``fn`` under trace.
     """
     names = _validated_names(graph, names)
+    members = set(names)
+    check_evidence_nuts_boundary(
+        graph, (name for name in graph.latents if name not in members)
+    )
     at = _validated_at(graph, names, at)
     _refuse_internal_ancestry(graph, names)
     _refuse_missing_observed(graph)

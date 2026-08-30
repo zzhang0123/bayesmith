@@ -89,10 +89,17 @@ term 自己发现冲突更早，也不会让 bridge 与 `log_joint` 在不同时
 ## 四、归约规则与拓扑不变量
 
 `remove_latents` 只能命名 latent，`absorb_observed` 只能命名 observed probabilistic node。
-两者作为删除前沿；原图按原声明顺序扫描，任何父节点已落入前沿的 deterministic node 也落入
-前沿。若这种依赖到达一个没有显式列入相应集合的 probabilistic node，归约拒绝：自动删掉
-一个 latent distribution 或 likelihood 等于声称 evidence term 包含一项它从未声明的
-密度。
+删除前沿只从 `remove_latents` 开始；原图按原声明顺序扫描，任何父节点已落入前沿的
+deterministic node 也落入前沿。一个 `absorb_observed` 名字只有在它是该前沿（或另一个已落入
+前沿的节点）的后代时才可加入。若这种依赖到达一个没有显式列入相应集合的 probabilistic
+node，归约拒绝：自动删掉一个 latent distribution 或 likelihood 等于声称 evidence term
+包含一项它从未声明的密度。
+
+“absorbed 必须在 remove 的后代闭包内”是刻意收窄的**结构代理**，不是对不透明
+`log_density` 内容的完备证明。一个 term 在数学上可能合法地同时携带与 removed block 独立的
+观测因子；图层看不见 term 的内部，因而会把这种合法写法当作假阳性拒绝。出路是让独立
+likelihood 保持显式，或把它放入有自己删除前沿、明确 evidence 的另一归约；相比静默删掉整条
+`p(z_data | z)`，这个保守拒绝是有意选择。
 
 保留节点是原 `nodes` 的稳定子序列，绝不重排。因此 `Graph.__check_init__` 的“父先于子”
 不变量原样保留。测试不是只断言构造成功；它在一个未受影响的 `z -> z_mu -> z_data`
@@ -100,29 +107,37 @@ term 自己发现冲突更早，也不会让 bridge 与 `log_joint` 在不同时
 
 ## 五、核心硬拒绝：evidence 只能覆盖 NUTS block
 
-`nuts_latents` 是调用计划随原子归约一起给出的结构见证。graph 层不能导入 dispatch 而反转
-依赖，所以不在这里重算 partition；它校验新旧**每一个** evidence term 的 `over` 都是
-该见证的子集。
+`nuts_latents` 是调用计划随原子归约一起给出的结构见证，但不存进 `ReducedGraph`：返回图由
+`to_numpyro`/`nuts` 采全部 retained latent，保存一个可能是真子集的公开字段只会伪装成可供
+消费者读取的真实分区。graph 层不导入 dispatch，而是校验新旧**每一个** evidence term 的
+`over` 都是该见证的子集。
 
-这是本包最重要的拒绝。当前 `exact/` 与 `dispatch/` 的条件抽样路径没有任何消费者求值
-`evidence_terms`；M9 的实测搜索 `grep 'joint_prior' src/bayesmith/exact/
-src/bayesmith/dispatch/` 也为零，证明这些路径此前连已有图级槽都没有读取点。另一个 session
-处理 `exact/loglinear.py:444` 的重建遗漏，只会把 `joint_prior` 携带到重建图，并不会让
-`gcr_sample` 的条件分布消费图级 likelihood。若 evidence 覆盖某个非 NUTS latent，条件
-GCR 会从一个省略该项的条件分布抽样；该分布仍归一、CG residual 仍健康、R-hat/ESS 仍
-有数，所有诊断都可能是绿色，错误只存在于目标密度。
+这是本包最重要的拒绝。当前可复现的
+`rg 'evidence_terms' src/bayesmith/exact src/bayesmith/dispatch` 只有一处命中：
+`exact/loglinear.py` 在图重建时**携带字段**；dispatch 为零。`joint_prior` 的旧 M9 “零命中”
+已不成立：同一重建现在显式携带 `joint_prior`。这些命中都不是条件密度求值点；
+`gcr_sample` 仍不消费任何图级 likelihood。若 evidence 覆盖某个非 NUTS latent，条件 GCR
+会从一个省略该项的条件分布抽样；该分布仍归一、CG residual 仍健康、R-hat/ESS 仍有数，
+所有诊断都可能是绿色，错误只存在于目标密度。
 
-因此有两层同向防线：构造时逐项检查 `term.over ⊆ nuts_latents`；成功返回后以
-`ReducedGraph` 阻止通用 `compile` 再分出 exact block。拒绝文本给两条出路：把该 latent
-放入 NUTS block，或保持原 likelihood 显式存在且不要吸收其 observation。
+因此防线落在**数据和执行边界**上：归约时检查 `term.over ⊆ nuts_latents`；
+`partition`/`factor_partition`/`declared_partition` 在得到真实 NUTS block 后对裸 `Graph`
+重查；`sample_factors`/`estimate_factors` 对缓存或手写 plan 再查；`ReducedGraph` 仍以类型
+阻止通用 `compile`；公开 `linear_operator`、内部/高级 `unchecked_operator` 在形成任一
+exact block 时以“其余 latents 是 NUTS”再查，因此即使显式解包 `ReducedGraph.as_graph()`
+也不能绕过。
+拒绝文本给两条出路：把该 latent 放入 NUTS block，或保持原 likelihood 显式存在且不要吸收
+其 observation。`log_space` 的合法图重建同时携带 `joint_prior` 与 `evidence_terms`，所以
+受支持的 `log_joint(log_space(graph).graph, ...)` 不会丢绝对密度。
 
-四条核心拒绝及其合法邻居是：
+核心拒绝及其合法邻居是：
 
 | 拒绝 | 触发条件 | 合法邻居 / 出路 |
 |---|---|---|
 | term 协议/域错误 | 缺 `over`/`log_density`，或 `over` 命名非 surviving latent | 提供完整协议，并先把被删变量从 term 中边缘化 |
 | prior/likelihood 冲突 | `evidence_term.over ∩ joint_prior.over != ∅` | 两块保持不相交；需要别的语义就声明另一模型 |
 | 删除前沿未封闭 | 未吸收的 probabilistic descendant 仍依赖被删区域 | 把其完整密度纳入 term 后显式列入对应集合，或不归约 |
+| 无关 observation 被吸收 | `absorb_observed` 不是 remove/drop 前沿的后代 | 保持 likelihood 显式，或单独归约；独立因子虽可能合法但结构层保守拒绝 |
 | 非 NUTS 覆盖 | 任一新旧 term 的 `over` 不含于 `nuts_latents` | 放入 NUTS，或保留显式 likelihood |
 
 重复名、把 observed 写进 `remove_latents` 等纯参数角色错误也按名拒绝；它们不是上述四条
@@ -163,5 +178,5 @@ d ~ Normal(mu, 0.55²)
 | **D85** | `Graph.evidence_terms` 是 `tuple[Any, ...] = ()`，term 以 `over + log_density(graph, values)` 声明；它与 `joint_prior` 按 latent 强制互斥。 |
 | **D86** | `log_joint` 在一个循环中求和全部图级项，bridge 在所有 node/plate 结束后以独立 factor 发 evidence；plate 内实测会乘 plate size。 |
 | **D87** | 唯一入口 `reduce_with_evidence` 返回 NUTS-only `ReducedGraph`，同一对象同时暴露归约 `nodes` 与已追加 `evidence_terms`，保留拓扑且没有单边 API。 |
-| **D88** | 新旧 term 都必须满足 `over ⊆ nuts_latents`，且返回类型拒绝通用 `compile`，因为条件 exact/dispatch 路不消费该密度项。 |
+| **D88** | 新旧 term 必须落在真实 NUTS block；归约、裸图 partition/factor planning、执行入口与返回类型共同拒绝条件 exact 路遗漏该项。 |
 | **D89** | 正确性以五点绝对密度对稠密积分、未归约 mutant 必红为准；均值、宽度和梯度不足以守住 theta-independent 的双计数。 |

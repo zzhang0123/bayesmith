@@ -16,7 +16,7 @@ import jax.numpy as jnp
 from bayesmith.errors import GraphError
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
-from bayesmith.graph.reduction import ReducedGraph, _as_graph
+from bayesmith.graph.reduction import ReducedGraph, as_graph
 
 Env = dict[str, Any]
 
@@ -113,7 +113,7 @@ def evaluate(
         GraphError: if a latent node has no value, or ``values`` names
             something that is not a latent node.
     """
-    graph = _as_graph(graph)
+    graph = as_graph(graph)
     values = dict(values or {})
     unknown = set(values) - set(graph.latents)
     if unknown:
@@ -206,7 +206,7 @@ def log_joint(
     went to infinity, and the two differ by exactly the ``log sigma`` that
     would have sent the joint to ``-inf``.
     """
-    graph = _as_graph(graph)
+    graph = as_graph(graph)
     env = evaluate(graph, values)
     total = jnp.zeros(())
     for node in graph.nodes:
