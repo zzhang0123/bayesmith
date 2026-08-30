@@ -140,7 +140,7 @@ exact block 时以“其余 latents 是 NUTS”再查，因此即使显式解包
 | 无关 observation 被吸收 | `absorb_observed` 不是 remove/drop 前沿的后代 | 保持 likelihood 显式，或单独归约；独立因子虽可能合法但结构层保守拒绝 |
 | 非 NUTS 覆盖 | 任一新旧 term 的 `over` 不含于 `nuts_latents` | 放入 NUTS，或保留显式 likelihood |
 
-重复名、把 observed 写进 `remove_latents` 等纯参数角色错误也按名拒绝；它们不是上述四条
+重复名、把 observed 写进 `remove_latents` 等纯参数角色错误也按名拒绝；它们不是上述五条
 会产生静默错误的数学拒绝。
 
 ## 六、绝对密度守卫与可重跑反例
