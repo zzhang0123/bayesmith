@@ -12,6 +12,7 @@ Measured 2026-08-29::
     hierarchical mode               (1.943963410376, 1.999266810977)
     flat ridge                      refused: Hessian not positive
     unbounded joint prior           refused: did not converge
+    logistic upper tail             refused: degenerate Hessian
 
 Exit code 0 means the probe completed, never that a mode is globally unique.
 
@@ -116,6 +117,21 @@ def runaway_graph():
     return trace(model)
 
 
+def logistic_tail_graph():
+    def model():
+        logit = sample(
+            "logit", lambda: dist.ImproperUniform(dist.constraints.real, (), ())
+        )
+        observe(
+            "success",
+            lambda x: dist.Bernoulli(logits=jnp.broadcast_to(x, (3,))).to_event(1),
+            logit,
+            obs=jnp.ones(3),
+        )
+
+    return trace(model)
+
+
 def main():
     graph = linear_graph()
     found = map_estimate(graph)
@@ -147,11 +163,21 @@ def main():
 
     flat = map_estimate(flat_ridge_graph())
     assert isinstance(flat, Refused)
+    assert "Hessian" in flat.reason
+    assert "proper prior" in flat.reason or "redundant" in flat.reason
     print(f"flat ridge                      {flat.verdict}: Hessian not positive")
 
     runaway = map_estimate(runaway_graph())
     assert isinstance(runaway, Refused)
+    assert "max|gradient|" in runaway.reason
+    assert "at=" in runaway.reason
     print(f"unbounded joint prior           {runaway.verdict}: did not converge")
+
+    logistic = map_estimate(logistic_tail_graph())
+    assert isinstance(logistic, Refused)
+    assert "degenerate" in logistic.reason
+    assert "Hessian" in logistic.reason
+    print(f"logistic upper tail             {logistic.verdict}: degenerate Hessian")
 
 
 if __name__ == "__main__":

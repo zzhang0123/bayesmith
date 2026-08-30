@@ -19,6 +19,7 @@ from bayesmith.diagnose.coupling import (
     Measured,
     Refused,
     _classify_correlation,
+    _condition_number,
     block_coupling,
 )
 
@@ -204,6 +205,16 @@ def test_m6_precision_cholesky_matches_an_independent_covariance_oracle():
     expected = _covariance_cca(precision, split=3)
     assert report.canonical_correlations == pytest.approx(expected, abs=1e-15)
     assert np.max(np.abs(report.canonical_correlations - expected)) <= 1e-15
+    assert isinstance(report.correlation, Measured)
+    assert report.correlation.n_correlations == 3
+    expected_floor = (
+        np.sqrt(
+            np.linalg.cond(precision[:3, :3])
+            * np.linalg.cond(precision[3:, 3:])
+        )
+        * np.finfo(np.float64).eps
+    )
+    assert report.correlation.floor == pytest.approx(expected_floor, rel=2e-15)
     assert report.kappa_cond == pytest.approx(np.linalg.cond(precision[3:, 3:]))
     assert report.kappa_joint == pytest.approx(np.linalg.cond(precision))
 
@@ -216,7 +227,7 @@ def test_at_is_required_because_this_module_does_not_choose_a_mode():
 
 
 def test_a_value_equal_to_the_noise_floor_is_refused_not_reported_low():
-    verdict = _classify_correlation(0.25, floor=0.25, n_eff=1)
+    verdict = _classify_correlation(0.25, floor=0.25, n_correlations=1)
     assert isinstance(verdict, Refused)
     assert verdict.verdict == "refused"
     assert verdict.verdict != "low"
@@ -234,3 +245,58 @@ def test_a_correlation_below_the_floor_is_refused_in_the_public_report():
     assert isinstance(report.correlation, Refused)
     assert report.correlation.verdict == "refused"
     assert "noise floor" in report.correlation.reason
+
+
+def test_d74_floor_refuses_a_value_between_bare_eps_and_whitening_noise():
+    within = np.diag([1.0, 1e12])
+    cross = np.zeros((2, 2))
+    cross[0, 0] = 1e-13
+    precision = np.block([[within, cross], [cross.T, within]])
+    graph = _linear_gaussian_graph(
+        precision,
+        split=2,
+        prior_std=np.array([3.0, 4.0, 5.0, 6.0]),
+    )
+
+    report = block_coupling(
+        graph,
+        ("first",),
+        ("second",),
+        at={"first": jnp.zeros(2), "second": jnp.zeros(2)},
+    )
+
+    assert np.finfo(np.float64).eps < report.canonical_correlations[0]
+    assert isinstance(report.correlation, Refused)
+    assert "noise floor" in report.correlation.reason
+
+
+def test_condition_number_uses_distinct_sentinels_for_singular_and_nonfinite():
+    singular = _condition_number(np.diag([0.0, 1.0]))
+    nonfinite = _condition_number(np.diag([1.0, np.inf]))
+    assert np.isinf(singular)
+    assert np.isnan(nonfinite)
+
+
+def test_roundoff_perfect_correlation_is_refused_when_conditioning_is_infinite():
+    def model():
+        first = sample("first", lambda: dist.Normal(0.0, 1e7))
+        second = sample("second", lambda: dist.Normal(0.0, 1e7))
+        prediction = det("prediction", lambda x, y: 10.0 * (x + y), first, second)
+        observe("data", lambda mu: dist.Normal(mu, 1.0), prediction, obs=0.0)
+
+    report = block_coupling(
+        trace(model),
+        ("first",),
+        ("second",),
+        at={"first": jnp.asarray(0.0), "second": jnp.asarray(0.0)},
+    )
+
+    assert np.isinf(report.kappa_marg)
+    assert isinstance(report.correlation, Refused)
+    assert "one" in report.correlation.reason
+
+
+def test_map_and_coupling_share_one_refused_verdict_type():
+    from bayesmith.diagnose.map import Refused as MapRefused
+
+    assert MapRefused is Refused

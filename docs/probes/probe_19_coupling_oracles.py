@@ -14,6 +14,8 @@ Measured 2026-08-29::
     M5 diag(1,100), c=.99: kappa marginal     5025.125628140696
     M5 diag(100,1), c=.99: kappa marginal       1.990000000000
     M6 max |precision route - covariance route|  3.3306690738754696e-16
+    M6 whitening floor                            9.2838294835945328e-16
+    D74 c between eps and whitening floor         refused
 
 Exit code 0 means the probe completed, never that a scientific verdict is
 automatically accepted.
@@ -31,7 +33,7 @@ import numpy as np
 import numpyro.distributions as dist
 
 from bayesmith import det, observe, sample, trace
-from bayesmith.diagnose.coupling import Measured, block_coupling
+from bayesmith.diagnose.coupling import Measured, Refused, block_coupling
 
 
 def graph_from_precision(precision, split, prior_std):
@@ -170,7 +172,40 @@ def m6():
     difference = np.max(
         np.abs(report.canonical_correlations - covariance_cca(precision, 3))
     )
+    expected_floor = (
+        np.sqrt(
+            np.linalg.cond(precision[:3, :3])
+            * np.linalg.cond(precision[3:, 3:])
+        )
+        * np.finfo(np.float64).eps
+    )
+    assert isinstance(report.correlation, Measured)
+    assert report.correlation.n_correlations == 3
+    assert np.isclose(report.correlation.floor, expected_floor, rtol=2e-15)
     print(f"M6 max |precision route - covariance route|  {difference:.16e}")
+    print(f"M6 whitening floor                            {expected_floor:.16e}")
+
+
+def d74():
+    within = np.diag([1.0, 1e12])
+    cross = np.zeros((2, 2))
+    cross[0, 0] = 1e-13
+    precision = np.block([[within, cross], [cross.T, within]])
+    report = block_coupling(
+        graph_from_precision(
+            precision,
+            2,
+            np.array([3.0, 4.0, 5.0, 6.0]),
+        ),
+        ("first",),
+        ("second",),
+        at={"first": jnp.zeros(2), "second": jnp.zeros(2)},
+    )
+    correlation = report.canonical_correlations[0]
+    assert np.finfo(np.float64).eps < correlation
+    assert isinstance(report.correlation, Refused)
+    assert "noise floor" in report.correlation.reason
+    print("D74 c between eps and whitening floor         refused")
 
 
 if __name__ == "__main__":
@@ -178,3 +213,4 @@ if __name__ == "__main__":
         m1()
         m5()
         m6()
+        d74()

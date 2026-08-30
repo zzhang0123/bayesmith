@@ -220,12 +220,13 @@ def test_the_floor_is_read_off_the_dtype_which_is_what_that_guard_protects():
 def test_every_diagnostic_that_refuses_float32_refuses_a_truncating_graph_too():
     """A census, not a list -- which is how the missing one would have shown.
 
-    Three entry points call ``refuse_ambient_float32``; before this batch only
-    two also called ``refuse_single_precision``, and the plan's D9 line named
-    only two. Enumerating them by hand is what produced that gap, so this asks
-    each one the same question instead: given a graph that truncates, does it
-    refuse?
+    Five entry points call ``refuse_ambient_float32``.  Enumerating only the
+    older three is how P1 and P2 escaped the registry, so this asks every one
+    the same question instead: given a graph that truncates, does it refuse?
     """
+    from bayesmith.diagnose.coupling import block_coupling
+    from bayesmith.diagnose.map import Refused as MapRefused
+    from bayesmith.diagnose.map import map_estimate
     from bayesmith.diagnose.sensitivity import prior_sensitivity
 
     prior = JeffreysPrior(over=("fg_log_amp", "fg_beta"))
@@ -247,23 +248,45 @@ def test_every_diagnostic_that_refuses_float32_refuses_a_truncating_graph_too():
     def run_jeffreys():
         prior.information(flat, at)
 
+    def run_coupling():
+        block_coupling(
+            proper,
+            ("fg_log_amp",),
+            ("fg_beta",),
+            at=at,
+        )
+
+    def run_map():
+        return map_estimate(proper)
+
     with jax.enable_x64(True):
-        for name, call in (
-            ("identifiability", run_identifiability),
-            ("prior_sensitivity", run_prior_sensitivity),
-            ("JeffreysPrior.information", run_jeffreys),
+        for name, call, structured in (
+            ("identifiability", run_identifiability, False),
+            ("prior_sensitivity", run_prior_sensitivity, False),
+            ("JeffreysPrior.information", run_jeffreys, False),
+            ("block_coupling", run_coupling, False),
+            ("map_estimate", run_map, True),
         ):
-            with pytest.raises(
-                GraphError,
-                match="came back float32",
-            ) as caught:
-                call()
+            if structured:
+                result = call()
+                assert isinstance(result, MapRefused)
+                reason = result.reason
+            else:
+                with pytest.raises(
+                    GraphError,
+                    match="came back float32",
+                ) as caught:
+                    call()
+                reason = str(caught.value)
             assert name  # the loop variable is what the failure names
-            assert "came back float32" in str(caught.value)
+            assert "came back float32" in reason
 
 
-def test_all_three_refuse_an_ambient_float32_session():
+def test_all_five_refuse_an_ambient_float32_session():
     """The other half of the pair, and the claim D9's line makes."""
+    from bayesmith.diagnose.coupling import block_coupling
+    from bayesmith.diagnose.map import Refused as MapRefused
+    from bayesmith.diagnose.map import map_estimate
     from bayesmith.diagnose.sensitivity import prior_sensitivity
 
     prior = JeffreysPrior(over=("fg_log_amp", "fg_beta"))
@@ -271,10 +294,39 @@ def test_all_three_refuse_an_ambient_float32_session():
     proper = power_law_graph(noise="homo", flat_latents=False)
     at = {"fg_log_amp": jnp.array(7.8), "fg_beta": jnp.array(2.55)}
 
-    for call in (
-        lambda: identifiability(flat, names=("fg_log_amp", "fg_beta"), at=at),
-        lambda: prior_sensitivity(proper, names=("fg_log_amp", "fg_beta"), at=at),
-        lambda: prior.information(flat, at),
+    for call, structured in (
+        (
+            lambda: identifiability(
+                flat, names=("fg_log_amp", "fg_beta"), at=at
+            ),
+            False,
+        ),
+        (
+            lambda: prior_sensitivity(
+                proper, names=("fg_log_amp", "fg_beta"), at=at
+            ),
+            False,
+        ),
+        (lambda: prior.information(flat, at), False),
+        (
+            lambda: block_coupling(
+                proper,
+                ("fg_log_amp",),
+                ("fg_beta",),
+                at=at,
+            ),
+            False,
+        ),
+        (lambda: map_estimate(proper), True),
     ):
-        with pytest.raises(GraphError, match="float32 as the ambient precision"):
-            call()
+        if structured:
+            result = call()
+            assert isinstance(result, MapRefused)
+            reason = result.reason
+        else:
+            with pytest.raises(
+                GraphError, match="float32 as the ambient precision"
+            ) as caught:
+                call()
+            reason = str(caught.value)
+        assert "float32 as the ambient precision" in reason

@@ -22,17 +22,20 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from bayesmith.diagnose.coupling import Refused
 from bayesmith.diagnose.local import (
     check_differentiable,
     flat_view,
     latent_values,
     refuse_ambient_float32,
+    refuse_single_precision,
     unflatten,
 )
 from bayesmith.diagnose.sensitivity import NEWTON_TOL, _newton
 from bayesmith.errors import GraphError
-from bayesmith.graph.evaluate import log_joint
+from bayesmith.graph.evaluate import apply_probabilistic, evaluate, log_joint
 from bayesmith.graph.graph import Graph
+from bayesmith.graph.nodes import Probabilistic
 
 
 @dataclasses.dataclass(frozen=True)
@@ -61,14 +64,6 @@ class MapEstimate(Mapping[str, jax.Array]):
 
 
 @dataclasses.dataclass(frozen=True)
-class Refused:
-    """The graph has no trustworthy finite MAP result from this solve."""
-
-    reason: str
-    verdict: ClassVar[str] = "refused"
-
-
-@dataclasses.dataclass(frozen=True)
 class NotApplicable:
     """The graph contains no unknown quantity for MAP to estimate."""
 
@@ -88,6 +83,40 @@ def _precision_refusal() -> Refused | None:
             f"{error} Build the graph and call map_estimate inside "
             "`with jax.enable_x64(True):`; widening only the call leaves "
             "already-created constants and observations at float32."
+        )
+    return None
+
+
+def _graph_precision_refusal(
+    graph: Graph, values: dict[str, jax.Array]
+) -> Refused | None:
+    """Refuse graph-native values that were rounded before an x64 call.
+
+    The accumulated scalar ``log_joint`` is not evidence of graph precision:
+    it starts from a float64 zero under x64, while its predictions may already
+    have been rounded to float32.  Inspect computed graph values and each
+    distribution's floating parameters before that promotion instead.
+    """
+    env = evaluate(graph, values)
+    try:
+        for node in graph.nodes:
+            candidates: list[tuple[str, object]] = []
+            if node.name not in graph.latents:
+                candidates.append((f"the graph-native value at {node.name!r}", env[node.name]))
+            if isinstance(node, Probabilistic):
+                distribution = apply_probabilistic(graph, node, env)
+                candidates.append(
+                    (f"the distribution parameters at {node.name!r}", distribution)
+                )
+            for doing, candidate in candidates:
+                for leaf in jax.tree_util.tree_leaves(candidate):
+                    array = jnp.asarray(leaf)
+                    if jnp.issubdtype(array.dtype, jnp.inexact):
+                        refuse_single_precision(jnp.real(array), doing=doing)
+    except GraphError as error:
+        return Refused(
+            f"{error} Rebuild the graph inside `with jax.enable_x64(True):` "
+            "after removing the graph-side cast, then retry map_estimate."
         )
     return None
 
@@ -139,30 +168,25 @@ def map_estimate(
             "jax.enable_x64(True):` and retry."
         )
 
+    graph_precision_refusal = _graph_precision_refusal(graph, values0)
+    if graph_precision_refusal is not None:
+        return graph_precision_refusal
+
     def objective(x: jax.Array) -> jax.Array:
         values = {**values0, **unflatten(x, names, shapes, spans)}
         return -log_joint(graph, values)
 
-    mode, steps, converged = _newton(objective, x0)
-    if not converged:
-        return Refused(
-            f"map_estimate did not converge after {steps} damped Newton "
-            f"steps to max|dx|/(1+|x|) < {NEWTON_TOL:g}. The last iterate is "
-            "not returned because it cannot be distinguished from a mode. "
-            "Try a different basin with at=, reparameterise the model, or "
-            "use NUTS when the posterior is not locally quadratic."
-        )
+    # `_newton`'s relative-step boolean controls its work budget; it is not a
+    # stationarity verdict.  On an ill-conditioned quadratic the objective can
+    # be bitwise unchanged while the last few Newton corrections jitter above
+    # the step cut, and a large coordinate can make the same relative cut pass
+    # with a plainly non-zero gradient.  Judge the returned point below from
+    # the objective's own derivatives instead.
+    mode, steps, _step_budget_satisfied = _newton(objective, x0)
 
     value = objective(mode)
     gradient = jax.grad(objective)(mode)
     hessian = jax.hessian(objective)(mode)
-    if value.dtype != jnp.float64 or gradient.dtype != jnp.float64:
-        return Refused(
-            "map_estimate's objective or derivative came back single "
-            "precision even though the latent vector is float64. Remove "
-            "float32 casts/constants from the graph, rebuild it inside "
-            "`jax.enable_x64(True)`, and retry."
-        )
     finite = bool(
         jnp.isfinite(value)
         & jnp.all(jnp.isfinite(gradient))
@@ -176,27 +200,43 @@ def map_estimate(
             "appropriate constrained parameterisation."
         )
 
+    gradient_norm = float(jnp.max(jnp.abs(gradient)))
+    gradient_floor = (
+        np.sqrt(np.finfo(np.asarray(gradient).dtype).eps) * max(mode.size, 1)
+    )
+    if gradient_norm > gradient_floor:
+        return Refused(
+            f"map_estimate did not converge to an objective-scale stationary "
+            f"point after {steps} damped Newton steps: max|gradient| is "
+            f"{gradient_norm:.3e}, above its {gradient_floor:.3e} float64 "
+            f"roundoff allowance. The optimizer's relative-step threshold "
+            f"({NEWTON_TOL:g}) is only a work-budget signal, so the last "
+            "iterate is not returned as a MAP. Try a different basin with "
+            "at=, rescale or reparameterise the model, or use NUTS when the "
+            "posterior is not locally quadratic."
+        )
+
     eigenvalues = np.linalg.eigvalsh(np.asarray(hessian))
     smallest, largest = float(eigenvalues[0]), float(eigenvalues[-1])
+    absolute_curvature_floor = np.sqrt(np.finfo(np.asarray(hessian).dtype).eps)
     curvature_floor = (
         np.finfo(np.asarray(hessian).dtype).eps
         * max(abs(largest), 1.0)
         * max(mode.size, 1)
     )
-    if not smallest > curvature_floor:
+    if not smallest > curvature_floor or not largest > absolute_curvature_floor:
         return Refused(
             "map_estimate found a stationary point whose negative-log-"
-            f"posterior Hessian is not positive above roundoff (smallest "
-            f"eigenvalue {smallest:.3e}, floor {curvature_floor:.3e}). It is "
-            "a saddle or a flat ridge, not an isolated MAP. Add a proper "
-            "prior to the unanchored direction, remove a redundant latent, "
-            "or reparameterise before using a Laplace diagnostic."
+            "posterior Hessian is degenerate or not positive above roundoff "
+            f"(smallest eigenvalue {smallest:.3e}, relative floor "
+            f"{curvature_floor:.3e}; largest eigenvalue {largest:.3e}, "
+            f"absolute floor {absolute_curvature_floor:.3e}). A zero gradient "
+            "beside vanishing curvature can be arithmetic underflow on a tail, "
+            "not a finite isolated MAP. Add a proper prior to an unanchored "
+            "direction, remove a redundant latent, reparameterise, or use "
+            "NUTS before feeding this point to a Laplace diagnostic."
         )
 
-    gradient_norm = float(jnp.max(jnp.abs(gradient)))
-    # `_newton` certifies a small relative step.  Record the gradient rather
-    # than imposing a condition-number ceiling here: a very sharp but valid
-    # funnel mode can have a large Hessian, and this function never inverts it.
     found = unflatten(mode, names, shapes, spans)
     return MapEstimate(
         point={name: found[name] for name in names},

@@ -42,7 +42,7 @@ from bayesmith.diagnose.local import (
     resolve_names,
 )
 from bayesmith.errors import GraphError
-from bayesmith.exact.fisher import fisher_information
+from bayesmith.exact.fisher import dense_operator, fisher_information
 from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.gls import precision_from_graph
 from bayesmith.graph.graph import Graph
@@ -54,27 +54,19 @@ class Measured:
 
     value: float
     floor: float
-    n_eff: int
+    n_correlations: int
     verdict: ClassVar[str] = "measured"
 
 
 @dataclasses.dataclass(frozen=True)
 class Refused:
-    """A number whose arithmetic cannot support a coupling verdict."""
+    """A diagnostic whose arithmetic cannot support a numerical verdict."""
 
     reason: str
     verdict: ClassVar[str] = "refused"
 
 
-@dataclasses.dataclass(frozen=True)
-class NotApplicable:
-    """A diagnostic quantity that has no meaning for this graph or split."""
-
-    reason: str
-    verdict: ClassVar[str] = "not-applicable"
-
-
-CorrelationVerdict = Measured | Refused | NotApplicable
+CorrelationVerdict = Measured | Refused
 
 
 @dataclasses.dataclass(frozen=True)
@@ -97,7 +89,7 @@ class CouplingReport:
 
 
 def _classify_correlation(
-    value: float, *, floor: float, n_eff: int
+    value: float, *, floor: float, n_correlations: int
 ) -> CorrelationVerdict:
     """Apply the closed noise-floor boundary (D74)."""
     if not np.isfinite(value):
@@ -105,6 +97,13 @@ def _classify_correlation(
             "the canonical correlation is non-finite. Check the local "
             "parameterisation and evaluate at a finite point before using "
             "this diagnostic."
+        )
+    if not np.isfinite(floor):
+        return Refused(
+            "the whitening noise floor is non-finite, so the local precision "
+            "does not retain enough arithmetic to classify coupling. "
+            "Reparameterise the blocks or evaluate at a better-conditioned "
+            "point."
         )
     if value <= floor:
         return Refused(
@@ -114,14 +113,28 @@ def _classify_correlation(
             "coupling; reparameterise the blocks or evaluate at a better-"
             "conditioned point."
         )
-    return Measured(value=float(value), floor=float(floor), n_eff=int(n_eff))
+    if value >= 1.0 - floor:
+        return Refused(
+            f"canonical correlation {value:.3e} is at or within its "
+            f"{floor:.3e} whitening noise floor of one. Arithmetic cannot "
+            "distinguish this from a singular cross-block ridge; "
+            "reparameterise or combine the redundant directions before "
+            "choosing a sampler."
+        )
+    return Measured(
+        value=float(value),
+        floor=float(floor),
+        n_correlations=int(n_correlations),
+    )
 
 
 def _condition_number(matrix: np.ndarray) -> float:
     """Spectral condition number of a symmetric positive matrix."""
     eigenvalues = np.linalg.eigvalsh(matrix)
     smallest, largest = float(eigenvalues[0]), float(eigenvalues[-1])
-    if not np.isfinite(smallest) or not np.isfinite(largest) or smallest <= 0.0:
+    if not np.isfinite(smallest) or not np.isfinite(largest):
+        return float("nan")
+    if smallest <= 0.0:
         return float("inf")
     return largest / smallest
 
@@ -145,9 +158,9 @@ def block_coupling(
             declared centres in the same way as other local diagnostics.
 
     Returns:
-        A frozen :class:`CouplingReport`.  ``correlation`` is tri-valued; a
-        value at or below the whitening floor is :class:`Refused`, never a
-        claim of low coupling.
+        A frozen :class:`CouplingReport`.  ``correlation`` is two-valued; a
+        value at either whitening boundary is :class:`Refused`, never a claim
+        of low coupling or a roundoff-perfect ridge.
 
     Raises:
         GraphError: if the blocks overlap, or from the graph/local diagnostic
@@ -170,6 +183,9 @@ def block_coupling(
     check_observed_have_locs(graph, values)
 
     block = local_block(graph, names, values, priors=True)
+    refuse_single_precision(
+        dense_operator(block), doing="block_coupling's local design"
+    )
     selected = {name: values[name] for name in names}
     outside = {name: value for name, value in values.items() if name not in names}
     precision = precision_at(graph, values)
@@ -179,9 +195,6 @@ def block_coupling(
         include_prior=True,
         precision_of=precision_from_graph(graph, outside),
         centre=selected,
-    )
-    refuse_single_precision(
-        matrix.values, doing="block_coupling's local posterior precision"
     )
     dense = np.asarray(matrix.values)
 
@@ -215,7 +228,9 @@ def block_coupling(
     floor = np.sqrt(kappa_x * kappa_cond) * np.finfo(dense.dtype).eps
     maximum = float(correlations[0])
     verdict = _classify_correlation(
-        maximum, floor=float(floor), n_eff=int(correlations.size)
+        maximum,
+        floor=float(floor),
+        n_correlations=int(correlations.size),
     )
     return CouplingReport(
         first=first_names,
@@ -231,7 +246,6 @@ def block_coupling(
 __all__ = [
     "Measured",
     "Refused",
-    "NotApplicable",
     "CorrelationVerdict",
     "CouplingReport",
     "block_coupling",
