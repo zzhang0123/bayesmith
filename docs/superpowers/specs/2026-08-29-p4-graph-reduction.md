@@ -102,7 +102,8 @@ likelihood 保持显式，或把它放入有自己删除前沿、明确 evidence
 `p(z_data | z)`，这个保守拒绝是有意选择。
 
 保留节点是原 `nodes` 的稳定子序列，绝不重排。因此 `Graph.__check_init__` 的“父先于子”
-不变量原样保留。测试不是只断言构造成功；它在一个未受影响的 `z -> z_mu -> z_data`
+不变量原样保留。`plates` 同样按原声明顺序过滤，只保留至少被一个存活节点引用的 plate；
+删掉最后一个引用者不会留下孤儿 plate 声明。测试不是只断言构造成功；它在一个未受影响的 `z -> z_mu -> z_data`
 分支上实际求 `log_joint`，使错误剪枝或拓扑破坏可达。
 
 ## 五、核心硬拒绝：evidence 只能覆盖 NUTS block
@@ -113,9 +114,10 @@ likelihood 保持显式，或把它放入有自己删除前沿、明确 evidence
 `over` 都是该见证的子集。
 
 这是本包最重要的拒绝。当前可复现的
-`rg 'evidence_terms' src/bayesmith/exact src/bayesmith/dispatch` 只有一处命中：
-`exact/loglinear.py` 在图重建时**携带字段**；dispatch 为零。`joint_prior` 的旧 M9 “零命中”
-已不成立：同一重建现在显式携带 `joint_prior`。这些命中都不是条件密度求值点；
+`rg 'evidence_terms' src/bayesmith/exact src/bayesmith/dispatch` 只有 exact 下两处语义：
+`exact/block.py` 只检查是否需要 NUTS 见证，`exact/loglinear.py` 在图重建时**携带字段**；
+dispatch 没有密度读取点。`joint_prior` 的旧 M9 “零命中”已不成立：同一重建现在显式携带
+`joint_prior`。这些命中都不是条件密度求值点；
 `gcr_sample` 仍不消费任何图级 likelihood。若 evidence 覆盖某个非 NUTS latent，条件 GCR
 会从一个省略该项的条件分布抽样；该分布仍归一、CG residual 仍健康、R-hat/ESS 仍有数，
 所有诊断都可能是绿色，错误只存在于目标密度。
@@ -124,8 +126,11 @@ likelihood 保持显式，或把它放入有自己删除前沿、明确 evidence
 `partition`/`factor_partition`/`declared_partition` 在得到真实 NUTS block 后对裸 `Graph`
 重查；`sample_factors`/`estimate_factors` 对缓存或手写 plan 再查；`ReducedGraph` 仍以类型
 阻止通用 `compile`；公开 `linear_operator`、内部/高级 `unchecked_operator` 在形成任一
-exact block 时以“其余 latents 是 NUTS”再查，因此即使显式解包 `ReducedGraph.as_graph()`
-也不能绕过。
+exact block 时必须接收完整 plan 的 `nuts_latents` 见证，不能把“本块之外”猜成 NUTS；
+带 term 而不提供见证直接拒绝，因此即使显式解包 `ReducedGraph.as_graph()` 也不能绕过。
+factor plan 尚在形成时还不存在这个见证，其私有 operator 只供结构/条件数探测，完整 plan
+形成后必须先以 `plan.nuts` 统一裁决才能返回或执行；执行入口再把同一见证传给每个 exact
+block。这样第二个 exact block 不会被第一个 block 的局部补集误称为 NUTS。
 拒绝文本给两条出路：把该 latent 放入 NUTS block，或保持原 likelihood 显式存在且不要吸收
 其 observation。`log_space` 的合法图重建同时携带 `joint_prior` 与 `evidence_terms`，所以
 受支持的 `log_joint(log_space(graph).graph, ...)` 不会丢绝对密度。
@@ -177,6 +182,6 @@ d ~ Normal(mu, 0.55²)
 |---|---|
 | **D85** | `Graph.evidence_terms` 是 `tuple[Any, ...] = ()`，term 以 `over + log_density(graph, values)` 声明；它与 `joint_prior` 按 latent 强制互斥。 |
 | **D86** | `log_joint` 在一个循环中求和全部图级项，bridge 在所有 node/plate 结束后以独立 factor 发 evidence；plate 内实测会乘 plate size。 |
-| **D87** | 唯一入口 `reduce_with_evidence` 返回 NUTS-only `ReducedGraph`，同一对象同时暴露归约 `nodes` 与已追加 `evidence_terms`，保留拓扑且没有单边 API。 |
-| **D88** | 新旧 term 必须落在真实 NUTS block；归约、裸图 partition/factor planning、执行入口与返回类型共同拒绝条件 exact 路遗漏该项。 |
+| **D87** | 唯一入口 `reduce_with_evidence` 返回 NUTS-only `ReducedGraph`，同一对象同时暴露归约 `nodes` 与已追加 `evidence_terms`，保留拓扑、过滤孤儿 plate 且没有单边 API。 |
+| **D88** | 新旧 term 必须落在真实 NUTS block；归约、完整 plan、显式 exact witness、执行入口与返回类型共同拒绝条件 exact 路遗漏该项。 |
 | **D89** | 正确性以五点绝对密度对稠密积分、未归约 mutant 必红为准；均值、宽度和梯度不足以守住 theta-independent 的双计数。 |

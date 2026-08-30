@@ -12,21 +12,21 @@
 `check_logdet_premises` 只判定、不计算；调度从上到下由第一个被实际验证的前提胜出。
 公开 `logdet.py` 是稳定门面；直接 NumPy 方法、前提/调度、证书/计划、纯 JAX runtime 分居
 `_logdet_eager.py` / `_logdet_ladder.py` / `_logdet_plan.py` /
-`_logdet_runtime.py`，四个实现文件分别为 795 / 433 / 558 / 60 行，均低于 800 行；
+`_logdet_runtime.py`，四个实现文件分别为 799 / 444 / 545 / 60 行，均低于 800 行；
 runtime 没有 Python 收敛分支。
 
 ## D79 — 问题：按什么顺序和前提选择方法？；裁决：采用基例加 1–8 级，首个已验证前提胜出，第 8 级无条件拒绝。
 
 | 顺序 | 方法 | 结果 | 具体、可检查的前提 |
 |---:|---|---|---|
-| 0 | `Lambda` 本身 | 精确 | `LogDetProblem` 构造时已验证 `Lambda` SPD，且 `Sigma == Lambda` 逐元素成立；稠密输入通过公共条件数门。 |
-| 1 | 低秩 determinant lemma / 有限 e 多项式 | 精确 | 代数因子重构 `P`；列数同时不超过两个低秩阈值；`Sigma` SPD；实测 `rho(X) <= 1`；稠密载荷通过公共条件数门。紧凑对角输入以精确非零支撑给出阶数。 |
-| 2 | 状态空间 / block-LDL | 精确 | 块大小整除维数；远邻块逐位为零；`Sigma` 逐位对称且正定；条件数严格低于 dtype ceiling。 |
-| 3 | 结构化精确式 | 精确 | 条目逐位通过对角/circulant/Toeplitz/Kronecker 检查且 `Sigma` SPD；非对角载荷通过公共条件数门；Kronecker 每个因子必须非空、方形且在 Cholesky 载荷的 SPD 域内。标签不是证据。 |
-| 4 | 稠密 Cholesky | 精确 | `n <= dense_max_n`，条件数严格低于 dtype 的 `condition_ceiling`，且 `Sigma` SPD。 |
-| 5 | 有限 e 多项式微扰 | 精确 | 尺寸或代数 rank 在阈值内，`Sigma` SPD，实测 `rho(X) <= 1`，且稠密载荷通过公共条件数门。低次数绝不是扩张谱的逃逸口。 |
+| 0 | `Lambda` 本身 | 精确 | `LogDetProblem` 构造时已验证 `Lambda` 数值对称且 SPD，且 `Sigma == Lambda` 逐元素成立。 |
+| 1 | 低秩 determinant lemma / 有限 e 多项式 | 精确 | 代数因子重构 `P`；列数同时不超过两个低秩阈值；`Sigma` 数值对称且 SPD。稳定因式载荷不要求 `rho(X)<=1`；紧凑对角输入以精确非零支撑给出阶数。 |
+| 2 | 状态空间 / block-LDL | 精确 | 块大小整除维数；远邻块逐位为零；`Sigma` 数值对称且正定；递推条件数严格低于 `1/eps(dtype)`。 |
+| 3 | 结构化精确式 | 精确 | 条目逐位通过对角/circulant/Toeplitz/Kronecker 检查且 `Sigma` SPD；非对角递推/变换载荷通过 `1/eps(dtype)` 分辨率门；Kronecker 每个因子必须非空、方形且在 Cholesky 载荷的 SPD 域内。标签不是证据。 |
+| 4 | 稠密 Cholesky | 精确 | `n <= dense_max_n` 且 `Sigma` 数值对称、SPD；condition 只报告诊断，不借用矩阵求逆的拒绝阈值。 |
+| 5 | 有限 e 多项式微扰 | 精确 | 尺寸或代数 rank 在阈值内且 `Sigma` SPD；通用有限展开要求实测 `rho(X)<=1`，已经验证的 determinant-lemma 稀疏分支不要求。 |
 | 6 | 截断 trace-log | 确定性近似 | dispatcher 逐位验证确定性 `Tr(X**r)` 覆盖固定阶数，且标量 rho 证据不低报实测值并严格 `<1`。若调用方要求 tolerance 承诺，则计划工厂另验完整 `RhoCertificate` 的重数、order 与浮点精度。 |
-| 7 | 冻结 Hutchinson trace-log | 对冻结探针确定的近似 | 对象的精确类型必须是 bytes-backed `FrozenProbes`；固定阶数；标量 rho 证据不低报实测值且严格 `<1`。计划工厂再验完整证书；抽样误差不继承第 6 级的解析尾界。 |
+| 7 | 冻结 Hutchinson trace-log | 对冻结探针确定的近似 | 对象的精确类型必须是 bytes-backed `FrozenProbes`；非负固定阶数；标量 rho 证据不低报实测值且严格 `<1`。直接入口只读一次被检查的 probe 缓冲区；计划工厂再验完整证书；抽样误差不继承第 6 级的解析尾界。 |
 | 8 | 每调用重抽探针 | **拒绝** | 无条件拒绝；逐调用噪声会改变 HMC 目标并破坏 leapfrog 可逆性。 |
 
 第 5 级的代数对象可由 Newton 恒等式写成
@@ -53,22 +53,31 @@ tol=1e-6` 反例中，重数 1 / order 17 现在被拒绝，重数 40 / order 22
 一般黑盒 matvec 不能从有限次作用推出精确 power trace。因此第 6 级只有“提供并逐位验证
 精确迹”这一条已实现入口；未实现的“结构可导出”析取已删除。随机迹估计只能是第 7 级。
 
-精确结构行不使用容差准入：`structure_rtol/atol` 不改变 checker 或 direct payload 的结论，
-调度和直接载荷都要求逐位结构相等；边界测试只把同一容差当作“接近结构”的诊断坐标。
+精确结构行的稀疏/模板证据不使用容差准入：`structure_rtol/atol` 不会把近似 diagonal、
+block-chain、circulant 或 Toeplitz 投影成精确结构；调度和直接载荷都要求结构条目逐位相等。
+数值对称性单独使用这两个阈值，以接纳 D1 的 sub-ULP matmul 舍入；边界测试把同一容差
+当作“接近结构”的诊断坐标。
 测试仍在各自最后 `isclose` 浮点和首个拒绝浮点上
 绕过调度器，直接对拍 dense Cholesky，并断言结构载荷在三格都拒绝。原因由两个反例钉死：
 近奇异对角阵中一个 `atol` 大小的非对角元能主导 logdet；block-chain 中一个容差大小的远邻块
 能决定正定性。把两者投影为“精确结构”会产生静默大误差。低秩阈值的 rank 6/7/8/9 ×
-`rho={0.5,1,100,1e4,1e9}` 也直接求两侧：`rho<=1` 的有限 e 多项式与 slogdet 一致，三个扩张档
-全部在算术前拒绝。紧凑对角直接求值覆盖 `n=rank={1,10,100,10000}`，包括成功的
+`rho={0.5,1,100,1e4,1e9}` 也直接求两侧：稳定 determinant lemma 在阈值两侧都与独立
+lemma 和 slogdet 一致；`rho<=1` 只留在真的有限展开/trace-series 分支。紧凑对角直接求值覆盖 `n=rank={1,10,100,10000}`，包括成功的
 10 000 次稳定因式化终止；不是只读取 verdict 的记账测试。第 1 级是优先级更高的特例，
 但优先级不等于无条件成本承诺：无可用稀疏表示时，稳定载荷会退到 Cholesky。
 
-条件数门同样不能只放在第 4 级：`nextafter(1/sqrt(2),0)` 构造的 3×3 近奇异矩阵曾让
-block-LDL 和 Toeplitz 在 dense 会拒绝时分别静默偏离 oracle `0.0589` 与 `0.1011`。
-现在第 0/1/2/3/5 级的稠密 checker 与 direct payload 共用同一 strict dtype ceiling；
-近奇异输入在做“精确”算术前一致拒绝。精确 diagonal 是逐项 `log(Lambda+P)`，不受这个
-稠密消元门误伤。
+D2 的决定性回归 `n=1000,k=4,rho=100,cond(Sigma)=101` 现在在 level 1 返回
+`1851.0419458156762`，对独立 `slogdet` 的相对误差为 `9.83e-16`；不再因 trace-series 的
+收敛条件而整梯拒绝。D1 的 `8.881784197001252e-16` matmul 不对称度被数值对称/SPD 前提
+接受，而明显非对称输入仍拒绝。第 7 级把 `trace_order>=0` 放进前提，所以负阶数在 checker
+处就是 False，不会产生“前提满足、载荷才抛错”的假裁决。
+
+条件数策略按实际载荷区分。Fisher 的 `1/sqrt(eps)` 来自显式求逆及条件数平方，不能移植给
+logdet：D4 在该阈值两侧和 `cond=1e14` 都直接验证了 Cholesky，因此第 0/1/4/5 级不以它
+拒绝，condition 仅作诊断。另一方面，`nextafter(1/sqrt(2),0)` 构造的 3×3 近奇异矩阵曾让
+block-LDL 和 Toeplitz 分别静默偏离 oracle `0.0589` 与 `0.1011`；第 2 级和第 3 级的
+递推/变换载荷保留方法专属的 `1/eps(dtype)` 分辨率门。这个门比借来的阈值宽约
+`1/sqrt(eps)` 倍，仍会拒绝已经没有一个有效数字可分辨的递推。
 
 ## D80 — 问题：为什么第 1 级不是另一套 determinant-lemma 分支？；裁决：它是第 5 级在 rank `k` 的稀疏终止，两入口共享 `_newton_logdet` 的稳定因式化路径并逐位一致。
 
@@ -84,9 +93,10 @@ block-LDL 和 Toeplitz 在 dense 会拒绝时分别静默偏离 oracle `0.0589` 
 数值 SVD rank tolerance 不是代数证据：`Lambda^-1` 能把 `P` 中看似很小的遗漏放大到
 量级一。更强的反例是在 `rho` 接近 1 的 SPD 边界，`5e-16 I` 的遗漏即可让 logdet 改变
 `0.248`；所以任何非零重构残差都不能作为“精确” rung 的代数 rank 证明。实现只接受
-`np.array_equal`，近似因子必须改走带显式误差传播的近似 rung。`LowRankFactors(L)` 让左右
-因子共享同一不可变缓冲区，避免检查器自己沿另一条 BLAS 缓冲路径制造残差。八个复现形状
-`(20,2), (50,4), (12,9), (37,6), (101,7), (200,8), (300,5), (64,3)` 现在全部逐位
+`np.array_equal`，近似因子必须改走带显式误差传播的近似 rung。`LowRankFactors(L)` 和
+逐位相等的 `LowRankFactors(L,L)` 都让左右因子共享同一不可变缓冲区，避免检查器自己沿
+另一条 BLAS 缓冲路径制造残差。九个复现形状
+`(20,2), (50,4), (12,9), (37,6), (101,7), (200,8), (300,5), (64,3), (260,4)` 现在全部逐位
 重构为 True；`P` 中 `5e-21`、经 `Lambda^-1` 放大为 `0.5` 的遗漏仍被拒绝。
 
 ## D81 — 问题：哪些近似可作为 HMC 目标？；裁决：确定性截断和冻结探针安全，每调用重采样拒绝；eager 工厂与 JAX runtime 构造性分层。
@@ -98,14 +108,16 @@ block-LDL 和 Toeplitz 在 dense 会拒绝时分别静默偏离 oracle `0.0589` 
 都不能冒充它。
 
 theta 相关输入在 factory 点之后仍会改变数值尺度，而非正规矩阵乘法的内部相消也不能由
-最终 probe estimate 的量级控制；因此所有带 tolerance 承诺的 JAX 计划都要求 float64。
-工厂还比较最终 logdet 的 ULP，并用 `abs(logdet Lambda)+sum(abs(term))` 的固定操作数 gamma
+最终 probe estimate 的量级控制；所以精度由证明决定，而不是无条件写死 float64。
+工厂比较最终 logdet 的 ULP，并用 `abs(logdet Lambda)+sum(abs(term))` 的固定操作数 gamma
 界检查 warmup 的保守 `max_abs_lambda_logdet` 与 series scale；没有该 base-scale 证书时计划
 工厂拒绝。计划绑定构造时 dtype，调用离开 x64 环境也会拒绝。
 exact trace plan 把总 tolerance 的默认一半分给解析尾项，另一半留给算术，并最终强制
 `whole_trace_tail + roundoff_bound <= tolerance`；两项不能各自花掉整份预算。Frozen plan
 不声称 Hutchinson 抽样误差界，其 tolerance 只约束已固定估计器的运行期算术。
-构图和调用都必须放进 `jax.enable_x64(True)`，不能把不可达精度交给 HMC。冻结 runtime 对紧凑对角 `X` 使用逐元素 action；测试在
+float32 在 tolerance `1, 1e-1, 1e-2, 1e-3, 1e-4` 的实测网格通过，在 `2e-5` 及更严时
+由 ULP 或 gamma 界拒绝；需要 float64 的是具体误差预算，不是计划类型本身。float64 计划仍
+必须在同一 `jax.enable_x64(True)` 上下文执行。冻结 runtime 对紧凑对角 `X` 使用逐元素 action；测试在
 `n={2,10,100}`、`p={1,n/8,n}` 上与 eager 和独立 slogdet 对拍。把 runtime 内核 mutation
 成常数会被数值测试杀死。
 
@@ -119,7 +131,8 @@ silent error.** 这个数不是装饰性诊断，而是用户与静默错误之�
 精确 power-trace provider 同样依赖 theta：构造计划时逐位验证，runtime 不检查，结束后由
 `audit_retained_power_traces` 在每个 retained `LogDetProblem` 上按同一固定 order 重算，并
 重新验证其代数 rank 界没有超过 warmup 的 `certificate.multiplicity`。provider 或重数任一
-变化都会报告违规索引；任何一项事后审计失败，都撤销对应近似目标的适用声明。
+变化都会报告违规索引；空 retained 集合必须拒绝，不能返回空洞的 `passed=True`。任何一项
+事后审计失败，都撤销对应近似目标的适用声明。
 
 绝对 tolerance 还有第三个 theta 相关量：`logdet Lambda` 的算术尺度。warmup 用探测值加
 margin 固定 `max_abs_lambda_logdet`；工厂以它做舍入上界，保留样本由
@@ -134,13 +147,21 @@ margin 固定 `max_abs_lambda_logdet`；工厂以它做舍入上界，保留样�
 action 舍入界超 tolerance 而拒绝。`p=10000` 的 reduction 也不能再通过一个与 `p` 或
 固定 order 无关的界。
 
+对抗审计列出的 21 个无测试压力守卫中，4 个被证明不可达并已删除：低秩重构 shape 的
+后置检查，以及 runtime precision 中被上游严格 rho 证明蕴含的 3 个 Sigma 检查。余下 17 个
+可达守卫逐个经只读 import-hook 删除；17 次独立 pytest 调用均为 exit 1，包括 ULP 证明和
+空 retained trace audit 两个会静默接受的高风险守卫。这里的“覆盖”是删除变异结果，不是
+只执行到相应源码行。
+
 ## D83 — 问题：谁选择 `Lambda`，幂迭代能否给严格 rho 证书？；裁决：`Lambda` 是调用方的预条件子设计；一般非对称 `P Lambda^-1` 不接受下偏幂迭代作严格证书。
 
 前景主导时相对噪声直接展开可能 `rho>=1`；更接近 `Sigma` 的对角、块对角或 circulant
 `Lambda` 可让级数收敛。仓库已有 `exact.conditioning` 的谱迭代和 precision 的结构 action，
 但没有有物理依据的通用 `Lambda` selector。SPD 幂迭代从下方逼近，且一般
 `P Lambda^-1` 非对称；它不能安全证明严格上界。当前 dense/compact-diagonal 路用
-`np.linalg.eigvals`/对角最大值精确测量。
+`np.linalg.eigvals`/对角最大值精确测量。dense oracle 测试用已知特征值
+`Q diag(rho,0.2rho) Q.T` 的字面参数 `rho`，不再与实现共享 `eigvals`；其对角最大值严格小于
+`rho`，因此会杀掉低估谱半径、错误放行 `rho=1.01` 的变异。
 
 代价必须明说：dense `spectral_radius` 会物化 `X` 并做 `O(n^3)` eigvals；它是 warmup
 验证，不是无矩阵 runtime。probe 22 的解析 rho 和计时外 `eigvalsh(B.T@B)` 是 M8 特化，
