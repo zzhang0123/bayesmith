@@ -112,6 +112,68 @@ def _vandermonde_graph(
     return trace(model), design, data, oracle
 
 
+def _ridge_graph(
+    *, observation_std: float, coordinate_scale: float = 1.0, pin_mode: bool = False
+):
+    """A 40x3 quadratic whose scale moves without moving its conditioning.
+
+    The dense normal-equation oracle is deliberately NumPy-only.  A residual
+    in the orthogonal complement of the design makes the floating-point
+    stationarity error visible without changing that oracle.
+    """
+    design = np.random.default_rng(7).normal(size=(40, 3))
+    prior_mean = np.array([0.3, -0.4, 0.2])
+    prior_std = np.array([2.0, 3.0, 1.7])
+    target = np.array([1.200038709, -0.549966357, 0.280401865])
+    residual = np.sin(1.7 * np.arange(40))
+    residual -= design @ np.linalg.solve(design.T @ design, design.T @ residual)
+    data = design @ target + 0.01 * residual
+    prior_precision = np.diag(1.0 / prior_std**2)
+    if pin_mode:
+        data += (
+            observation_std**2
+            * design
+            @ np.linalg.solve(
+                design.T @ design, prior_precision @ (target - prior_mean)
+            )
+        )
+
+    scaled_design = coordinate_scale * design
+    scaled_mean = prior_mean / coordinate_scale
+    scaled_std = prior_std / coordinate_scale
+
+    def model():
+        matrix = const("ridge_design", jnp.asarray(scaled_design))
+        coefficients = sample(
+            "coefficients",
+            lambda: dist.Normal(
+                jnp.asarray(scaled_mean), jnp.asarray(scaled_std)
+            ).to_event(1),
+        )
+        prediction = det(
+            "ridge_prediction",
+            lambda a, w: a @ w,
+            matrix,
+            coefficients,
+            linear_in=("coefficients",),
+        )
+        observe(
+            "ridge_data",
+            lambda mu: dist.Normal(mu, observation_std).to_event(1),
+            prediction,
+            obs=jnp.asarray(data),
+        )
+
+    physical_precision = (
+        design.T @ design / observation_std**2 + prior_precision
+    )
+    physical_information = (
+        design.T @ data / observation_std**2 + prior_precision @ prior_mean
+    )
+    physical_oracle = np.linalg.solve(physical_precision, physical_information)
+    return trace(model), physical_oracle, physical_precision
+
+
 def test_linear_gaussian_map_matches_wiener_and_is_a_local_block_point():
     with jax.enable_x64(True):
         graph = _linear_gaussian_graph()
@@ -175,20 +237,67 @@ def test_vandermonde_mode_is_judged_by_stationarity_not_newton_step_jitter():
     assert found.steps == 100
 
 
-def test_relative_step_cannot_accept_a_vandermonde_point_with_large_gradient():
+@pytest.mark.parametrize("observation_std", [1e-2, 1e-3, 1e-4, 1e-5, 1e-6])
+def test_ridge_verdict_does_not_flip_when_only_hessian_scale_changes(
+    observation_std,
+):
     with jax.enable_x64(True):
-        graph, _, _, oracle = _vandermonde_graph(
-            degree=10,
-            t_max=1.0,
-            coefficient_scale=1e8,
-            residual_scale=0.01,
+        graph, oracle, precision = _ridge_graph(
+            observation_std=observation_std
         )
         found = map_estimate(graph)
+
+    assert np.linalg.cond(precision) == pytest.approx(1.59644, rel=2e-6)
+    assert isinstance(found, MapEstimate)
+    relative_error = np.max(np.abs(np.asarray(found["coefficients"]) - oracle))
+    relative_error /= np.max(np.abs(oracle))
+    assert relative_error < 2e-15
+
+
+def test_physical_mode_is_invariant_under_a_pure_unit_conversion():
+    physical_modes = []
+    with jax.enable_x64(True):
+        for coordinate_scale in (1e-2, 1.0, 1e2, 1e4):
+            graph, oracle, _ = _ridge_graph(
+                observation_std=1e-3,
+                coordinate_scale=coordinate_scale,
+                pin_mode=True,
+            )
+            found = map_estimate(graph)
+            assert isinstance(found, MapEstimate), coordinate_scale
+            physical = coordinate_scale * np.asarray(found["coefficients"])
+            assert physical == pytest.approx(oracle, rel=0.0, abs=2e-15)
+            physical_modes.append(physical)
+
+    expected_physical = np.array([1.200038709, -0.549966357, 0.280401865])
+    for physical in physical_modes:
+        np.testing.assert_array_equal(np.round(physical, 9), expected_physical)
+
+
+class _SteepEvenPowerPrior:
+    over = ("x",)
+
+    def log_density(self, graph, values):
+        del graph
+        return -1e50 * (values["x"] - 0.3) ** 202
+
+
+def test_a_finite_budget_refuses_a_point_when_an_exact_stationary_oracle_exists():
+    def model():
+        joint_prior(_SteepEvenPowerPrior())
+        sample("x", lambda: dist.Normal(0.3, 2.0))
+
+    with jax.enable_x64(True):
+        graph = trace(model)
+        found = map_estimate(graph, at={"x": jnp.asarray(1.3)})
+        oracle = map_estimate(graph, at={"x": jnp.asarray(0.3)})
 
     assert isinstance(found, Refused)
     assert "gradient" in found.reason
     assert "roundoff" in found.reason
-    assert np.max(np.abs(oracle)) > 1e7
+    assert isinstance(oracle, MapEstimate)
+    assert float(oracle["x"]) == 0.3
+    assert oracle.gradient_norm == 0.0
 
 
 def test_logistic_underflow_is_not_a_finite_map():

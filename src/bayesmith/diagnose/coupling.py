@@ -28,6 +28,7 @@ import dataclasses
 from collections.abc import Sequence
 from typing import ClassVar
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from scipy.linalg import solve_triangular
@@ -45,7 +46,9 @@ from bayesmith.errors import GraphError
 from bayesmith.exact.fisher import dense_operator, fisher_information
 from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.gls import precision_from_graph
+from bayesmith.graph.evaluate import apply_probabilistic, evaluate
 from bayesmith.graph.graph import Graph
+from bayesmith.graph.nodes import Probabilistic
 
 
 @dataclasses.dataclass(frozen=True)
@@ -139,6 +142,35 @@ def _condition_number(matrix: np.ndarray) -> float:
     return largest / smallest
 
 
+def _refuse_graph_single_precision(
+    graph: Graph, values: dict[str, jnp.ndarray]
+) -> None:
+    """Apply the diagnose family's conservative graph-leaf precision policy.
+
+    A promoted design cannot reveal whether a float32 source leaf was a
+    lossless 0/1 mask or a genuinely truncated design: both arrive as exact
+    float64 values after promotion.  MAP and coupling therefore inspect the
+    same raw graph values and distribution parameters and refuse both cases.
+    This preserves the guard against real truncation at the cost of a named,
+    consistent false refusal for lossless float32 leaves.
+    """
+    env = evaluate(graph, values)
+    for node in graph.nodes:
+        candidates: list[tuple[str, object]] = []
+        if node.name not in graph.latents:
+            candidates.append((f"the graph-native value at {node.name!r}", env[node.name]))
+        if isinstance(node, Probabilistic):
+            distribution = apply_probabilistic(graph, node, env)
+            candidates.append(
+                (f"the distribution parameters at {node.name!r}", distribution)
+            )
+        for doing, candidate in candidates:
+            for leaf in jax.tree_util.tree_leaves(candidate):
+                array = jnp.asarray(leaf)
+                if jnp.issubdtype(array.dtype, jnp.inexact):
+                    refuse_single_precision(jnp.real(array), doing=doing)
+
+
 def block_coupling(
     graph: Graph,
     first: Sequence[str] | str,
@@ -179,6 +211,7 @@ def block_coupling(
 
     names = first_names + second_names
     values = latent_values(graph, at)
+    _refuse_graph_single_precision(graph, values)
     check_differentiable(graph, names, values)
     check_observed_have_locs(graph, values)
 

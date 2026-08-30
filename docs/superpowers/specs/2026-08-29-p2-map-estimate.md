@@ -72,11 +72,17 @@ objective(x) = -log_joint(graph, unflatten(x)).
 再按自己的证据解释：
 
 1. 环境不是 float64：`Refused`，出路是把**构图也放进** `jax.enable_x64(True)`；
-2. 构图时已固定为 float32 的预测、数据或分布参数：在 `log_joint` 被 float64 零提升
-   **之前**按名 `Refused`；累加后的标量 dtype 不是图精度的证据；
+2. 构图时已固定为 float32 的图值或分布参数：在 `log_joint` 被 float64 零提升
+   **之前**按名 `Refused`；累加后的标量 dtype 不是图精度的证据。这个门与 P1 共用
+   同一份原始图叶子扫描。纯 dtype 无法区分一个无损的 float32 `0/1` 掩码与一个已截断
+   的 float32 设计（二者上转后都精确），所以诊断家族选择保守一致：两者都拒绝，而不让
+   MAP 拒绝、coupling 测量同一张图；
 3. 目标、梯度或 Hessian 非有限：`Refused`，出路是改起点、尺度/坐标，或用 NUTS；
-4. `max|gradient|` 高于 `sqrt(eps)·n_parameter` 的目标舍入尺度：`Refused`，绝不把
-   相对小步泄漏成“已收敛”；
+4. 先量 Hessian 谱，再把梯度与
+   `sqrt(eps)·n_parameter·max(|lambda_max(H)|,1)·max(||x||_inf,1)` 比较；高于这个
+   **局部目标舍入尺度**就 `Refused`，绝不把相对小步泄漏成“已收敛”。`H` 给目标的
+   局部曲率尺度，`max(||x||_inf,1)` 把一个坐标 ulp 换成梯度 ulp；缺任一项都会让一次
+   纯单位换算改变裁决；
 5. 驻点的负 log joint Hessian 非正定，或最大曲率本身不高于 `sqrt(eps)`：`Refused`。
    后一条专门区分“真实驻点”和“尾部目标/梯度下溢成零”；
 6. 无 latent：`NotApplicable`，而不是空字典冒充估计。
@@ -105,9 +111,11 @@ Gaussian、先验参数不得层级依赖、likelihood-only 必须可逆、poste
 ### 4.4 真平脊与非驻点
 
 两个 ImproperUniform latent 只以和进入数据，完整 Hessian 有真零方向：拒绝文本点明
-proper prior/删冗余参数等出路。Vandermonde 两格把错误裁决的两个方向同时钉住：12 阶
-有效点即使用满 100 步仍与 `np.linalg.solve` oracle 在 `5e-8` 内，必须接受；另一个
-相对步长很小但梯度仍远高于舍入尺度的点必须拒绝。
+proper prior/删冗余参数等出路。Vandermonde 有效点即使用满 100 步仍与
+`np.linalg.solve` oracle 在 `5e-8` 内，必须接受。反方向用一个唯一众数为 `x=0.3`
+的高偶次目标：从 `x=1.3` 出发，100 步预算结束时梯度仍远高于舍入尺度，必须拒绝；从
+解析 oracle `x=0.3` 出发则逐位得到零梯度并接受。这样 oracle 比被裁决的量更准，而不再
+用“大坐标本身”触发要测试的拒绝。
 
 ### 4.5 Logistic 尾部下溢不是有限 MAP
 
@@ -122,6 +130,15 @@ iterate 给 Laplace。
 ambient float32、显式 float32 起点、以及 x64 外构造而在 x64 内调用的截断图分别由
 独有拒绝短语钉住；无 latent 返回 `NotApplicable`。
 
+### 4.7 尺度与单位不变性
+
+40×3 ridge 固定 `cond(H)=1.59644`，只把观测标准差从 `1e-2` 缩到 `1e-6`，使
+`||H||` 从 `3.680e5` 放大到 `3.680e13`；五格全部 `MapEstimate`，对独立 NumPy
+正规方程的相对误差不超过 `3.71e-16`。同一模型再做坐标换算
+`x_physical=c x_coordinate`，`c in {1e-2,1,1e2,1e4}`，四格均测量且物理众数在打印的
+九位上逐分量相同：`[1.200038709, -0.549966357, 0.280401865]`。删掉 Hessian/坐标尺度
+后，前一组的后三格和后一组的整项守卫都会变红。
+
 oracle 不使用 MAP 实现的任何例程。线性图的一侧是矩阵自由 `wiener_solve`；funnel
 众数由手写联合密度 `y²/18 + y/2 + x²/(2 exp(y))` 的导数直接得到。
 
@@ -130,7 +147,7 @@ oracle 不使用 MAP 实现的任何例程。线性图的一侧是矩阵自由 `
 | 编号 | 解决的问题 | 一句话结论 |
 |---|---|---|
 | **D76** | MAP 的目标从哪里来？ | 只优化图原生完整 `-log_joint`，不从 sensitivity 的 Gaussian moments 重建第二份 posterior。 |
-| **D77** | 沿用哪套拒绝？ | 一条也不沿用 prior-sensitivity 的三条模型分类；P2 只拒绝精度、非有限、梯度未到舍入尺度和 Hessian 非极小/退化这些 MAP 自身失败。 |
+| **D77** | 沿用哪套拒绝？ | 一条也不沿用 prior-sensitivity 的三条模型分类；P2 只拒绝精度、非有限、梯度未到曲率与坐标共同定标的舍入尺度和 Hessian 非极小/退化这些 MAP 自身失败。 |
 | **D78** | 失败如何暴露？ | 成功返回可直接当 latent mapping 的 `MapEstimate`；优化失败返回带原因和出路的 `Refused`，无 latent 返回 `NotApplicable`。 |
 
 ## 六、盲区与度量纪律

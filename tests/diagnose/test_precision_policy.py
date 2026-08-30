@@ -32,8 +32,10 @@ import math
 import jax
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import pytest
 
+from bayesmith import const, det, observe, sample, trace
 from bayesmith.diagnose.identifiability import DEFAULT_RANK_RTOL, identifiability
 from bayesmith.diagnose.priors import JeffreysPrior
 from bayesmith.errors import GraphError
@@ -223,6 +225,12 @@ def test_every_diagnostic_that_refuses_float32_refuses_a_truncating_graph_too():
     Five entry points call ``refuse_ambient_float32``.  Enumerating only the
     older three is how P1 and P2 escaped the registry, so this asks every one
     the same question instead: given a graph that truncates, does it refuse?
+
+    P1 and P2 deliberately inspect raw graph leaves, not only the promoted
+    design or scalar objective.  A dtype guard cannot distinguish a lossless
+    float32 0/1 mask from a genuinely truncated float32 design, so the family
+    chooses the conservative answer for both; the sibling test below pins that
+    consistency instead of letting MAP and coupling disagree on one graph.
     """
     from bayesmith.diagnose.coupling import block_coupling
     from bayesmith.diagnose.map import Refused as MapRefused
@@ -280,6 +288,62 @@ def test_every_diagnostic_that_refuses_float32_refuses_a_truncating_graph_too():
                 reason = str(caught.value)
             assert name  # the loop variable is what the failure names
             assert "came back float32" in reason
+
+
+def _lossless_float_mask_graph(mask_dtype):
+    design = jnp.asarray(
+        [
+            [1.0, 0.2],
+            [0.4, 1.1],
+            [-0.7, 0.8],
+            [1.5, 0.2],
+            [0.1, -1.1],
+            [0.6, 0.9],
+        ]
+    )
+    mask = jnp.asarray([1, 0, 1, 1, 0, 1], dtype=mask_dtype)
+    data = jnp.asarray([0.8, 0.0, -0.5, 1.2, 0.0, 0.3])
+
+    def model():
+        kept = const("lossless_mask", mask)
+        first = sample("first", lambda: dist.Normal(0.3, 2.0))
+        second = sample("second", lambda: dist.Normal(-0.4, 3.0))
+        prediction = det(
+            "prediction",
+            lambda m, x, y: m.astype(x.dtype) * (design @ jnp.stack((x, y))),
+            kept,
+            first,
+            second,
+            linear_in=("first", "second"),
+        )
+        observe(
+            "data",
+            lambda mu: dist.Normal(mu, 0.7).to_event(1),
+            prediction,
+            obs=data,
+        )
+
+    return trace(model)
+
+
+def test_map_and_coupling_use_one_conservative_policy_for_a_lossless_float_mask():
+    from bayesmith.diagnose.coupling import Measured, block_coupling
+    from bayesmith.diagnose.map import MapEstimate, map_estimate
+    from bayesmith.diagnose.map import Refused as MapRefused
+
+    at = {"first": jnp.asarray(0.0), "second": jnp.asarray(0.0)}
+    with jax.enable_x64(True):
+        narrow = _lossless_float_mask_graph(jnp.float32)
+        map_result = map_estimate(narrow)
+        assert isinstance(map_result, MapRefused)
+        assert "came back float32" in map_result.reason
+        with pytest.raises(GraphError, match="came back float32"):
+            block_coupling(narrow, "first", "second", at=at)
+
+        wide = _lossless_float_mask_graph(jnp.float64)
+        assert isinstance(map_estimate(wide), MapEstimate)
+        report = block_coupling(wide, "first", "second", at=at)
+        assert isinstance(report.correlation, Measured)
 
 
 def test_all_five_refuse_an_ambient_float32_session():

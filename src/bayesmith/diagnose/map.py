@@ -22,20 +22,18 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from bayesmith.diagnose.coupling import Refused
+from bayesmith.diagnose.coupling import Refused, _refuse_graph_single_precision
 from bayesmith.diagnose.local import (
     check_differentiable,
     flat_view,
     latent_values,
     refuse_ambient_float32,
-    refuse_single_precision,
     unflatten,
 )
 from bayesmith.diagnose.sensitivity import NEWTON_TOL, _newton
 from bayesmith.errors import GraphError
-from bayesmith.graph.evaluate import apply_probabilistic, evaluate, log_joint
+from bayesmith.graph.evaluate import log_joint
 from bayesmith.graph.graph import Graph
-from bayesmith.graph.nodes import Probabilistic
 
 
 @dataclasses.dataclass(frozen=True)
@@ -97,22 +95,8 @@ def _graph_precision_refusal(
     have been rounded to float32.  Inspect computed graph values and each
     distribution's floating parameters before that promotion instead.
     """
-    env = evaluate(graph, values)
     try:
-        for node in graph.nodes:
-            candidates: list[tuple[str, object]] = []
-            if node.name not in graph.latents:
-                candidates.append((f"the graph-native value at {node.name!r}", env[node.name]))
-            if isinstance(node, Probabilistic):
-                distribution = apply_probabilistic(graph, node, env)
-                candidates.append(
-                    (f"the distribution parameters at {node.name!r}", distribution)
-                )
-            for doing, candidate in candidates:
-                for leaf in jax.tree_util.tree_leaves(candidate):
-                    array = jnp.asarray(leaf)
-                    if jnp.issubdtype(array.dtype, jnp.inexact):
-                        refuse_single_precision(jnp.real(array), doing=doing)
+        _refuse_graph_single_precision(graph, values)
     except GraphError as error:
         return Refused(
             f"{error} Rebuild the graph inside `with jax.enable_x64(True):` "
@@ -200,9 +184,15 @@ def map_estimate(
             "appropriate constrained parameterisation."
         )
 
+    eigenvalues = np.linalg.eigvalsh(np.asarray(hessian))
+    smallest, largest = float(eigenvalues[0]), float(eigenvalues[-1])
+
     gradient_norm = float(jnp.max(jnp.abs(gradient)))
     gradient_floor = (
-        np.sqrt(np.finfo(np.asarray(gradient).dtype).eps) * max(mode.size, 1)
+        np.sqrt(np.finfo(np.asarray(gradient).dtype).eps)
+        * max(mode.size, 1)
+        * max(abs(largest), 1.0)
+        * max(float(np.max(np.abs(mode))), 1.0)
     )
     if gradient_norm > gradient_floor:
         return Refused(
@@ -216,8 +206,6 @@ def map_estimate(
             "posterior is not locally quadratic."
         )
 
-    eigenvalues = np.linalg.eigvalsh(np.asarray(hessian))
-    smallest, largest = float(eigenvalues[0]), float(eigenvalues[-1])
     absolute_curvature_floor = np.sqrt(np.finfo(np.asarray(hessian).dtype).eps)
     curvature_floor = (
         np.finfo(np.asarray(hessian).dtype).eps

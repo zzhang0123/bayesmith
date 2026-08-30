@@ -295,7 +295,55 @@ def test_roundoff_perfect_correlation_is_refused_when_conditioning_is_infinite()
 
     assert np.isinf(report.kappa_marg)
     assert isinstance(report.correlation, Refused)
-    assert "one" in report.correlation.reason
+    assert "of one" in report.correlation.reason
+
+
+def test_a_reachable_infinite_floor_names_the_nonfinite_arithmetic():
+    base = np.random.default_rng(18).normal(size=(7, 2))
+    rank_deficient = np.column_stack((base, base[:, 0] + base[:, 1]))
+    regular = np.random.default_rng(19).normal(size=(7, 3))
+    design = np.block(
+        [
+            [rank_deficient, np.zeros((7, 3))],
+            [np.zeros((7, 3)), regular],
+        ]
+    )
+
+    def model():
+        first = sample(
+            "first",
+            lambda: dist.Normal(jnp.zeros(3), jnp.full(3, 1e8)).to_event(1),
+        )
+        second = sample(
+            "second",
+            lambda: dist.Normal(jnp.zeros(3), jnp.array([2.0, 3.0, 4.0])).to_event(
+                1
+            ),
+        )
+        prediction = det(
+            "prediction",
+            lambda x, theta: jnp.asarray(design) @ jnp.concatenate((x, theta)),
+            first,
+            second,
+            linear_in=("first", "second"),
+        )
+        observe(
+            "data",
+            lambda mu: dist.Normal(mu, 1.0).to_event(1),
+            prediction,
+            obs=jnp.zeros(14),
+        )
+
+    report = block_coupling(
+        trace(model),
+        "first",
+        "second",
+        at={"first": jnp.zeros(3), "second": jnp.zeros(3)},
+    )
+
+    assert np.isinf(report.kappa_joint)
+    assert isinstance(report.correlation, Refused)
+    assert "whitening noise floor is non-finite" in report.correlation.reason
 
 
 def test_map_and_coupling_share_one_refused_verdict_type():
