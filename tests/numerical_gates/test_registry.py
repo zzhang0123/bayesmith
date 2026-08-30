@@ -1,14 +1,17 @@
 """Freshness and schema tests for the numerical-gate registry."""
 
 import ast
+import math
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import tests.numerical_gates.registry as registry_module
 from tests.numerical_gates.registry import (
     GATE_REGISTRY,
+    MutationMode,
     RegistryValidationError,
     SourceAnchor,
     validate_registry,
@@ -555,6 +558,315 @@ def test_non_gate_rows_have_reasons_and_no_fabricated_witnesses() -> None:
     assert all(entry.loosen_witness is None for entry in non_gates)
 
 
+def test_logically_dominated_or_reused_checks_are_static_not_fake_two_sided() -> (
+    None
+):
+    """A check with no independent outcome delta cannot claim two mutation kills."""
+    registry = {entry.gate_id: entry for entry in GATE_REGISTRY}
+    static_ids = {
+        "EAGER:factor-projection:error-budget",
+        "EAGER:factor-projection:finite-qr-arithmetic",
+        "EAGER:factor-projection:whitened-positive-spectrum",
+        "EAGER:factor-base:condition-ceiling",
+        "EAGER:factor-base:error-budget",
+        "EAGER:factor-reduced:diagonal-certificate",
+        "EAGER:factor-reduced:qr-certificate",
+        "EAGER:factor-reduced:acceptance-budget",
+        "EAGER:trace:actual-rho-strict",
+        "PLAN:certificate:rho-domain-and-coverage",
+        "PLAN:warmup:rho-inputs-and-margin",
+        "PLAN:warmup:tail-fraction",
+        "PLAN:warmup:rho-roundoff-ceiling",
+        "PLAN:factory-certificate:strict-rho",
+        "PLAN:measurement:lambda-logdet-finite",
+        "PLAN:canonical-probes:runtime-finite",
+    }
+
+    assert {
+        gate_id
+        for gate_id, entry in registry.items()
+        if entry.mutation_mode is MutationMode.STATIC_ONLY
+    } == static_ids
+    for gate_id in static_ids:
+        entry = registry[gate_id]
+        assert entry.static_reason
+        assert not entry.tighten_witness
+        assert not entry.loosen_witness
+
+
+def test_unreachable_conjunction_atoms_are_static_not_fabricated_cases() -> None:
+    """Capability-only or short-circuited atoms remain inventoried, not faked."""
+    registry = {entry.gate_id: entry for entry in GATE_REGISTRY}
+    balance_prefix = (
+        "src/bayesmith/marginal/_logdet_eager.py::<module>."
+        "_balanced_factor_columns::"
+    )
+    state_prefix = (
+        "src/bayesmith/marginal/_logdet_eager.py::<module>."
+        "state_space_logdet::"
+    )
+    frozen_prefix = (
+        "src/bayesmith/marginal/_logdet_plan.py::<module>."
+        "_frozen_probe_energy_bounds::"
+    )
+    expected = {
+        "EAGER:factor-balance:exact-power-of-two-reversibility": {
+            f"{balance_prefix}predicate_call_atom::508f419c8ad7bceb::0",
+            f"{balance_prefix}predicate_call_atom::633c4ba7bc098a19::0",
+            f"{balance_prefix}finite_predicate::633c4ba7bc098a19::0",
+            f"{balance_prefix}predicate_call_atom::ff9f64daa7a7b618::0",
+            f"{balance_prefix}predicate_call_atom::09a90b48970dbb22::0",
+            f"{balance_prefix}finite_predicate::09a90b48970dbb22::0",
+        },
+        "EAGER:state-space:payload-domain": {
+            f"{state_prefix}predicate_call_atom::5662962bf2f78843::0",
+            f"{state_prefix}finite_predicate::5662962bf2f78843::0",
+        },
+        "PLAN:frozen:probe-energy-range": {
+            f"{frozen_prefix}predicate_call_atom::ec9578c6de121206::0",
+            f"{frozen_prefix}finite_predicate::ec9578c6de121206::0",
+        },
+    }
+
+    assert {
+        entry.gate_id: set(entry.static_atom_reasons)
+        for entry in GATE_REGISTRY
+        if entry.static_atom_reasons
+    } == expected
+    for gate_id, atom_ids in expected.items():
+        entry = registry[gate_id]
+        assert set(registry_module.dynamic_atom_ids(entry)) == (
+            set(entry.conjunction_atom_ids) - atom_ids
+        )
+        assert all(entry.static_atom_reasons[atom_id].strip() for atom_id in atom_ids)
+
+
+def test_static_atoms_must_be_owned_nonempty_conjunction_atoms() -> None:
+    candidates = scan_repository(REPOSITORY_ROOT)
+    index = next(
+        index
+        for index, entry in enumerate(GATE_REGISTRY)
+        if entry.static_atom_reasons
+    )
+    original = GATE_REGISTRY[index]
+    unknown = next(
+        atom_id
+        for entry in GATE_REGISTRY
+        for atom_id in entry.conjunction_atom_ids
+        if atom_id not in original.conjunction_atom_ids
+    )
+    for bad_reasons in (
+        {unknown: "unrelated"},
+        {next(iter(original.static_atom_reasons)): ""},
+    ):
+        bad = replace(original, static_atom_reasons=bad_reasons)
+        entries = (*GATE_REGISTRY[:index], bad, *GATE_REGISTRY[index + 1 :])
+        with pytest.raises(RegistryValidationError, match="static atom"):
+            validate_registry(entries, candidates, EXPECTED_SOURCE_MANIFEST)
+
+
+def test_resource_bound_atom_isolation_ambiguities_are_explicit_not_static() -> None:
+    """Whole-gate domination must replace stale per-atom ambiguity claims."""
+    assert not {
+        entry.gate_id: set(entry.atom_isolation_ambiguities)
+        for entry in GATE_REGISTRY
+        if entry.atom_isolation_ambiguities
+    }
+
+
+def test_atom_isolation_ambiguities_must_be_owned_dynamic_atoms() -> None:
+    candidates = scan_repository(REPOSITORY_ROOT)
+    index = next(
+        index
+        for index, entry in enumerate(GATE_REGISTRY)
+        if registry_module.dynamic_atom_ids(entry)
+    )
+    original = GATE_REGISTRY[index]
+    dynamic_atom = registry_module.dynamic_atom_ids(original)[0]
+    static_atom = next(
+        atom_id
+        for entry in GATE_REGISTRY
+        for atom_id in entry.static_atom_reasons
+    )
+    for bad_reasons in (
+        {static_atom: "wrong gate"},
+        {dynamic_atom: ""},
+    ):
+        bad = replace(original, atom_isolation_ambiguities=bad_reasons)
+        entries = (*GATE_REGISTRY[:index], bad, *GATE_REGISTRY[index + 1 :])
+        with pytest.raises(RegistryValidationError, match="atom isolation ambiguity"):
+            validate_registry(entries, candidates, EXPECTED_SOURCE_MANIFEST)
+
+
+def test_finite_qr_postcheck_is_guarded_by_exception_first_arithmetic() -> None:
+    """Lock the control flow that makes the postcheck capability-only."""
+    path = REPOSITORY_ROOT / "src/bayesmith/marginal/_logdet_eager.py"
+    tree = ast.parse(path.read_text())
+    owner = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_factor_projection_certificate"
+    )
+    guarded = next(
+        node
+        for node in owner.body
+        if isinstance(node, ast.Try)
+        and any(
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "qr"
+            for statement in node.body
+            for call in ast.walk(statement)
+        )
+    )
+    guarded_syntax = "\n".join(ast.unparse(statement) for statement in guarded.body)
+    handlers = {ast.unparse(kind) for handler in guarded.handlers for kind in handler.type.elts}
+    postcheck = next(
+        node
+        for node in owner.body[owner.body.index(guarded) + 1 :]
+        if isinstance(node, ast.If)
+    )
+
+    assert "np.errstate(over='raise', invalid='raise')" in guarded_syntax
+    assert "left_basis.T @ perturbation @ right_basis" in guarded_syntax
+    assert "left_basis @ core @ right_basis.T" in guarded_syntax
+    assert handlers == {"FloatingPointError", "np.linalg.LinAlgError"}
+    assert ast.unparse(postcheck.test) == (
+        "not (np.all(np.isfinite(left_basis)) and "
+        "np.all(np.isfinite(right_basis)) and np.all(np.isfinite(core)) "
+        "and np.all(np.isfinite(projected)))"
+    )
+
+
+def test_supported_finite_qr_outputs_do_not_supply_a_refused_postcheck_cell() -> None:
+    largest = np.finfo(np.float64).max
+    matrices = (
+        np.array([[1.3, -0.7], [0.4, 2.1], [-1.1, 0.8]]),
+        np.array([[largest, 0.0], [0.0, largest / 2.0]]),
+        np.array([[1.0, 1.0], [1.0, math.nextafter(1.0, math.inf)]]),
+    )
+
+    for matrix in matrices:
+        basis = np.linalg.qr(matrix, mode="reduced")[0]
+        assert np.all(np.isfinite(basis))
+
+
+def test_static_eigenvalue_atoms_need_a_solver_capability_fault() -> None:
+    smallest_subnormal = math.nextafter(0.0, math.inf)
+    matrices = (
+        np.diag([smallest_subnormal, 2.0 * smallest_subnormal]),
+        np.diag([1e-300, 1e300]),
+        np.diag([-1.0, 1.0]),
+        np.diag([0.0, 1.0]),
+    )
+
+    for matrix in matrices:
+        smallest = float(np.min(np.linalg.eigvalsh(matrix)))
+        assert smallest <= 0.0 or np.isfinite(smallest)
+
+
+@pytest.mark.parametrize(
+    "diagonal",
+    (
+        np.array([0.0]),
+        np.array([1.0, 0.0]),
+        np.array([-1.0, 0.0, -1.0]),
+        np.array([1.0, 2.0]),
+        np.array([-1.0, -2.0]),
+    ),
+)
+def test_positive_reduced_qr_sign_dominates_nonzero_diagonal_atom(
+    diagonal: np.ndarray,
+) -> None:
+    for q_sign in (-1.0, 1.0):
+        reduced_sign = q_sign * float(np.prod(np.sign(diagonal)))
+        assert not (reduced_sign > 0.0) or np.all(diagonal != 0.0)
+
+
+@pytest.mark.parametrize(
+    "eta",
+    (
+        0.0,
+        math.nextafter(0.0, math.inf),
+        0.25,
+        math.nextafter(1.0, 0.0),
+        1.0,
+        math.inf,
+        math.nan,
+    ),
+)
+@pytest.mark.parametrize(
+    "base_bound",
+    (0.0, 1e-10, math.sqrt(2.0**-52), math.inf, math.nan),
+)
+def test_total_budget_logically_dominates_projection_and_base_budget_checks(
+    eta: float, base_bound: float
+) -> None:
+    """No component-budget loosen can admit when the same-ceiling sum refuses."""
+    ceiling = math.sqrt(2.0**-52)
+    projection_bound = (
+        -3.0 * math.log1p(-eta)
+        if math.isfinite(eta) and 0.0 <= eta < 1.0
+        else math.inf
+    )
+    reduced_bound = 2e-12
+    total = math.fsum((projection_bound, base_bound, reduced_bound))
+    total_valid = math.isfinite(total) and total <= ceiling
+    projection_valid = (
+        math.isfinite(eta)
+        and eta < 1.0
+        and math.isfinite(projection_bound)
+        and projection_bound <= ceiling
+    )
+    base_budget_valid = math.isfinite(base_bound) and base_bound <= ceiling
+
+    assert not total_valid or projection_valid
+    assert not total_valid or base_budget_valid
+
+
+def test_plan_strict_rho_call_is_an_unconsumed_validation_statement() -> None:
+    """The PLAN row reuses the callee's gate; it has no return-value boundary."""
+    path = REPOSITORY_ROOT / "src/bayesmith/marginal/_logdet_plan.py"
+    tree = ast.parse(path.read_text())
+    owner = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_validate_plan_certificate"
+    )
+    calls = [
+        statement
+        for statement in owner.body
+        if isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Call)
+        and isinstance(statement.value.func, ast.Name)
+        and statement.value.func.id == "_validate_strict_rho"
+    ]
+
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("actual_rho", "certificate"),
+    (
+        (0.0, 0.0),
+        (0.4, 0.4),
+        (math.nextafter(1.0, 0.0), math.nextafter(1.0, 0.0)),
+        (1.0, math.nextafter(1.0, 0.0)),
+        (math.inf, 0.5),
+    ),
+)
+def test_certificate_domain_and_coverage_dominate_actual_rho_strictness(
+    actual_rho: float, certificate: float
+) -> None:
+    successful_following_checks = (
+        0.0 <= certificate < 1.0 and actual_rho <= certificate
+    )
+
+    assert not successful_following_checks or actual_rho < 1.0
+
+
 def test_non_gate_registry_is_bidirectionally_validated() -> None:
     validator = getattr(registry_module, "validate_non_gate_registry", None)
     assert validator is not None
@@ -657,14 +969,18 @@ def test_finite_payload_rho_metadata_preserves_determinant_lemma_alternative() -
         "Measure eigvals of the generic Lambda^-1 P payload independently; compare "
         "generic L5, determinant-lemma L5, and dense slogdet"
     )
-    assert entry.axes[0].low == "generic rho .5 with determinant payload absent"
-    assert entry.axes[0].endpoints == (
-        "generic rho nextafter(1, 0) and exactly 1 remain eligible",
-        "generic rho nextafter(1, +inf) or unresolved is excluded while a valid determinant_lemma_payload still permits L5",
+    assert tuple(axis.name for axis in entry.axes) == (
+        "lambda_scale",
+        "perturbation_scale",
+        "matrix_geometry",
+        "computation_dtype",
+        "determinant_alternative",
     )
-    assert entry.axes[0].high == (
-        "generic rho > 1 with determinant_lemma_payload independently true or false"
-    )
+    by_name = {axis.name: axis for axis in entry.axes}
+    assert "resolved-rho" in by_name["lambda_scale"].low
+    assert "resolved-rho" in by_name["perturbation_scale"].low
+    assert "nonnormal" in by_name["matrix_geometry"].endpoints[1]
+    assert "rescued only" in by_name["determinant_alternative"].endpoints[1]
 
 
 def test_configured_rung_limits_own_api_contract_provenance() -> None:
@@ -713,10 +1029,18 @@ def test_warmup_rho_metadata_preserves_rounded_binary64_sequence() -> None:
         "Replay each binary64 addition and multiplication with float rounding, "
         "then apply math.nextafter; use Decimal only to check the enclosure"
     )
-    assert entry.axes[0].endpoints == (
-        "raw_bound, arithmetic_envelope, and raw_certified at adjacent binary64 rounding cells",
-        "certified nextafter(1, 0), exactly 1, and nextafter(1, +inf)",
+    assert tuple(axis.name for axis in entry.axes) == (
+        "rho_value",
+        "margin",
+        "multiplicity",
     )
+    rendered_axes = " | ".join(
+        value
+        for axis in entry.axes
+        for value in (axis.low, *axis.endpoints, axis.high, axis.extreme)
+    )
+    assert "outward" in rendered_axes
+    assert "one" in rendered_axes
 
 
 def test_structure_gates_bind_exact_helper_internals() -> None:
@@ -756,14 +1080,38 @@ def test_semantic_links_name_the_actual_helper_and_compound_premises() -> None:
     assert registry["PLAN:factory-certificate:strict-rho"].expected_source_syntax == (
         "_validate_strict_rho(problem.lambda_matrix, problem.perturbation, certificate.certified_rho)",
     )
-    assert (
-        len(registry["COUPLING:block_coupling:within-block-spd"].source_candidate_ids)
-        == 2
+    assert all(
+        len(registry[gate_id].source_candidate_ids) == 1
+        for gate_id in (
+            "COUPLING:block_coupling:f-xx-spd",
+            "COUPLING:block_coupling:f-tt-spd",
+        )
     )
     assert (
         len(registry["MAP:map_estimate:finite-derivative-payload"].source_candidate_ids)
         == 4
     )
+
+
+def test_each_within_block_cholesky_is_an_independent_reviewed_gate() -> None:
+    """The second Cholesky cannot hide behind a witness for the first block."""
+    registry = {entry.gate_id: entry for entry in GATE_REGISTRY}
+    gates = {
+        gate_id: registry[gate_id]
+        for gate_id in (
+            "COUPLING:block_coupling:f-xx-spd",
+            "COUPLING:block_coupling:f-tt-spd",
+        )
+    }
+
+    assert {
+        entry.expected_source_syntax[0] for entry in gates.values()
+    } == {
+        "np.linalg.cholesky(f_xx)",
+        "np.linalg.cholesky(f_tt)",
+    }
+    assert all(len(entry.source_candidate_ids) == 1 for entry in gates.values())
+    assert all(entry.mutation_mode is MutationMode.TWO_SIDED for entry in gates.values())
 
 
 def test_plan_coupling_map_graph_semantic_spot_checks() -> None:
@@ -783,11 +1131,14 @@ def test_plan_coupling_map_graph_semantic_spot_checks() -> None:
         if field in syntax
     }
 
-    coupling = registry["COUPLING:block_coupling:within-block-spd"]
-    assert len(coupling.source_candidate_ids) == 2
-    assert len(coupling.conjunction_atom_ids) == 0
+    coupling_xx = registry["COUPLING:block_coupling:f-xx-spd"]
+    coupling_tt = registry["COUPLING:block_coupling:f-tt-spd"]
+    assert len(coupling_xx.source_candidate_ids) == 1
+    assert len(coupling_tt.source_candidate_ids) == 1
+    assert not coupling_xx.conjunction_atom_ids
+    assert not coupling_tt.conjunction_atom_ids
     assert any(
-        "linalg_exception_premise" in item for item in coupling.mutation_target_ids
+        "linalg_exception_premise" in item for item in coupling_xx.mutation_target_ids
     )
 
     map_finite = registry["MAP:map_estimate:finite-derivative-payload"]
@@ -1049,46 +1400,27 @@ def test_ladder_structure_metadata_describes_live_exact_helpers() -> None:
         "LADDER:structure:diagonal-tolerance": (
             "Exact diagonal layout: every off-diagonal entry is bitwise zero.",
             "Exact equality to zero; rtol and atol are ignored by the live helper.",
-            (
-                "exact diagonal with non-unit entries",
-                (
-                    "off-diagonal exact zero admits",
-                    "minimum-subnormal off-diagonal mismatch falls through",
-                ),
-            ),
+            "off_diagonal",
         ),
         "LADDER:structure:circulant-tolerance-spectrum": (
             "Exact cyclic row shifts and a real, strictly positive FFT spectrum.",
             "Exact row-shift equality plus every real FFT eigenvalue > 0.",
-            (
-                "exact positive circulant",
-                (
-                    "exact cyclic shifts and positive-subnormal spectrum admit",
-                    "one-ULP shift mismatch or zero/negative spectrum falls through",
-                ),
-            ),
+            "circulant_layout",
         ),
         "LADDER:structure:toeplitz-tolerance": (
             "Exact equality along every matrix diagonal.",
             "Exact diagonal equality; rtol and atol are ignored by the live helper.",
-            (
-                "exact non-unit SPD Toeplitz",
-                (
-                    "every diagonal is exactly constant",
-                    "one entry differs by one ULP or minimum subnormal",
-                ),
-            ),
+            "toeplitz_layout",
         ),
     }
-    for gate_id, (quantity, threshold, (low, endpoints)) in exact_rows.items():
+    for gate_id, (quantity, threshold, axis_name) in exact_rows.items():
         entry = registry[gate_id]
         assert entry.provenance is registry_module.ThresholdProvenance.EXACT_DOMAIN
         assert entry.quantity == quantity
         assert entry.threshold == threshold
-        assert entry.axes[0].low == low
-        assert entry.axes[0].endpoints == endpoints
+        axis = next(axis for axis in entry.axes if axis.name == axis_name)
         rendered = " | ".join(
-            (entry.quantity, entry.threshold, *entry.axes[0].endpoints)
+            (entry.quantity, entry.threshold, axis.low, *axis.endpoints, axis.extreme)
         )
         assert "tolerance" not in rendered.lower()
         assert "T±" not in rendered and "T-" not in rendered
@@ -1109,9 +1441,18 @@ def test_metadata_preserves_exact_formulas_and_complete_boundary_cells() -> None
     assert registry["PLAN:multiplicity:index-and-gamma-domain"].axes[0].extreme == (
         "bool, float, 10**1000"
     )
-    assert registry["PLAN:certificate:rho-domain-and-coverage"].axes[0].endpoints == (
-        "domain: negative subnormal, 0, nextafter(1, 0), and 1",
-        "coverage: nextafter(measured, 0), equality, and nextafter(measured, +inf)",
+    rho_axes = registry["PLAN:certificate:rho-domain-and-coverage"].axes
+    assert tuple(axis.name for axis in rho_axes) == (
+        "measured_max",
+        "certified_rho",
+    )
+    assert rho_axes[0].endpoints == (
+        "0 and nextafter(0,-inf)",
+        "nextafter(1,0) and 1",
+    )
+    assert rho_axes[1].endpoints == (
+        "0 and nextafter(measured,0)",
+        "equality/nextafter(measured,+inf)",
     )
     assert registry["EAGER:trace:certificate-upper-bound"].axes[0].endpoints == (
         "certificate equals actual rho (admit)",
@@ -1121,10 +1462,172 @@ def test_metadata_preserves_exact_formulas_and_complete_boundary_cells() -> None
         "relative error nextafter(1, 0), 1, and nextafter(1, +inf)",
         "determinant sign +1, 0, and -1",
     )
-    assert registry["LADDER:sigma:payload-symmetry"].axes[0].endpoints == (
-        "rtol cell: asymmetry nextafter(T, 0), T, and nextafter(T, +inf) with atol=0",
-        "atol cell: asymmetry nextafter(atol, 0), atol, and nextafter(atol, +inf) with rtol=0",
+    payload_axes = registry["LADDER:sigma:payload-symmetry"].axes
+    assert tuple(axis.name for axis in payload_axes) == (
+        "sigma_layout",
+        "sigma_asymmetry",
+        "structure_atol",
+        "structure_rtol",
+        "computation_dtype",
     )
+    assert payload_axes[1].endpoints == (
+        "asymmetry nextafter(atol + rtol*scale, 0)",
+        "equality and nextafter(atol + rtol*scale, +inf)",
+    )
+
+
+def test_ladder_registry_enumerates_every_real_input_axis() -> None:
+    """A bundled prose/derived/dead axis cannot replace the reviewed census."""
+    expected = {
+        "LADDER:sigma:payload-symmetry": (
+            "sigma_layout",
+            "sigma_asymmetry",
+            "structure_atol",
+            "structure_rtol",
+            "computation_dtype",
+        ),
+        "LADDER:sigma:finite-two-sum": (
+            "lambda_entry",
+            "perturbation_entry",
+            "computation_dtype",
+        ),
+        "LADDER:structure:compact-diagonal-positive": ("sigma_entry",),
+        "LADDER:structure:diagonal-tolerance": (
+            "structure_request",
+            "off_diagonal",
+        ),
+        "LADDER:structure:circulant-tolerance-spectrum": (
+            "circulant_layout",
+            "spectrum_scale",
+        ),
+        "LADDER:structure:toeplitz-tolerance": ("toeplitz_layout",),
+        "LADDER:structure:kronecker-evidence": (
+            "structure_request",
+            "structure_presence",
+            "factor_spectrum",
+            "factor_shape",
+            "reconstruction_value",
+        ),
+        "LADDER:sigma:symmetry-spd-condition": (
+            "sigma_layout",
+            "sigma_symmetry",
+            "smallest_eigenvalue",
+            "condition_scale",
+            "structure_rtol",
+            "structure_atol",
+            "computation_dtype",
+        ),
+        "LADDER:rank:evidence": (
+            "factor_presence",
+            "factor_reconstruction",
+            "perturbation_rank",
+            "lambda_scale",
+            "factor_layout",
+            "factor_gauge",
+            "computation_dtype",
+        ),
+        "LADDER:rho:measurement": (
+            "lambda_scale",
+            "perturbation_scale",
+            "matrix_geometry",
+            "computation_dtype",
+        ),
+        "LADDER:finite:payload-rho": (
+            "lambda_scale",
+            "perturbation_scale",
+            "matrix_geometry",
+            "computation_dtype",
+            "determinant_alternative",
+        ),
+        "LADDER:determinant-lemma:payload": (
+            "factor_presence",
+            "factor_reconstruction",
+            "sigma_formation",
+            "sigma_symmetry",
+            "condition_scale",
+        ),
+        "LADDER:rung0:base": (
+            "sigma_formation",
+            "sigma_lambda_equality",
+            "dense_condition",
+        ),
+        "LADDER:rung1:low-rank-size": (
+            "rank_evidence",
+            "payload_capability",
+            "sigma_spd",
+            "rank",
+            "dimension",
+            "low_rank_max",
+            "low_rank_fraction",
+        ),
+        "LADDER:rung2:chain": (
+            "chain_block_size",
+            "chain_layout",
+            "sigma_formation",
+            "sigma_spd",
+            "condition_scale",
+            "computation_dtype",
+        ),
+        "LADDER:rung3:structured": (
+            "structure_request",
+            "structure_evidence",
+            "sigma_formation",
+            "sigma_spd",
+            "condition_scale",
+        ),
+        "LADDER:rung4:dense": (
+            "dimension",
+            "dense_max_n",
+            "condition_scale",
+            "sigma_spd",
+            "computation_dtype",
+        ),
+        "LADDER:rung5:finite-size": (
+            "dimension",
+            "finite_max_n",
+            "payload_capability",
+            "rank",
+            "finite_max_rank",
+        ),
+        "LADDER:rung5:finite-executable": (
+            "dimension",
+            "finite_max_n",
+            "payload_capability",
+            "rank",
+            "finite_max_rank",
+            "lambda_scale",
+            "perturbation_scale",
+            "sigma_formation",
+            "smallest_eigenvalue",
+            "sigma_symmetry",
+            "factor_presence",
+            "factor_reconstruction",
+            "dense_condition",
+            "computation_dtype",
+        ),
+        "LADDER:rung6:trace": (
+            "sigma_formation",
+            "actual_rho",
+            "trace_order",
+            "trace_evidence",
+            "certified_rho",
+        ),
+        "LADDER:rung7:frozen": (
+            "sigma_formation",
+            "trace_order",
+            "probe_presence",
+            "probe_width",
+            "actual_rho",
+            "certified_rho",
+        ),
+    }
+    actual = {
+        entry.gate_id: tuple(axis.name for axis in entry.axes)
+        for entry in GATE_REGISTRY
+        if entry.gate_id.startswith("LADDER:")
+    }
+
+    assert actual == expected
 
 
 def test_metadata_literal_corruption_audit_covers_all_rows() -> None:
@@ -1290,9 +1793,9 @@ def test_metadata_has_executable_gate_specific_semantics() -> None:
             f"{entry.refused_outcome} | {entry.oracle}"
         )
         assert not any(phrase in rendered for phrase in forbidden), entry.gate_id
-    assert len({entry.admitted_outcome for entry in GATE_REGISTRY}) == 99
-    assert len({entry.refused_outcome for entry in GATE_REGISTRY}) == 99
-    assert len({entry.oracle for entry in GATE_REGISTRY}) == 99
+    assert len({entry.admitted_outcome for entry in GATE_REGISTRY}) == 100
+    assert len({entry.refused_outcome for entry in GATE_REGISTRY}) == 100
+    assert len({entry.oracle for entry in GATE_REGISTRY}) == 100
     intermediate = {entry.gate_id: entry for entry in GATE_REGISTRY}[
         "PLAN:frozen:intermediate-runtime-range"
     ]
@@ -1350,26 +1853,29 @@ def test_metadata_uses_source_backed_boundary_cells_and_observable_routes() -> N
             ("largest finite QR product", "next exponent produces overflow"),
             "nearly dependent columns",
         ),
-        "COUPLING:block_coupling:within-block-spd": (
-            "two non-unit SPD blocks",
+        "COUPLING:block_coupling:f-xx-spd": (
+            "non-unit positive f_xx with valid f_tt",
             (
                 "positive-subnormal minimum eigenvalue",
                 "zero or negative minimum eigenvalue",
             ),
-            "ill-conditioned SPD blocks",
+            "negative non-unit f_xx with valid f_tt",
         ),
-        "LADDER:rung1:low-rank-size": (
-            "small certified rank",
-            ("rank T-1 and T admit", "rank T+1 falls through"),
-            "rank 64, 128, and n",
+        "COUPLING:block_coupling:f-tt-spd": (
+            "non-unit positive f_tt with valid f_xx",
+            (
+                "positive-subnormal minimum eigenvalue",
+                "zero or negative minimum eigenvalue",
+            ),
+            "negative non-unit f_tt with valid f_xx",
         ),
         "PLAN:runtime-range:product": (
-            "small finite product",
+            "zero or ordinary positive left operand",
             (
-                "left equals maximum/right; outward nextafter may become +inf and is refused",
-                "left one ULP below admits; one ULP above is refused before multiplication",
+                "maximum/right one ULP below",
+                "maximum/right and one ULP above",
             ),
-            "overflowing product",
+            "left operand far above maximum/right",
         ),
         "MAP:map_estimate:stationarity-floor": (
             "gradient norm at half the derived floor",
@@ -1377,7 +1883,7 @@ def test_metadata_uses_source_backed_boundary_cells_and_observable_routes() -> N
             "large nonstationary gradient",
         ),
         "GRAPH:_names:duplicate-multiplicity": (
-            "('a', 'b', 'c')",
+            "empty list iterable, distinct from the empty tuple T-1 cell",
             ("count 1 admits", "count 2 refuses"),
             "many repetitions of several names",
         ),
@@ -1395,9 +1901,21 @@ def test_metadata_boundary_kinds_have_realizable_category_cells() -> None:
     discrete_requirements = {
         "EAGER:LadderConfig:integer-threshold-domain": ("-1", "0", "1"),
         "GRAPH:_names:duplicate-multiplicity": ("count 1", "count 2"),
-        "LADDER:rung1:low-rank-size": ("T-1", "T", "T+1"),
-        "LADDER:rung4:dense": ("T-1", "T", "T+1"),
-        "LADDER:rung5:finite-size": ("T-1", "T", "T+1"),
+        "LADDER:rung1:low-rank-size": (
+            "one integer below",
+            "exactly",
+            "one integer above",
+        ),
+        "LADDER:rung4:dense": (
+            "one integer below",
+            "exactly",
+            "one integer above",
+        ),
+        "LADDER:rung5:finite-size": (
+            "one integer below",
+            "exactly",
+            "one integer above",
+        ),
         "PLAN:multiplicity:index-and-gamma-domain": ("-1", "0", "1"),
         "PLAN:certificate:order-is-derived": ("m-1", "m", "m+1"),
         "PLAN:factory-certificate:order-and-rank": ("T-1", "T", "T+1"),
@@ -1441,7 +1959,8 @@ def test_metadata_boundary_kinds_have_realizable_category_cells() -> None:
         "EAGER:factor-projection:whitened-positive-spectrum",
         "EAGER:symmetry:tolerant-representative",
         "COUPLING:_condition_number:positive-spectrum",
-        "COUPLING:block_coupling:within-block-spd",
+        "COUPLING:block_coupling:f-xx-spd",
+        "COUPLING:block_coupling:f-tt-spd",
         "LADDER:structure:compact-diagonal-positive",
         "LADDER:sigma:symmetry-spd-condition",
         "LADDER:rung2:chain",

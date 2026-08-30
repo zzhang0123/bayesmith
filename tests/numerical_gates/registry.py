@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 
 from tests.numerical_gates.source_scan import (
     CandidateClassification,
@@ -90,6 +91,8 @@ class GateEntry:
     tighten_witness: str
     loosen_witness: str
     static_reason: str | None
+    static_atom_reasons: Mapping[str, str]
+    atom_isolation_ambiguities: Mapping[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,7 +469,8 @@ _SEEDS = (
         COUPLING,
         "block_coupling",
         CandidateFamily.LINALG_PREMISE,
-        "COUPLING:block_coupling:within-block-spd",
+        """COUPLING:block_coupling:f-xx-spd
+        COUPLING:block_coupling:f-tt-spd""",
     ),
     *_seed_group(
         MAP,
@@ -539,11 +543,13 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
             "smallest <= 0.0",
         ),
     ),
-    "COUPLING:block_coupling:within-block-spd": (
+    "COUPLING:block_coupling:f-xx-spd": (
         (
             "src/bayesmith/diagnose/coupling.py::<module>.block_coupling::linalg_call_atom::d0ca43b45b317458::0",
             "np.linalg.cholesky(f_xx)",
         ),
+    ),
+    "COUPLING:block_coupling:f-tt-spd": (
         (
             "src/bayesmith/diagnose/coupling.py::<module>.block_coupling::linalg_call_atom::1e90cfb77ca31791::0",
             "np.linalg.cholesky(f_tt)",
@@ -1349,12 +1355,14 @@ _DECLARED_SOURCE_ANCHORS: dict[str, tuple[SourceAnchor, ...]] = {
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
-    "COUPLING:block_coupling:within-block-spd": (
+    "COUPLING:block_coupling:f-xx-spd": (
         SourceAnchor(
             "src/bayesmith/diagnose/coupling.py",
             "<module>.block_coupling",
             CandidateFamily.LINALG_ATOM,
         ),
+    ),
+    "COUPLING:block_coupling:f-tt-spd": (
         SourceAnchor(
             "src/bayesmith/diagnose/coupling.py",
             "<module>.block_coupling",
@@ -2280,8 +2288,10 @@ _DECLARED_SOURCE_CLASSIFICATIONS: dict[str, tuple[CandidateClassification, ...]]
     "COUPLING:_condition_number:positive-spectrum": (
         CandidateClassification.NUMERICAL_GATE,
     ),
-    "COUPLING:block_coupling:within-block-spd": (
+    "COUPLING:block_coupling:f-xx-spd": (
         CandidateClassification.NUMERICAL_SAFETY,
+    ),
+    "COUPLING:block_coupling:f-tt-spd": (
         CandidateClassification.NUMERICAL_SAFETY,
     ),
     "EAGER:LadderConfig:integer-threshold-domain": (
@@ -3191,7 +3201,7 @@ _DECLARED_SOURCE_CLASSIFICATIONS.update(
 
 
 _GATE_EXTRA_TARGETS = {
-    "COUPLING:block_coupling:within-block-spd": (
+    "COUPLING:block_coupling:f-xx-spd": (
         "src/bayesmith/diagnose/coupling.py::<module>.block_coupling::linalg_exception_premise::dc1b89c1f16106a5::0",
     ),
 }
@@ -4678,21 +4688,38 @@ GATE_METADATA: dict[str, GateMetadata] = {
         extreme="identity, singular, indefinite, repeated eigenvalues",
         fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
     ),
-    "COUPLING:block_coupling:within-block-spd": _metadata(
-        quantity="both within-block posterior precision matrices f_xx and f_tt; each must admit Cholesky (strict SPD).",
+    "COUPLING:block_coupling:f-xx-spd": _metadata(
+        quantity="first within-block posterior precision matrix f_xx; it must admit Cholesky (strict SPD).",
         threshold="strict SPD mathematical domain required by whitening.",
         provenance=ThresholdProvenance.EXACT_DOMAIN,
-        admitted_outcome="form both Cholesky factors and whiten cross-block precision",
-        refused_outcome="raise actionable GraphError if either factor does not exist.",
-        oracle="independent symmetric eigenvalue/LDL-inertia check for both blocks; analytic 2x2 principal minors.",
-        axis_name="Boundary cells for both within-block posterior precision matrices f_xx and f_tt; each must admit Cholesky (strict SPD).",
-        low="two non-unit SPD blocks",
+        admitted_outcome="form the f_xx Cholesky factor and continue to f_tt",
+        refused_outcome="raise actionable GraphError if the f_xx factor does not exist.",
+        oracle="independent symmetric eigenvalue/LDL-inertia check for f_xx; analytic 1x1 principal minor.",
+        axis_name="Boundary cells for f_xx with an independently valid f_tt companion.",
+        low="non-unit positive f_xx with valid f_tt",
         endpoints=(
             "positive-subnormal minimum eigenvalue",
             "zero or negative minimum eigenvalue",
         ),
-        high="ill-conditioned SPD blocks",
-        extreme="one valid block and one singular, asymmetric, NaN, or infinite block",
+        high="negative non-unit f_xx with valid f_tt",
+        extreme="maximum-magnitude negative f_xx with valid f_tt",
+        fixture_scale_policy=FixtureScalePolicy.NON_UNIT_REQUIRED,
+    ),
+    "COUPLING:block_coupling:f-tt-spd": _metadata(
+        quantity="second within-block posterior precision matrix f_tt; it must admit Cholesky (strict SPD).",
+        threshold="strict SPD mathematical domain required by whitening.",
+        provenance=ThresholdProvenance.EXACT_DOMAIN,
+        admitted_outcome="form the f_tt Cholesky factor and whiten cross-block precision",
+        refused_outcome="raise actionable GraphError if the f_tt factor does not exist.",
+        oracle="independent symmetric eigenvalue/LDL-inertia check for f_tt; analytic 1x1 principal minor.",
+        axis_name="Boundary cells for f_tt with an independently valid f_xx companion.",
+        low="non-unit positive f_tt with valid f_xx",
+        endpoints=(
+            "positive-subnormal minimum eigenvalue",
+            "zero or negative minimum eigenvalue",
+        ),
+        high="negative non-unit f_tt with valid f_xx",
+        extreme="maximum-magnitude negative f_tt with valid f_xx",
         fixture_scale_policy=FixtureScalePolicy.NON_UNIT_REQUIRED,
     ),
     "MAP:map_estimate:finite-derivative-payload": _metadata(
@@ -4779,13 +4806,1417 @@ GATE_METADATA: dict[str, GateMetadata] = {
         refused_outcome="raise GraphError listing sorted duplicates when any count exceeds one.",
         oracle="collections.Counter over the tuple, preserving a separate check that output order is unchanged.",
         axis_name="Boundary cells for multiplicity names.count(name) for each requested node name; every name must occur exactly once (count <= 1).",
-        low="('a', 'b', 'c')",
+        low="empty list iterable, distinct from the empty tuple T-1 cell",
         endpoints=("count 1 admits", "count 2 refuses"),
         high="many repetitions of several names",
         extreme="empty, one name, Unicode aliases, long tuple, widely separated duplicates",
         fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
     ),
 }
+
+
+def _replace_axes(gate_id: str, *axes: AxisRange) -> None:
+    """Replace a bundled prose axis with its real production input fields."""
+    GATE_METADATA[gate_id] = replace(GATE_METADATA[gate_id], axes=tuple(axes))
+
+
+def _ladder_numeric_axis(
+    name: str,
+    boundary: str,
+    extreme: str,
+) -> AxisRange:
+    """Describe one scalar production input, including both adjacent faces."""
+    return AxisRange(
+        name,
+        f"ordinary non-unit value safely on the admitted side of {boundary}",
+        (
+            f"nextafter({boundary}, admitted side)",
+            f"exactly {boundary} and nextafter({boundary}, refused side)",
+        ),
+        f"ordinary non-unit value well on the refused side of {boundary}",
+        extreme,
+    )
+
+
+def _ladder_discrete_axis(
+    name: str,
+    boundary: str,
+    extreme: str,
+) -> AxisRange:
+    """Describe one integer production input without a derived proxy axis."""
+    return AxisRange(
+        name,
+        f"small non-unit integer safely on the admitted side of {boundary}",
+        (
+            f"one integer below {boundary}",
+            f"exactly {boundary} and one integer above it",
+        ),
+        f"large integer well on the refused side of {boundary}",
+        extreme,
+    )
+
+
+def _ladder_state_axis(
+    name: str,
+    admitted: str,
+    refused: str,
+    extreme: str,
+) -> AxisRange:
+    """Describe one categorical/container input whose identity is observable."""
+    return AxisRange(
+        name,
+        f"ordinary non-unit payload in the admitted state: {admitted}",
+        (f"last admitted state: {admitted}", f"first refused state: {refused}"),
+        f"non-unit payload materially in the refused state: {refused}",
+        extreme,
+    )
+
+
+_LADDER_INPUT_AXES: Mapping[str, AxisRange] = {
+    "payload_sigma_layout": _ladder_state_axis(
+        "sigma_layout",
+        "compact diagonal or bitwise-symmetric dense layout uses the original payload",
+        "nonexact tolerance-symmetric dense layout uses the representative",
+        "compact, exact dense, transposed asymmetry, empty, NaN, and infinity layouts",
+    ),
+    "fact_sigma_layout": _ladder_state_axis(
+        "sigma_layout",
+        "compact positive diagonal or finite symmetric dense layout",
+        "dense asymmetric, singular, or indefinite layout",
+        "compact, dense, n=1, empty, asymmetric, NaN, and infinity layouts",
+    ),
+    "sigma_asymmetry": AxisRange(
+        "sigma_asymmetry",
+        "ordinary non-unit asymmetry below the configured tolerance",
+        (
+            "asymmetry nextafter(atol + rtol*scale, 0)",
+            "equality and nextafter(atol + rtol*scale, +inf)",
+        ),
+        "ordinary non-unit asymmetry well above the configured tolerance",
+        "zero, minimum subnormal, signed orientations, near-maximum finite, NaN, and infinity",
+    ),
+    "structure_atol": _ladder_numeric_axis(
+        "structure_atol",
+        "the observed off-diagonal/asymmetry magnitude",
+        "zero, negative, minimum subnormal, large finite, NaN, and infinity tolerances",
+    ),
+    "structure_rtol": _ladder_numeric_axis(
+        "structure_rtol",
+        "asymmetry divided by the opposite-orientation entry magnitude",
+        "zero, negative, minimum subnormal, large finite, NaN, and infinity tolerances",
+    ),
+    "computation_dtype": AxisRange(
+        "computation_dtype",
+        "ordinary non-unit float64 input safely inside its dtype-specific boundary",
+        (
+            "float32 input at its adjacent representability/condition boundary",
+            "float64 input at its adjacent representability/condition boundary",
+        ),
+        "ordinary non-unit narrow-dtype input beyond its dtype-specific boundary",
+        "float32 and float64 minimum subnormal, maximum finite, overflow, and cancellation cases",
+    ),
+    "lambda_entry": _ladder_numeric_axis(
+        "lambda_entry",
+        "the finite TwoSum overflow/cancellation face",
+        "minimum subnormal, signed zero, largest finite, NaN, and infinity entries",
+    ),
+    "perturbation_entry": _ladder_numeric_axis(
+        "perturbation_entry",
+        "the finite TwoSum overflow/cancellation face",
+        "positive/negative minimum subnormal, largest finite, NaN, and infinity entries",
+    ),
+    "sigma_entry": _ladder_numeric_axis(
+        "sigma_entry",
+        "strict zero positivity boundary",
+        "minimum positive subnormal, positive finite, zero, and negative entries",
+    ),
+    "diagonal_structure_request": AxisRange(
+        "structure_request",
+        "ordinary non-unit diagonal payload with an explicit diagonal request",
+        (
+            "None auto-detects an exact diagonal payload",
+            "explicit diagonal admits; unsupported request refuses this payload",
+        ),
+        "non-unit diagonal payload paired with a contradicted structure request",
+        "None, diagonal, circulant, Toeplitz, Kronecker, and unknown labels",
+    ),
+    "kronecker_structure_request": _ladder_state_axis(
+        "structure_request",
+        "explicit Kronecker request",
+        "None, unsupported, or different structure request",
+        "None, diagonal, circulant, Toeplitz, Kronecker, and unknown labels",
+    ),
+    "rung3_structure_request": AxisRange(
+        "structure_request",
+        "ordinary non-unit payload using one supported structure request",
+        (
+            "None auto-detects an exact diagonal payload",
+            "diagonal, circulant, Toeplitz, and Kronecker requests admit when verified",
+        ),
+        "non-unit payload using an unknown or contradicted structure request",
+        "None, every supported request, unknown labels, absent evidence, and malformed evidence",
+    ),
+    "structure_presence": _ladder_state_axis(
+        "structure_presence",
+        "KroneckerStructure evidence is present",
+        "KroneckerStructure evidence is absent or malformed",
+        "None, empty factors, one factor, many factors, malformed factors, NaN, and infinity",
+    ),
+    "off_diagonal": _ladder_numeric_axis(
+        "off_diagonal",
+        "bitwise zero",
+        "positive/negative minimum subnormal, signed zero, and large finite values",
+    ),
+    "circulant_layout": _ladder_state_axis(
+        "circulant_layout",
+        "every row is the exact cyclic shift of the first",
+        "one shifted entry differs",
+        "n=1, repeated rows, one-ULP mismatch, NaN, infinity, and asymmetric layouts",
+    ),
+    "spectrum_scale": _ladder_numeric_axis(
+        "spectrum_scale",
+        "strictly positive finite FFT spectrum",
+        "minimum positive subnormal, zero, negative, NaN, infinity, and near-maximum spectra",
+    ),
+    "toeplitz_layout": _ladder_state_axis(
+        "toeplitz_layout",
+        "every descending diagonal is exactly constant",
+        "one diagonal entry differs",
+        "n=1, one-ULP mismatch, asymmetric, NaN, infinity, and near-maximum layouts",
+    ),
+    "factor_spectrum": _ladder_numeric_axis(
+        "factor_spectrum",
+        "strictly positive finite factor eigenvalue",
+        "minimum positive subnormal, zero, negative, repeated, NaN, and infinity eigenvalues",
+    ),
+    "factor_shape": _ladder_state_axis(
+        "factor_shape",
+        "square factor shapes whose product matches Sigma",
+        "nonsquare or product-mismatched factor shapes",
+        "empty, scalar, n=1, rectangular, permuted, and very unbalanced shapes",
+    ),
+    "reconstruction_value": _ladder_numeric_axis(
+        "reconstruction_value",
+        "the exact reconstructed Sigma entry",
+        "signed zero, one-ULP mismatch, minimum subnormal, NaN, and infinity values",
+    ),
+    "sigma_symmetry": _ladder_numeric_axis(
+        "sigma_symmetry",
+        "the exact/tolerant symmetry boundary",
+        "zero, signed minimum subnormal, large finite asymmetry, NaN, and infinity",
+    ),
+    "smallest_eigenvalue": _ladder_numeric_axis(
+        "smallest_eigenvalue",
+        "strict zero SPD boundary",
+        "positive minimum subnormal, zero, negative, repeated, NaN, and infinity eigenvalues",
+    ),
+    "condition_scale": _ladder_numeric_axis(
+        "condition_scale",
+        "the configured finite condition ceiling",
+        "one, minimum subnormal, largest finite, unresolved, NaN, and infinity condition scales",
+    ),
+    "rank_factor_presence": AxisRange(
+        "factor_presence",
+        "ordinary non-unit perturbation with factors absent uses valid algebraic rank evidence",
+        (
+            "factors absent admits through the algebraic-rank path",
+            "compatible factors admit; present mismatched factors refuse factor evidence",
+        ),
+        "non-unit perturbation with present materially mismatched factor evidence",
+        "None, empty rank, rank one, mismatched, aliased, and non-finite factor payloads",
+    ),
+    "determinant_factor_presence": _ladder_state_axis(
+        "factor_presence",
+        "both compatible low-rank factors are present",
+        "factor evidence is absent or incomplete while the finite-polynomial alternative is disabled",
+        "None, empty rank, rank one, mismatched, aliased, and non-finite factor payloads",
+    ),
+    "factor_reconstruction": _ladder_numeric_axis(
+        "factor_reconstruction",
+        "the exact perturbation reconstruction",
+        "signed zero, one-ULP mismatch, minimum subnormal, NaN, and infinity values",
+    ),
+    "perturbation_rank": _ladder_discrete_axis(
+        "perturbation_rank",
+        "the algebraically reconstructed rank",
+        "zero, one, repeated/deficient, full, and dimension-exceeding ranks",
+    ),
+    "factor_layout": _ladder_state_axis(
+        "factor_layout",
+        "compatible contiguous or strided factor arrays reconstruct the perturbation exactly",
+        "shape-, orientation-, or memory-layout-sensitive evidence does not reconstruct it",
+        "C/F order, transposed views, negative strides, empty rank, rank one, and wide factors",
+    ),
+    "factor_gauge": _ladder_numeric_axis(
+        "factor_gauge",
+        "the balanced rescaling range that preserves an exact factor product",
+        "minimum subnormal, extreme reciprocal scales, cancellation, maximum finite, NaN, and infinity",
+    ),
+    "lambda_scale": _ladder_numeric_axis(
+        "lambda_scale",
+        "the resolved-rho representability/convergence face",
+        "minimum subnormal, signed zero, near-maximum finite, NaN, and infinity scales",
+    ),
+    "perturbation_scale": _ladder_numeric_axis(
+        "perturbation_scale",
+        "the resolved-rho representability/convergence face",
+        "positive/negative minimum subnormal, near-maximum finite, NaN, and infinity scales",
+    ),
+    "matrix_geometry": AxisRange(
+        "matrix_geometry",
+        "ordinary non-unit diagonal/normal geometry with a resolved spectral radius",
+        (
+            "diagonal geometry at the scalar ratio boundary",
+            "nonnormal dense geometry at the same independently measured radius",
+        ),
+        "non-unit singular or strongly nonnormal geometry with unresolved/large radius",
+        "diagonal, normal, defective, nearly singular, repeated-eigenvalue, NaN, and infinity geometries",
+    ),
+    "determinant_alternative": AxisRange(
+        "determinant_alternative",
+        "generic finite-polynomial payload is valid with determinant factors absent",
+        (
+            "generic rho exactly one remains valid without factors",
+            "generic rho above one is rescued only by valid determinant-lemma factors",
+        ),
+        "generic rho above one with absent or invalid determinant factors",
+        "absent, exact rank-one, rank-deficient, mismatched, NaN, and infinity factor evidence",
+    ),
+    "sigma_formation": _ladder_state_axis(
+        "sigma_formation",
+        "finite exact TwoSum formation",
+        "overflowed or non-finite formation",
+        "cancellation, signed zero, minimum subnormal, largest finite, NaN, and infinity",
+    ),
+    "sigma_lambda_equality": _ladder_state_axis(
+        "sigma_lambda_equality",
+        "Sigma bitwise equals Lambda",
+        "one resolved entry has a one-ULP mismatch",
+        "empty, signed-zero-only difference, one-ULP difference, NaN, and infinity",
+    ),
+    "dense_condition": _ladder_numeric_axis(
+        "dense_condition",
+        "the finite dense-arithmetic condition ceiling",
+        "one, zero, largest finite, unresolved, NaN, and infinity conditions",
+    ),
+    "rank_evidence": _ladder_state_axis(
+        "rank_evidence",
+        "algebraic rank matches the supplied factor payload",
+        "rank is missing, deficient, or mismatched",
+        "rank zero, rank one, repeated columns, full rank, and dimension-exceeding evidence",
+    ),
+    "payload_capability": _ladder_state_axis(
+        "payload_capability",
+        "compact diagonal or valid determinant-lemma payload",
+        "neither executable payload is available",
+        "compact, dense, absent, malformed, non-finite, and rank-zero payloads",
+    ),
+    "sigma_spd": _ladder_state_axis(
+        "sigma_spd",
+        "finite symmetric positive-definite Sigma",
+        "singular, indefinite, asymmetric, or unresolved Sigma",
+        "positive, minimum-subnormal, zero, negative, NaN, and infinity spectra",
+    ),
+    "rank": _ladder_discrete_axis(
+        "rank",
+        "the active configured rank ceiling",
+        "zero, one, maximum configured, full, and dimension-exceeding ranks",
+    ),
+    "dimension": _ladder_discrete_axis(
+        "dimension",
+        "the active configured matrix-size ceiling",
+        "zero, one, exact ceiling, one above, and largest practical dimensions",
+    ),
+    "low_rank_max": _ladder_discrete_axis(
+        "low_rank_max",
+        "the supplied perturbation rank",
+        "zero, one, exact rank, one below, and very large configured ceilings",
+    ),
+    "low_rank_fraction": _ladder_numeric_axis(
+        "low_rank_fraction",
+        "rank divided by dimension",
+        "zero, minimum subnormal, one/dimension, one, above one, NaN, and infinity",
+    ),
+    "chain_block_size": _ladder_discrete_axis(
+        "chain_block_size",
+        "the exact supported chain block width",
+        "zero, one, exact width, one above, odd, and dimension-sized widths",
+    ),
+    "chain_layout": _ladder_state_axis(
+        "chain_layout",
+        "exact symmetric block-tridiagonal chain",
+        "one forbidden off-band block is nonzero",
+        "n=1, one block, missing link, asymmetric link, cycle, NaN, and infinity",
+    ),
+    "structure_evidence": _ladder_state_axis(
+        "structure_evidence",
+        "requested structure is exactly verified",
+        "request is absent, unknown, or contradicted",
+        "diagonal, circulant, Toeplitz, Kronecker, chain, unknown, and malformed evidence",
+    ),
+    "dense_max_n": _ladder_discrete_axis(
+        "dense_max_n",
+        "the real matrix dimension",
+        "zero, one, dimension minus one, exact dimension, and very large limits",
+    ),
+    "finite_max_n": _ladder_discrete_axis(
+        "finite_max_n",
+        "the real matrix dimension",
+        "zero, one, dimension minus one, exact dimension, and very large limits",
+    ),
+    "finite_max_rank": _ladder_discrete_axis(
+        "finite_max_rank",
+        "the real perturbation rank",
+        "zero, one, rank minus one, exact rank, full, and very large limits",
+    ),
+    "finite_payload_rho": _ladder_numeric_axis(
+        "finite_payload_rho",
+        "the finite-rung payload rho ceiling",
+        "zero, minimum subnormal, nextafter(one,0), one, NaN, and infinity",
+    ),
+    "actual_rho": _ladder_numeric_axis(
+        "actual_rho",
+        "strict convergence value one and certificate coverage",
+        "zero, minimum subnormal, nextafter(one,0), one, above one, NaN, and infinity",
+    ),
+    "trace_order": _ladder_discrete_axis(
+        "trace_order",
+        "the requested/certified trace order",
+        "negative, zero, one, exact order, one short, and very large orders",
+    ),
+    "trace_evidence": _ladder_state_axis(
+        "trace_evidence",
+        "all retained power traces are present and exact",
+        "one trace is missing or differs",
+        "empty, one-short, one-ULP mismatch, signed zero, NaN, and infinity evidence",
+    ),
+    "certified_rho": _ladder_numeric_axis(
+        "certified_rho",
+        "actual rho coverage and strict certificate value one",
+        "zero, minimum subnormal, equality, undercoverage, nextafter(one,0), one, NaN, and infinity",
+    ),
+    "probe_width": _ladder_discrete_axis(
+        "probe_width",
+        "the real matrix dimension",
+        "zero, dimension minus one, exact dimension, one above, and very large widths",
+    ),
+    "probe_presence": _ladder_state_axis(
+        "probe_presence",
+        "FrozenProbes evidence is present",
+        "FrozenProbes evidence is absent or malformed",
+        "None, empty probes, one probe, many probes, malformed values, NaN, and infinity",
+    ),
+}
+
+
+_LADDER_GATE_INPUTS: Mapping[str, tuple[str, ...]] = {
+    "LADDER:sigma:payload-symmetry": (
+        "payload_sigma_layout",
+        "sigma_asymmetry",
+        "structure_atol",
+        "structure_rtol",
+        "computation_dtype",
+    ),
+    "LADDER:sigma:finite-two-sum": (
+        "lambda_entry",
+        "perturbation_entry",
+        "computation_dtype",
+    ),
+    "LADDER:structure:compact-diagonal-positive": ("sigma_entry",),
+    "LADDER:structure:diagonal-tolerance": (
+        "diagonal_structure_request",
+        "off_diagonal",
+    ),
+    "LADDER:structure:circulant-tolerance-spectrum": (
+        "circulant_layout",
+        "spectrum_scale",
+    ),
+    "LADDER:structure:toeplitz-tolerance": ("toeplitz_layout",),
+    "LADDER:structure:kronecker-evidence": (
+        "kronecker_structure_request",
+        "structure_presence",
+        "factor_spectrum",
+        "factor_shape",
+        "reconstruction_value",
+    ),
+    "LADDER:sigma:symmetry-spd-condition": (
+        "fact_sigma_layout",
+        "sigma_symmetry",
+        "smallest_eigenvalue",
+        "condition_scale",
+        "structure_rtol",
+        "structure_atol",
+        "computation_dtype",
+    ),
+    "LADDER:rank:evidence": (
+        "rank_factor_presence",
+        "factor_reconstruction",
+        "perturbation_rank",
+        "lambda_scale",
+        "factor_layout",
+        "factor_gauge",
+        "computation_dtype",
+    ),
+    "LADDER:rho:measurement": (
+        "lambda_scale",
+        "perturbation_scale",
+        "matrix_geometry",
+        "computation_dtype",
+    ),
+    "LADDER:finite:payload-rho": (
+        "lambda_scale",
+        "perturbation_scale",
+        "matrix_geometry",
+        "computation_dtype",
+        "determinant_alternative",
+    ),
+    "LADDER:determinant-lemma:payload": (
+        "determinant_factor_presence",
+        "factor_reconstruction",
+        "sigma_formation",
+        "sigma_symmetry",
+        "condition_scale",
+    ),
+    "LADDER:rung0:base": (
+        "sigma_formation",
+        "sigma_lambda_equality",
+        "dense_condition",
+    ),
+    "LADDER:rung1:low-rank-size": (
+        "rank_evidence",
+        "payload_capability",
+        "sigma_spd",
+        "rank",
+        "dimension",
+        "low_rank_max",
+        "low_rank_fraction",
+    ),
+    "LADDER:rung2:chain": (
+        "chain_block_size",
+        "chain_layout",
+        "sigma_formation",
+        "sigma_spd",
+        "condition_scale",
+        "computation_dtype",
+    ),
+    "LADDER:rung3:structured": (
+        "rung3_structure_request",
+        "structure_evidence",
+        "sigma_formation",
+        "sigma_spd",
+        "condition_scale",
+    ),
+    "LADDER:rung4:dense": (
+        "dimension",
+        "dense_max_n",
+        "condition_scale",
+        "sigma_spd",
+        "computation_dtype",
+    ),
+    "LADDER:rung5:finite-size": (
+        "dimension",
+        "finite_max_n",
+        "payload_capability",
+        "rank",
+        "finite_max_rank",
+    ),
+    "LADDER:rung5:finite-executable": (
+        "dimension",
+        "finite_max_n",
+        "payload_capability",
+        "rank",
+        "finite_max_rank",
+        "lambda_scale",
+        "perturbation_scale",
+        "sigma_formation",
+        "smallest_eigenvalue",
+        "sigma_symmetry",
+        "determinant_factor_presence",
+        "factor_reconstruction",
+        "dense_condition",
+        "computation_dtype",
+    ),
+    "LADDER:rung6:trace": (
+        "sigma_formation",
+        "actual_rho",
+        "trace_order",
+        "trace_evidence",
+        "certified_rho",
+    ),
+    "LADDER:rung7:frozen": (
+        "sigma_formation",
+        "trace_order",
+        "probe_presence",
+        "probe_width",
+        "actual_rho",
+        "certified_rho",
+    ),
+}
+
+
+for _gate_id, _axis_names in _LADDER_GATE_INPUTS.items():
+    _replace_axes(_gate_id, *(_LADDER_INPUT_AXES[name] for name in _axis_names))
+
+
+_replace_axes(
+    "PLAN:certificate:rho-domain-and-coverage",
+    AxisRange(
+        "measured_max",
+        "ordinary interior measurement",
+        ("0 and nextafter(0,-inf)", "nextafter(1,0) and 1"),
+        "uncovered/above-one measurement",
+        "NaN and +/-Inf",
+    ),
+    AxisRange(
+        "certified_rho",
+        "ordinary interior certificate",
+        ("0 and nextafter(measured,0)", "equality/nextafter(measured,+inf)"),
+        "one or uncovered certificate",
+        "NaN and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:certificate:error-budget-domain",
+    AxisRange(
+        "margin",
+        "ordinary positive margin",
+        ("nextafter(0,-inf)", "0 and nextafter(0,+inf)"),
+        "large positive margin",
+        "NaN and +/-Inf; NaN follows the literal admitted source behavior",
+    ),
+    AxisRange(
+        "tolerance",
+        "ordinary positive tolerance",
+        ("nextafter(0,-inf) and 0", "nextafter(0,+inf)"),
+        "large positive tolerance",
+        "NaN and +/-Inf",
+    ),
+    AxisRange(
+        "tail_tolerance",
+        "strictly interior tail tolerance",
+        ("nextafter(0,-inf), 0, nextafter(0,+inf)", "nextafter(tolerance,0), equality, nextafter(tolerance,+inf)"),
+        "tail above tolerance",
+        "NaN and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:certificate:optional-scale-domain",
+    AxisRange(
+        "max_abs_lambda_logdet",
+        "None or ordinary positive bound",
+        ("nextafter(0,-inf)", "0 and nextafter(0,+inf)"),
+        "large finite bound",
+        "None, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "max_x_operator_norm",
+        "None or ordinary positive bound",
+        ("nextafter(0,-inf)", "0 and nextafter(0,+inf)"),
+        "large finite bound",
+        "None, NaN, and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:certificate:order-is-derived",
+    AxisRange(
+        "order",
+        "order well below the independently recomputed minimum",
+        ("m-1", "m and m+1"),
+        "order far above the recomputed minimum",
+        "negative, zero, and very large integer order",
+    ),
+    AxisRange(
+        "certified_rho",
+        "ordinary strict-convergence radius",
+        ("nextafter(0,+inf)", "nextafter(1,0)"),
+        "radius close to one requiring large order",
+        "zero, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "tail_tolerance",
+        "ordinary positive non-unit tail tolerance",
+        ("nextafter(0,+inf)", "nextafter(tolerance,0)"),
+        "tail tolerance close to total tolerance",
+        "zero, minimum subnormal, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "multiplicity",
+        "small positive multiplicity",
+        ("1", "2"),
+        "large positive multiplicity",
+        "zero, negative, and very large integer multiplicity",
+    ),
+)
+_replace_axes(
+    "PLAN:audit:retained-rho",
+    AxisRange(
+        "retained_value",
+        "retained rho below the certificate",
+        ("nextafter(certified_rho,0)", "equality and nextafter(certified_rho,+inf)"),
+        "retained rho far above the certificate",
+        "zero, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "certified_rho",
+        "certificate comfortably above retained rho",
+        ("nextafter(retained_value,0)", "equality and nextafter(retained_value,+inf)"),
+        "certificate far below retained rho",
+        "zero, nextafter(1,0), NaN, and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:audit:retained-lambda-scale",
+    AxisRange(
+        "retained_value",
+        "ordinary non-unit retained absolute lambda logdet",
+        ("nextafter(max_abs_lambda_logdet,0)", "equality and nextafter(bound,+inf)"),
+        "retained magnitude far above the certified bound",
+        "zero, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "max_abs_lambda_logdet",
+        "certified bound comfortably above retained magnitude",
+        ("nextafter(retained_value,0)", "equality and nextafter(retained_value,+inf)"),
+        "certified bound far below retained magnitude",
+        "None, zero, NaN, and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:audit:retained-x-norm",
+    AxisRange(
+        "retained_value",
+        "ordinary non-unit retained operator norm",
+        ("nextafter(max_x_operator_norm,0)", "equality and nextafter(bound,+inf)"),
+        "retained norm far above the certified bound",
+        "zero, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "max_x_operator_norm",
+        "certified bound comfortably above retained norm",
+        ("nextafter(retained_value,0)", "equality and nextafter(retained_value,+inf)"),
+        "certified bound far below retained norm",
+        "None, zero, NaN, and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:factory-certificate:lambda-scale",
+    AxisRange(
+        "lambda_matrix",
+        "ordinary non-unit positive diagonal Lambda",
+        ("nextafter(max_abs_lambda_logdet,0)", "equality and nextafter(bound,+inf)"),
+        "Lambda whose actual logdet magnitude is far above the certificate",
+        "minimum positive subnormal and largest finite SPD diagonal entries",
+    ),
+    AxisRange(
+        "max_abs_lambda_logdet",
+        "certificate comfortably above the problem magnitude",
+        ("nextafter(actual lambda logdet,0)", "equality and nextafter(actual lambda logdet,+inf)"),
+        "certificate far below the problem magnitude",
+        "None, zero, NaN, and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:factory-certificate:x-norm",
+    AxisRange(
+        "perturbation",
+        "ordinary non-unit perturbation with a measured operator norm",
+        ("nextafter(max_x_operator_norm,0)", "equality and nextafter(bound,+inf)"),
+        "perturbation whose actual operator norm is far above the certificate",
+        "zero, minimum subnormal, and largest finite perturbations",
+    ),
+    AxisRange(
+        "max_x_operator_norm",
+        "certificate comfortably above the problem norm",
+        ("nextafter(actual operator norm,0)", "equality and nextafter(actual operator norm,+inf)"),
+        "certificate far below the problem norm",
+        "None, zero, NaN, and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:warmup:rho-inputs-and-margin",
+    AxisRange(
+        "rho_value",
+        "ordinary nonnegative measurement",
+        ("nextafter(0,-inf)", "0 and nextafter(0,+inf)"),
+        "large finite measurement",
+        "empty sequence, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "margin",
+        "ordinary nonnegative margin",
+        ("nextafter(0,-inf)", "0 and nextafter(0,+inf)"),
+        "large finite margin",
+        "NaN and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:warmup:rho-roundoff-ceiling",
+    AxisRange(
+        "rho_value",
+        "ordinary nonnegative raw rho measurement",
+        ("nextafter(0,+inf)", "raw value whose outward envelope approaches one"),
+        "raw measurement whose rounded envelope reaches one",
+        "zero, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "margin",
+        "ordinary nonnegative roundoff margin",
+        ("zero", "nextafter(one-rho,0) and equality"),
+        "margin that pushes the outward certificate above one",
+        "minimum subnormal, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "multiplicity",
+        "small positive envelope multiplicity",
+        ("1", "2"),
+        "large multiplicity amplifying the envelope",
+        "zero, negative, and very large integer multiplicity",
+    ),
+)
+_replace_axes(
+    "PLAN:gamma:operation-count-domain",
+    AxisRange(
+        "operation_count",
+        "small nonnegative operation count",
+        ("0", "1"),
+        "large count approaching the gamma denominator boundary",
+        "negative, bool, and very large integer count",
+    ),
+    AxisRange(
+        "epsilon",
+        "ordinary positive runtime epsilon",
+        ("nextafter(0,+inf)", "epsilon making count*epsilon approach one"),
+        "epsilon for which count*epsilon reaches or exceeds one",
+        "zero, minimum subnormal, NaN, and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:outward-arithmetic:positive-underflow",
+    AxisRange(
+        "proof_value",
+        "ordinary finite nonzero proof magnitude",
+        ("exact zero", "minimum positive subnormal"),
+        "large finite proof magnitude",
+        "negative finite, NaN, and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:warmup:lambda-scale-inputs",
+    AxisRange(
+        "lambda_value",
+        "ordinary signed non-unit logdet measurement",
+        ("small negative finite", "small positive finite"),
+        "large-magnitude finite measurement",
+        "empty sequence, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "lambda_logdet_margin",
+        "ordinary nonnegative margin",
+        ("nextafter(0,-inf)", "0 and nextafter(0,+inf)"),
+        "large finite margin",
+        "NaN and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:warmup:x-norm-inputs",
+    AxisRange(
+        "x_norm_value",
+        "ordinary nonnegative norm measurement",
+        ("nextafter(0,-inf)", "0 and nextafter(0,+inf)"),
+        "large finite norm",
+        "empty sequence, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "x_operator_norm_margin",
+        "ordinary nonnegative margin",
+        ("nextafter(0,-inf)", "0 and nextafter(0,+inf)"),
+        "large finite margin",
+        "NaN and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:measurement:x-norm-finite",
+    AxisRange(
+        "lambda_entry",
+        "ordinary finite non-unit lambda entry",
+        ("largest finite entry", "nextafter(largest,+inf) overflow"),
+        "large finite lambda magnitude",
+        "zero, minimum subnormal, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "perturbation_entry",
+        "ordinary finite non-unit perturbation entry",
+        ("largest finite entry", "nextafter(largest,+inf) overflow"),
+        "large finite perturbation magnitude",
+        "zero, minimum subnormal, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "matrix_path",
+        "compact float32 matrix capability",
+        ("compact float64", "dense singular or indefinite refusal"),
+        "dense float32 matrix capability",
+        "dense full-range and subnormal float64 matrices",
+    ),
+)
+_replace_axes(
+    "PLAN:measurement:lambda-logdet-finite",
+    AxisRange(
+        "lambda_entry",
+        "ordinary finite non-unit lambda entry",
+        ("largest finite entry", "nextafter(largest,+inf) overflow"),
+        "large finite lambda magnitude",
+        "zero, minimum subnormal, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "matrix_path",
+        "compact float32 matrix capability",
+        ("compact float64", "dense singular or indefinite refusal"),
+        "dense float32 matrix capability",
+        "dense full-range and subnormal float64 matrices",
+    ),
+)
+_replace_axes(
+    "PLAN:audit:retained-trace-evidence",
+    AxisRange(
+        "problem_trace_order",
+        "retained order below the certificate-selected order",
+        ("T-1 (certificate order - 1)", "T (certificate order) and T+1"),
+        "retained order far above the certificate-selected order",
+        "negative, missing, and very large order",
+    ),
+    AxisRange(
+        "perturbation",
+        "perturbation whose independently computed algebraic rank is below multiplicity",
+        ("T-1 (multiplicity - 1)", "T (multiplicity) and T+1"),
+        "perturbation whose algebraic rank is far above multiplicity",
+        "zero, rank-one, and dimension-rank perturbations",
+    ),
+    AxisRange(
+        "trace_evidence_value",
+        "exact non-unit power traces",
+        ("bitwise exact evidence", "one-ULP mismatch"),
+        "material trace mismatch",
+        "missing, subnormal mismatch, NaN, and +/-Inf evidence",
+    ),
+)
+_replace_axes(
+    "PLAN:factory-certificate:order-and-rank",
+    AxisRange(
+        "problem_trace_order",
+        "problem order below the certificate-selected order",
+        ("T-1 (certificate order - 1)", "T (certificate order) and T+1"),
+        "problem order far above the certificate-selected order",
+        "negative, missing, and very large order",
+    ),
+    AxisRange(
+        "perturbation",
+        "perturbation whose independently computed algebraic rank is below certificate multiplicity",
+        ("T-1 (multiplicity - 1)", "T (multiplicity) and T+1"),
+        "perturbation whose algebraic rank is far above certificate multiplicity",
+        "zero, rank-one, and dimension-rank perturbations",
+    ),
+)
+_replace_axes(
+    "PLAN:frozen:probe-energy-range",
+    AxisRange(
+        "probe_component",
+        "ordinary finite non-unit probe component",
+        (
+            "finite component one ULP below the per-probe runtime limit",
+            "finite component at and one ULP above the per-probe runtime limit",
+        ),
+        "finite component whose square exceeds the runtime maximum",
+        "zero, minimum subnormal, and largest constructor-valid finite components",
+    ),
+    AxisRange(
+        "probe_count",
+        "small positive number of real frozen-probe rows",
+        ("one row", "two rows"),
+        "many rows whose finite component squares accumulate near overflow",
+        "1, 2, 3, 257, and 10000 constructor-valid rows",
+    ),
+    AxisRange(
+        "runtime_dtype",
+        "supported runtime dtype able to accumulate the probe energy",
+        ("narrow floating capability", "wide floating capability"),
+        "runtime capability wider than probe storage",
+        "supported narrow and wide floating runtime capabilities under their real contexts",
+    ),
+)
+_replace_axes(
+    "PLAN:runtime-range:product",
+    AxisRange(
+        "left",
+        "zero or ordinary positive left operand",
+        ("maximum/right one ULP below", "maximum/right and one ULP above"),
+        "left operand far above maximum/right",
+        "negative, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "right",
+        "zero or ordinary positive right operand",
+        ("maximum/left one ULP below", "maximum/left and one ULP above"),
+        "right operand far above maximum/left",
+        "negative, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "maximum",
+        "maximum comfortably above the product",
+        ("product one ULP below", "product and one ULP above"),
+        "maximum far below the product",
+        "zero, minimum subnormal, NaN, and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:runtime-range:sum",
+    AxisRange(
+        "left",
+        "zero or ordinary positive left addend",
+        ("maximum-right one ULP below", "maximum-right and one ULP above"),
+        "left addend far above maximum-right",
+        "negative, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "right",
+        "zero or ordinary positive right addend",
+        ("maximum-left one ULP below", "maximum-left and one ULP above"),
+        "right addend far above maximum-left",
+        "negative, NaN, and +/-Inf",
+    ),
+    AxisRange(
+        "maximum",
+        "maximum comfortably above the sum",
+        ("sum one ULP below", "sum and one ULP above"),
+        "maximum far below the sum",
+        "zero, minimum subnormal, NaN, and +/-Inf",
+    ),
+)
+_replace_axes(
+    "PLAN:frozen:intermediate-runtime-range",
+    AxisRange(
+        "total_probe_energy",
+        "ordinary finite non-unit total probe energy from real frozen probes",
+        (
+            "runtime correction one ULP below the maximum",
+            "runtime correction at and one ULP above the maximum",
+        ),
+        "probe energy producing a correction far above the runtime maximum",
+        "zero, minimum subnormal, and largest constructor-valid probe energies",
+    ),
+    AxisRange(
+        "order",
+        "small positive certificate-selected series order",
+        (
+            "order one below the first overflowing accumulation",
+            "first overflowing order and one above",
+        ),
+        "large valid order with a wide roundoff factor",
+        "zero, one, and largest practical certificate-selected orders",
+    ),
+)
+_replace_axes(
+    "PLAN:runtime:expected-and-ulp-finite",
+    AxisRange(
+        "lambda_entry",
+        "ordinary positive finite non-unit Lambda entry",
+        (
+            "entry whose analytic logdet is representable in the runtime dtype",
+            "finite entry whose analytic logdet reaches a runtime cast boundary",
+        ),
+        "large positive finite entry near the constructor/runtime limit",
+        "minimum positive subnormal and largest finite constructor-valid entries; derived expected infinity would require about 4.8e35 float32 diagonal entries and is a resource-bound ambiguity",
+    ),
+    AxisRange(
+        "perturbation_entry",
+        "ordinary finite non-unit perturbation entry",
+        (
+            "finite entry preserving a representable positive sigma",
+            "finite entry whose resolved sigma reaches the runtime boundary",
+        ),
+        "large finite perturbation near the resolution limit",
+        "positive/negative minimum subnormal and largest finite perturbations",
+    ),
+    AxisRange(
+        "runtime_dtype",
+        "supported runtime dtype used for rounding and ULP measurement",
+        ("narrow floating capability", "wide floating capability"),
+        "runtime capability wider than the problem storage",
+        "supported narrow and wide floating runtime capabilities under their real contexts",
+    ),
+    AxisRange(
+        "tolerance",
+        "ordinary positive finite certificate tolerance",
+        (
+            "minimum positive constructor-valid tolerance",
+            "tolerance at the measured runtime ULP",
+        ),
+        "large finite tolerance",
+        "minimum positive subnormal and largest finite constructor-valid tolerances",
+    ),
+)
+_replace_axes(
+    "PLAN:runtime:total-error-budget",
+    AxisRange(
+        "certified_rho",
+        "ordinary strict certified rho producing a finite analytic tail",
+        ("rho yielding total error one ULP below tolerance", "rho yielding equality and one ULP above"),
+        "certified rho near one producing a tail far above tolerance",
+        "zero, minimum subnormal, and nextafter(1,0)",
+    ),
+    AxisRange(
+        "max_abs_lambda_logdet",
+        "ordinary finite non-unit certified base-logdet scale",
+        ("scale yielding total error one ULP below tolerance", "scale yielding equality and one ULP above"),
+        "large certified base scale producing roundoff far above tolerance",
+        "zero, minimum subnormal, and largest constructor-valid bound",
+    ),
+    AxisRange(
+        "tolerance",
+        "tolerance comfortably above total error",
+        ("total error one ULP below", "equality and one ULP above"),
+        "tolerance far below total error",
+        "zero, minimum subnormal, and largest finite tolerance",
+    ),
+)
+_replace_axes(
+    "PLAN:trace-factory:exact-evidence",
+    AxisRange(
+        "problem_trace_order",
+        "problem order below the certificate-selected order",
+        ("T-1 (certificate order - 1)", "T (certificate order) and T+1"),
+        "problem order far above the selected order",
+        "negative, missing, and very large order",
+    ),
+    AxisRange(
+        "trace_evidence_value",
+        "exact non-unit power traces",
+        ("bitwise exact evidence", "one-ULP mismatch"),
+        "material trace mismatch",
+        "missing, subnormal mismatch, NaN, and +/-Inf evidence",
+    ),
+)
+_replace_axes(
+    "PLAN:frozen-factory:probe-presence-width",
+    AxisRange(
+        "probe_presence",
+        "present immutable FrozenProbes payload",
+        ("payload present", "payload absent"),
+        "present payload with many probe rows",
+        "None, empty, and invalid container capability",
+    ),
+    AxisRange(
+        "probe_width",
+        "width below problem dimension",
+        ("n-1", "n and n+1"),
+        "width far above problem dimension",
+        "zero, empty, and maximum practical width",
+    ),
+)
+_replace_axes(
+    "PLAN:canonical-probes:runtime-finite",
+    AxisRange(
+        "probe_scalar",
+        "ordinary finite non-unit probe component",
+        (
+            "largest finite value representable by the runtime dtype",
+            "finite wider-dtype value that overflows when cast to the runtime dtype",
+        ),
+        "large finite component near the runtime limit",
+        "zero, minimum subnormal, largest finite input, and finite cast-overflow input that produces infinity only after the production cast",
+    ),
+    AxisRange(
+        "probe_dtype",
+        "finite probe storage dtype with a non-unit component",
+        ("float32 capability", "float64 capability"),
+        "wider finite probe storage capability",
+        "supported floating storage dtypes at their finite magnitude extremes",
+    ),
+    AxisRange(
+        "runtime_dtype",
+        "runtime dtype able to represent the probe",
+        ("narrow runtime capability", "wide runtime capability"),
+        "runtime capability wider than probe storage",
+        "supported narrow and wide floating runtime capabilities under their real contexts",
+    ),
+)
+_replace_axes(
+    "PLAN:frozen:x-bound-runtime-range",
+    AxisRange(
+        "max_x_operator_norm",
+        "ordinary finite non-unit certified operator-norm bound",
+        ("largest representable runtime bound", "outward overflow boundary"),
+        "bound near the runtime dtype maximum",
+        "None, zero, minimum subnormal, largest finite, and finite cast-overflow bounds",
+    ),
+    AxisRange(
+        "runtime_dtype",
+        "runtime dtype able to represent the certified bound",
+        ("narrow runtime capability", "wide runtime capability"),
+        "runtime capability wider than the certificate storage",
+        "supported narrow and wide floating runtime capabilities under their real contexts",
+    ),
+)
+_replace_axes(
+    "PLAN:runtime:base-scale-range",
+    AxisRange(
+        "max_abs_lambda_logdet",
+        "ordinary finite non-unit certified base-logdet bound",
+        ("largest representable runtime bound", "outward overflow boundary"),
+        "bound near the runtime dtype maximum",
+        "None, zero, minimum subnormal, largest finite, and finite cast-overflow bounds",
+    ),
+    AxisRange(
+        "runtime_dtype",
+        "runtime dtype able to represent the certified base scale",
+        ("narrow runtime capability", "wide runtime capability"),
+        "runtime capability wider than the certificate storage",
+        "supported narrow and wide floating runtime capabilities under their real contexts",
+    ),
+)
+_replace_axes(
+    "PLAN:runtime:sigma-finite-and-positive",
+    AxisRange(
+        "lambda_entry",
+        "ordinary finite non-unit diagonal entry",
+        (
+            "smallest positive constructor-valid entry",
+            "large positive entry whose finite perturbation reaches the sigma boundary",
+        ),
+        "large finite diagonal entry",
+        "minimum positive subnormal and largest finite positive constructor-valid entries",
+    ),
+    AxisRange(
+        "perturbation_entry",
+        "ordinary finite non-unit perturbation entry",
+        (
+            "entry preserving strict positivity",
+            "finite entry making resolved sigma exactly zero and singular",
+        ),
+        "large perturbation making sigma indefinite",
+        "positive/negative minimum subnormal and largest finite perturbations that overflow TwoSum",
+    ),
+    AxisRange(
+        "matrix_path",
+        "compact non-unit diagonal construction",
+        ("diagonal path", "dense symmetric path"),
+        "larger dense symmetric construction",
+        "singular, indefinite, asymmetric, and overflowed resolved matrices from finite inputs",
+    ),
+)
+_replace_axes(
+    "PLAN:runtime:frozen-prerequisites-and-series",
+    AxisRange(
+        "max_x_operator_norm",
+        "ordinary certified operator-norm bound below one",
+        ("nextafter(0,+inf)", "nextafter(1,0) and 1"),
+        "bound at or above the strict-convergence limit",
+        "zero, minimum subnormal, nextafter(1,0), and largest constructor-valid finite bound",
+    ),
+    AxisRange(
+        "probe_component",
+        "ordinary finite non-unit frozen probe component",
+        ("smallest finite component", "largest finite safe component"),
+        "component whose power trace exceeds the runtime range",
+        "zero, minimum subnormal, and largest constructor-valid finite components",
+    ),
+    AxisRange(
+        "order",
+        "small positive frozen-series order",
+        ("1", "2"),
+        "large positive order",
+        "smallest and largest orders independently derived by valid certificates",
+    ),
+)
+
+
+_STATIC_GATE_REASONS = {
+    "EAGER:factor-projection:whitened-positive-spectrum": (
+        "Every production fixture that crosses this local spectrum predicate "
+        "is already refused by the downstream projection certificate or the "
+        "complete low-rank contract. Changing this predicate alone changes "
+        "only the diagnostic path, not the selected method or final refusal."
+    ),
+    "EAGER:factor-projection:error-budget": (
+        "The final total-error predicate uses the same ceiling on the sum of "
+        "three nonnegative component bounds. A valid total therefore implies "
+        "this projection predicate; changing it alone can only select a "
+        "diagnostic reason, not a method or refusal."
+    ),
+    "EAGER:factor-projection:finite-qr-arithmetic": (
+        "This post-QR finite-output predicate has no deterministic refused "
+        "fixture on the supported finite-input path. Column balancing first "
+        "establishes finite inputs; QR failures raise, and the core/projected "
+        "products run under over/invalid='raise'. Reaching this predicate with "
+        "a nonfinite result therefore requires a QR/library capability fault, "
+        "so it cannot honestly claim two executable mutation witnesses."
+    ),
+    "EAGER:factor-reduced:diagonal-certificate": (
+        "At the independently realizable one-sided boundary, the complete "
+        "low-rank path is already refused by the reduced-log error budget. "
+        "Changing this local certificate alone therefore cannot change a "
+        "selected method or final refusal."
+    ),
+    "EAGER:factor-reduced:qr-certificate": (
+        "Production fixtures that cross this local QR certificate are already "
+        "refused by the projection certificate or another downstream reduced "
+        "certificate. No isolated mutation changes the selected method or "
+        "final refusal."
+    ),
+    "EAGER:factor-reduced:acceptance-budget": (
+        "The local aggregate boundary has no independently executable factor "
+        "fixture that also satisfies exact reconstruction and every preceding "
+        "certificate. Mutating it changes only a dominated diagnostic path."
+    ),
+    "EAGER:trace:actual-rho-strict": (
+        "On the successful path, the following certificate-domain and "
+        "coverage checks prove actual_rho <= certificate < 1. Changing this "
+        "earlier strict-rho check alone can only select a diagnostic reason, "
+        "not a method or refusal."
+    ),
+    "EAGER:factor-base:error-budget": (
+        "The final total-error predicate uses the same ceiling on the sum of "
+        "three nonnegative component bounds. A valid total therefore implies "
+        "this base-budget predicate; changing it alone can only select a "
+        "diagnostic reason, not a method or refusal."
+    ),
+    "EAGER:factor-base:condition-ceiling": (
+        "The dense condition comparison is strictly dominated at its boundary "
+        "by the base log-error budget. With eta=gamma(3*n)*condition and "
+        "condition nextafter(1/sqrt(eps), -inf), the bound "
+        "-n*log1p(-eta) is already greater than sqrt(eps), so both one-ULP "
+        "condition mutations leave the certificate refused and only change "
+        "its diagnostic reason. The diagonal path uses an infinite condition "
+        "ceiling and exposes no finite outcome boundary."
+    ),
+    "PLAN:factory-certificate:strict-rho": (
+        "This expression is an unconsumed validation call. The callee owns the "
+        "rho domain, strict-convergence, and coverage gates; its return value "
+        "does not select a PLAN method or refusal."
+    ),
+    "PLAN:certificate:rho-domain-and-coverage": (
+        "Loosening this predicate at certified_rho=1 is dominated by the real "
+        "choose_trace_order convergence check, so the selected PLAN outcome "
+        "cannot change independently."
+    ),
+    "PLAN:warmup:rho-inputs-and-margin": (
+        "A negative margin is rejected by the real RhoCertificate constructor "
+        "before it can independently change PLAN routing."
+    ),
+    "PLAN:warmup:tail-fraction": (
+        "The endpoint tail fractions are rejected by the real RhoCertificate "
+        "budget contract before this local predicate can control an outcome."
+    ),
+    "PLAN:warmup:rho-roundoff-ceiling": (
+        "A certified rho at or above one is rejected by the real "
+        "RhoCertificate contract, which dominates this local comparison."
+    ),
+    "PLAN:canonical-probes:runtime-finite": (
+        "FrozenProbes rejects nonfinite values, while overflow during the "
+        "supported runtime cast raises before this predicate. There is no real "
+        "direct input that reaches its refused side independently."
+    ),
+    "PLAN:measurement:lambda-logdet-finite": (
+        "The dense lambda_logdet payload either returns a finite value or "
+        "raises before this predicate. On the compact finite-SPD path, "
+        "overflow of sum(log(lambda)) would require about 3.8e36 float32 "
+        "entries or 2.5e305 float64 entries, beyond constructable resources. "
+        "No real direct input can both reach this predicate and produce its "
+        "refused side; changing it only changes defensive/capability "
+        "diagnostics."
+    ),
+}
+
+
+_EAGER_BALANCE_PREFIX = (
+    "src/bayesmith/marginal/_logdet_eager.py::<module>."
+    "_balanced_factor_columns::"
+)
+_EAGER_STATE_PREFIX = (
+    "src/bayesmith/marginal/_logdet_eager.py::<module>.state_space_logdet::"
+)
+_PLAN_FROZEN_ENERGY_PREFIX = (
+    "src/bayesmith/marginal/_logdet_plan.py::<module>."
+    "_frozen_probe_energy_bounds::"
+)
+
+
+_STATIC_ATOM_REASONS: Mapping[str, Mapping[str, str]] = {
+    "EAGER:factor-balance:exact-power-of-two-reversibility": {
+        f"{_EAGER_BALANCE_PREFIX}predicate_call_atom::508f419c8ad7bceb::0": (
+            "Finite input columns and the computed power-of-two gauge do not "
+            "provide a deterministic production fixture where only the "
+            "scaled-left finiteness premise fails."
+        ),
+        f"{_EAGER_BALANCE_PREFIX}predicate_call_atom::633c4ba7bc098a19::0": (
+            "Elementwise identity of the same unreachable scaled-left "
+            "finiteness premise."
+        ),
+        f"{_EAGER_BALANCE_PREFIX}finite_predicate::633c4ba7bc098a19::0": (
+            "Scanner alias of the same unreachable scaled-left finiteness "
+            "premise."
+        ),
+        f"{_EAGER_BALANCE_PREFIX}predicate_call_atom::ff9f64daa7a7b618::0": (
+            "Finite input columns and the computed power-of-two gauge do not "
+            "provide a deterministic production fixture where only the "
+            "scaled-right finiteness premise fails."
+        ),
+        f"{_EAGER_BALANCE_PREFIX}predicate_call_atom::09a90b48970dbb22::0": (
+            "Elementwise identity of the same unreachable scaled-right "
+            "finiteness premise."
+        ),
+        f"{_EAGER_BALANCE_PREFIX}finite_predicate::09a90b48970dbb22::0": (
+            "Scanner alias of the same unreachable scaled-right finiteness "
+            "premise."
+        ),
+    },
+    "EAGER:state-space:payload-domain": {
+        f"{_EAGER_STATE_PREFIX}predicate_call_atom::5662962bf2f78843::0": (
+            "For the supported small block-chain payload, every component is "
+            "finite and math.fsum cannot overflow without an impractically "
+            "large allocation; no honest isolated finite-input fixture exists."
+        ),
+        f"{_EAGER_STATE_PREFIX}finite_predicate::5662962bf2f78843::0": (
+            "Scanner alias of the same resource-dominated final-total "
+            "finiteness premise."
+        ),
+    },
+    "PLAN:frozen:probe-energy-range": {
+        f"{_PLAN_FROZEN_ENERGY_PREFIX}predicate_call_atom::ec9578c6de121206::0": (
+            "math.fsum overflow is caught before this premise and supported "
+            "float32 casting can exceed the dtype ceiling while remaining "
+            "finite, so this finiteness atom has no isolated false fixture."
+        ),
+        f"{_PLAN_FROZEN_ENERGY_PREFIX}finite_predicate::ec9578c6de121206::0": (
+            "Scanner alias of the same unreachable probe-energy finiteness "
+            "premise."
+        ),
+    },
+}
+
+
+_ATOM_ISOLATION_AMBIGUITIES: Mapping[str, Mapping[str, str]] = {}
+
+
+def dynamic_atom_ids(entry: GateEntry) -> tuple[str, ...]:
+    """Return conjunction atoms that admit a real isolated production case."""
+    if entry.mutation_mode is not MutationMode.TWO_SIDED:
+        return ()
+    static_ids = set(entry.static_atom_reasons)
+    return tuple(
+        atom_id
+        for atom_id in entry.conjunction_atom_ids
+        if atom_id not in static_ids
+    )
+
+
+def isolatable_atom_ids(entry: GateEntry) -> tuple[str, ...]:
+    """Return dynamic atoms with an honest finite production fixture."""
+    ambiguous_ids = set(entry.atom_isolation_ambiguities)
+    return tuple(
+        atom_id
+        for atom_id in dynamic_atom_ids(entry)
+        if atom_id not in ambiguous_ids
+    )
 
 
 def _entry(seed: _Seed) -> GateEntry:
@@ -4805,6 +6236,18 @@ def _entry(seed: _Seed) -> GateEntry:
     anchors = _DECLARED_SOURCE_ANCHORS[seed.gate_id]
     source_classifications = _DECLARED_SOURCE_CLASSIFICATIONS[seed.gate_id]
     metadata = GATE_METADATA[seed.gate_id]
+    static_reason = _STATIC_GATE_REASONS.get(seed.gate_id)
+    static_atom_reasons = MappingProxyType(
+        dict(_STATIC_ATOM_REASONS.get(seed.gate_id, {}))
+    )
+    atom_isolation_ambiguities = MappingProxyType(
+        dict(_ATOM_ISOLATION_AMBIGUITIES.get(seed.gate_id, {}))
+    )
+    mutation_mode = (
+        MutationMode.STATIC_ONLY
+        if static_reason is not None
+        else MutationMode.TWO_SIDED
+    )
     return GateEntry(
         gate_id=seed.gate_id,
         source_candidate_ids=source_candidate_ids,
@@ -4823,10 +6266,12 @@ def _entry(seed: _Seed) -> GateEntry:
         oracle=metadata.oracle,
         axes=metadata.axes,
         fixture_scale_policy=metadata.fixture_scale_policy,
-        mutation_mode=MutationMode.TWO_SIDED,
-        tighten_witness=f"tighten_{slug}",
-        loosen_witness=f"loosen_{slug}",
-        static_reason=None,
+        mutation_mode=mutation_mode,
+        tighten_witness=(f"tighten_{slug}" if static_reason is None else ""),
+        loosen_witness=(f"loosen_{slug}" if static_reason is None else ""),
+        static_reason=static_reason,
+        static_atom_reasons=static_atom_reasons,
+        atom_isolation_ambiguities=atom_isolation_ambiguities,
     )
 
 
@@ -5021,6 +6466,41 @@ def validate_registry(
             errors.append(f"{entry.gate_id}: canonical source classifications differ")
         if entry.conjunction_atom_ids != canonical_atoms:
             errors.append(f"{entry.gate_id}: canonical conjunction atoms differ")
+        canonical_static_atom_reasons = _STATIC_ATOM_REASONS.get(entry.gate_id, {})
+        if dict(entry.static_atom_reasons) != dict(canonical_static_atom_reasons):
+            errors.append(f"{entry.gate_id}: canonical static atom reasons differ")
+        unknown_static_atoms = set(entry.static_atom_reasons) - set(
+            entry.conjunction_atom_ids
+        )
+        if unknown_static_atoms:
+            errors.append(
+                f"{entry.gate_id}: static atom is not an owned conjunction atom: "
+                f"{sorted(unknown_static_atoms)}"
+            )
+        if any(not reason.strip() for reason in entry.static_atom_reasons.values()):
+            errors.append(f"{entry.gate_id}: static atom reason is empty")
+        canonical_atom_ambiguities = _ATOM_ISOLATION_AMBIGUITIES.get(
+            entry.gate_id, {}
+        )
+        if dict(entry.atom_isolation_ambiguities) != dict(
+            canonical_atom_ambiguities
+        ):
+            errors.append(
+                f"{entry.gate_id}: canonical atom isolation ambiguity reasons differ"
+            )
+        invalid_ambiguity_atoms = set(entry.atom_isolation_ambiguities) - (
+            set(entry.conjunction_atom_ids) - set(entry.static_atom_reasons)
+        )
+        if invalid_ambiguity_atoms:
+            errors.append(
+                f"{entry.gate_id}: atom isolation ambiguity is not an owned "
+                f"dynamic atom: {sorted(invalid_ambiguity_atoms)}"
+            )
+        if any(
+            not reason.strip()
+            for reason in entry.atom_isolation_ambiguities.values()
+        ):
+            errors.append(f"{entry.gate_id}: atom isolation ambiguity reason is empty")
         if entry.mutation_target_ids != canonical_targets:
             errors.append(f"{entry.gate_id}: canonical mutation targets differ")
         if not entry.gate_id:
@@ -5203,8 +6683,21 @@ def validate_registry(
                 errors.append(f"{entry.gate_id}: missing loosen witness")
             if entry.static_reason is not None:
                 errors.append(f"{entry.gate_id}: two-sided gate has a static reason")
-        elif not entry.static_reason:
-            errors.append(f"{entry.gate_id}: static/policy entry needs a reason")
+        else:
+            if not entry.static_reason:
+                errors.append(f"{entry.gate_id}: static/policy entry needs a reason")
+            if entry.tighten_witness or entry.loosen_witness:
+                errors.append(
+                    f"{entry.gate_id}: static/policy entry fabricated a witness"
+                )
+            if entry.static_atom_reasons:
+                errors.append(
+                    f"{entry.gate_id}: whole static gate must not duplicate static atom reasons"
+                )
+            if entry.atom_isolation_ambiguities:
+                errors.append(
+                    f"{entry.gate_id}: whole static gate cannot claim atom isolation ambiguities"
+                )
         if (
             entry.fixture_scale_policy is FixtureScalePolicy.NON_UNIT_REQUIRED
             and not any(
@@ -5246,7 +6739,7 @@ def validate_registry(
         raise RegistryValidationError("\n".join(errors))
 
 
-if len(GATE_REGISTRY) != 99:
+if len(GATE_REGISTRY) != 100:
     raise RegistryValidationError(
-        f"semantic registry expected 99 true gates, found {len(GATE_REGISTRY)}"
+        f"semantic registry expected 100 reviewed entries, found {len(GATE_REGISTRY)}"
     )
