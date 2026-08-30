@@ -552,8 +552,9 @@ def test_an_unwrapped_reduced_graph_cannot_enter_a_public_exact_block_builder():
     ).names == ("gain",)
 
 
-def test_compile_checks_raw_graph_evidence_against_its_derived_nuts_block():
+def test_partition_and_compile_check_raw_evidence_against_the_derived_nuts_block():
     from bayesmith import compile as compile_graph
+    from bayesmith.dispatch.classify import partition
 
     bare = _collapsible_graph()
     unsafe = Graph(
@@ -568,6 +569,14 @@ def test_compile_checks_raw_graph_evidence_against_its_derived_nuts_block():
             r"Exact and conditional.*put.*NUTS.*keep.*explicit"
         ),
     ):
+        partition(unsafe)
+    with pytest.raises(
+        GraphError,
+        match=(
+            r"evidence_terms\[0\].*outside the NUTS block.*"
+            r"Exact and conditional.*put.*NUTS.*keep.*explicit"
+        ),
+    ):
         compile_graph(unsafe)
 
     safe = Graph(
@@ -575,6 +584,7 @@ def test_compile_checks_raw_graph_evidence_against_its_derived_nuts_block():
         plates=bare.plates,
         evidence_terms=(_term("gain"),),
     )
+    assert "gain" in partition(safe).nuts
     sampled = compile_graph(safe).sampled
     assert sampled is not None and "gain" in sampled.latents
 
