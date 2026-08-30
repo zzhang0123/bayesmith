@@ -21,6 +21,7 @@ from bayesmith.marginal.logdet import (
     frozen_hutchinson_trace_logdet,
     lambda_logdet,
     low_rank_logdet,
+    spectral_radius,
     state_space_logdet,
     structured_logdet,
     truncated_trace_logdet,
@@ -78,7 +79,7 @@ def main() -> None:
     )[1]
     _print_row(
         1,
-        "low-rank Newton termination",
+        "low-rank determinant lemma / finite e-polynomial",
         low_rank_logdet(lam, perturbation, factors=low_factors),
         sigma,
         f"{low_verdict.satisfied}: {low_verdict.reason}",
@@ -134,17 +135,33 @@ def main() -> None:
     finite_verdict = check_logdet_premises(low_problem)[5]
     _print_row(
         5,
-        "finite Newton perturbation",
+        "finite e-polynomial perturbation",
         finite_perturbation_logdet(lam, perturbation),
         sigma,
         f"{finite_verdict.satisfied}: {finite_verdict.reason}",
     )
 
-    rho = 0.5
+    requested_rho = 0.5
     order = 12
-    trace_perturbation = rho * lam
+    trace_basis, _ = np.linalg.qr(np.random.default_rng(21).normal(size=(4, 4)))
+    trace_eigenvalues = np.array([0.05, 0.2, 0.35, requested_rho])
+    square_root = np.diag(widths)
+    trace_perturbation = (
+        square_root
+        @ trace_basis
+        @ np.diag(trace_eigenvalues)
+        @ trace_basis.T
+        @ square_root
+    )
     trace_sigma = lam + trace_perturbation
-    traces = tuple(4 * rho**power for power in range(1, order + 1))
+    x_matrix = np.linalg.solve(lam.T, trace_perturbation.T).T
+    power_matrix = np.eye(4)
+    traces_list = []
+    for _ in range(order):
+        power_matrix = power_matrix @ x_matrix
+        traces_list.append(float(np.trace(power_matrix)))
+    traces = tuple(traces_list)
+    rho = spectral_radius(lam, trace_perturbation)
     trace_problem = LogDetProblem(
         lam,
         trace_perturbation,
@@ -174,8 +191,6 @@ def main() -> None:
             [
                 [1.0, 1.0, 1.0, 1.0],
                 [1.0, -1.0, 1.0, -1.0],
-                [1.0, 1.0, -1.0, -1.0],
-                [1.0, -1.0, -1.0, 1.0],
             ]
         )
     )
@@ -191,7 +206,13 @@ def main() -> None:
         ),
         trace_sigma,
         f"{frozen_verdict.satisfied}: {frozen_verdict.reason}",
-        tail_bound=bound,
+    )
+
+    eigenvalue_oracle = float(np.max(np.abs(np.linalg.eigvals(x_matrix))))
+    print(
+        "    spectral_radius               "
+        f"direct={rho: .12e}  oracle={eigenvalue_oracle: .12e}  "
+        f"rel_err={_relative(rho, eigenvalue_oracle):.3e}"
     )
 
     kron_left = np.array([[2.3, 0.2], [0.2, 1.7]])

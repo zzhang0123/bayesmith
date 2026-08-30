@@ -26,11 +26,11 @@ The scalar preconditioner is
     c = (lambda_min(Sigma) + lambda_max(Sigma)) / 2.
 
 Thus ``rho(X) = (kappa(Sigma)-1)/(kappa(Sigma)+1) < 1`` by construction for
-finite positive ``noise_std``.  ``m`` is the first order whose scalar-series
-remainder bound ``rho**(m+1) / ((m+1)*(1-rho))`` is below ``TRACE_TOL``.
-The production implementation must account separately for trace
-multiplicity when promising a whole-logdet error bound; this probe uses the
-plan's stated scalar bound only to choose a reproducible order.
+finite positive ``noise_std``.  ``m`` is the production ladder's certified
+whole-trace order: the first integer for which
+``n*rho**(m+1) / ((m+1)*(1-rho)) <= TRACE_TOL``.  The nullspace eigenvalue of
+``X`` is nonzero for this centred scalar preconditioner, so the required
+multiplicity is ``n``, not ``k``.
 
 All timings are post-JIT medians of amortised batches and synchronise the CPU
 device.  Setup, compilation, and the one-time spectrum are excluded.  Exit 0
@@ -53,6 +53,7 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp  # noqa: I001  # x64 configuration must precede this import.
 import numpy as np
 
+from bayesmith.marginal.logdet import choose_trace_order
 from bayesmith.marginal.sqrtinfo import marginalise_arrays
 
 
@@ -61,17 +62,6 @@ NOISE_STD = 0.5
 PRIOR_STD = 2.0  # deliberately non-unit
 THETA = 0.7
 TRACE_TOL = 1.0e-6
-
-
-def _order_for_bound(rho: float, tol: float) -> int:
-    """First ``m`` for which the plan's stated scalar tail bound is <= tol."""
-    if not 0.0 <= rho < 1.0:
-        raise ValueError(f"trace-log needs 0 <= rho < 1, got {rho!r}")
-    for order in range(1, 100_000):
-        bound = rho ** (order + 1) / ((order + 1) * (1.0 - rho))
-        if bound <= tol:
-            return order
-    raise RuntimeError("trace-log order search exceeded 100000 terms")
 
 
 def _time_us(function: Callable[..., jax.Array], *args: jax.Array) -> float:
@@ -177,7 +167,7 @@ def main() -> None:
     print(f"device={jax.devices()[0]} dtype=float64 theta={THETA}")
     print(
         f"prior_std={PRIOR_STD} noise_std={NOISE_STD} "
-        f"trace_scalar_tol={TRACE_TOL:g}"
+        f"trace_whole_logdet_tol={TRACE_TOL:g}"
     )
     print(
         " n    k      c_gc QR      c_gtheta       c_A op    "
@@ -201,7 +191,7 @@ def main() -> None:
         minimum = NOISE_STD**2
         maximum = minimum + scale * float(gram_eigenvalues_np[-1])
         rho = (maximum - minimum) / (maximum + minimum)
-        order = _order_for_bound(rho, TRACE_TOL)
+        order = choose_trace_order(rho, TRACE_TOL, multiplicity=n)
 
         qr_gradient = jax.value_and_grad(_qr_collapsed(B, y))
         conditional_gradient = jax.value_and_grad(_conditional(B, y, x))
