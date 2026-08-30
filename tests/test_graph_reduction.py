@@ -532,7 +532,10 @@ def test_an_unwrapped_reduced_graph_cannot_enter_a_public_exact_block_builder():
     at = {"offset": jnp.asarray(-0.1), "z": jnp.asarray(0.4)}
     with pytest.raises(
         GraphError,
-        match=r"evidence_terms\[0\].*outside the NUTS block.*keep.*explicit",
+        match=(
+            r"evidence_terms\[0\].*non-NUTS latents \['gain'\].*"
+            r"outside the NUTS block.*keep.*explicit"
+        ),
     ):
         linear_operator(
             raw,
@@ -541,6 +544,19 @@ def test_an_unwrapped_reduced_graph_cannot_enter_a_public_exact_block_builder():
             at_points=(at,),
             scales=(1.0,),
         )
+
+    outside_only = Graph(
+        nodes=raw.nodes,
+        plates=raw.plates,
+        evidence_terms=(_term("offset"),),
+    )
+    assert linear_operator(
+        outside_only,
+        ("gain",),
+        at=at,
+        at_points=(at,),
+        scales=(1.0,),
+    ).names == ("gain",)
 
     term_free = Graph(nodes=raw.nodes, plates=raw.plates)
     assert linear_operator(
