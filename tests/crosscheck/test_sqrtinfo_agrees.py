@@ -15,6 +15,26 @@ there on purpose. `tests/marginal/test_sqrtinfo.py` owns the refusals.
 Everything here is `float64`, because that is what the evidence layer runs at
 and a `float32` comparison would agree to a tolerance that hides a real
 difference in the constant.
+
+**2026-08-30: one of the subjects switched sides, and its four cases retired
+with it (D90, migration spec §五 B11).** e-RHINO ``b87e44f`` delegated
+``marginalise_arrays``'s Schur complement to ``bayesmith.marginal.sqrtinfo``
+-- neither side raises anywhere in it, which is why it could move whole. Its
+bitwise comparison here (``test_marginalise_arrays_agrees_bitwise``) then
+spent two days comparing this package with itself before anyone noticed;
+``test_provenance.py`` now asserts every subject's side at the symbol level
+so the next single-symbol switch fails a test instead of waiting for a
+reader. What remains compared, and why each is still a comparison:
+
+* ``combine`` and ``null`` -- both sides own their arithmetic. The QR fold
+  and its ``rho`` corner exist twice, so bitwise disagreement is
+  information.
+* ``marginalise`` -- SHELL against SHELL over the one shared kernel: their
+  name-to-permutation mapping, offset threading and pivot reading against
+  ours. A kernel defect is invisible to this comparison now (both sides
+  would carry it); the kernel's own oracles live one-sided in
+  ``tests/marginal/test_sqrtinfo.py`` and
+  ``tests/marginal/test_streaming_equals_batch.py``.
 """
 
 from __future__ import annotations
@@ -26,7 +46,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bayesmith.marginal import SqrtInfo, marginalise, marginalise_arrays
+from bayesmith.marginal import SqrtInfo, marginalise
 
 pytestmark = pytest.mark.crosscheck
 
@@ -87,38 +107,35 @@ def test_null_agrees_bitwise():
         )
 
 
-@pytest.mark.parametrize("n_block", [0, 1, 2, 5])
-def test_marginalise_arrays_agrees_bitwise(n_block):
-    """Including ``n_block=0``, which is the identity on the density, and
-    ``n_block=5``, which integrates the whole term away."""
-    from rheplicant.inference.sqrtinfo import (
-        marginalise_arrays as their_marginalise_arrays,
-    )
-
-    with jax.enable_x64(True):
-        rng = np.random.default_rng(17)
-        factor = jnp.asarray(rng.normal(size=(9, 5)))
-        target = jnp.asarray(rng.normal(size=9))
-        offset = jnp.asarray(0.25)
-        ours = marginalise_arrays(factor, target, offset, n_block)
-        theirs = their_marginalise_arrays(factor, target, offset, n_block)
-        # Compared INSIDE the context: these are float64 arrays and
-        # `jnp.allclose` outside it runs the comparison at float32, which is a
-        # `lax.mul` dtype clash rather than a mismatch anyone would read as a
-        # scoping problem.
-        for mine, yours, what in zip(
-            ours, theirs, ("factor", "target", "offset", "pivots"), strict=True
-        ):
-            assert jnp.allclose(mine, yours, rtol=0, atol=0), what
+# `test_marginalise_arrays_agrees_bitwise` retired here on 2026-08-30 (D90):
+# e-RHINO `b87e44f` made THEIR `marginalise_arrays` a wrapper over OUR
+# kernel, so its four bitwise cases compared this package with itself and
+# could not fail. The wrapper's pass-through contract belongs to e-RHINO's
+# own suite (the consumer-compatibility direction the top-level design's §8
+# assigns there); the kernel's oracles stay one-sided in
+# `tests/marginal/test_sqrtinfo.py`. `test_provenance.py` asserts the
+# delegation's direction, so an un-delegation shows up as a failure here
+# rather than as a silently-vacuous comparison springing back to life.
 
 
 @pytest.mark.parametrize("prior_std", [0.7, 1.0, 3.0])
 def test_marginalise_agrees_bitwise_including_the_constant(prior_std):
-    """The checked path, at a NON-unit prior.
+    """The checked path, at a NON-unit prior -- a SHELL comparison since D90.
 
-    The prior scale is swept because the constant rheplicant once shipped
-    missing is exactly zero at ``std = 1``. A crosscheck run only at unit
-    prior would agree with a port that had dropped the same term.
+    Both sides now compute the Schur complement and its Gaussian-integral
+    constant in the same kernel, so this sweep's original rationale --
+    catching a port that dropped the constant, which is exactly zero at
+    ``std = 1`` -- is dead: a kernel that dropped it would drop it for both
+    sides and this would stay green. The constant is pinned one-sided
+    instead, by ``tests/marginal/test_sqrtinfo.py`` and the nat-cost table
+    in the migration spec's B11.
+
+    What still has two sides, and what a red here now means: their checked
+    shell against ours -- the name-to-leading-block permutation, the offset
+    threading into and out of the kernel, and the pivot reading their five
+    refusals stand on. The non-unit prior stays because it drives a non-zero
+    offset through both shells, so a shell that mangled the offset cannot
+    agree bitwise.
     """
     from rheplicant.inference.sqrtinfo import marginalise as their_marginalise
 

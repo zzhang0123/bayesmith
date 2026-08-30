@@ -383,6 +383,26 @@ README 的第四条头条能力，也是 config 完全够不着的子系统（`c
   （「这类误差数据永远看不见，所以 §9.4/9.5 是声明式拒绝而非统计量」）是设计
   哲学，不是实现细节。
 
+> **D90（2026-08-30）：本条的「原样保留」已由「两份一致」变为「单处存在」，
+> 就地改判。** e-RHINO `b87e44f`（2026-08-28）把 `marginalise_arrays` 的
+> Schur complement 委托给 `bayesmith.marginal.sqrtinfo`（切换前实测四个返回
+> 数组 bitwise 相同；五个 refusal 连同上游自己的异常类与措辞留在近侧），
+> `marginalise` 自此是壳（命名→置换、offset 穿线、pivot 读取）套共享内核。
+> 按铁律 2 后半句，`tests/crosscheck/test_sqrtinfo_agrees.py::
+> test_marginalise_arrays_agrees_bitwise` 应同批退役——实际晚了两天
+> （2026-08-30 才执行），这两天它一直在拿本包比本包，而文件级 SWITCHED 登记
+> （`tests/test_migration_records.py`）按构造看不见符号级切换：`sqrtinfo.py`
+> 只切换了一个函数，文件还在，文件级断言就还绿。空窗由新守卫补上：
+> `tests/crosscheck/test_provenance.py` 以同模块 AST 可达性**双向**断言每个
+> 比较对象的归属——OWN 表不得触达 bayesmith（允许共享的阈值常量按实测
+> exact set 逐名列出），SHARED_KERNEL 表必须继续触达；e-RHINO 若撤销某项
+> 委托，失败信息指回本条与相应 route-comparison docstring，而不是让空转的
+> 比较悄悄复活。内核的独立预言机本来就在这边：`tests/marginal/
+> test_sqrtinfo.py`、`tests/marginal/test_streaming_equals_batch.py`
+> （上一条 bullet 写的 `tests/evidence/` 是 0.5.0 改名前的旧路径，原文不动）。
+> `combine`/`null`/`log_prob` 两侧仍各有实现，比较继续，且现在有守卫钉住
+> 「仍各有实现」这个前提本身。
+
 ### B12 — `prior_sensitivity` 的 config 面 `[R1]`
 
 rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这边实现，
