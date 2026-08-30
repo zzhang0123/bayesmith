@@ -67,7 +67,11 @@ from bayesmith.dispatch.plan import (
     working_epsilon,
 )
 from bayesmith.errors import GraphError, NotGaussian, NotLogLinear, StructureError
-from bayesmith.exact.block import _ancestors, unchecked_operator
+from bayesmith.exact.block import (
+    _ancestors,
+    _partition_probe_operator,
+    unchecked_operator,
+)
 from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.linearity import DEFAULT_SCALES, check_linearity
 from bayesmith.exact.loglinear import LOG_DEFAULT_SCALES, LogSpace, log_space
@@ -361,7 +365,7 @@ def factor_partition(
 
     blocks: list[Block] = []
     for group in linear_groups:
-        operator = unchecked_operator(graph, group, at=outside(graph, group))
+        operator = _partition_probe_operator(graph, group, at=outside(graph, group))
         movement = _movement_of(graph, operator, env, group, key)
         if movement > SIGMA_RTOL:
             for name in group:
@@ -782,7 +786,11 @@ def sample_factors(
                 if name not in set(block.latents)
             }
             operator = unchecked_operator(
-                source, block.latents, at=at, probe_gaussian=False
+                source,
+                block.latents,
+                at=at,
+                probe_gaussian=False,
+                nuts_latents=plan.nuts,
             )
             if block.latents in rebuild:
                 noise = precision_at(source, current)
@@ -968,7 +976,11 @@ def estimate_factors(
                 if name not in members
             }
             operator = unchecked_operator(
-                source, block.latents, at=at, probe_gaussian=False
+                source,
+                block.latents,
+                at=at,
+                probe_gaussian=False,
+                nuts_latents=plan.nuts,
             )
             solved, residual = wiener_solve(
                 operator,

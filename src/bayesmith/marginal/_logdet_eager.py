@@ -30,8 +30,6 @@ from typing import Any, Literal
 
 import numpy as np
 
-from bayesmith.exact.fisher import condition_ceiling
-
 __all__ = [
     "FrozenProbes",
     "KroneckerStructure",
@@ -55,8 +53,6 @@ __all__ = [
     "truncated_trace_logdet",
     "whole_trace_log_tail_bound",
 ]
-
-
 
 class ResamplingRefused(RuntimeError):
     """A per-call random logdet was requested for an HMC target."""
@@ -128,11 +124,16 @@ class LowRankFactors:
 
     def __init__(self, left: Any, right: Any | None = None):
         left_array = _read_only_array(left, ndim=2)
-        right_array = (
-            left_array
-            if right is None
-            else _read_only_array(right, ndim=2)
-        )
+        if right is None:
+            right_array = left_array
+        else:
+            candidate = _read_only_array(right, ndim=2)
+            same_representation = (
+                candidate.dtype == left_array.dtype
+                and candidate.shape == left_array.shape
+                and candidate.tobytes() == left_array.tobytes()
+            )
+            right_array = left_array if same_representation else candidate
         if left_array.shape[1] != right_array.shape[1]:
             raise ValueError("low-rank factors must have the same column count")
         object.__setattr__(self, "left", left_array)
@@ -167,6 +168,15 @@ class LadderConfig:
             raise ValueError("ladder size and rank thresholds must be non-negative")
         if not 0.0 <= self.low_rank_fraction <= 1.0:
             raise ValueError("low_rank_fraction must lie in [0, 1]")
+        if (
+            not np.isfinite(self.structure_rtol)
+            or not np.isfinite(self.structure_atol)
+            or self.structure_rtol < 0.0
+            or self.structure_atol < 0.0
+        ):
+            raise ValueError(
+                "structure_rtol and structure_atol must be finite and non-negative"
+            )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -268,8 +278,13 @@ def _read_only_array(value: Any, *, ndim: int | None = None) -> np.ndarray:
         )
     if not np.issubdtype(array.dtype, np.floating):
         array = array.astype(float)
+    elif array.dtype.type is np.float16:
+        array = array.astype(np.float32)
+    elif array.dtype.type not in (np.float32, np.float64):
+        array = array.astype(np.float64)
     if not np.all(np.isfinite(array)):
         raise ValueError("matrix inputs must be finite")
+    array = np.ascontiguousarray(array)
     array.setflags(write=False)
     return array
 
@@ -285,7 +300,17 @@ def _matrix_pair(
         )
     if lam.ndim == 2 and (lam.shape[0] != lam.shape[1]):
         raise ValueError("Lambda and perturbation matrices must be square")
-    return lam, perturb
+    computation_dtype = np.result_type(lam.dtype, perturb.dtype)
+    if not np.issubdtype(computation_dtype, np.floating):
+        computation_dtype = np.dtype(float)
+    elif computation_dtype.type is np.float16:
+        computation_dtype = np.dtype(np.float32)
+    elif computation_dtype.type not in (np.float32, np.float64):
+        computation_dtype = np.dtype(np.float64)
+    return (
+        np.asarray(lam, dtype=computation_dtype),
+        np.asarray(perturb, dtype=computation_dtype),
+    )
 
 
 def _dense(value: np.ndarray) -> np.ndarray:
@@ -296,6 +321,658 @@ def _n(value: np.ndarray) -> int:
     return int(value.shape[0])
 
 
+def _matching_factor_reconstruction(
+    value: np.ndarray, factors: LowRankFactors
+) -> tuple[bool, np.ndarray]:
+    """Match exact products from either primary BLAS storage order.
+
+    NumPy may select different BLAS kernels for C- and F-contiguous loadings,
+    so byte-identical factor values can produce last-bit-different products.
+    Both products remain exact algebraic evidence; a nonzero residual from all
+    layout combinations remains a rejection rather than a tolerance decision.
+    """
+    left_c = np.ascontiguousarray(factors.left)
+    right_c = np.ascontiguousarray(factors.right)
+    canonical = left_c @ right_c.T
+    if np.array_equal(canonical, value):
+        return True, canonical
+    left_f = np.asfortranarray(factors.left)
+    right_f = np.asfortranarray(factors.right)
+    for left, right in (
+        (left_f, right_f),
+        (left_c, right_f),
+        (left_f, right_c),
+    ):
+        reconstructed = left @ right.T
+        if np.array_equal(reconstructed, value):
+            return True, reconstructed
+    return False, canonical
+
+
+@dataclasses.dataclass(frozen=True)
+class _FactorProjectionCertificate:
+    """Executable low-rank bases plus their authoritative-P error budget."""
+
+    left_basis: np.ndarray = dataclasses.field(repr=False)
+    right_basis: np.ndarray = dataclasses.field(repr=False)
+    core: np.ndarray = dataclasses.field(repr=False)
+    reduced: np.ndarray = dataclasses.field(repr=False)
+    reduced_q: np.ndarray | None = dataclasses.field(repr=False)
+    reduced_r: np.ndarray | None = dataclasses.field(repr=False)
+    eta: float
+    log_error_bound: float
+    base_condition: float
+    base_condition_ceiling: float
+    base_log_error_bound: float
+    base_arithmetic_valid: bool
+    reduced_eta: float
+    reduced_condition: float
+    reduced_formation_error_norm: float
+    reduced_smallest_singular: float
+    reduced_log_error_bound: float
+    reduced_sign: float
+    total_log_error_bound: float
+    ceiling: float
+    reconstruction_matches: bool
+    valid: bool
+    reason: str
+
+
+def _balanced_factor_columns(
+    left: np.ndarray, right: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Balance each outer-product column by an exact power-of-two gauge.
+
+    A one-sided zero column contributes exactly zero, so both sides are set to
+    zero before QR.  Nonzero columns are accepted only when the balancing
+    transform is exactly reversible; underflow and overflow are refusals, not
+    numerical-rank decisions.
+    """
+    balanced_left = np.array(left, copy=True)
+    balanced_right = np.array(right, copy=True)
+    for column in range(left.shape[1]):
+        left_column = left[:, column]
+        right_column = right[:, column]
+        left_maximum = float(np.max(np.abs(left_column), initial=0.0))
+        right_maximum = float(np.max(np.abs(right_column), initial=0.0))
+        if left_maximum == 0.0 or right_maximum == 0.0:
+            balanced_left[:, column] = 0.0
+            balanced_right[:, column] = 0.0
+            continue
+
+        left_exponent = math.frexp(left_maximum)[1]
+        right_exponent = math.frexp(right_maximum)[1]
+        shift = (right_exponent - left_exponent) // 2
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            scaled_left = np.ldexp(left_column, shift)
+            scaled_right = np.ldexp(right_column, -shift)
+            restored_left = np.ldexp(scaled_left, -shift)
+            restored_right = np.ldexp(scaled_right, shift)
+        exactly_reversible = (
+            np.all(np.isfinite(scaled_left))
+            and np.all(np.isfinite(scaled_right))
+            and np.array_equal(restored_left, left_column)
+            and np.array_equal(restored_right, right_column)
+        )
+        if not exactly_reversible:
+            raise ValueError(
+                "power-of-two factor balancing would underflow a nonzero "
+                "entry or produce a non-finite value"
+            )
+        balanced_left[:, column] = scaled_left
+        balanced_right[:, column] = scaled_right
+    return balanced_left, balanced_right
+
+
+def _two_sum_error(
+    first: np.ndarray,
+    second: np.ndarray,
+    *,
+    operation: str = "Lambda + perturbation addition",
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return ``fl(first + second)`` and its exact Knuth TwoSum remainder."""
+    failure = f"cannot certify non-finite {operation} arithmetic"
+    try:
+        with np.errstate(over="raise", invalid="raise"):
+            summed = first + second
+            second_virtual = summed - first
+            error = (first - (summed - second_virtual)) + (
+                second - second_virtual
+            )
+    except FloatingPointError as error:
+        raise ValueError(failure) from error
+    if not np.all(np.isfinite(summed)) or not np.all(np.isfinite(error)):
+        raise ValueError(failure)
+    return summed, error
+
+
+def _roundoff_gamma(term_count: int, dtype: np.dtype) -> float:
+    """Standard floating forward-error coefficient for ``term_count`` ops."""
+    eps = float(np.finfo(dtype).eps)
+    product = float(term_count) * eps
+    return math.inf if product >= 1.0 else product / (1.0 - product)
+
+
+def _factor_projection_certificate(
+    value: np.ndarray,
+    factors: LowRankFactors,
+    lambda_matrix: np.ndarray,
+) -> _FactorProjectionCertificate:
+    """Certify factor spans against the stored perturbation itself.
+
+    Floating ``P = L @ R.T`` can contain a real off-span rounding direction.
+    Projecting authoritative ``P`` onto balanced QR bases measures that omitted
+    matrix directly.  Whitening both the residual and ``Sigma`` by ``Lambda``
+    makes the certificate invariant to a change of physical units.  The
+    spectral norm, normalised by the smallest eigenvalue of whitened ``Sigma``,
+    gives ``eta``.  Knuth TwoSum also accounts for the difference between exact
+    ``Lambda + P`` and the stored floating sum.  Then
+    ``n * -log1p(-eta)`` bounds the corresponding log-determinant error.
+    """
+    if (
+        factors.left.shape[0] != value.shape[0]
+        or factors.right.shape[0] != value.shape[0]
+    ):
+        raise ValueError("low-rank factor row counts must equal perturbation size")
+    if value.ndim != 2:
+        raise ValueError("dense low-rank factors require a dense perturbation")
+
+    target_dtype = np.result_type(value.dtype, lambda_matrix.dtype)
+    if not np.issubdtype(target_dtype, np.floating):
+        target_dtype = np.dtype(float)
+    elif target_dtype.type is np.float16:
+        target_dtype = np.dtype(np.float32)
+    elif target_dtype.type not in (np.float32, np.float64):
+        target_dtype = np.dtype(np.float64)
+    target_perturbation = np.asarray(value, dtype=target_dtype)
+    target_lam = np.asarray(lambda_matrix, dtype=target_dtype)
+    if target_lam.ndim != 2 or target_lam.shape != target_perturbation.shape:
+        raise ValueError(
+            "dense low-rank factors require a matching dense Lambda matrix"
+        )
+    work_dtype = np.result_type(
+        target_dtype, factors.left.dtype, factors.right.dtype
+    )
+    if work_dtype.type not in (np.float32, np.float64):
+        work_dtype = np.dtype(np.float64)
+    perturbation = np.asarray(target_perturbation, dtype=work_dtype)
+    lam = np.asarray(target_lam, dtype=work_dtype)
+    left = np.asarray(factors.left, dtype=work_dtype)
+    right = np.asarray(factors.right, dtype=work_dtype)
+    reconstruction_matches, reconstructed = _matching_factor_reconstruction(
+        perturbation, factors
+    )
+    target_sigma, target_addition_error = _two_sum_error(
+        target_lam, target_perturbation
+    )
+    sigma = np.asarray(target_sigma, dtype=work_dtype)
+    addition_error = np.asarray(target_addition_error, dtype=work_dtype)
+
+    balanced_left, balanced_right = _balanced_factor_columns(left, right)
+    try:
+        left_basis = np.linalg.qr(balanced_left, mode="reduced")[0]
+        right_basis = np.linalg.qr(balanced_right, mode="reduced")[0]
+        with np.errstate(over="raise", invalid="raise"):
+            core = left_basis.T @ perturbation @ right_basis
+            projected = left_basis @ core @ right_basis.T
+    except (FloatingPointError, np.linalg.LinAlgError) as error:
+        raise ValueError(
+            "factor projection could not be evaluated with finite QR arithmetic"
+        ) from error
+    if not (
+        np.all(np.isfinite(left_basis))
+        and np.all(np.isfinite(right_basis))
+        and np.all(np.isfinite(core))
+        and np.all(np.isfinite(projected))
+    ):
+        raise ValueError(
+            "factor projection could not be evaluated with finite QR arithmetic"
+        )
+
+    residual = (perturbation - projected) - addition_error
+    diagonal = np.diag(lam)
+    lambda_is_diagonal = np.array_equal(lam, np.diag(diagonal))
+    try:
+        with np.errstate(over="raise", divide="raise", invalid="raise"):
+            if lambda_is_diagonal:
+                square_root = np.sqrt(diagonal)
+                whitened_residual = (
+                    residual / square_root[:, None] / square_root[None, :]
+                )
+                whitened_sigma = (
+                    sigma / square_root[:, None] / square_root[None, :]
+                )
+            else:
+                lambda_factor = np.linalg.cholesky(lam)
+                left_whitened_residual = np.linalg.solve(lambda_factor, residual)
+                whitened_residual = np.linalg.solve(
+                    lambda_factor, left_whitened_residual.T
+                ).T
+                left_whitened_sigma = np.linalg.solve(lambda_factor, sigma)
+                whitened_sigma = np.linalg.solve(
+                    lambda_factor, left_whitened_sigma.T
+                ).T
+        symmetric_whitened_sigma = _symmetric_roundoff_representative(
+            whitened_sigma,
+            operation="factor projection whitened-Sigma symmetrization",
+        )
+        smallest_eigenvalue = float(
+            np.min(np.linalg.eigvalsh(symmetric_whitened_sigma))
+        )
+    except (
+        FloatingPointError,
+        np.linalg.LinAlgError,
+        TypeError,
+        ValueError,
+    ) as error:
+        raise ValueError(
+            "factor projection could not whiten Lambda and Sigma with finite "
+            "supported arithmetic"
+        ) from error
+    if not np.all(np.isfinite(whitened_residual)):
+        residual_norm = math.inf
+    else:
+        try:
+            residual_norm = float(np.linalg.norm(whitened_residual, ord=2))
+        except (np.linalg.LinAlgError, TypeError) as error:
+            raise ValueError(
+                "factor projection spectral norm could not be evaluated with "
+                "supported finite arithmetic"
+            ) from error
+    eta = (
+        math.inf
+        if smallest_eigenvalue <= 0.0 or not np.isfinite(smallest_eigenvalue)
+        else residual_norm / smallest_eigenvalue
+    )
+    ceiling = math.sqrt(float(np.finfo(target_dtype).eps))
+    log_error_bound = (
+        -float(value.shape[0]) * math.log1p(-eta)
+        if np.isfinite(eta) and 0.0 <= eta < 1.0
+        else math.inf
+    )
+    projection_valid = bool(
+        np.isfinite(eta)
+        and eta < 1.0
+        and np.isfinite(log_error_bound)
+        and log_error_bound <= ceiling
+    )
+
+    n = int(value.shape[0])
+    rank = int(core.shape[0])
+    work_eps = float(np.finfo(work_dtype).eps)
+    if lambda_is_diagonal:
+        diagonal_magnitudes = np.abs(diagonal)
+        smallest_diagonal = float(
+            np.min(diagonal_magnitudes, initial=math.inf)
+        )
+        base_condition = (
+            math.inf
+            if smallest_diagonal == 0.0
+            else float(np.max(diagonal_magnitudes, initial=0.0))
+            / smallest_diagonal
+        )
+        base_condition_ceiling = math.inf
+        try:
+            diagonal_logs = np.log(diagonal)
+        except (FloatingPointError, TypeError) as error:
+            raise ValueError(
+                "determinant-lemma base logarithms require finite supported "
+                "arithmetic"
+            ) from error
+        base_log_error_bound = 2.0 * work_eps * math.fsum(
+            max(1.0, abs(float(item))) for item in diagonal_logs
+        )
+        base_solve_eta = work_eps / (1.0 - work_eps)
+    else:
+        try:
+            base_condition = float(np.linalg.cond(lam))
+        except (np.linalg.LinAlgError, TypeError) as error:
+            raise ValueError(
+                "determinant-lemma base condition could not be measured with "
+                "supported arithmetic"
+            ) from error
+        base_condition_ceiling = 1.0 / math.sqrt(work_eps)
+        base_solve_eta = _roundoff_gamma(3 * n, work_dtype) * base_condition
+        base_factorization_log_bound = (
+            -float(n) * math.log1p(-base_solve_eta)
+            if np.isfinite(base_solve_eta) and 0.0 <= base_solve_eta < 1.0
+            else math.inf
+        )
+        factor_diagonal_logs = np.log(np.diag(lambda_factor))
+        base_log_roundoff_bound = 4.0 * work_eps * math.fsum(
+            max(1.0, abs(2.0 * float(item)))
+            for item in factor_diagonal_logs
+        )
+        base_log_error_bound = math.fsum(
+            (base_factorization_log_bound, base_log_roundoff_bound)
+        )
+    base_arithmetic_valid = bool(
+        np.isfinite(base_condition)
+        and base_condition < base_condition_ceiling
+        and np.isfinite(base_log_error_bound)
+        and base_log_error_bound <= ceiling
+    )
+
+    try:
+        with np.errstate(over="raise", divide="raise", invalid="raise"):
+            if lambda_is_diagonal:
+                preconditioned_left = left_basis / diagonal[:, None]
+                preconditioned_left_error = (
+                    work_eps / (1.0 - work_eps)
+                ) * np.abs(preconditioned_left)
+                solve_error_norm = 0.0
+            else:
+                preconditioned_left = np.linalg.solve(lam, left_basis)
+                preconditioned_left_error = None
+                solve_error_norm = (
+                    math.inf
+                    if not np.isfinite(base_solve_eta) or base_solve_eta >= 1.0
+                    else base_solve_eta
+                    / (1.0 - base_solve_eta)
+                    * float(np.linalg.norm(preconditioned_left, ord=2))
+                )
+            preconditioned_bases = right_basis.T @ preconditioned_left
+            correction = preconditioned_bases @ core
+        reduced, reduced_addition_error = _two_sum_error(
+            np.eye(rank, dtype=work_dtype),
+            correction,
+            operation="reduced determinant-lemma addition",
+        )
+    except (FloatingPointError, np.linalg.LinAlgError, TypeError) as error:
+        raise ValueError(
+            "reduced determinant-lemma arithmetic could not be evaluated "
+            "with finite supported arithmetic"
+        ) from error
+    if not (
+        np.all(np.isfinite(preconditioned_left))
+        and np.all(np.isfinite(preconditioned_bases))
+        and np.all(np.isfinite(correction))
+        and np.all(np.isfinite(reduced))
+    ):
+        raise ValueError(
+            "reduced determinant-lemma arithmetic requires finite matrices"
+        )
+
+    if rank == 0:
+        reduced_q = None
+        reduced_r = None
+        reduced_eta = 0.0
+        reduced_condition = 1.0
+        reduced_formation_error_norm = 0.0
+        reduced_smallest_singular = 1.0
+        reduced_log_error_bound = 0.0
+        reduced_sign = 1.0
+    else:
+        first_roundoff_envelope = _roundoff_gamma(n, work_dtype) * (
+            np.abs(right_basis.T) @ np.abs(preconditioned_left)
+        )
+        if preconditioned_left_error is None:
+            first_error_envelope = None
+            first_error_norm = solve_error_norm + float(
+                np.linalg.norm(first_roundoff_envelope, ord=2)
+            )
+        else:
+            first_error_envelope = (
+                np.abs(right_basis.T) @ preconditioned_left_error
+            ) + first_roundoff_envelope
+            first_error_norm = float(
+                np.linalg.norm(first_error_envelope, ord=2)
+            )
+        correction_roundoff_envelope = _roundoff_gamma(rank, work_dtype) * (
+            np.abs(preconditioned_bases) @ np.abs(core)
+        )
+        if first_error_envelope is None:
+            correction_error_norm = (
+                first_error_norm * float(np.linalg.norm(core, ord=2))
+                + float(np.linalg.norm(correction_roundoff_envelope, ord=2))
+            )
+            reduced_formation_envelope = None
+            reduced_formation_error_norm = correction_error_norm + float(
+                np.linalg.norm(reduced_addition_error, ord=2)
+            )
+        else:
+            correction_error_envelope = (
+                first_error_envelope @ np.abs(core)
+            ) + correction_roundoff_envelope
+            reduced_formation_envelope = correction_error_envelope + np.abs(
+                reduced_addition_error
+            )
+            reduced_formation_error_norm = float(
+                np.linalg.norm(reduced_formation_envelope, ord=2)
+            )
+        try:
+            singular_values = np.linalg.svd(reduced, compute_uv=False)
+            reduced_condition = float(np.linalg.cond(reduced))
+        except (np.linalg.LinAlgError, TypeError) as error:
+            raise ValueError(
+                "reduced determinant-lemma conditioning could not be measured "
+                "with supported arithmetic"
+            ) from error
+        singular_value_roundoff_margin = _roundoff_gamma(
+            3 * rank, work_dtype
+        ) * float(np.linalg.norm(np.abs(reduced), ord=2))
+        reduced_smallest_singular = max(
+            0.0,
+            float(singular_values[-1]) - singular_value_roundoff_margin,
+        )
+        reduced_is_diagonal = np.array_equal(
+            reduced, np.diag(np.diag(reduced))
+        )
+        envelope_is_diagonal = (
+            reduced_formation_envelope is not None
+            and np.array_equal(
+                reduced_formation_envelope,
+                np.diag(np.diag(reduced_formation_envelope)),
+            )
+        )
+        if reduced_is_diagonal and envelope_is_diagonal:
+            reduced_q = None
+            reduced_r = None
+            reduced_diagonal = np.diag(reduced)
+            if np.any(reduced_diagonal == 0.0):
+                relative_diagonal_error = np.full(rank, math.inf)
+            else:
+                relative_diagonal_error = np.diag(
+                    reduced_formation_envelope
+                ) / np.abs(reduced_diagonal)
+            reduced_eta = float(
+                np.max(relative_diagonal_error, initial=0.0)
+            )
+            reduced_sign = float(np.prod(np.sign(reduced_diagonal)))
+            if (
+                reduced_sign > 0.0
+                and np.all(np.isfinite(relative_diagonal_error))
+                and np.all(relative_diagonal_error < 1.0)
+            ):
+                formation_log_bound = math.fsum(
+                    -math.log1p(-float(item))
+                    for item in relative_diagonal_error
+                )
+                diagonal_log_roundoff = 2.0 * work_eps * math.fsum(
+                    max(1.0, abs(math.log(float(item))))
+                    for item in reduced_diagonal
+                )
+                reduced_log_error_bound = math.fsum(
+                    (formation_log_bound, diagonal_log_roundoff)
+                )
+            else:
+                reduced_log_error_bound = math.inf
+        else:
+            try:
+                reduced_q, reduced_r = np.linalg.qr(reduced)
+                reconstructed_reduced = reduced_q @ reduced_r
+                qr_residual, qr_addition_error = _two_sum_error(
+                    reduced,
+                    -reconstructed_reduced,
+                    operation="reduced QR reconstruction subtraction",
+                )
+                orthogonal_product = reduced_q.T @ reduced_q
+                orthogonal_residual, orthogonal_addition_error = _two_sum_error(
+                    orthogonal_product,
+                    -np.eye(rank, dtype=work_dtype),
+                    operation="reduced QR orthogonality subtraction",
+                )
+                q_sign = float(np.linalg.slogdet(reduced_q)[0])
+            except (FloatingPointError, np.linalg.LinAlgError, TypeError) as error:
+                raise ValueError(
+                    "reduced determinant-lemma QR certificate could not be "
+                    "evaluated with finite supported arithmetic"
+                ) from error
+            qr_reconstruction_envelope = (
+                np.abs(qr_residual)
+                + np.abs(qr_addition_error)
+                + _roundoff_gamma(rank, work_dtype)
+                * (np.abs(reduced_q) @ np.abs(reduced_r))
+            )
+            qr_reconstruction_error_norm = float(
+                np.linalg.norm(qr_reconstruction_envelope, ord=2)
+            )
+            orthogonality_envelope = (
+                np.abs(orthogonal_residual)
+                + np.abs(orthogonal_addition_error)
+                + _roundoff_gamma(rank, work_dtype)
+                * (np.abs(reduced_q.T) @ np.abs(reduced_q))
+            )
+            orthogonality_eta = float(
+                np.linalg.norm(orthogonality_envelope, ord=2)
+            )
+            reduced_formation_eta = (
+                math.inf
+                if reduced_smallest_singular <= 0.0
+                else reduced_formation_error_norm / reduced_smallest_singular
+            )
+            qr_reconstruction_eta = (
+                math.inf
+                if reduced_smallest_singular <= 0.0
+                else qr_reconstruction_error_norm
+                / reduced_smallest_singular
+            )
+            reduced_eta = reduced_formation_eta + qr_reconstruction_eta
+            reduced_r_diagonal = np.diag(reduced_r)
+            reduced_sign = q_sign * float(
+                np.prod(np.sign(reduced_r_diagonal))
+            )
+            if (
+                reduced_sign > 0.0
+                and np.isfinite(reduced_eta)
+                and 0.0 <= reduced_eta < 1.0
+                and np.isfinite(orthogonality_eta)
+                and 0.0 <= orthogonality_eta < 1.0
+                and np.all(reduced_r_diagonal != 0.0)
+            ):
+                matrix_log_bound = -float(rank) * math.log1p(-reduced_eta)
+                orthogonality_log_bound = (
+                    -0.5
+                    * float(rank)
+                    * math.log1p(-orthogonality_eta)
+                )
+                triangular_log_roundoff = 2.0 * work_eps * math.fsum(
+                    max(1.0, abs(math.log(abs(float(item)))))
+                    for item in reduced_r_diagonal
+                )
+                reduced_log_error_bound = math.fsum(
+                    (
+                        matrix_log_bound,
+                        orthogonality_log_bound,
+                        triangular_log_roundoff,
+                    )
+                )
+            else:
+                reduced_log_error_bound = math.inf
+    reduced_arithmetic_valid = bool(
+        np.isfinite(reduced_eta)
+        and reduced_eta < 1.0
+        and np.isfinite(reduced_condition)
+        and reduced_sign > 0.0
+        and np.isfinite(reduced_log_error_bound)
+        and reduced_log_error_bound <= ceiling
+    )
+    total_log_error_bound = math.fsum(
+        (log_error_bound, base_log_error_bound, reduced_log_error_bound)
+    )
+    total_valid = bool(
+        np.isfinite(total_log_error_bound)
+        and total_log_error_bound <= ceiling
+    )
+
+    if not reconstruction_matches:
+        inverse = np.linalg.inv(_dense(lam))
+        residual_x = (perturbation - reconstructed) @ inverse
+        amplified = float(np.max(np.abs(residual_x), initial=0.0))
+        reason = (
+            "low-rank factors do not exactly reconstruct the perturbation; "
+            "a nonzero Lambda^-1-amplified residual is not algebraic-rank "
+            f"evidence (amplified residual={amplified:.8g})"
+        )
+    elif not projection_valid:
+        reason = (
+            "factor-span projection cannot certify the authoritative "
+            "perturbation's logdet error: "
+            f"eta={eta:.8g}, log-error bound={log_error_bound:.8g}, "
+            f"ceiling={ceiling:.8g}"
+        )
+    elif not base_arithmetic_valid:
+        reason = (
+            "determinant-lemma base factorization/solve condition cannot "
+            "certify its arithmetic: "
+            f"condition={base_condition:.8g}, condition ceiling="
+            f"{base_condition_ceiling:.8g}, log-error bound="
+            f"{base_log_error_bound:.8g}, ceiling={ceiling:.8g}"
+        )
+    elif not reduced_arithmetic_valid:
+        reason = (
+            "reduced determinant-lemma arithmetic cannot certify its logdet "
+            f"error: eta={reduced_eta:.8g}, condition="
+            f"{reduced_condition:.8g}, log-error bound="
+            f"{reduced_log_error_bound:.8g}, ceiling={ceiling:.8g}"
+        )
+    elif not total_valid:
+        reason = (
+            "combined determinant-lemma representation and arithmetic logdet "
+            f"error bound {total_log_error_bound:.8g} exceeds ceiling "
+            f"{ceiling:.8g}"
+        )
+    else:
+        reason = (
+            "exact factor reconstruction, authoritative-P projection, and "
+            "determinant-lemma arithmetic were "
+            f"certified (eta={eta:.8g}, log-error bound={log_error_bound:.8g}, "
+            f"total log-error bound={total_log_error_bound:.8g}, "
+            f"ceiling={ceiling:.8g})"
+        )
+    return _FactorProjectionCertificate(
+        left_basis=left_basis,
+        right_basis=right_basis,
+        core=core,
+        reduced=reduced,
+        reduced_q=reduced_q,
+        reduced_r=reduced_r,
+        eta=eta,
+        log_error_bound=log_error_bound,
+        base_condition=base_condition,
+        base_condition_ceiling=base_condition_ceiling,
+        base_log_error_bound=base_log_error_bound,
+        base_arithmetic_valid=base_arithmetic_valid,
+        reduced_eta=reduced_eta,
+        reduced_condition=reduced_condition,
+        reduced_formation_error_norm=reduced_formation_error_norm,
+        reduced_smallest_singular=reduced_smallest_singular,
+        reduced_log_error_bound=reduced_log_error_bound,
+        reduced_sign=reduced_sign,
+        total_log_error_bound=total_log_error_bound,
+        ceiling=ceiling,
+        reconstruction_matches=reconstruction_matches,
+        valid=bool(
+            reconstruction_matches
+            and projection_valid
+            and base_arithmetic_valid
+            and reduced_arithmetic_valid
+            and total_valid
+        ),
+        reason=reason,
+    )
+
+
 def _algebraic_rank_bound(
     value: np.ndarray,
     factors: LowRankFactors | None = None,
@@ -303,13 +980,11 @@ def _algebraic_rank_bound(
 ) -> int:
     """A safe finite-polynomial termination degree, never a numerical rank.
 
-    A supplied factorisation is checked in the preconditioned geometry.  Only
-    an exact array match is algebraic-rank evidence.  A floating residual
-    cannot be admitted by a generic tolerance: after multiplication by
-    ``Lambda^-1`` it can become order one, and near an eigenvalue of ``-1`` an
-    arbitrarily small omitted direction can change the log determinant by
-    order one.  Callers needing an approximate factorisation must use an
-    approximate rung with an explicit propagated error budget.
+    A supplied factorisation is checked in the preconditioned geometry.  An
+    exact array match is necessary but not sufficient: floating matrix
+    multiplication can store an off-span rounding direction in authoritative
+    ``P``.  The projection certificate admits it only under an explicit
+    log-determinant error budget.
     """
     if factors is not None:
         if (
@@ -319,41 +994,78 @@ def _algebraic_rank_bound(
             raise ValueError("low-rank factor row counts must equal perturbation size")
         if value.ndim != 2:
             raise ValueError("dense low-rank factors require a dense perturbation")
-        reconstructed = factors.left @ factors.right.T
-        if not np.array_equal(reconstructed, value):
-            if lambda_matrix is None:
+        if lambda_matrix is None:
+            reconstruction_matches, _ = _matching_factor_reconstruction(
+                value, factors
+            )
+            if not reconstruction_matches:
                 raise ValueError(
                     "Lambda is required to check low-rank reconstruction in "
                     "the preconditioned geometry"
                 )
-            inverse = np.linalg.inv(_dense(lambda_matrix))
-            residual_x = (value - reconstructed) @ inverse
-            amplified = float(np.max(np.abs(residual_x), initial=0.0))
-            raise ValueError(
-                "low-rank factors do not exactly reconstruct the perturbation; "
-                "a nonzero Lambda^-1-amplified residual is not algebraic-rank "
-                f"evidence (amplified residual={amplified:.8g})"
-            )
-        if reconstructed.shape != value.shape:
-            raise ValueError(
-                "low-rank factors do not reconstruct the perturbation shape"
-            )
+            return factors.rank_bound
+        certificate = _factor_projection_certificate(
+            value, factors, lambda_matrix
+        )
+        if not certificate.valid:
+            raise ValueError(certificate.reason)
         return factors.rank_bound
     if value.ndim == 1:
         return int(np.count_nonzero(value != 0.0))
     return int(value.shape[0])
 
 
-def _is_positive_definite(value: np.ndarray) -> bool:
+def _is_symmetric(
+    value: np.ndarray, *, rtol: float = 0.0, atol: float = 0.0
+) -> bool:
+    """Test tolerant symmetry without ever forming an overflowing difference."""
+    if value.ndim != 2 or value.shape[0] != value.shape[1]:
+        return False
+    transpose = value.T
+    if np.array_equal(value, transpose):
+        return True
+    scale = np.maximum(np.abs(value), np.abs(transpose))
+    nonzero = scale != 0.0
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        scaled_value = np.divide(
+            value, scale, out=np.zeros_like(value), where=nonzero
+        )
+        scaled_transpose = np.divide(
+            transpose, scale, out=np.zeros_like(value), where=nonzero
+        )
+        scaled_atol = np.divide(
+            atol, scale, out=np.zeros_like(value), where=nonzero
+        )
+        tolerance = scaled_atol + rtol * np.abs(scaled_transpose)
+        difference = np.abs(scaled_value - scaled_transpose)
+    return bool(np.all(difference <= tolerance))
+
+
+def _is_positive_definite(
+    value: np.ndarray, *, rtol: float = 0.0, atol: float = 0.0
+) -> bool:
     if value.ndim == 1:
         return bool(np.all(value > 0.0))
-    if value.shape[0] != value.shape[1] or not np.array_equal(value, value.T):
+    if not _is_symmetric(value, rtol=rtol, atol=atol):
         return False
-    return bool(np.all(np.linalg.eigvalsh(value) > 0.0))
+    try:
+        symmetric = _symmetric_roundoff_representative(
+            value, operation="positive-definiteness symmetrization"
+        )
+        eigenvalues = np.linalg.eigvalsh(symmetric)
+    except (FloatingPointError, np.linalg.LinAlgError, TypeError, ValueError):
+        return False
+    return bool(np.all(np.isfinite(eigenvalues)) and np.all(eigenvalues > 0.0))
 
 
 def _condition_certificate(value: np.ndarray) -> tuple[float, float, bool]:
-    """Return condition, dtype ceiling, and strict numerical-resolution verdict."""
+    """Return condition and the recurrence/transform resolution ceiling.
+
+    Log determinants do not square a condition number or form a matrix inverse,
+    so they must not inherit Fisher's ``1/sqrt(eps)`` ceiling.  Structured
+    recurrences, transforms, and the dense Cholesky rung retain the weaker
+    ``1/eps`` resolution check; determinant-lemma payloads do not use it.
+    """
     if value.ndim == 1:
         magnitudes = np.abs(value)
         smallest = float(np.min(magnitudes, initial=math.inf))
@@ -363,9 +1075,20 @@ def _condition_certificate(value: np.ndarray) -> tuple[float, float, bool]:
             else float(np.max(magnitudes, initial=0.0)) / smallest
         )
     else:
-        condition = float(np.linalg.cond(value))
+        try:
+            normalized, _ = _exact_power_of_two_scale(
+                value, operation="condition certificate"
+            )
+            condition = float(np.linalg.cond(normalized))
+        except (
+            FloatingPointError,
+            np.linalg.LinAlgError,
+            TypeError,
+            ValueError,
+        ):
+            condition = math.inf
     dtype = value.dtype if np.issubdtype(value.dtype, np.inexact) else np.dtype(float)
-    ceiling = condition_ceiling(dtype)
+    ceiling = 1.0 / float(np.finfo(dtype).eps)
     return condition, ceiling, bool(np.isfinite(condition) and condition < ceiling)
 
 
@@ -394,18 +1117,48 @@ def lambda_logdet(lambda_matrix: Any) -> float:
         raise ValueError("Lambda must be symmetric positive definite")
     if lam.ndim == 1:
         return float(np.sum(np.log(lam)))
-    factor = np.linalg.cholesky(lam)
-    return float(2.0 * np.sum(np.log(np.diag(factor))))
+    maximum = float(np.max(np.abs(lam), initial=0.0))
+    if maximum < float(np.finfo(lam.dtype).tiny):
+        scaled, scale_shift = _exact_power_of_two_scale(
+            lam, operation="Lambda Cholesky"
+        )
+    else:
+        scaled, scale_shift = lam, 0
+    try:
+        with np.errstate(over="raise", divide="raise", invalid="raise"):
+            factor = np.linalg.cholesky(scaled)
+            factor_logdet = 2.0 * math.fsum(
+                float(value) for value in np.log(np.diag(factor))
+            )
+        scale_correction = (
+            -float(lam.shape[0] * scale_shift) * math.log(2.0)
+        )
+        total = math.fsum((factor_logdet, scale_correction))
+    except (
+        FloatingPointError,
+        np.linalg.LinAlgError,
+        OverflowError,
+        TypeError,
+        ValueError,
+    ) as error:
+        raise ValueError(
+            "Lambda Cholesky could not be evaluated with finite supported arithmetic"
+        ) from error
+    if not math.isfinite(total):
+        raise ValueError(
+            "Lambda Cholesky could not be evaluated with finite supported arithmetic"
+        )
+    return total
 
 
 def _newton_stability(
     lambda_matrix: Any, perturbation: Any, termination: int
 ) -> tuple[bool, float]:
-    """Conservative rho gate shared by both finite e-polynomial entries.
+    """Conservative rho gate for the nonsparse finite-series payload.
 
-    No termination degree is an escape from the measured ``rho(X) <= 1``
-    requirement. This gate makes no determinant computation; the payload uses
-    stable factored evaluation rather than a cancelling Newton recurrence.
+    A verified sparse determinant-lemma representation does not need this
+    convergence condition.  The generic finite e-polynomial route retains it
+    because its admitted degree alone is not a numerical-stability proof.
     """
     rho = spectral_radius(lambda_matrix, perturbation)
     stable = rho <= 1.0
@@ -418,43 +1171,93 @@ def _newton_logdet(
     *,
     termination: int,
     factors: LowRankFactors | None,
+    require_finite_stability: bool,
 ) -> float:
     """Evaluate the finite e-polynomial through a stable factored form.
 
     Direct Newton identities are algebraically exact but numerically unsafe:
     mixed-sign spectra cancel and positive high-degree spectra overflow even
     when the log determinant is finite. Compact diagonal products sum
-    ``log(Lambda + P)`` entrywise; a symmetric low-rank factor uses its
-    determinant-lemma factor;
-    all remaining dense inputs use Cholesky. These are representations of the
-    same finite polynomial, selected only by verified sparsity evidence.
+    ``log(Lambda + P)`` entrywise; exact low-rank factors use the general
+    determinant lemma; all remaining dense inputs use Cholesky. These are
+    representations of the same finite polynomial, selected only by verified
+    sparsity evidence.
     """
     lam, perturb = _matrix_pair(lambda_matrix, perturbation)
     if not _is_positive_definite(lam):
         raise ValueError("Lambda must be symmetric positive definite")
-    if not _is_positive_definite(lam + perturb):
+    sigma, _ = _two_sum_error(lam, perturb)
+    if not _is_positive_definite(sigma):
         raise ValueError("Sigma must be symmetric positive definite")
-    stable, rho = _newton_stability(lam, perturb, termination)
-    if not stable:
-        raise ValueError(
-            "finite e-polynomial stability cannot certify an expansive spectrum at "
-            f"degree {termination}: measured rho={rho:.8g}. Fall through to "
-            "a stable exact rung."
+    if factors is not None:
+        _require_resolved_dense_condition(sigma, "determinant lemma")
+        certificate = _factor_projection_certificate(perturb, factors, lam)
+        if not certificate.valid:
+            raise ValueError(certificate.reason)
+        work_dtype = np.result_type(
+            lam.dtype, factors.left.dtype, factors.right.dtype
         )
+        if work_dtype.type not in (np.float32, np.float64):
+            work_dtype = np.dtype(np.float64)
+        work_lam = np.asarray(lam, dtype=work_dtype)
+        diagonal = np.diag(work_lam)
+        lambda_is_diagonal = np.array_equal(work_lam, np.diag(diagonal))
+        try:
+            with np.errstate(over="raise", divide="raise", invalid="raise"):
+                if lambda_is_diagonal:
+                    base_logdet = math.fsum(
+                        math.log(float(value)) for value in diagonal
+                    )
+                else:
+                    base_logdet = lambda_logdet(work_lam)
+            reduced_diagonal = np.diag(certificate.reduced)
+            reduced_is_diagonal = np.array_equal(
+                certificate.reduced, np.diag(reduced_diagonal)
+            )
+            if reduced_is_diagonal:
+                sign = certificate.reduced_sign
+                log_absolute_determinant = math.fsum(
+                    math.log(abs(float(value)))
+                    for value in reduced_diagonal
+                )
+            else:
+                if certificate.reduced_q is None or certificate.reduced_r is None:
+                    raise ValueError(
+                        "the certified reduced determinant-lemma QR payload "
+                        "is missing"
+                    )
+                sign = certificate.reduced_sign
+                log_absolute_determinant = math.fsum(
+                    math.log(abs(float(value)))
+                    for value in np.diag(certificate.reduced_r)
+                )
+        except (FloatingPointError, np.linalg.LinAlgError) as error:
+            raise ValueError(
+                "the reduced determinant-lemma matrix could not be evaluated "
+                "with finite arithmetic"
+            ) from error
+        if not (
+            np.all(np.isfinite(certificate.reduced))
+            and sign > 0.0
+            and np.isfinite(log_absolute_determinant)
+        ):
+            raise ValueError(
+                "the reduced determinant-lemma matrix must be finite and have "
+                "a positive determinant"
+            )
+        return base_logdet + float(log_absolute_determinant)
+    if require_finite_stability:
+        stable, rho = _newton_stability(lam, perturb, termination)
+        if not stable:
+            raise ValueError(
+                "finite e-polynomial stability cannot certify an expansive spectrum at "
+                f"degree {termination}: measured rho={rho:.8g}. Fall through to "
+                "a stable exact rung."
+            )
     x = _x_matrix(lam, perturb)
     if x.ndim == 1:
-        return math.fsum(
-            math.log(float(value)) for value in lam + perturb
-        )
-    sigma = lam + perturb
+        return math.fsum(math.log(float(value)) for value in sigma)
     _require_resolved_dense_condition(sigma, "finite e-polynomial")
-    if factors is not None and factors.left is factors.right:
-        solved = np.linalg.solve(lam, factors.left)
-        reduced = np.eye(termination, dtype=lam.dtype) + factors.left.T @ solved
-        factor = np.linalg.cholesky(reduced)
-        return lambda_logdet(lam) + float(
-            2.0 * np.sum(np.log(np.diag(factor)))
-        )
     return dense_cholesky_logdet(sigma)
 
 
@@ -472,6 +1275,7 @@ def low_rank_logdet(
         perturb,
         termination=termination,
         factors=factors,
+        require_finite_stability=False,
     )
 
 
@@ -489,6 +1293,7 @@ def finite_perturbation_logdet(
         perturb,
         termination=termination,
         factors=factors,
+        require_finite_stability=True,
     )
 
 
@@ -513,6 +1318,133 @@ def _is_block_chain(
     return True
 
 
+def _symmetric_roundoff_representative(
+    value: np.ndarray, *, operation: str
+) -> np.ndarray:
+    """Return one orientation-independent representative of a symmetric result.
+
+    Exact symmetry is kept bitwise, including subnormal diagonal entries.  A
+    last-bit disagreement produced by dense arithmetic uses the correctly
+    rounded pair sum whenever that sum cannot overflow.  Only same-sign pairs
+    at risk of addition overflow are halved separately.  The already-equal
+    diagonal is restored exactly.
+    """
+    if not np.all(np.isfinite(value)):
+        raise ValueError(f"{operation} did not produce a finite matrix")
+    if np.array_equal(value, value.T):
+        return value
+    diagonal = np.diag(value).copy()
+    transpose = value.T
+    maximum = float(np.finfo(value.dtype).max)
+    absolute_value = np.abs(value)
+    absolute_transpose = np.abs(transpose)
+    same_sign = np.signbit(value) == np.signbit(transpose)
+    overflow_risk = same_sign & (
+        absolute_value > maximum - absolute_transpose
+    )
+    representative = np.empty_like(value)
+    try:
+        with np.errstate(
+            over="raise", divide="raise", invalid="raise", under="ignore"
+        ):
+            safe = ~overflow_risk
+            representative[safe] = (
+                value[safe] + transpose[safe]
+            ) / 2.0
+            representative[overflow_risk] = (
+                value[overflow_risk] / 2.0
+                + transpose[overflow_risk] / 2.0
+            )
+    except FloatingPointError as error:
+        raise ValueError(
+            f"{operation} could not form a finite symmetric roundoff representative"
+        ) from error
+    np.fill_diagonal(representative, diagonal)
+    if not np.all(np.isfinite(representative)):
+        raise ValueError(
+            f"{operation} could not form a finite symmetric roundoff representative"
+        )
+    return representative
+
+
+def _power_of_two_scaled_solve(
+    matrix: np.ndarray, right_hand_side: np.ndarray, *, operation: str
+) -> np.ndarray:
+    """Solve after an exact common scaling that preserves every nonzero input."""
+    absolute_matrix = np.abs(matrix)
+    coefficient_scale = float(np.max(absolute_matrix, initial=0.0))
+    if coefficient_scale == 0.0:
+        raise ValueError(f"{operation} has a singular all-zero Schur pivot")
+    nonzero = np.concatenate(
+        (
+            absolute_matrix[absolute_matrix != 0.0],
+            np.abs(right_hand_side[right_hand_side != 0.0]),
+        )
+    )
+    _, coefficient_exponent = math.frexp(coefficient_scale)
+    _, exponents = np.frexp(nonzero)
+    largest_exponent = math.frexp(float(np.finfo(matrix.dtype).max))[1]
+    upper_shift = largest_exponent - int(np.max(exponents))
+    shift = min(max(0, -coefficient_exponent), upper_shift)
+    try:
+        with np.errstate(
+            over="raise", divide="raise", invalid="raise", under="ignore"
+        ):
+            scaled_matrix = np.ldexp(matrix, shift)
+            scaled_right_hand_side = np.ldexp(right_hand_side, shift)
+            solution = np.linalg.solve(scaled_matrix, scaled_right_hand_side)
+    except (FloatingPointError, np.linalg.LinAlgError, TypeError) as error:
+        raise ValueError(
+            f"{operation} could not be evaluated with finite supported arithmetic"
+        ) from error
+    inputs_preserved = bool(
+        np.array_equal(np.ldexp(scaled_matrix, -shift), matrix)
+        and np.array_equal(
+            np.ldexp(scaled_right_hand_side, -shift), right_hand_side
+        )
+    )
+    if not (
+        inputs_preserved
+        and np.all(np.isfinite(scaled_matrix))
+        and np.all(np.isfinite(scaled_right_hand_side))
+        and np.all(np.isfinite(solution))
+    ):
+        raise ValueError(
+            f"{operation} could not be evaluated with finite supported arithmetic"
+        )
+    return solution
+
+
+def _exact_power_of_two_scale(
+    matrix: np.ndarray, *, operation: str
+) -> tuple[np.ndarray, int]:
+    """Normalize a dense factorization by one reversible power of two."""
+    maximum = float(np.max(np.abs(matrix), initial=0.0))
+    if maximum == 0.0:
+        raise ValueError(f"{operation} input has no nonzero scale")
+    _, exponent = math.frexp(maximum)
+    shift = -exponent
+    if shift == 0:
+        return matrix, 0
+    try:
+        with np.errstate(over="raise", invalid="raise", under="ignore"):
+            scaled = np.ldexp(matrix, shift)
+            restored = np.ldexp(scaled, -shift)
+    except FloatingPointError:
+        if shift < 0:
+            return matrix, 0
+        raise ValueError(
+            f"{operation} input could not be scaled with finite exact arithmetic"
+        ) from None
+    if not (np.all(np.isfinite(scaled)) and np.array_equal(restored, matrix)):
+        if shift < 0:
+            return matrix, 0
+        raise ValueError(
+            f"{operation} input could not be scaled with finite exact arithmetic"
+        )
+    return scaled, shift
+
+
 def state_space_logdet(
     matrix: Any, *, block_size: int, rtol: float = 1e-11, atol: float = 1e-13
 ) -> float:
@@ -520,22 +1452,67 @@ def state_space_logdet(
     dense = _read_only_array(matrix, ndim=2)
     if not _is_block_chain(dense, block_size, rtol=rtol, atol=atol):
         raise ValueError(f"matrix is not a block chain with block_size={block_size}")
-    if not np.array_equal(dense, dense.T):
+    if not _is_symmetric(dense, rtol=rtol, atol=atol):
         raise ValueError("a block chain logdet requires a symmetric matrix")
+    dense = _symmetric_roundoff_representative(
+        dense, operation="block-LDL input symmetrization"
+    )
+    dense, scale_shift = _exact_power_of_two_scale(
+        dense, operation="block-LDL"
+    )
     if not _is_positive_definite(dense):
         raise ValueError("a block chain logdet requires a positive definite matrix")
     _require_resolved_dense_condition(dense, "block-LDL")
     blocks = dense.shape[0] // block_size
     schur = np.array(dense[:block_size, :block_size], copy=True)
-    total = lambda_logdet(schur)
+    pivot_logdets = [lambda_logdet(schur)]
     for index in range(1, blocks):
         start = index * block_size
         previous = start - block_size
         link = dense[start : start + block_size, previous:start]
         diagonal = dense[start : start + block_size, start : start + block_size]
-        schur = diagonal - link @ np.linalg.solve(schur, link.T)
-        total += lambda_logdet(schur)
-    return float(total)
+        try:
+            with np.errstate(
+                over="raise", divide="raise", invalid="raise", under="ignore"
+            ):
+                solved_link = _power_of_two_scaled_solve(
+                    schur,
+                    link.T,
+                    operation=f"block-LDL Schur update {index}",
+                )
+                schur = diagonal - link @ solved_link
+        except (
+            FloatingPointError,
+            np.linalg.LinAlgError,
+            TypeError,
+            ValueError,
+        ) as error:
+            raise ValueError(
+                f"block-LDL Schur update {index} could not be evaluated with "
+                "finite supported arithmetic"
+            ) from error
+        schur = _symmetric_roundoff_representative(
+            schur, operation=f"block-LDL Schur update {index}"
+        )
+        try:
+            pivot_logdets.append(lambda_logdet(schur))
+        except (FloatingPointError, np.linalg.LinAlgError, ValueError) as error:
+            raise ValueError(
+                f"block-LDL Schur pivot {index} is not a resolved symmetric "
+                "positive-definite matrix"
+            ) from error
+    try:
+        scale_correction = (
+            -float(dense.shape[0] * scale_shift) * math.log(2.0)
+        )
+        total = math.fsum((*pivot_logdets, scale_correction))
+    except OverflowError as error:
+        raise ValueError(
+            "block-LDL pivot log-determinants do not have a finite sum"
+        ) from error
+    if not math.isfinite(total):
+        raise ValueError("block-LDL pivot log-determinants do not have a finite sum")
+    return total
 
 
 def _is_diagonal(matrix: np.ndarray, *, rtol: float, atol: float) -> bool:
@@ -623,10 +1600,27 @@ def dense_cholesky_logdet(matrix: Any) -> float:
 def spectral_radius(lambda_matrix: Any, perturbation: Any) -> float:
     """Eager measured ``rho(P Lambda^-1)`` for dense or diagonal inputs."""
     lam, perturb = _matrix_pair(lambda_matrix, perturbation)
-    x = _x_matrix(lam, perturb)
+    failure = (
+        "spectral-radius measurement requires finite, resolved "
+        "Lambda^-1 perturbation arithmetic"
+    )
+    try:
+        with np.errstate(over="raise", divide="raise", invalid="raise"):
+            x = _x_matrix(lam, perturb)
+    except (FloatingPointError, np.linalg.LinAlgError) as error:
+        raise ValueError(failure) from error
+    if not np.all(np.isfinite(x)):
+        raise ValueError(failure)
     if x.ndim == 1:
         return float(np.max(np.abs(x), initial=0.0))
-    return float(np.max(np.abs(np.linalg.eigvals(x)), initial=0.0))
+    try:
+        with np.errstate(over="raise", invalid="raise"):
+            eigenvalues = np.linalg.eigvals(x)
+    except (FloatingPointError, np.linalg.LinAlgError) as error:
+        raise ValueError(failure) from error
+    if not np.all(np.isfinite(eigenvalues)):
+        raise ValueError(failure)
+    return float(np.max(np.abs(eigenvalues), initial=0.0))
 
 
 def _validate_strict_rho(
@@ -645,9 +1639,7 @@ def _validate_strict_rho(
         raise ValueError(
             f"trace-log convergence requires certified rho < 1; got {certificate}"
         )
-    if actual_rho > certificate and not np.isclose(
-        actual_rho, certificate, rtol=1e-12, atol=1e-14
-    ):
+    if actual_rho > certificate:
         raise ValueError(
             f"rho certificate {certificate} understates measured rho {actual_rho}"
         )
@@ -760,14 +1752,17 @@ def frozen_hutchinson_trace_logdet(
     rho: float | None = None,
 ) -> float:
     """Rung 7: frozen-probe Taylor trace-log after an eager strict-rho check."""
+    if type(probes) is not FrozenProbes:
+        raise TypeError("frozen_probes must be an exact FrozenProbes bytes-backed instance")
+    vectors = probes.values
     lam, perturb = _matrix_pair(lambda_matrix, perturbation)
     _validate_strict_rho(lam, perturb, rho)
     x = _x_matrix(lam, perturb)
-    if probes.values.shape[1] != _n(lam):
+    if vectors.shape[1] != _n(lam):
         raise ValueError("frozen probe width must equal the matrix dimension")
     if order < 0:
         raise ValueError("order must be non-negative")
-    vectors = probes.values.T
+    vectors = vectors.T
     images = np.array(vectors, copy=True)
     estimates: list[float] = []
     for _ in range(order):

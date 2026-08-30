@@ -37,7 +37,7 @@ import equinox as eqx
 import jax.numpy as jnp
 
 from bayesmith.errors import GraphError, StructureError
-from bayesmith.exact.block import isolate, unchecked_operator
+from bayesmith.exact.block import _partition_probe_operator, isolate
 from bayesmith.graph.graph import Graph
 from bayesmith.marginal.campaign import epoch_observation
 from bayesmith.marginal.factorize import factorize
@@ -111,7 +111,7 @@ def _forward_runs(graph: Graph, names: tuple[str, ...]) -> None:
     jacobian is the expensive half and every refusal reachable here is
     structural, raised while the plated nodes are applied.
     """
-    domain = unchecked_operator(graph, names, {})
+    domain = _partition_probe_operator(graph, names, {})
     zeros = {
         name: jnp.zeros(domain.shape[name], domain.dtype[name]) for name in names
     }

@@ -37,8 +37,8 @@ from bayesmith.errors import GraphError, NotGaussian, StructureError
 from bayesmith.exact.block import (
     LinearBlock,
     _ancestors,
+    _partition_probe_operator,
     domain_centre,
-    unchecked_operator,
 )
 from bayesmith.exact.gaussian import (
     check_observed,
@@ -563,7 +563,7 @@ def _classify_block(
         # to NUTS with the members named. Caught here by SITE -- an `except`
         # placed any wider would swallow `check_gaussian`'s, which must not be.
         return _all_to_nuts(latents, f"exact block {list(block)} falls together: {exc}")
-    operator = unchecked_operator(graph, block, at)
+    operator = _partition_probe_operator(graph, block, at)
     movement = _sigma_movement(graph, operator, at, key)
     if movement <= SIGMA_RTOL:
         method = "gcr"

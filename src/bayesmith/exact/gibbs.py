@@ -155,8 +155,10 @@ def _hoisted_precision(
     probe has to run once before the sweep may disable it.
     """
     centre = _prior_centre(graph)
-    at = {name: value for name, value in centre.items() if name not in set(names)}
-    block = unchecked_operator(graph, names, at=at)
+    members = set(names)
+    nuts = tuple(name for name in graph.latents if name not in members)
+    at = {name: value for name, value in centre.items() if name not in members}
+    block = unchecked_operator(graph, names, at=at, nuts_latents=nuts)
     return _precision_at(graph, block, at, method, tol, maxiter)
 
 
@@ -226,6 +228,8 @@ def gibbs_factory(
             prior centre to hoist at.
     """
     names = tuple(names)
+    members = set(names)
+    nuts = tuple(name for name in graph.latents if name not in members)
     if method not in GIBBS_METHODS:
         raise ValueError(
             f"unknown method {method!r}; this module implements "
@@ -244,7 +248,13 @@ def gibbs_factory(
         # deterministic nodes as well as its NUTS latents; `at` is only ever
         # the latents, which is also what `_validated_at` will accept.
         at = {k: v for k, v in hmc_sites.items() if k in graph.latents}
-        block = unchecked_operator(graph, names, at=at, probe_gaussian=False)
+        block = unchecked_operator(
+            graph,
+            names,
+            at=at,
+            probe_gaussian=False,
+            nuts_latents=nuts,
+        )
         noise = (
             frozen
             if frozen is not None

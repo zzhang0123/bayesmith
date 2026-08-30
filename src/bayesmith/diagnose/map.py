@@ -188,11 +188,11 @@ def map_estimate(
     smallest, largest = float(eigenvalues[0]), float(eigenvalues[-1])
 
     gradient_norm = float(jnp.max(jnp.abs(gradient)))
+    hessian_norm = float(np.linalg.norm(np.asarray(hessian), ord=2))
     gradient_floor = (
         np.sqrt(np.finfo(np.asarray(gradient).dtype).eps)
-        * max(mode.size, 1)
-        * max(abs(largest), 1.0)
-        * max(float(np.max(np.abs(mode))), 1.0)
+        * mode.size
+        * hessian_norm
     )
     if gradient_norm > gradient_floor:
         return Refused(

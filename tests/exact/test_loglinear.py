@@ -22,7 +22,7 @@ import numpyro.distributions as dist
 import pytest
 
 from bayesmith import det, joint_prior, observe, sample, trace
-from bayesmith.errors import NotLogLinear
+from bayesmith.errors import GraphError, NotLogLinear
 from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.loglinear import (
     FIRST_ORDER_MAX_FRACTIONAL,
@@ -419,3 +419,151 @@ def test_log_space_carries_evidence_terms_and_their_absolute_density():
 
     assert transformed.evidence_terms == (evidence,)
     assert float(log_joint(transformed, at)) == pytest.approx(expected, rel=1e-4)
+
+
+class _OutsideEvidenceTerm:
+    """Evidence over the NUTS latent outside the exact log-linear block."""
+
+    over = ("calibration",)
+
+    def log_density(self, graph, values):
+        del graph
+        return _gaussian_log_prob(values["calibration"], -0.4, 3.7)
+
+
+def _graph_with_outside_evidence():
+    """A log-linear block plus evidence over its outside NUTS latent."""
+    data = _observed("multiplicative")
+
+    def model(observed):
+        sample("calibration", lambda: dist.Normal(-0.4, 3.7))
+        log_gain = sample("log_gain", lambda: dist.Normal(0.0, PRIOR_STD))
+        prediction = det("mu", lambda value: jnp.exp(value) * SKY, log_gain)
+        observe(
+            "d",
+            lambda mean: dist.Normal(mean, F * mean),
+            prediction,
+            obs=observed,
+        )
+
+    bare = trace(model, data)
+    evidence = _OutsideEvidenceTerm()
+    return Graph(
+        nodes=bare.nodes,
+        plates=bare.plates,
+        evidence_terms=(evidence,),
+    )
+
+
+def test_log_linear_operator_accepts_a_one_shot_names_generator():
+    """Reusing the caller's exhausted ``names`` iterable must fail."""
+    with jax.enable_x64(True):
+        names = (name for name in ("log_gain",))
+
+        block, _ = log_linear_operator(_graph("multiplicative"), names)
+
+        assert block.names == ("log_gain",)
+
+
+def test_log_linear_operator_accepts_a_single_name_string():
+    """Splitting the public single-name spelling into characters must fail."""
+    with jax.enable_x64(True):
+        block, _ = log_linear_operator(_graph("multiplicative"), "log_gain")
+
+        assert block.names == ("log_gain",)
+
+
+@pytest.mark.parametrize(
+    ("nuts_latents", "message"),
+    [(None, "cannot infer"), ((), "covers non-NUTS latents")],
+    ids=("missing", "malformed"),
+)
+def test_log_linear_operator_validates_evidence_before_the_affine_probe(
+    monkeypatch, nuts_latents, message
+):
+    """Moving witness validation after the expensive probe must fail."""
+
+    def explode(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("the affine probe ran before witness validation")
+
+    monkeypatch.setattr("bayesmith.exact.loglinear.check_linearity", explode)
+
+    with pytest.raises(GraphError, match=message):
+        log_linear_operator(
+            _graph_with_outside_evidence(),
+            ("log_gain",),
+            at={"calibration": jnp.asarray(-0.4)},
+            nuts_latents=nuts_latents,
+        )
+
+
+def test_log_linear_operator_forwards_the_public_nuts_witness():
+    """Dropping ``nuts_latents`` at the log-space forwarding seam must fail."""
+    with jax.enable_x64(True):
+        graph = _graph_with_outside_evidence()
+        evidence = graph.evidence_terms[0]
+
+        block, transformed = log_linear_operator(
+            graph,
+            ("log_gain",),
+            at={"calibration": jnp.asarray(-0.4)},
+            nuts_latents=("calibration",),
+        )
+        assert block.names == ("log_gain",)
+        assert jnp.allclose(block.offset["d"], jnp.log(SKY), rtol=1e-5)
+        assert transformed.graph.evidence_terms == (evidence,)
+
+
+def test_log_linear_operator_accepts_a_one_shot_nuts_witness():
+    """Validation must not consume the witness before operator construction."""
+    with jax.enable_x64(True):
+        graph = _graph_with_outside_evidence()
+        nuts_latents = (name for name in ("calibration",))
+
+        block, transformed = log_linear_operator(
+            graph,
+            ("log_gain",),
+            at={"calibration": jnp.asarray(-0.4)},
+            nuts_latents=nuts_latents,
+        )
+
+        assert block.names == ("log_gain",)
+        assert transformed.graph.evidence_terms == graph.evidence_terms
+
+
+def test_log_linear_operator_rejects_an_invalid_one_shot_nuts_witness():
+    """Materializing a witness must not weaken its structural validation."""
+    graph = _graph_with_outside_evidence()
+    nuts_latents = (name for name in ())
+
+    with pytest.raises(GraphError, match="covers non-NUTS latents"):
+        log_linear_operator(
+            graph,
+            ("log_gain",),
+            at={"calibration": jnp.asarray(-0.4)},
+            nuts_latents=nuts_latents,
+        )
+
+
+@pytest.mark.parametrize("one_shot", [False, True], ids=("tuple", "one-shot"))
+def test_log_linear_operator_rejects_exact_nuts_overlap_before_affine_probe(
+    monkeypatch, one_shot
+):
+    """A witness cannot label one latent as both exact and NUTS."""
+
+    def explode(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("the affine probe ran before overlap validation")
+
+    monkeypatch.setattr("bayesmith.exact.loglinear.check_linearity", explode)
+    declared = ("calibration", "log_gain")
+    nuts_latents = (name for name in declared) if one_shot else declared
+
+    with pytest.raises(GraphError, match=r"both.*exact.*NUTS.*log_gain"):
+        log_linear_operator(
+            _graph_with_outside_evidence(),
+            ("log_gain",),
+            at={"calibration": jnp.asarray(-0.4)},
+            nuts_latents=nuts_latents,
+        )

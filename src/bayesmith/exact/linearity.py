@@ -33,6 +33,7 @@ import jax.numpy as jnp
 from bayesmith.errors import AffinityRefused, StructureError
 from bayesmith.exact.block import (
     LinearBlock,
+    _check_evidence_nuts_witness,
     _env_before,
     _refuse_internal_ancestry,
     _refuse_missing_observed,
@@ -802,6 +803,7 @@ def linear_operator(
     rtol: float | None = None,
     at_points: Sequence[dict[str, Any]] | None = None,
     key: jax.Array | None = None,
+    nuts_latents: Iterable[str] | None = None,
 ) -> LinearBlock:
     """Check the linearity claim, then export the block. **The entry point.**
 
@@ -815,11 +817,13 @@ def linear_operator(
     repeatedly. The at-points this checks at are what make that safe.
 
     Raises:
-        GraphError: if an evidence term covers a member of the requested
-            exact block, in addition to the structural refusals documented by
+        GraphError: if an evidence term covers a non-NUTS latent, if an
+            evidence graph is supplied without the global ``nuts_latents``
+            witness, or for a structural refusal documented by
             :func:`~bayesmith.exact.block.unchecked_operator`.
     """
+    _check_evidence_nuts_witness(graph, nuts_latents)
     check_linearity(
         graph, names, at, scales=scales, rtol=rtol, at_points=at_points, key=key
     )
-    return unchecked_operator(graph, names, at)
+    return unchecked_operator(graph, names, at, nuts_latents=nuts_latents)

@@ -535,7 +535,7 @@ def run_estimate(
     _refuse_unless_whole_graph_exact(plan)
     names = plan.exact.latents
     at = block_at(plan.graph, names)
-    block = unchecked_operator(plan.graph, names, at)
+    block = unchecked_operator(plan.graph, names, at, nuts_latents=())
     result = iterative_gls(
         block,
         # `precision_of`, the general spelling: a correlated node has no
@@ -678,7 +678,7 @@ def _whole_graph(
     """
     graph, names = plan.graph, plan.exact.latents
     at = block_at(graph, names)
-    block = unchecked_operator(graph, names, at)
+    block = unchecked_operator(graph, names, at, nuts_latents=())
     count = chain["num_samples"]
     settings = {
         "tol": tol,

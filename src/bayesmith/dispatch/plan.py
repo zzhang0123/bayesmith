@@ -68,7 +68,7 @@ from bayesmith.dispatch.execute import (
 )
 from bayesmith.dispatch.streaming import StreamingRoute, streaming_route
 from bayesmith.errors import NotGaussian
-from bayesmith.exact.block import domain_centre, unchecked_operator
+from bayesmith.exact.block import _partition_probe_operator, domain_centre
 from bayesmith.exact.gaussian import gaussian_parts, node_shape, precision_at
 from bayesmith.exact.gls import MAX_REWEIGHTS, MIN_REWEIGHTS
 from bayesmith.exact.solve import condition_bound
@@ -169,7 +169,7 @@ def _kappa_at(
     :func:`~bayesmith.exact.block.domain_centre`'s own docstring exists for --
     so the centre is what is used, with no fixture here able to tell.
     """
-    operator = unchecked_operator(graph, names, at)
+    operator = _partition_probe_operator(graph, names, at)
     # `precision_at`, not `sigma_from_graph` + `diagonal_from`: a conditioning
     # number is a property of one normal operator, and this site only ever
     # wanted the operator. Reading it through the sigma producer made the
@@ -194,7 +194,7 @@ def working_epsilon(graph: Graph, names: tuple[str, ...], at: dict[str, Any]) ->
     traced outside ``jax.enable_x64(True)`` stays float32 however it is later
     compiled.
     """
-    block = unchecked_operator(graph, names, at)
+    block = _partition_probe_operator(graph, names, at)
     return float(jnp.finfo(jnp.result_type(*jax.tree.leaves(block.offset))).eps)
 
 

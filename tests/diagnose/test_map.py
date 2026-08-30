@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -272,6 +274,57 @@ def test_physical_mode_is_invariant_under_a_pure_unit_conversion():
     expected_physical = np.array([1.200038709, -0.549966357, 0.280401865])
     for physical in physical_modes:
         np.testing.assert_array_equal(np.round(physical, 9), expected_physical)
+
+
+def test_a_large_candidate_cannot_buy_its_own_gradient_allowance(monkeypatch):
+    """Multiplying the floor by max|candidate| changes this refusal to a MAP."""
+    centre = np.array([300.0, -400.0, 200.0])
+    widths = np.full(3, math.sqrt(5.0e7))
+    candidate = np.array([4.0e8, -400.0, 200.0])
+
+    def model():
+        sample(
+            "position",
+            lambda: dist.Normal(
+                jnp.asarray(centre), jnp.asarray(widths)
+            ).to_event(1),
+        )
+
+    def runaway_newton(objective, initial):
+        del objective, initial
+        return jnp.asarray(candidate), 7, True
+
+    monkeypatch.setattr("bayesmith.diagnose.map._newton", runaway_newton)
+    with jax.enable_x64(True):
+        found = map_estimate(trace(model))
+
+    assert isinstance(found, Refused)
+    assert "gradient" in found.reason
+    assert "roundoff allowance" in found.reason
+
+
+def test_stationarity_boundary_scales_with_subunit_hessian_norm(monkeypatch):
+    """Reintroducing max(||H||, 1) admits only the low-curvature unit choice."""
+    centre = 0.3
+    displacement = 2.0 * math.sqrt(np.finfo(np.float64).eps)
+
+    for width in (0.7, 28.0):
+
+        def model(width=width):
+            sample("position", lambda: dist.Normal(centre, width))
+
+        def boundary_newton(objective, initial):
+            del objective, initial
+            return jnp.asarray([centre + displacement]), 3, True
+
+        monkeypatch.setattr(
+            "bayesmith.diagnose.map._newton", boundary_newton
+        )
+        with jax.enable_x64(True):
+            found = map_estimate(trace(model))
+
+        assert isinstance(found, Refused), width
+        assert "gradient" in found.reason
 
 
 class _SteepEvenPowerPrior:

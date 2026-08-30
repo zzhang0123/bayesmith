@@ -89,8 +89,13 @@ import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
 
-from bayesmith.errors import NotLogLinear, StructureError
-from bayesmith.exact.block import LinearBlock, _env_before, unchecked_operator
+from bayesmith.errors import GraphError, NotLogLinear, StructureError
+from bayesmith.exact.block import (
+    LinearBlock,
+    _check_evidence_nuts_witness,
+    _env_before,
+    unchecked_operator,
+)
 from bayesmith.exact.gaussian import node_shape, unwrap
 from bayesmith.exact.linearity import check_linearity
 from bayesmith.graph.evaluate import apply_probabilistic, evaluate
@@ -518,6 +523,7 @@ def log_linear_operator(
     names: Iterable[str],
     at: dict[str, Any] | None = None,
     *,
+    nuts_latents: Iterable[str] | None = None,
     scales: tuple[float, ...] = LOG_DEFAULT_SCALES,
     rtol: float | None = None,
     at_points: Any = None,
@@ -534,8 +540,21 @@ def log_linear_operator(
     the block because every further step (a Gibbs sweep's rebuilds, the
     precision, a NUTS comparison) runs against the transformed graph, and
     handing back the block alone would leave the caller to reconstruct it.
+    ``nuts_latents`` is the completed plan's global NUTS witness; evidence-
+    bearing transformed graphs forward it unchanged to the stock operator.
     """
     ls = log_space(graph)
+    names = (names,) if isinstance(names, str) else tuple(names)
+    nuts_latents = None if nuts_latents is None else tuple(nuts_latents)
+    overlap = sorted(set(names).intersection(nuts_latents or ()))
+    if overlap:
+        raise GraphError(
+            "latents cannot be both exact block members and NUTS latents; "
+            f"the overlapping names are {overlap}. A shared label would make "
+            "the exact solve omit graph-level evidence density while the "
+            "partition claimed NUTS still accounted for it."
+        )
+    _check_evidence_nuts_witness(ls.graph, nuts_latents)
     try:
         check_linearity(
             ls.graph, names, at, scales=scales, rtol=rtol, at_points=at_points, key=key
@@ -543,11 +562,13 @@ def log_linear_operator(
     except StructureError as refused:
         raise NotLogLinear(
             "log(prediction) is not affine in "
-            f"{sorted(tuple(names) if not isinstance(names, str) else (names,))}: "
+            f"{sorted(names)}: "
             f"{refused}",
             reason="log_not_affine",
         ) from refused
-    return unchecked_operator(ls.graph, names, at), ls
+    return unchecked_operator(
+        ls.graph, names, at, nuts_latents=nuts_latents
+    ), ls
 
 
 __all__ = [

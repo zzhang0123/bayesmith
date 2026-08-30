@@ -23,7 +23,7 @@ from numpyro.infer.util import log_density as numpyro_log_density
 from bayesmith.bridge.numpyro_bridge import to_numpyro
 from bayesmith.errors import GraphError
 from bayesmith.graph.evaluate import log_joint
-from bayesmith.graph.graph import Graph
+from bayesmith.graph.graph import Graph, Plate
 from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
 from bayesmith.graph.trace import observe, plate, sample, trace
 
@@ -440,6 +440,60 @@ def _collapsible_graph(*, unrelated_branch: bool = False) -> Graph:
     return Graph(nodes=tuple(nodes), plates=())
 
 
+def _plated_collapsible_graph() -> Graph:
+    return Graph(
+        nodes=(
+            Probabilistic(
+                name="x",
+                parents=(),
+                plate=("obs",),
+                dist_fn=lambda: dist.Normal(0.0, 1.0),
+                observed=None,
+            ),
+            Probabilistic(
+                name="d",
+                parents=("x",),
+                plate=("obs",),
+                dist_fn=lambda x: dist.Normal(x, 0.7),
+                observed=jnp.asarray([0.1, -0.2]),
+            ),
+            Probabilistic(
+                name="gain",
+                parents=(),
+                plate=("live",),
+                dist_fn=lambda: dist.Normal(0.0, 1.0),
+                observed=None,
+            ),
+        ),
+        plates=(Plate(name="obs", size=2), Plate(name="live", size=3)),
+    )
+
+
+def _two_exact_blocks_graph(*, evidence_over: tuple[str, ...] = ()) -> Graph:
+    nodes = (
+        _latent("x", loc=0.6, scale=1.1),
+        _latent("z", loc=0.8, scale=1.2),
+        _latent("gain", loc=0.1, scale=1.3),
+        _latent("offset", loc=-0.2, scale=0.9),
+        Deterministic(
+            name="mu",
+            parents=("x", "z", "gain", "offset"),
+            plate=(),
+            fn=lambda x, z, gain, offset: x * z + gain**2 + offset**2,
+            linear_in=("x", "z"),
+        ),
+        Probabilistic(
+            name="d",
+            parents=("mu",),
+            plate=(),
+            dist_fn=lambda mu: dist.Normal(mu, 0.7),
+            observed=jnp.asarray(0.4),
+        ),
+    )
+    terms = (_term(*evidence_over),) if evidence_over else ()
+    return Graph(nodes=nodes, plates=(), evidence_terms=terms)
+
+
 def _reduce(
     graph: Graph,
     term: Any,
@@ -500,6 +554,21 @@ def test_reduction_and_attachment_are_one_graph_result_and_keep_live_order():
     assert jnp.isfinite(value)
 
 
+def test_reduction_keeps_only_plates_referenced_by_surviving_nodes():
+    from bayesmith.graph.reduction import reduce_with_evidence
+
+    reduced = reduce_with_evidence(
+        _plated_collapsible_graph(),
+        remove_latents=("x",),
+        absorb_observed=("d",),
+        evidence_term=_term(),
+        nuts_latents=("gain",),
+    )
+
+    assert reduced.names == ("gain",)
+    assert tuple(p.name for p in reduced.as_graph().plates) == ("live",)
+
+
 def test_the_reduction_result_is_nuts_only_and_generic_compile_refuses_it():
     from bayesmith import compile as compile_graph
     from bayesmith.graph.reduction import ReducedGraph
@@ -543,6 +612,7 @@ def test_an_unwrapped_reduced_graph_cannot_enter_a_public_exact_block_builder():
             at=at,
             at_points=(at,),
             scales=(1.0,),
+            nuts_latents=("offset", "z"),
         )
 
     outside_only = Graph(
@@ -556,6 +626,7 @@ def test_an_unwrapped_reduced_graph_cannot_enter_a_public_exact_block_builder():
         at=at,
         at_points=(at,),
         scales=(1.0,),
+        nuts_latents=("offset", "z"),
     ).names == ("gain",)
 
     term_free = Graph(nodes=raw.nodes, plates=raw.plates)
@@ -566,6 +637,100 @@ def test_an_unwrapped_reduced_graph_cannot_enter_a_public_exact_block_builder():
         at_points=(at,),
         scales=(1.0,),
     ).names == ("gain",)
+
+
+def test_public_exact_builder_requires_the_real_nuts_block_for_evidence():
+    from bayesmith import linear_operator
+
+    graph = _two_exact_blocks_graph(evidence_over=("z",))
+    at = {
+        "z": jnp.asarray(0.8),
+        "gain": jnp.asarray(0.1),
+        "offset": jnp.asarray(-0.2),
+    }
+    with pytest.raises(
+        GraphError,
+        match=r"cannot infer the real NUTS block.*nuts_latents.*plan",
+    ):
+        linear_operator(
+            graph,
+            ("x",),
+            at=at,
+            at_points=(at,),
+            scales=(1.0,),
+        )
+
+    assert linear_operator(
+        _two_exact_blocks_graph(),
+        ("x",),
+        at=at,
+        at_points=(at,),
+        scales=(1.0,),
+    ).names == ("x",)
+
+
+def test_advanced_exact_builder_also_requires_the_real_nuts_block():
+    from bayesmith.exact.block import unchecked_operator
+
+    graph = _two_exact_blocks_graph(evidence_over=("z",))
+    at = {
+        "z": jnp.asarray(0.8),
+        "gain": jnp.asarray(0.1),
+        "offset": jnp.asarray(-0.2),
+    }
+    with pytest.raises(
+        GraphError,
+        match=r"cannot infer the real NUTS block.*nuts_latents.*plan",
+    ):
+        unchecked_operator(graph, ("x",), at=at)
+
+    assert unchecked_operator(
+        _two_exact_blocks_graph(), ("x",), at=at
+    ).names == ("x",)
+
+
+def test_exact_witness_and_factor_plan_name_the_same_real_nuts_block():
+    from bayesmith import linear_operator
+    from bayesmith.dispatch.factor import factor_partition
+
+    bare = _two_exact_blocks_graph()
+    plan = factor_partition(bare, scales=(1.0,), log_scales=(1.0,))
+    assert plan.nuts == ("gain", "offset")
+
+    unsafe = _two_exact_blocks_graph(evidence_over=("z",))
+    at = {
+        "z": jnp.asarray(0.8),
+        "gain": jnp.asarray(0.1),
+        "offset": jnp.asarray(-0.2),
+    }
+    with pytest.raises(GraphError) as direct:
+        linear_operator(
+            unsafe,
+            ("x",),
+            at=at,
+            at_points=(at,),
+            scales=(1.0,),
+            nuts_latents=plan.nuts,
+        )
+    with pytest.raises(GraphError) as planned:
+        factor_partition(unsafe, scales=(1.0,), log_scales=(1.0,))
+
+    for error in (direct.value, planned.value):
+        message = str(error)
+        assert "non-NUTS latents ['z']" in message
+        assert "NUTS block ['gain', 'offset']" in message
+        assert "NUTS block ['gain', 'offset', 'x']" not in message
+
+    safe = _two_exact_blocks_graph(evidence_over=("gain",))
+    assert linear_operator(
+        safe,
+        ("x",),
+        at=at,
+        at_points=(at,),
+        scales=(1.0,),
+        nuts_latents=plan.nuts,
+    ).names == ("x",)
+    assert factor_partition(safe, scales=(1.0,), log_scales=(1.0,)).nuts == plan.nuts
 
 
 def test_partition_and_compile_check_raw_evidence_against_the_derived_nuts_block(

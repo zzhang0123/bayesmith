@@ -44,6 +44,22 @@ from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
 from bayesmith.graph.reduction import check_evidence_nuts_boundary
 
 
+def _check_evidence_nuts_witness(
+    graph: Graph, nuts_latents: Iterable[str] | None
+) -> None:
+    """Validate an explicit global NUTS witness for one exact block."""
+    if not graph.evidence_terms:
+        return
+    if nuts_latents is None:
+        raise GraphError(
+            "an exact block builder cannot infer the real NUTS block from "
+            "one block's members. Pass `nuts_latents=plan.nuts` (or the "
+            "NUTS tuple from the classification) so evidence is checked "
+            "against the global partition."
+        )
+    check_evidence_nuts_boundary(graph, nuts_latents)
+
+
 @dataclasses.dataclass(frozen=True)
 class LinearBlock:
     """``A x + offset``: what a group of latents does to every prediction.
@@ -447,6 +463,7 @@ def unchecked_operator(
     at: dict[str, Any] | None = None,
     *,
     probe_gaussian: bool = True,
+    nuts_latents: Iterable[str] | None = None,
 ) -> LinearBlock:
     """Export ``A``, ``A^T``, the offset, the data and the prior -- **unchecked**.
 
@@ -461,6 +478,10 @@ def unchecked_operator(
             *given* them, so this fixes where it is built -- which is what
             makes a Gibbs sweep possible: rebuild here every sweep at the
             current values.
+        nuts_latents: the real global NUTS block from the completed
+            classification or factor plan. Required when ``graph`` carries
+            evidence terms: another exact block is not part of NUTS merely
+            because it lies outside this block.
         probe_gaussian: run :func:`~bayesmith.exact.gaussian.check_gaussian`
             on every block member and every observed node. Default ``True``,
             which is what every P3a call site already gets.
@@ -490,8 +511,9 @@ def unchecked_operator(
             otherwise -- see :func:`_validated_at`), or omits a latent that
             is outside the block; or if the graph has no observed node, so
             there is nothing for a linear block to condition on; or if an
-            evidence term covers a member of this exact block, whose solve
-            would omit that term.
+            evidence term covers a non-NUTS latent, whose exact or
+            conditional solve would omit that term; or if an evidence graph
+            is supplied without the global ``nuts_latents`` witness.
         NotGaussian: if a member or an observed node is not a diagonal
             Gaussian, or if a member is an ancestor of another member.
         StructureError: if a node's own ``log_prob`` disagrees with the
@@ -513,10 +535,38 @@ def unchecked_operator(
         ``fn`` under trace.
     """
     names = _validated_names(graph, names)
-    members = set(names)
-    check_evidence_nuts_boundary(
-        graph, (name for name in graph.latents if name not in members)
-    )
+    _check_evidence_nuts_witness(graph, nuts_latents)
+    return _build_operator(graph, names, at, probe_gaussian=probe_gaussian)
+
+
+def _partition_probe_operator(
+    graph: Graph,
+    names: Iterable[str],
+    at: dict[str, Any] | None = None,
+    *,
+    probe_gaussian: bool = True,
+) -> LinearBlock:
+    """Build an operator while a global partition is still being derived.
+
+    A factor planner cannot name the real NUTS block until all candidate
+    exact blocks have been measured.  This private entry therefore performs
+    only those structural measurements; the planner must call
+    ``check_evidence_nuts_boundary(graph, completed_plan.nuts)`` before it
+    returns or executes the plan.  Public and execution paths use
+    :func:`unchecked_operator` with an explicit witness instead.
+    """
+    names = _validated_names(graph, names)
+    return _build_operator(graph, names, at, probe_gaussian=probe_gaussian)
+
+
+def _build_operator(
+    graph: Graph,
+    names: tuple[str, ...],
+    at: dict[str, Any] | None,
+    *,
+    probe_gaussian: bool,
+) -> LinearBlock:
+    """Shared operator construction after boundary and name validation."""
     at = _validated_at(graph, names, at)
     _refuse_internal_ancestry(graph, names)
     _refuse_missing_observed(graph)

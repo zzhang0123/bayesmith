@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from decimal import Decimal, localcontext
+from fractions import Fraction
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from bayesmith.exact.fisher import condition_ceiling
 from bayesmith.marginal.logdet import (
     FrozenProbes,
     KroneckerStructure,
@@ -23,8 +24,10 @@ from bayesmith.marginal.logdet import (
     LogDetProblem,
     LowRankFactors,
     ResamplingRefused,
+    RhoCertificate,
     audit_retained_lambda_logdet,
     audit_retained_operator_norm,
+    audit_retained_power_traces,
     audit_retained_rho,
     certify_warmup_rho,
     check_logdet_premises,
@@ -55,6 +58,58 @@ def _oracle(matrix: np.ndarray) -> float:
 
 def _relative(left: float, right: float) -> float:
     return abs(left - right) / max(abs(left), abs(right), 1e-300)
+
+
+def _exact_three_by_three_toeplitz_logdet(link: float) -> float:
+    """High-precision log(1 - 2 link**2) from the exact binary64 input."""
+    rational_link = Fraction.from_float(link)
+    determinant = Fraction(1, 1) - 2 * rational_link**2
+    assert determinant > 0
+    with localcontext() as context:
+        context.prec = 100
+        decimal_determinant = Decimal(determinant.numerator) / Decimal(
+            determinant.denominator
+        )
+        return float(decimal_determinant.ln())
+
+
+def _exact_two_by_two_correlation_logdet(correlation: float) -> float:
+    """High-precision log(1 - correlation**2) from the binary64 input."""
+    rational_correlation = Fraction.from_float(correlation)
+    determinant = Fraction(1, 1) - rational_correlation**2
+    assert determinant > 0
+    with localcontext() as context:
+        context.prec = 100
+        decimal_determinant = Decimal(determinant.numerator) / Decimal(
+            determinant.denominator
+        )
+        return float(decimal_determinant.ln())
+
+
+def _exact_two_by_two_scaled_spd_logdet(scale: float) -> float:
+    """High-precision log(3 * scale**2) from the exact binary64 scale."""
+    rational_scale = Fraction.from_float(scale)
+    determinant = 3 * rational_scale**2
+    assert determinant > 0
+    with localcontext() as context:
+        context.prec = 100
+        decimal_determinant = Decimal(determinant.numerator) / Decimal(
+            determinant.denominator
+        )
+        return float(decimal_determinant.ln())
+
+
+def _exact_two_by_two_fraction_logdet(matrix: np.ndarray) -> float:
+    """High-precision logdet from the exact binary64 entries of a 2x2 matrix."""
+    entries = tuple(Fraction.from_float(float(value)) for value in matrix.flat)
+    determinant = entries[0] * entries[3] - entries[1] * entries[2]
+    assert determinant > 0
+    with localcontext() as context:
+        context.prec = 100
+        decimal_determinant = Decimal(determinant.numerator) / Decimal(
+            determinant.denominator
+        )
+        return float(decimal_determinant.ln())
 
 
 def _independent_power_traces(
@@ -354,6 +409,44 @@ def test_base_and_dense_exact_methods_match_an_independent_slogdet(method):
     assert method(lam) == pytest.approx(_oracle(lam), rel=1e-14, abs=1e-14)
 
 
+@pytest.mark.parametrize("method", [lambda_logdet, dense_cholesky_logdet])
+def test_dense_cholesky_scales_a_well_conditioned_subnormal_spd_matrix(method):
+    """Raw Cholesky rounds det=3m^2 to 4m^2 even though cond(Sigma)=3."""
+    smallest = float(np.nextafter(0.0, 1.0))
+    matrix = smallest * np.array([[2.0, 1.0], [1.0, 2.0]])
+    oracle = _exact_two_by_two_scaled_spd_logdet(smallest)
+
+    assert np.linalg.cond(matrix) == pytest.approx(3.0)
+    assert method(matrix) == pytest.approx(oracle, rel=0.0, abs=5.0e-13)
+
+
+def test_level_zero_dispatch_scales_a_well_conditioned_subnormal_lambda():
+    """The Lambda-itself rung must inherit the scaled dense Cholesky arithmetic."""
+    smallest = float(np.nextafter(0.0, 1.0))
+    matrix = smallest * np.array([[2.0, 1.0], [1.0, 2.0]])
+    oracle = _exact_two_by_two_scaled_spd_logdet(smallest)
+    problem = LogDetProblem(matrix, np.zeros_like(matrix))
+
+    result = dispatch_logdet(problem)
+
+    assert result.level == 0
+    assert result.value == pytest.approx(oracle, rel=0.0, abs=5.0e-13)
+
+
+def test_level_four_dispatch_scales_a_well_conditioned_subnormal_sigma():
+    """The dense rung must not silently return log(4m^2) for det(Sigma)=3m^2."""
+    smallest = float(np.nextafter(0.0, 1.0))
+    matrix = smallest * np.array([[2.0, 1.0], [1.0, 2.0]])
+    lam = smallest * np.eye(2)
+    oracle = _exact_two_by_two_scaled_spd_logdet(smallest)
+    problem = LogDetProblem(lam, matrix - lam)
+
+    result = dispatch_logdet(problem)
+
+    assert result.level == 4
+    assert result.value == pytest.approx(oracle, rel=0.0, abs=5.0e-13)
+
+
 def test_low_rank_and_finite_routes_share_the_same_newton_arithmetic_bitwise():
     """A duplicate determinant-lemma implementation breaks bitwise identity."""
     lam, perturbation = _spd_fixture(7)
@@ -424,9 +517,15 @@ def test_low_rank_factor_proof_refuses_a_tiny_unrepresented_amplified_residual()
     verdicts = check_logdet_premises(problem, config=config)
     assert verdicts[1].satisfied is False
     assert verdicts[5].satisfied is False
-    with pytest.raises(ValueError, match=r"Lambda\^-1-amplified"):
+    with pytest.raises(
+        ValueError,
+        match=r"Lambda\^-1-amplified residual.*amplified residual=0\.5",
+    ):
         low_rank_logdet(lam, perturbation, factors=factors)
-    with pytest.raises(ValueError, match=r"Lambda\^-1-amplified"):
+    with pytest.raises(
+        ValueError,
+        match=r"Lambda\^-1-amplified residual.*amplified residual=0\.5",
+    ):
         finite_perturbation_logdet(lam, perturbation, factors=factors)
 
     with pytest.raises(ValueError, match="condition"):
@@ -438,20 +537,31 @@ def test_low_rank_factor_proof_refuses_a_tiny_unrepresented_amplified_residual()
 
 @pytest.mark.parametrize(
     ("n", "rank"),
-    [(20, 2), (50, 4), (12, 9), (37, 6), (101, 7), (200, 8), (300, 5), (64, 3)],
+    [
+        (20, 2),
+        (50, 4),
+        (12, 9),
+        (37, 6),
+        (101, 7),
+        (200, 8),
+        (300, 5),
+        (64, 3),
+        (260, 4),
+    ],
 )
-def test_self_factors_reconstruct_on_all_reproduced_blas_shapes(n, rank):
-    """Copying the same factor into two buffers must not invent a residual."""
+def test_explicit_self_factors_alias_on_all_reproduced_blas_shapes(n, rank):
+    """``LowRankFactors(L, L)`` must use one buffer and one BLAS product."""
     rng = np.random.default_rng(4000 + n + rank)
     left = 0.01 * rng.normal(size=(n, rank))
     perturbation = left @ left.T
-    factors = LowRankFactors(left)
+    factors = LowRankFactors(left, left)
     lam = np.linspace(1.3, 2.3, n) ** 2
     problem = LogDetProblem(lam, np.diag(perturbation), low_rank_factors=None)
     dense_problem = LogDetProblem(
         np.diag(lam), perturbation, low_rank_factors=factors
     )
 
+    assert factors.left is factors.right
     assert np.array_equal(factors.left @ factors.right.T, perturbation)
     assert check_logdet_premises(
         dense_problem,
@@ -460,6 +570,59 @@ def test_self_factors_reconstruct_on_all_reproduced_blas_shapes(n, rank):
     value = low_rank_logdet(np.diag(lam), perturbation, factors=factors)
     assert _relative(value, _oracle(np.diag(lam) + perturbation)) < 2e-12
     assert check_logdet_premises(problem)[1].details["rank"] == n
+
+
+def test_transposed_fortran_loadings_keep_exact_rank_evidence_at_level_one():
+    """Preserving K-order in the artifact changes BLAS rounding and drops rung 1."""
+    n, rank = 32, 2
+    left = 0.03 * np.random.default_rng(0).normal(size=(n, rank))
+    perturbation = left @ left.T
+    stored_loadings = left.T.copy(order="C")
+    factors = LowRankFactors(stored_loadings.T)
+    widths = np.linspace(1.3, 2.4, n)
+    lam = np.diag(widths**2)
+
+    result = dispatch_logdet(
+        LogDetProblem(lam, perturbation, low_rank_factors=factors)
+    )
+
+    assert result.level == 1
+    assert _relative(result.value, _oracle(lam + perturbation)) < 2e-13
+
+
+@pytest.mark.parametrize("n", [277, 511])
+@pytest.mark.parametrize(
+    ("origin_order", "supplied_order"), [("C", "F"), ("F", "C")]
+)
+def test_exact_factor_reconstruction_recognizes_both_blas_layout_origins(
+    n, origin_order, supplied_order
+):
+    """Canonicalizing the inverse layout must not change authoritative P."""
+    rank = 11
+    values = 0.03 * np.random.default_rng(0).normal(size=(n, rank))
+    c_factor = np.array(values, order="C")
+    f_factor = np.array(values, order="F")
+    products = {"C": c_factor @ c_factor.T, "F": f_factor @ f_factor.T}
+    factors_by_order = {"C": c_factor, "F": f_factor}
+    perturbation = products[origin_order]
+    supplied = factors_by_order[supplied_order]
+    factors = LowRankFactors(supplied)
+    widths = np.linspace(1.3, 2.3, n)
+    lam = np.diag(widths**2)
+    problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+    config = LadderConfig(low_rank_max=rank, low_rank_fraction=1.0)
+
+    assert not np.array_equal(products["C"], products["F"])
+    verdict = check_logdet_premises(problem, config=config)[1]
+    direct = low_rank_logdet(lam, perturbation, factors=factors)
+    result = dispatch_logdet(problem, config=config)
+    dense_oracle = _oracle(lam + perturbation)
+
+    assert verdict.details["rank_evidence_valid"] is True
+    assert verdict.satisfied is True
+    assert result.level == 1
+    assert direct == pytest.approx(dense_oracle, rel=2e-12)
+    assert result.value == direct
 
 
 def test_float32_explicit_self_factors_preserve_exact_product_evidence():
@@ -480,10 +643,51 @@ def test_float32_explicit_self_factors_preserve_exact_product_evidence():
     )
 
 
+def test_value_equal_mixed_dtype_factors_keep_the_explicit_right_representation():
+    """Value equality must not silently demote an explicit float64 right factor."""
+    left = np.array([[0.25, 0.5], [0.75, 1.0]], dtype=np.float32)
+    right = left.astype(np.float64)
+
+    factors = LowRankFactors(left, right)
+
+    assert factors.left.dtype == np.dtype(np.float32)
+    assert factors.right.dtype == np.dtype(np.float64)
+    assert factors.left is not factors.right
+    assert np.array_equal(factors.right, right)
+
+
+def test_factorized_logdet_uses_one_promoted_computation_dtype():
+    """A float32 Lambda correction cannot accompany float64 certification."""
+    n, rank = 32, 4
+    lambda_diagonal = np.geomspace(1.0e-4, 1.0e4, n).astype(np.float32)
+    lam = np.diag(lambda_diagonal)
+    basis, _ = np.linalg.qr(np.random.default_rng(42).normal(size=(n, rank)))
+    eigenvalues = np.geomspace(0.1, 100.0, rank)
+    left = (
+        np.sqrt(lambda_diagonal.astype(np.float64))[:, None]
+        * basis
+        * np.sqrt(eigenvalues)
+    )
+    perturbation = left @ left.T
+    factors = LowRankFactors(left)
+    problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+    analytic = math.fsum(math.log(float(value)) for value in lambda_diagonal)
+    analytic += math.fsum(math.log1p(float(value)) for value in eigenvalues)
+    dense_oracle = _oracle(lam.astype(np.float64) + perturbation)
+
+    direct = low_rank_logdet(lam, perturbation, factors=factors)
+    result = dispatch_logdet(problem)
+
+    assert result.level == 1
+    assert direct == pytest.approx(analytic, rel=0.0, abs=5.0e-11)
+    assert direct == pytest.approx(dense_oracle, rel=0.0, abs=5.0e-11)
+    assert result.value == direct
+
+
 def test_low_rank_factor_check_rejects_cancellation_inflated_roundoff_envelope():
     """Huge cancelling factors cannot certify an unrelated low-rank matrix."""
-    lam = np.eye(3)
-    perturbation = 0.5 * np.eye(3)
+    lam = np.diag(np.array([1.3, 1.8, 2.4]) ** 2)
+    perturbation = 0.5 * lam
     left = np.full((3, 2), 1.0e8)
     right = np.column_stack((np.full(3, 1.0e8), np.full(3, -1.0e8)))
     factors = LowRankFactors(left, right)
@@ -499,13 +703,16 @@ def test_low_rank_factor_check_rejects_cancellation_inflated_roundoff_envelope()
 
 def test_low_rank_factor_check_rejects_any_omitted_near_boundary_eigenvalue():
     """A rounding-size residual can change logdet by order one near eigenvalue -1."""
+    widths = np.array([1.3, 1.8, 2.4])
+    lam = np.diag(widths**2)
     basis, _ = np.linalg.qr(np.random.default_rng(123).normal(size=(3, 3)))
     eigenvalues = np.array([-1.0, 0.5])
-    left = basis[:, :2] * np.sqrt(np.abs(eigenvalues))
-    right = basis[:, :2] * np.sign(eigenvalues) * np.sqrt(np.abs(eigenvalues))
+    left = widths[:, None] * basis[:, :2] * np.sqrt(np.abs(eigenvalues))
+    right = widths[:, None] * basis[:, :2] * np.sign(eigenvalues) * np.sqrt(
+        np.abs(eigenvalues)
+    )
     factors = LowRankFactors(left, right)
-    perturbation = left @ right.T + 5.0e-16 * np.eye(3)
-    lam = np.eye(3)
+    perturbation = left @ right.T + 5.0e-16 * lam
 
     verdict = check_logdet_premises(
         LogDetProblem(lam, perturbation, low_rank_factors=factors),
@@ -516,8 +723,8 @@ def test_low_rank_factor_check_rejects_any_omitted_near_boundary_eigenvalue():
         low_rank_logdet(lam, perturbation, factors=factors)
 
 
-def test_newton_exact_rungs_refuse_adversarial_spectral_spread_before_dispatch():
-    """Cancellation in degree-16 Newton identities must not win over row 4."""
+def test_factorized_exact_rungs_replace_adversarial_newton_arithmetic():
+    """The D80 factorization must stay accurate where Newton identities failed."""
     n, rank = 128, 16
     lambda_diagonal = np.linspace(1.3, 2.3, n) ** 2
     lam = np.diag(lambda_diagonal)
@@ -530,18 +737,15 @@ def test_newton_exact_rungs_refuse_adversarial_spectral_spread_before_dispatch()
     problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
 
     verdicts = check_logdet_premises(problem)
-    assert verdicts[1].satisfied is False
-    assert "stability" in verdicts[1].reason
-    assert verdicts[5].satisfied is False
-    with pytest.raises(ValueError, match="stability"):
-        low_rank_logdet(lam, perturbation, factors=factors)
-    with pytest.raises(ValueError, match="stability"):
-        finite_perturbation_logdet(lam, perturbation, factors=factors)
-
+    assert verdicts[1].satisfied is True
+    low = low_rank_logdet(lam, perturbation, factors=factors)
+    finite = finite_perturbation_logdet(lam, perturbation, factors=factors)
+    assert low == finite
     result = dispatch_logdet(problem)
     oracle = _oracle(sigma)
-    assert result.level == 4
-    assert result.value == pytest.approx(oracle, rel=2e-13)
+    assert result.level == 1
+    assert result.value == low
+    assert _relative(result.value, oracle) < 2e-12
 
 
 def test_finite_e_polynomial_is_stable_for_mixed_sign_spectrum_at_rho_one():
@@ -594,10 +798,8 @@ def test_compact_finite_factorization_avoids_base_correction_cancellation():
 
 @pytest.mark.parametrize("rank", [6, 7, 8, 9])
 @pytest.mark.parametrize("rho", [0.5, 1.0, 100.0, 1.0e4, 1.0e9])
-def test_newton_stability_boundary_evaluates_low_rank_and_dense_directly(
-    rank, rho
-):
-    """Rank <= 8 must never override an expansive-spectrum refusal."""
+def test_determinant_lemma_has_no_trace_series_rho_boundary(rank, rho):
+    """The stable determinant lemma works on both sides of rho=1."""
     n = 2 * rank + 3
     lam = 2.25 * np.eye(n)
     eigenvalues = np.geomspace(0.1, rho, rank)
@@ -611,18 +813,158 @@ def test_newton_stability_boundary_evaluates_low_rank_and_dense_directly(
     dense = dense_cholesky_logdet(sigma)
     assert math.isfinite(dense)
     assert _relative(dense, oracle) < 1e-9
-    if rho <= 1.0:
-        low = low_rank_logdet(lam, perturbation, factors=factors)
-        assert math.isfinite(low)
-        assert _relative(low, oracle) < 2e-11
-        assert _relative(low, dense) < 2e-11
+    low = low_rank_logdet(lam, perturbation, factors=factors)
+    reduced = np.eye(rank) + left.T @ np.linalg.solve(lam, left)
+    independent_lemma = _oracle(lam) + _oracle(reduced)
+    assert math.isfinite(low)
+    assert _relative(low, oracle) < 2e-11
+    assert _relative(low, dense) < 2e-11
+    assert _relative(low, independent_lemma) < 2e-11
+
+
+def test_general_determinant_lemma_handles_a_nonsymmetric_reduced_matrix(
+    monkeypatch,
+):
+    """Falling back to the full Sigma Cholesky bypasses the L != R lemma."""
+    from bayesmith.marginal import _logdet_eager as eager
+
+    widths = np.array([1.5, 1.75, 2.0, 2.5])
+    lam = np.diag(widths**2)
+    basis = np.array(
+        [[1.0, 0.0], [0.5, 1.0], [0.0, 0.5], [1.0, -0.5]]
+    )
+    gauge = np.array([[1.0, 2.0], [0.0, 1.0]])
+    left = basis @ gauge
+    right = basis @ np.linalg.inv(gauge).T
+    perturbation = left @ right.T
+    factors = LowRankFactors(left, right)
+    reduced = np.eye(2) + right.T @ np.linalg.solve(lam, left)
+    symmetric_reduced = np.eye(2) + basis.T @ np.linalg.solve(lam, basis)
+    analytic_correction = math.log(
+        symmetric_reduced[0, 0] * symmetric_reduced[1, 1]
+        - symmetric_reduced[0, 1] * symmetric_reduced[1, 0]
+    )
+    analytic = math.fsum(np.log(np.diag(lam))) + analytic_correction
+    dense_oracle = _oracle(lam + perturbation)
+
+    assert not np.allclose(reduced, reduced.T, rtol=0.0, atol=0.0)
+    assert np.array_equal(perturbation, perturbation.T)
+
+    def refuse_full_sigma_cholesky(matrix):
+        del matrix
+        raise AssertionError("the determinant lemma may not factor full Sigma")
+
+    monkeypatch.setattr(eager, "dense_cholesky_logdet", refuse_full_sigma_cholesky)
+    value = low_rank_logdet(lam, perturbation, factors=factors)
+
+    assert value == pytest.approx(analytic, rel=2e-13)
+    assert value == pytest.approx(dense_oracle, rel=2e-13)
+
+
+@pytest.mark.parametrize(
+    ("gauge_kind", "expected_level"), [("overflow", 1), ("silent", 5)]
+)
+def test_general_determinant_lemma_is_invariant_to_extreme_exact_gauges(
+    gauge_kind, expected_level, monkeypatch
+):
+    """Raw L/R reduced products can overflow or lose the determinant by nats."""
+    from bayesmith.marginal import _logdet_eager as eager
+
+    n, rank = 20, 2
+    lambda_diagonal = np.linspace(2.0, 5.0, n)
+    lam = np.diag(lambda_diagonal)
+    basis = np.zeros((n, rank))
+    basis[0] = [1.0, 0.0]
+    basis[1] = [1.0, 1.0]
+    perturbation = basis @ basis.T
+    if gauge_kind == "overflow":
+        gauge = np.diag([2.0**600, 2.0**-600])
+        inverse_transpose = np.diag([2.0**-600, 2.0**600])
+        config = LadderConfig()
     else:
-        with pytest.raises(ValueError, match="stability"):
-            low_rank_logdet(lam, perturbation, factors=factors)
+        scale = 2.0**33
+        gauge = np.array([[1.0, scale], [0.0, 1.0]])
+        inverse_transpose = np.array([[1.0, 0.0], [-scale, 1.0]])
+        config = LadderConfig(
+            low_rank_max=0,
+            dense_max_n=0,
+            finite_max_n=0,
+            finite_max_rank=rank,
+        )
+    left = basis @ gauge
+    right = basis @ inverse_transpose
+    factors = LowRankFactors(left, right)
+    sigma = lam + perturbation
+    problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+
+    inverse_first = 1.0 / lambda_diagonal[0]
+    inverse_second = 1.0 / lambda_diagonal[1]
+    reduced_00 = 1.0 + inverse_first + inverse_second
+    reduced_01 = inverse_second
+    reduced_11 = 1.0 + inverse_second
+    analytic = math.fsum(math.log(float(value)) for value in lambda_diagonal)
+    analytic += math.log(reduced_00 * reduced_11 - reduced_01**2)
+    dense_oracle = _oracle(sigma)
+
+    assert np.array_equal(left @ right.T, perturbation)
+    assert np.array_equal(perturbation, perturbation.T)
+
+    def refuse_full_sigma_cholesky(matrix):
+        del matrix
+        raise AssertionError("the determinant lemma may not factor full Sigma")
+
+    monkeypatch.setattr(eager, "dense_cholesky_logdet", refuse_full_sigma_cholesky)
+    if expected_level == 1:
+        direct = low_rank_logdet(lam, perturbation, factors=factors)
+    else:
+        direct = finite_perturbation_logdet(lam, perturbation, factors=factors)
+    result = dispatch_logdet(problem, config=config)
+
+    assert result.level == expected_level
+    assert direct == pytest.approx(analytic, rel=2e-13)
+    assert direct == pytest.approx(dense_oracle, rel=2e-13)
+    assert result.value == direct
 
 
-def test_rank_eight_expansive_regression_cannot_dispatch_as_exact():
-    """The reproduced C1 matrix was wrong by 22% when rank eight escaped rho."""
+def test_default_rank_one_hundred_problem_uses_level_five_general_lemma():
+    """Making finite-e depend on rho refuses this valid expansive exact factor."""
+    n, rank, rho = 300, 100, 1.0e5
+    widths = np.linspace(1.3, 2.3, n)
+    lambda_diagonal = widths**2
+    lam = np.diag(lambda_diagonal)
+    basis = np.zeros((n, rank))
+    basis[np.arange(rank), np.arange(rank)] = math.sqrt(rho) * widths[:rank]
+    basis[200, 0] = 0.5 * math.sqrt(rho) * widths[200]
+    gauge = np.power(2.0, (np.arange(rank) % 7) - 3)
+    left = basis * gauge
+    right = basis / gauge
+    perturbation = left @ right.T
+    factors = LowRankFactors(left, right)
+    sigma = lam + perturbation
+    problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+
+    premises = check_logdet_premises(problem)
+    assert premises[1].satisfied is False
+    assert premises[4].satisfied is False
+    assert premises[5].satisfied is True
+    result = dispatch_logdet(problem)
+
+    block = sigma[np.ix_([0, 200], [0, 200])]
+    block_determinant = block[0, 0] * block[1, 1] - block[0, 1] * block[1, 0]
+    untouched = np.ones(n, dtype=bool)
+    untouched[[0, 200]] = False
+    analytic = math.log(block_determinant) + math.fsum(
+        math.log(float(value)) for value in np.diag(sigma)[untouched]
+    )
+    dense_oracle = _oracle(sigma)
+
+    assert result.level == 5
+    assert result.value == pytest.approx(analytic, rel=2e-12)
+    assert result.value == pytest.approx(dense_oracle, rel=2e-12)
+
+
+def test_rank_eight_expansive_regression_uses_stable_determinant_lemma():
+    """The old Newton error must not justify rejecting the replacement payload."""
     n, rank = 128, 8
     widths = np.linspace(1.3, 2.3, n)
     lam = np.diag(widths**2)
@@ -634,10 +976,99 @@ def test_rank_eight_expansive_regression_cannot_dispatch_as_exact():
     problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
 
     verdict = check_logdet_premises(problem)[1]
-    assert verdict.satisfied is False
+    assert verdict.satisfied is True
     result = dispatch_logdet(problem)
-    assert result.level == 4
+    assert result.level == 1
     assert _relative(result.value, _oracle(lam + perturbation)) < 2e-11
+
+
+def test_d2_large_foreground_low_rank_problem_dispatches_at_level_one():
+    """n=1000, k=4, rho=100 is the foreground-dominated D2 regression."""
+    n, rank, rho = 1_000, 4, 100.0
+    lam = 6.25 * np.eye(n)
+    basis, _ = np.linalg.qr(np.random.default_rng(20260830).normal(size=(n, rank)))
+    left = 2.5 * math.sqrt(rho) * basis
+    perturbation = left @ left.T
+    factors = LowRankFactors(left)
+    problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+    config = LadderConfig(dense_max_n=0, finite_max_n=0, finite_max_rank=0)
+
+    result = dispatch_logdet(problem, config=config)
+    oracle = _oracle(lam + perturbation)
+    reduced = np.eye(rank) + left.T @ np.linalg.solve(lam, left)
+    independent_lemma = _oracle(lam) + _oracle(reduced)
+
+    assert result.level == 1
+    assert _relative(result.value, oracle) < 1e-12
+    assert _relative(result.value, independent_lemma) < 1e-12
+
+    scan_n = 64
+    scan_lam = 6.25 * np.eye(scan_n)
+    scan_basis, _ = np.linalg.qr(
+        np.random.default_rng(641).normal(size=(scan_n, rank))
+    )
+    for scanned_rho in (0.5, 0.99, 1.0, 1.01, 100.0, 1.0e4):
+        scan_left = 2.5 * math.sqrt(scanned_rho) * scan_basis
+        scan_perturbation = scan_left @ scan_left.T
+        scan_factors = LowRankFactors(scan_left)
+        scan_value = low_rank_logdet(
+            scan_lam, scan_perturbation, factors=scan_factors
+        )
+        scan_oracle = _oracle(scan_lam + scan_perturbation)
+        scan_reduced = np.eye(rank) + scan_left.T @ np.linalg.solve(
+            scan_lam, scan_left
+        )
+        scan_lemma = _oracle(scan_lam) + _oracle(scan_reduced)
+        assert _relative(scan_value, scan_oracle) < 1e-12
+        assert _relative(scan_value, scan_lemma) < 1e-12
+
+
+def test_direct_lambda_and_problem_callers_require_exact_symmetry():
+    """A default SPD check must not feed a raw asymmetric triangle to Cholesky."""
+    basis, _ = np.linalg.qr(np.random.default_rng(1).normal(size=(8, 8)))
+    matrix = basis @ np.diag(np.linspace(6.25, 25.0, 8)) @ basis.T
+    asymmetry = float(np.max(np.abs(matrix - matrix.T)))
+    assert asymmetry == 8.881784197001252e-16
+    assert np.linalg.cond(matrix) == pytest.approx(4.0, rel=2e-15)
+
+    with pytest.raises(ValueError, match="symmetric positive definite"):
+        lambda_logdet(matrix)
+    with pytest.raises(ValueError, match="symmetric positive definite"):
+        LogDetProblem(matrix, np.zeros_like(matrix))
+
+    symmetric = matrix / 2.0 + matrix.T / 2.0
+    problem = LogDetProblem(symmetric, np.zeros_like(symmetric))
+    result = dispatch_logdet(problem)
+    assert result.level == 0
+    assert _relative(result.value, _oracle(symmetric)) < 2e-14
+
+
+def test_negative_frozen_trace_order_is_rejected_by_the_premise_checker():
+    """A satisfied rung may not defer its order-domain failure to the payload."""
+    n = 300
+    widths = np.linspace(1.3, 2.4, n)
+    lam = np.diag(widths**2)
+    basis, _ = np.linalg.qr(np.random.default_rng(303).normal(size=(n, n)))
+    eigenvalues = np.linspace(0.03, 0.2, n)
+    perturbation = (
+        np.diag(widths)
+        @ basis
+        @ np.diag(eigenvalues)
+        @ basis.T
+        @ np.diag(widths)
+    )
+    problem = LogDetProblem(
+        lam,
+        perturbation,
+        frozen_probes=FrozenProbes(np.ones((1, n))),
+        trace_order=-1,
+        certified_rho=0.2,
+    )
+
+    verdict = check_logdet_premises(problem)[7]
+    assert verdict.satisfied is False
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem)
 
 
 def test_newton_exact_rungs_require_sigma_positive_definite():
@@ -655,6 +1086,56 @@ def test_newton_exact_rungs_require_sigma_positive_definite():
         low_rank_logdet(lam, perturbation)
     with pytest.raises(ValueError, match="Sigma must be symmetric positive definite"):
         finite_perturbation_logdet(lam, perturbation)
+
+
+def test_rung_one_premise_rejects_nonsymmetric_low_rank_sigma_at_rho_below_one():
+    """The payload domain must be present in the rung-1 premise itself."""
+    n = 10
+    widths = np.linspace(1.3, 2.4, n)
+    lam = np.diag(widths**2)
+    left = np.linspace(0.2, 0.5, n)[:, None]
+    right = np.linspace(0.6, 0.1, n)[:, None]
+    right *= 0.4 / (right.T @ np.linalg.solve(lam, left)).item()
+    perturbation = left @ right.T
+    factors = LowRankFactors(left, right)
+    problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+    config = LadderConfig(
+        low_rank_fraction=1.0,
+        dense_max_n=0,
+        finite_max_n=0,
+        finite_max_rank=0,
+    )
+
+    assert spectral_radius(lam, perturbation) == pytest.approx(0.4)
+    verdict = check_logdet_premises(problem, config=config)[1]
+    assert verdict.satisfied is False
+    assert verdict.details["positive_definite"] is False
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem, config=config)
+
+
+def test_rung_five_premise_rejects_nonsymmetric_sigma_at_rho_below_one():
+    """The finite-series fallback cannot defer its SPD failure to execution."""
+    widths = np.array([1.3, 1.7, 2.2, 2.6])
+    lam = np.diag(widths**2)
+    x_matrix = np.array(
+        [[0.1, 0.2, 0.0, 0.0], [0.0, 0.15, 0.1, 0.0], [0.0, 0.0, 0.2, 0.1], [0.0, 0.0, 0.0, 0.12]]
+    )
+    perturbation = x_matrix @ lam
+    problem = LogDetProblem(lam, perturbation)
+    config = LadderConfig(
+        low_rank_max=0,
+        dense_max_n=0,
+        finite_max_n=4,
+        finite_max_rank=0,
+    )
+
+    assert spectral_radius(lam, perturbation) == pytest.approx(0.2)
+    verdict = check_logdet_premises(problem, config=config)[5]
+    assert verdict.satisfied is False
+    assert verdict.details["positive_definite"] is False
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem, config=config)
 
 
 def test_problem_constructor_requires_spd_lambda_even_for_level_zero():
@@ -683,6 +1164,123 @@ def test_state_space_recursion_matches_slogdet_on_a_verified_block_chain():
     assert state_space_logdet(matrix, block_size=2) == pytest.approx(
         _oracle(matrix), rel=2e-13
     )
+
+
+def _seed_54_block_chain() -> np.ndarray:
+    """Exact symmetric SPD chain whose first Schur update is asymmetric by 1 ULP."""
+    rng = np.random.default_rng(54)
+    diagonal = []
+    for _ in range(4):
+        sample = rng.normal(size=(2, 2))
+        block = sample @ sample.T + 8.0 * np.eye(2)
+        diagonal.append(block / 2.0 + block.T / 2.0)
+    links = [0.1 * rng.normal(size=(2, 2)) for _ in range(3)]
+    matrix = np.zeros((8, 8))
+    for index, block in enumerate(diagonal):
+        start = 2 * index
+        matrix[start : start + 2, start : start + 2] = block
+    for index, link in enumerate(links):
+        start = 2 * index
+        matrix[start + 2 : start + 4, start : start + 2] = link
+        matrix[start : start + 2, start + 2 : start + 4] = link.T
+    return matrix
+
+
+def test_state_space_symmetrizes_each_schur_roundoff_representative():
+    """A satisfied chain must not fail when a Schur pivot differs by one ULP."""
+    matrix = _seed_54_block_chain()
+
+    assert np.array_equal(matrix, matrix.T)
+    assert np.all(np.linalg.eigvalsh(matrix) > 0.0)
+    assert np.linalg.cond(matrix) == pytest.approx(2.629776849896354)
+    assert state_space_logdet(matrix, block_size=2) == pytest.approx(
+        _oracle(matrix), rel=2e-13
+    )
+
+
+def test_dispatch_executes_a_satisfied_state_space_roundoff_fixture():
+    """The rung-2 premise and payload share one symmetric Schur interpretation."""
+    sigma = _seed_54_block_chain()
+    problem = LogDetProblem(
+        np.eye(sigma.shape[0]), sigma - np.eye(sigma.shape[0]), chain_block_size=2
+    )
+    verdict = check_logdet_premises(problem)[2]
+
+    assert verdict.satisfied is True
+    result = dispatch_logdet(problem)
+    assert result.level == 2
+    assert result.value == pytest.approx(_oracle(sigma), rel=2e-13)
+
+
+def test_state_space_scales_a_resolved_subnormal_schur_solve():
+    """LAPACK may return infinity on an unscaled, well-conditioned tiny pivot."""
+    smallest = float(np.nextafter(0.0, 1.0))
+    matrix = np.array(
+        [[2.0 * smallest, smallest], [smallest, 2.0 * smallest]]
+    )
+    oracle = _exact_two_by_two_scaled_spd_logdet(smallest)
+
+    assert np.linalg.cond(matrix) == pytest.approx(3.0)
+    assert state_space_logdet(matrix, block_size=1) == pytest.approx(
+        oracle, rel=2e-13
+    )
+
+
+def _tolerance_admitted_subnormal_asymmetry(
+    *, transpose: bool = False
+) -> tuple[np.ndarray, float]:
+    """Return a 1-ULP asymmetric input whose rounded mean is singular."""
+    smallest = float(np.nextafter(0.0, 1.0))
+    matrix = smallest * np.array([[2.0, 1.0], [2.0, 2.0]])
+    return (matrix.T if transpose else matrix), smallest
+
+
+@pytest.mark.parametrize("transpose", [False, True])
+def test_subnormal_symmetric_payload_uses_the_safely_rounded_pair_mean(transpose):
+    """Halving each addend first invents an SPD matrix instead of the singular mean."""
+    matrix, smallest = _tolerance_admitted_subnormal_asymmetry(
+        transpose=transpose
+    )
+    rounded_mean = (matrix + matrix.T) / 2.0
+    problem = LogDetProblem(
+        smallest * np.eye(2), matrix - smallest * np.eye(2)
+    )
+    config = LadderConfig(structure_rtol=0.0, structure_atol=smallest)
+
+    verdict = check_logdet_premises(problem, config=config)[4]
+
+    assert np.array_equal(rounded_mean, np.full((2, 2), 2.0 * smallest))
+    assert verdict.details["symmetric"] is True
+    assert verdict.details["positive_definite"] is False
+    assert verdict.satisfied is False
+
+
+@pytest.mark.parametrize("transpose", [False, True])
+def test_state_space_rejects_a_singular_safely_rounded_subnormal_mean(transpose):
+    """The direct chain path must not turn the asymmetric mean into det=3m^2."""
+    matrix, smallest = _tolerance_admitted_subnormal_asymmetry(
+        transpose=transpose
+    )
+
+    with pytest.raises(ValueError, match="positive definite"):
+        state_space_logdet(
+            matrix, block_size=1, rtol=0.0, atol=smallest
+        )
+
+
+@pytest.mark.parametrize("transpose", [False, True])
+def test_dispatch_refuses_a_singular_safely_rounded_subnormal_mean(transpose):
+    """Premise and payload must agree that no deterministic rung can use this mean."""
+    matrix, smallest = _tolerance_admitted_subnormal_asymmetry(
+        transpose=transpose
+    )
+    problem = LogDetProblem(
+        smallest * np.eye(2), matrix - smallest * np.eye(2)
+    )
+    config = LadderConfig(structure_rtol=0.0, structure_atol=smallest)
+
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem, config=config)
 
 
 @pytest.mark.parametrize("kind", ["diagonal", "circulant", "toeplitz"])
@@ -734,6 +1332,65 @@ def test_kronecker_premise_rejects_factors_outside_payload_domain():
     assert result.value == pytest.approx(_oracle(sigma), rel=2e-13)
 
 
+@pytest.mark.parametrize("transpose_left", [False, True])
+def test_relaxed_symmetry_cannot_route_inexact_kronecker_factors(transpose_left):
+    """Tolerance-admitted factors otherwise leak a payload ValueError at rung three."""
+    left = np.array([[2.4, 0.3000001], [0.2999999, 2.1]])
+    if transpose_left:
+        left = left.T
+    right = np.array([[1.7, 0.2], [0.2, 1.4]])
+    sigma = np.kron(left, right)
+    lam = 0.5 * np.eye(sigma.shape[0])
+    problem = LogDetProblem(
+        lam,
+        sigma - lam,
+        structure_kind="kronecker",
+        structure=KroneckerStructure((left, right)),
+    )
+    config = LadderConfig(
+        low_rank_max=0,
+        low_rank_fraction=0.0,
+        dense_max_n=0,
+        finite_max_n=0,
+        finite_max_rank=0,
+        structure_atol=5.0e-7,
+    )
+
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem, config=config)
+    verdict = check_logdet_premises(problem, config=config)[3]
+    assert verdict.satisfied is False
+    assert "factor" in verdict.reason
+
+
+def test_relaxed_symmetry_kronecker_claim_falls_through_with_transpose_parity():
+    """Rejecting an inexact factor must let dense use one symmetric representative."""
+    left = np.array([[2.4, 0.3000001], [0.2999999, 2.1]])
+    right = np.array([[1.7, 0.2], [0.2, 1.4]])
+    lam = 0.5 * np.eye(4)
+    config = LadderConfig(structure_atol=5.0e-7)
+    values = []
+
+    for oriented_left in (left, left.T):
+        sigma = np.kron(oriented_left, right)
+        symmetric_sigma = sigma / 2.0 + sigma.T / 2.0
+        problem = LogDetProblem(
+            lam,
+            sigma - lam,
+            structure_kind="kronecker",
+            structure=KroneckerStructure((oriented_left, right)),
+        )
+
+        result = dispatch_logdet(problem, config=config)
+        verdict = check_logdet_premises(problem, config=config)[3]
+        assert verdict.satisfied is False
+        assert result.level == 4
+        assert result.value == pytest.approx(_oracle(symmetric_sigma), rel=2e-13)
+        values.append(result.value)
+
+    assert values[0] == values[1]
+
+
 def test_kronecker_descriptor_rejects_rectangular_factors_before_premise_check():
     """A square Kronecker product does not make rectangular factors SPD."""
     with pytest.raises(ValueError, match="non-empty square"):
@@ -747,6 +1404,129 @@ def test_false_structure_claims_are_numerically_refused():
         structured_logdet(matrix, kind="circulant")
     with pytest.raises(ValueError, match="not a block chain"):
         state_space_logdet(matrix, block_size=1)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        LadderConfig(structure_rtol=1.0e-6, structure_atol=0.0),
+        LadderConfig(structure_rtol=0.0, structure_atol=3.0e-7),
+    ],
+)
+def test_relaxed_symmetry_config_has_checker_execution_and_orientation_parity(config):
+    """Hard-coded SPD tolerances or raw Cholesky triangles break this parity."""
+    symmetric = np.array([[2.4, 0.3], [0.3, 2.1]])
+    skew = np.array([[0.0, 1.0e-7], [-1.0e-7, 0.0]])
+    lam = np.diag(np.array([1.3, 1.4]) ** 2)
+    values = []
+
+    for sigma in (symmetric + skew, symmetric - skew):
+        problem = LogDetProblem(lam, sigma - lam)
+        verdict = check_logdet_premises(problem, config=config)[4]
+        result = dispatch_logdet(problem, config=config)
+
+        assert verdict.satisfied is True
+        assert result.level == 4
+        assert result.value == pytest.approx(_oracle(symmetric), rel=2e-13)
+        values.append(result.value)
+
+    assert values[0] == values[1]
+    with pytest.raises(ValueError, match="symmetric"):
+        dense_cholesky_logdet(symmetric + skew)
+
+
+def test_state_space_logdet_uses_one_tolerant_symmetric_payload():
+    """The direct chain API must use the same tolerated matrix for every gate."""
+    matrix = np.array([[2.4, 0.3000001], [0.2999999, 2.1]])
+    symmetric = matrix / 2.0 + matrix.T / 2.0
+    values = [
+        state_space_logdet(oriented, block_size=1, rtol=1.0e-6, atol=0.0)
+        for oriented in (matrix, matrix.T)
+    ]
+
+    assert values[0] == pytest.approx(_oracle(symmetric), rel=2e-13)
+    assert values[1] == values[0]
+
+
+def test_relaxed_symmetry_does_not_admit_an_unexecutable_level_one_factor():
+    """A tolerance-only factor Sigma must fall through without leaking ValueError."""
+    n = 10
+    widths = np.linspace(1.3, 2.1, n)
+    lam = np.diag(widths**2)
+    left = np.linspace(0.02, 0.05, n)[:, None]
+    right = left.copy()
+    right[0, 0] += 1.0e-5
+    config = LadderConfig(
+        low_rank_fraction=1.0,
+        structure_rtol=0.0,
+        structure_atol=1.0e-6,
+    )
+    values = []
+
+    for first, second in ((left, right), (right, left)):
+        perturbation = first @ second.T
+        factors = LowRankFactors(first, second)
+        sigma = lam + perturbation
+        symmetric_sigma = sigma / 2.0 + sigma.T / 2.0
+        problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+
+        verdict = check_logdet_premises(problem, config=config)[1]
+        result = dispatch_logdet(problem, config=config)
+
+        assert verdict.details["rank_evidence_valid"] is True
+        assert verdict.details["determinant_lemma_payload"] is False
+        assert verdict.satisfied is False
+        assert result.level == 4
+        assert result.value == pytest.approx(_oracle(symmetric_sigma), rel=2e-13)
+        values.append(result.value)
+
+    assert values[0] == values[1]
+
+
+def test_relaxed_symmetry_level_five_uses_the_averaged_generic_payload():
+    """A rejected factor payload may fall through to executable finite dense work."""
+    n = 4
+    widths = np.linspace(1.3, 1.9, n)
+    lam = np.diag(widths**2)
+    left = np.linspace(0.02, 0.05, n)[:, None]
+    right = left.copy()
+    right[0, 0] += 1.0e-5
+    config = LadderConfig(
+        low_rank_max=0,
+        dense_max_n=0,
+        finite_max_n=n,
+        finite_max_rank=0,
+        structure_rtol=0.0,
+        structure_atol=1.0e-6,
+    )
+    values = []
+
+    for first, second in ((left, right), (right, left)):
+        perturbation = first @ second.T
+        factors = LowRankFactors(first, second)
+        sigma = lam + perturbation
+        symmetric_sigma = sigma / 2.0 + sigma.T / 2.0
+        problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+
+        verdict = check_logdet_premises(problem, config=config)[5]
+        result = dispatch_logdet(problem, config=config)
+
+        assert verdict.details["rank_evidence_valid"] is True
+        assert verdict.details["determinant_lemma_payload"] is False
+        assert verdict.satisfied is True
+        assert result.level == 5
+        assert result.value == pytest.approx(_oracle(symmetric_sigma), rel=2e-13)
+        values.append(result.value)
+
+    assert values[0] == values[1]
+
+
+@pytest.mark.parametrize("field", ["structure_rtol", "structure_atol"])
+@pytest.mark.parametrize("value", [-1.0, math.nan, math.inf])
+def test_structure_tolerances_must_be_finite_and_nonnegative(field, value):
+    """Passing unchecked tolerance values into SPD admission makes the gate undefined."""
+    with pytest.raises(ValueError, match="structure_rtol and structure_atol"):
+        LadderConfig(**{field: value})
 
 
 @pytest.mark.parametrize(
@@ -849,7 +1629,7 @@ def test_circulant_premise_rejects_tolerance_only_fft_domain():
     """A satisfied circulant row must not fail its real-spectrum payload guard."""
     first = np.array([3.0, 0.2 + 5.0e-14, 0.1, 0.2])
     sigma = np.vstack([np.roll(first, index) for index in range(4)])
-    lam = np.eye(4)
+    lam = np.diag(np.array([1.3, 1.5, 1.7, 1.9]) ** 2)
     problem = LogDetProblem(
         lam, sigma - lam, structure_kind="circulant"
     )
@@ -958,7 +1738,7 @@ def test_chain_exact_rung_rejects_an_unresolved_near_singular_pivot():
 
 
 def test_toeplitz_exact_rung_rejects_unresolved_near_singular_input():
-    """A structure label cannot bypass the common exact-arithmetic condition gate."""
+    """Letting rung 4 retry this rejected matrix returns a 0.1-nat wrong value."""
     link = np.nextafter(1.0 / math.sqrt(2.0), 0.0)
     sigma = np.array([[1.0, link, 0.0], [link, 1.0, link], [0.0, link, 1.0]])
     problem = LogDetProblem(
@@ -967,11 +1747,124 @@ def test_toeplitz_exact_rung_rejects_unresolved_near_singular_input():
         structure_kind="toeplitz",
     )
 
-    verdict = check_logdet_premises(problem)[3]
-    assert verdict.satisfied is False
-    assert "condition" in verdict.reason
+    verdicts = check_logdet_premises(problem)
+    exact = _exact_three_by_three_toeplitz_logdet(float(link))
+    unstable = dense_cholesky_logdet(sigma)
+
+    assert verdicts[3].satisfied is False
+    assert verdicts[4].satisfied is False
+    assert "condition" in verdicts[3].reason
+    assert abs(unstable - exact) > 0.05
     with pytest.raises(ValueError, match="condition"):
         structured_logdet(sigma, kind="toeplitz")
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem)
+
+
+def test_dense_level_zero_rejects_an_unresolved_zero_perturbation():
+    """Zero P must not bypass the dense 1/eps condition-resolution policy."""
+    link = np.nextafter(1.0 / math.sqrt(2.0), 0.0)
+    lam = np.array([[1.0, link, 0.0], [link, 1.0, link], [0.0, link, 1.0]])
+    exact = _exact_three_by_three_toeplitz_logdet(float(link))
+    unstable = lambda_logdet(lam)
+    problem = LogDetProblem(lam, np.zeros_like(lam))
+
+    verdicts = check_logdet_premises(problem)
+
+    assert verdicts[0].details["condition"] >= verdicts[0].details["condition_ceiling"]
+    assert verdicts[0].satisfied is False
+    assert verdicts[5].satisfied is False
+    assert abs(unstable - exact) > 0.05
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem)
+
+
+def test_dense_level_zero_refuses_condition_hidden_by_subnormal_scale():
+    """An unscaled SVD must not admit an unresolved Lambda just below 1/eps."""
+    smallest = float(np.nextafter(0.0, 1.0))
+    width = 2**52
+    lam = smallest * np.array(
+        [[width + 1, width - 2], [width - 2, width - 1]], dtype=float
+    )
+    problem = LogDetProblem(lam, np.zeros_like(lam))
+    ceiling = 1.0 / np.finfo(float).eps
+    exact = _exact_two_by_two_fraction_logdet(lam)
+
+    assert np.linalg.cond(lam) < ceiling
+    assert abs(lambda_logdet(lam) - exact) > 0.1
+
+    verdict = check_logdet_premises(problem)[0]
+    assert verdict.details["condition"] >= verdict.details["condition_ceiling"]
+    assert verdict.satisfied is False
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem)
+
+
+def test_dense_level_four_refuses_condition_hidden_by_subnormal_scale():
+    """The dense rung must not return a 0.287682-nat-wrong resolved result."""
+    smallest = float(np.nextafter(0.0, 1.0))
+    width = 2**52
+    sigma = smallest * np.array(
+        [[width + 1, width - 2], [width - 2, width - 1]], dtype=float
+    )
+    lam = np.diag(np.diag(sigma))
+    problem = LogDetProblem(lam, sigma - lam)
+    ceiling = 1.0 / np.finfo(float).eps
+    exact = _exact_two_by_two_fraction_logdet(sigma)
+
+    assert np.linalg.cond(sigma) < ceiling
+    assert abs(dense_cholesky_logdet(sigma) - exact) > 0.1
+
+    verdict = check_logdet_premises(problem)[4]
+    assert verdict.details["condition"] >= verdict.details["condition_ceiling"]
+    assert verdict.satisfied is False
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem)
+
+
+def test_factor_free_dense_level_five_rejects_an_unresolved_matrix():
+    """The generic finite payload cannot retry an unresolved dense Cholesky."""
+    link = np.nextafter(1.0 / math.sqrt(2.0), 0.0)
+    sigma = np.array([[1.0, link, 0.0], [link, 1.0, link], [0.0, link, 1.0]])
+    lam = 2.0 * np.eye(3)
+    perturbation = sigma - lam
+    exact = _exact_three_by_three_toeplitz_logdet(float(link))
+    config = LadderConfig(
+        low_rank_max=0,
+        dense_max_n=0,
+        finite_max_n=3,
+        finite_max_rank=0,
+    )
+    problem = LogDetProblem(lam, perturbation)
+
+    verdict = check_logdet_premises(problem, config=config)[5]
+
+    assert spectral_radius(lam, perturbation) <= 1.0
+    assert verdict.details["condition"] >= verdict.details["condition_ceiling"]
+    assert verdict.satisfied is False
+    assert abs(dense_cholesky_logdet(sigma) - exact) > 0.05
+    with pytest.raises(ValueError, match="condition"):
+        finite_perturbation_logdet(lam, perturbation)
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem, config=config)
+
+
+def test_dense_condition_policy_stays_at_one_over_eps_not_one_over_sqrt_eps():
+    """A resolved non-diagonal cell between the two ceilings remains admissible."""
+    correlation = 1.0 - 2.0e-10
+    sigma = np.array([[1.0, correlation], [correlation, 1.0]])
+    lam = 2.0 * np.eye(2)
+    problem = LogDetProblem(lam, sigma - lam)
+    exact = _exact_two_by_two_correlation_logdet(correlation)
+
+    verdict = check_logdet_premises(problem)[4]
+    result = dispatch_logdet(problem)
+
+    assert verdict.details["condition"] > 1.0 / math.sqrt(np.finfo(float).eps)
+    assert verdict.details["condition"] < verdict.details["condition_ceiling"]
+    assert verdict.satisfied is True
+    assert result.level == 4
+    assert result.value == pytest.approx(exact, rel=0.0, abs=2.0e-12)
 
 
 def test_every_satisfied_payload_executes_with_validated_fallbacks():
@@ -1017,6 +1910,29 @@ def test_every_satisfied_payload_executes_with_validated_fallbacks():
     assert result.value == pytest.approx(
         _oracle(tiny_lam + with_residual), rel=2e-13
     )
+
+
+def test_invalid_expansive_factor_evidence_refuses_before_payload_execution():
+    """Treating a present but invalid factor as a lemma payload leaks ValueError."""
+    widths = np.array([1.3, 2.1])
+    lam = np.diag(widths**2)
+    left = np.array([[4.0], [1.5]])
+    factors = LowRankFactors(left)
+    perturbation = left @ left.T + np.diag([0.0, 0.25])
+    problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+    config = LadderConfig(
+        low_rank_max=0,
+        dense_max_n=0,
+        finite_max_n=2,
+        finite_max_rank=0,
+    )
+
+    verdict = check_logdet_premises(problem, config=config)[5]
+    assert verdict.details["rank_evidence_valid"] is False
+    assert verdict.details["determinant_lemma_payload"] is False
+    assert verdict.satisfied is False
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem, config=config)
 
 
 @pytest.mark.parametrize("rho", [0.01, 0.5, 0.9, 0.99])
@@ -1139,6 +2055,116 @@ def test_measured_rho_must_independently_stay_strictly_below_one(
             frozen_hutchinson_trace_logdet(
                 lam, perturbation, probes, order=1, rho=certificate
             )
+
+
+def test_checker_and_payload_reject_a_few_ulp_rho_certificate_understatement():
+    """A comparison tolerance makes a numerically smaller certificate unsound."""
+    lam = np.array([1.7, 2.6])
+    perturbation = 0.2 * lam
+    actual_rho = float(np.max(np.abs(perturbation / lam)))
+    certificate = actual_rho
+    for _ in range(3):
+        certificate = float(np.nextafter(certificate, 0.0))
+    traces = _independent_power_traces(lam, perturbation, 1)
+    probes = FrozenProbes([[1.0, 1.0], [1.0, -1.0]])
+    problem = LogDetProblem(
+        lam,
+        perturbation,
+        exact_power_traces=traces,
+        frozen_probes=probes,
+        trace_order=1,
+        certified_rho=certificate,
+    )
+
+    assert actual_rho > certificate
+    assert np.isclose(actual_rho, certificate, rtol=1e-12, atol=1e-14)
+    verdicts = check_logdet_premises(problem)
+    assert verdicts[6].satisfied is False
+    assert verdicts[7].satisfied is False
+    assert format(certificate, ".17g") in verdicts[7].reason
+    with pytest.raises(ValueError, match="understates measured rho"):
+        truncated_trace_logdet(
+            lam,
+            perturbation,
+            exact_power_traces=traces,
+            order=1,
+            rho=certificate,
+        )
+    with pytest.raises(ValueError, match="understates measured rho"):
+        frozen_hutchinson_trace_logdet(
+            lam, perturbation, probes, order=1, rho=certificate
+        )
+
+
+def test_zero_certificate_cannot_cover_a_near_zero_extensive_rho():
+    """An absolute isclose escape hides an order-one-in-n trace-log tail."""
+    n = 100_000
+    actual_rho = 5.0e-15
+    certificate = 0.0
+    lam = np.ones(n)
+    perturbation = actual_rho * lam
+    probes = FrozenProbes(np.ones((1, n)))
+    problem = LogDetProblem(
+        lam,
+        perturbation,
+        exact_power_traces=(),
+        frozen_probes=probes,
+        trace_order=0,
+        certified_rho=certificate,
+    )
+
+    omitted_logdet = n * math.log1p(actual_rho)
+    assert omitted_logdet > 4.9e-10
+    verdicts = check_logdet_premises(problem)
+    assert verdicts[6].satisfied is False
+    assert verdicts[7].satisfied is False
+    with pytest.raises(ValueError, match="understates measured rho"):
+        truncated_trace_logdet(
+            lam,
+            perturbation,
+            exact_power_traces=(),
+            order=0,
+            rho=certificate,
+        )
+    with pytest.raises(ValueError, match="understates measured rho"):
+        frozen_hutchinson_trace_logdet(
+            lam, perturbation, probes, order=0, rho=certificate
+        )
+
+
+def test_near_one_rho_certificate_must_still_be_an_exact_upper_bound():
+    """Relative closeness cannot replace a conservative trace-tail upper bound."""
+    actual_rho = float(np.nextafter(1.0, 0.0))
+    certificate = float(np.nextafter(actual_rho, 0.0))
+    lam = np.array([1.7, 2.6])
+    perturbation = actual_rho * lam
+    traces = _independent_power_traces(lam, perturbation, 1)
+    probes = FrozenProbes([[1.0, 1.0], [1.0, -1.0]])
+    problem = LogDetProblem(
+        lam,
+        perturbation,
+        exact_power_traces=traces,
+        frozen_probes=probes,
+        trace_order=1,
+        certified_rho=certificate,
+    )
+
+    assert actual_rho > certificate
+    verdicts = check_logdet_premises(problem)
+    assert verdicts[6].satisfied is False
+    assert verdicts[7].satisfied is False
+    with pytest.raises(ValueError, match="understates measured rho"):
+        truncated_trace_logdet(
+            lam,
+            perturbation,
+            exact_power_traces=traces,
+            order=1,
+            rho=certificate,
+        )
+    with pytest.raises(ValueError, match="understates measured rho"):
+        frozen_hutchinson_trace_logdet(
+            lam, perturbation, probes, order=1, rho=certificate
+        )
 
 
 def test_level_six_refuses_a_bare_operator_without_exact_power_traces():
@@ -1278,6 +2304,159 @@ def test_retained_trace_audit_rechecks_certificate_multiplicity_rank_bound():
     assert report.violations == (0,)
 
 
+def _certificate_for_guard_tests(**overrides):
+    data = {
+        "measured_max": 0.2,
+        "margin": 0.0,
+        "certified_rho": 0.2,
+        "order": choose_trace_order(0.2, 5.0e-4, multiplicity=2),
+        "tolerance": 1.0e-3,
+        "tail_tolerance": 5.0e-4,
+        "multiplicity": 2,
+    }
+    data.update(overrides)
+    return RhoCertificate(**data)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("max_abs_lambda_logdet", -1.0, "lambda-logdet scale"),
+        ("max_abs_lambda_logdet", math.nan, "lambda-logdet scale"),
+        ("max_x_operator_norm", -1.0, "operator-norm"),
+        ("max_x_operator_norm", math.nan, "operator-norm"),
+    ],
+)
+def test_certificate_rejects_invalid_optional_roundoff_bounds(field, value, message):
+    """Optional does not mean an invalid supplied scale can be ignored."""
+    with pytest.raises(ValueError, match=message):
+        _certificate_for_guard_tests(**{field: value})
+
+
+@pytest.mark.parametrize("tail_fraction", [0.0, 1.0, math.nan])
+def test_warmup_rejects_invalid_tail_budget_fraction(tail_fraction):
+    with pytest.raises(ValueError, match="tail_fraction"):
+        certify_warmup_rho(
+            [0.2],
+            margin=0.0,
+            tolerance=1.0e-3,
+            multiplicity=2,
+            tail_fraction=tail_fraction,
+        )
+
+
+@pytest.mark.parametrize("values", [[], [math.nan]])
+def test_warmup_rejects_invalid_lambda_logdet_measurements(values):
+    with pytest.raises(ValueError, match="lambda logdets"):
+        certify_warmup_rho(
+            [0.2],
+            margin=0.0,
+            tolerance=1.0e-3,
+            multiplicity=2,
+            lambda_logdets=values,
+        )
+
+
+@pytest.mark.parametrize("margin", [-1.0, math.nan])
+def test_warmup_rejects_invalid_lambda_logdet_margin(margin):
+    with pytest.raises(ValueError, match="lambda-logdet safety margin"):
+        certify_warmup_rho(
+            [0.2],
+            margin=0.0,
+            tolerance=1.0e-3,
+            multiplicity=2,
+            lambda_logdet_margin=margin,
+        )
+
+
+@pytest.mark.parametrize("values", [[], [-1.0], [math.nan]])
+def test_warmup_rejects_invalid_absolute_x_norm_measurements(values):
+    with pytest.raises(ValueError, match="X operator norms"):
+        certify_warmup_rho(
+            [0.2],
+            margin=0.0,
+            tolerance=1.0e-3,
+            multiplicity=2,
+            x_operator_norms=values,
+        )
+
+
+@pytest.mark.parametrize("margin", [-1.0, math.nan])
+def test_warmup_rejects_invalid_absolute_x_norm_margin(margin):
+    with pytest.raises(ValueError, match="operator-norm safety margin"):
+        certify_warmup_rho(
+            [0.2],
+            margin=0.0,
+            tolerance=1.0e-3,
+            multiplicity=2,
+            x_operator_norm_margin=margin,
+        )
+
+
+def test_retained_scale_audits_reject_missing_certificates_and_empty_inputs():
+    no_scales = _certificate_for_guard_tests()
+    with pytest.raises(ValueError, match="no lambda-logdet"):
+        audit_retained_lambda_logdet([1.0], no_scales)
+    with pytest.raises(ValueError, match=r"no \|X\|"):
+        audit_retained_operator_norm([0.2], no_scales)
+
+    scales = _certificate_for_guard_tests(
+        max_abs_lambda_logdet=2.0, max_x_operator_norm=0.3
+    )
+    with pytest.raises(ValueError, match="non-empty"):
+        audit_retained_lambda_logdet([], scales)
+    with pytest.raises(ValueError, match="non-empty"):
+        audit_retained_operator_norm([], scales)
+
+
+def test_empty_retained_trace_audit_is_never_a_vacuous_pass():
+    with pytest.raises(ValueError, match="at least one"):
+        audit_retained_power_traces([], _certificate_for_guard_tests())
+
+
+def test_frozen_plan_requires_absolute_x_norm_roundoff_certificate():
+    lam = np.array([1.7, 2.6])
+    rho = 0.2
+    certificate = certify_warmup_rho(
+        [rho],
+        margin=0.0,
+        tolerance=1.0e-3,
+        multiplicity=2,
+        lambda_logdets=[lambda_logdet(lam)],
+    )
+    problem = LogDetProblem(
+        lam,
+        rho * lam,
+        frozen_probes=FrozenProbes([[1.0, 1.0], [1.0, -1.0]]),
+        trace_order=certificate.order,
+        certified_rho=rho,
+    )
+    with jax.enable_x64(True), pytest.raises(ValueError, match="max_x_operator_norm"):
+        make_frozen_trace_log_plan(problem, certificate)
+
+
+def test_low_rank_guard_errors_identify_rows_and_missing_lambda_evidence():
+    from bayesmith.marginal import _logdet_eager as eager
+
+    bad_rows = LowRankFactors(np.ones((2, 1)), np.ones((2, 1)))
+    with pytest.raises(ValueError, match="row counts"):
+        low_rank_logdet(np.diag([1.3, 1.7, 2.1]), np.eye(3), factors=bad_rows)
+
+    factors = LowRankFactors(np.ones((3, 1)))
+    with pytest.raises(ValueError, match="Lambda is required"):
+        eager._algebraic_rank_bound(np.eye(3), factors)
+
+
+def test_direct_block_chain_guard_rejects_asymmetry_before_factorization():
+    matrix = np.array([[2.3, 0.2, 0.0], [0.1, 2.7, 0.3], [0.0, 0.3, 3.1]])
+    with pytest.raises(ValueError, match="symmetric"):
+        state_space_logdet(matrix, block_size=1)
+
+    indefinite = np.array([[1.0, 2.0, 0.0], [2.0, 1.0, 2.0], [0.0, 2.0, 1.0]])
+    with pytest.raises(ValueError, match="positive definite matrix"):
+        state_space_logdet(indefinite, block_size=1)
+
+
 def test_problem_refuses_probe_objects_that_can_resample_behind_values():
     """A .values-shaped duck type is not evidence that probes are immutable."""
 
@@ -1312,6 +2491,53 @@ def test_frozen_probe_subclasses_cannot_override_values_with_resampling():
             frozen_probes=probes,
         )
 
+    lam = np.array([1.7, 2.6])
+    perturbation = np.array([0.17, 0.26])
+    with pytest.raises(TypeError, match="exact FrozenProbes"):
+        frozen_hutchinson_trace_logdet(
+            lam, perturbation, probes, order=3, rho=0.1
+        )
+
+
+def test_direct_frozen_estimator_rejects_values_duck_types():
+    """The public eager rung must enforce the same exact-type premise."""
+
+    class ResamplingProbes:
+        @property
+        def values(self):
+            return np.random.default_rng().choice((-1.0, 1.0), size=(2, 2))
+
+    with pytest.raises(TypeError, match="exact FrozenProbes"):
+        frozen_hutchinson_trace_logdet(
+            np.array([1.7, 2.6]),
+            np.array([0.17, 0.26]),
+            ResamplingProbes(),
+            order=3,
+            rho=0.1,
+        )
+
+
+def test_direct_frozen_estimator_reads_the_checked_probe_buffer_once(monkeypatch):
+    """Width validation and arithmetic must use the very same probe snapshot."""
+    probes = FrozenProbes([[1.0, 1.0], [1.0, -1.0]])
+    original = FrozenProbes.values
+    reads = 0
+
+    def counted_values(instance):
+        nonlocal reads
+        reads += 1
+        return original.__get__(instance, FrozenProbes)
+
+    monkeypatch.setattr(FrozenProbes, "values", property(counted_values))
+    frozen_hutchinson_trace_logdet(
+        np.array([1.7, 2.6]),
+        np.array([0.17, 0.26]),
+        probes,
+        order=3,
+        rho=0.1,
+    )
+    assert reads == 1
+
 
 def test_order_selection_is_minimal_at_its_boundary():
     """An off-by-one can select an order whose bound exceeds tolerance."""
@@ -1332,7 +2558,12 @@ def test_frozen_probes_are_copied_read_only_and_reused_bitwise():
         probes.values[0, 0] = 5.0
     lam = np.diag([1.7, 2.6])
     perturbation = np.diag([0.17, 0.52])
-    first = frozen_hutchinson_trace_logdet(lam, perturbation, probes, order=8, rho=0.2)
+    values = [
+        frozen_hutchinson_trace_logdet(
+            lam, perturbation, probes, order=8, rho=0.2
+        )
+        for _ in range(5)
+    ]
     public = probes.values
     try:
         public.setflags(write=True)
@@ -1340,8 +2571,9 @@ def test_frozen_probes_are_copied_read_only_and_reused_bitwise():
     except ValueError:
         pass
     second = frozen_hutchinson_trace_logdet(lam, perturbation, probes, order=8, rho=0.2)
-    assert first == second
-    assert first == pytest.approx(_oracle(lam + perturbation), rel=3e-6)
+    assert values == [values[0]] * 5
+    assert values[0] == second
+    assert values[0] == pytest.approx(_oracle(lam + perturbation), rel=3e-6)
 
 
 @pytest.mark.parametrize("rho", [1.0, 1.01])
@@ -1400,7 +2632,7 @@ def test_retained_exact_trace_provider_is_reaudited_after_sampling():
 
 
 def test_runtime_factories_refuse_tolerance_below_float32_ulp_at_output_scale():
-    """A float64 tail certificate cannot promise accuracy unavailable to JAX float32."""
+    """The ULP guard itself refuses accuracy unavailable to JAX float32."""
     n, rho, tolerance = 40, 0.5, 1.0e-6
     lam = np.linspace(1.3, 2.7, n) ** 2
     perturbation = rho * lam
@@ -1430,9 +2662,9 @@ def test_runtime_factories_refuse_tolerance_below_float32_ulp_at_output_scale():
     )
 
     with jax.enable_x64(False):
-        with pytest.raises(ValueError, match="enable_x64"):
+        with pytest.raises(ValueError, match="ULP"):
             make_trace_log_plan(trace_problem, certificate)
-        with pytest.raises(ValueError, match="enable_x64"):
+        with pytest.raises(ValueError, match="ULP"):
             make_frozen_trace_log_plan(frozen_problem, certificate)
     with jax.enable_x64(True):
         assert make_trace_log_plan(trace_problem, certificate).order == certificate.order
@@ -1493,8 +2725,81 @@ def test_runtime_precision_guard_refuses_float32_base_series_cancellation():
         certified_rho=certificate.certified_rho,
     )
 
-    with jax.enable_x64(False), pytest.raises(ValueError, match="requires float64"):
+    with jax.enable_x64(False), pytest.raises(ValueError, match="roundoff"):
         make_trace_log_plan(problem, certificate)
+
+
+@pytest.mark.parametrize(
+    ("tolerance", "accepted"),
+    [
+        (1.0, True),
+        (1.0e-1, True),
+        (1.0e-2, True),
+        (1.0e-3, True),
+        (1.0e-4, True),
+        (2.0e-5, False),
+        (1.0e-5, False),
+    ],
+)
+def test_float32_plan_is_decided_by_ulp_and_gamma_bounds(tolerance, accepted):
+    """D7 uses the proved error budget, not an unconditional dtype label."""
+    lam = (np.array([1.3, 1.9], dtype=np.float32) ** 2).astype(np.float32)
+    rho = 0.5
+    perturbation = (rho * lam).astype(np.float32)
+    certificate = certify_warmup_rho(
+        [rho],
+        margin=0.0,
+        tolerance=tolerance,
+        multiplicity=2,
+        lambda_logdets=[lambda_logdet(lam)],
+    )
+    traces = _independent_power_traces(lam, perturbation, certificate.order)
+    problem = LogDetProblem(
+        lam,
+        perturbation,
+        exact_power_traces=traces,
+        trace_order=certificate.order,
+        certified_rho=rho,
+    )
+
+    with jax.enable_x64(False):
+        if accepted:
+            plan = make_trace_log_plan(problem, certificate)
+            assert np.dtype(plan._runtime_dtype) == np.dtype(np.float32)
+        else:
+            with pytest.raises(ValueError, match="ULP|roundoff"):
+                make_trace_log_plan(problem, certificate)
+
+
+def test_low_rank_multiplicity_certificate_is_tight_not_dimension_wide():
+    """A proved rank-two update must not be inflated to ambient n=40."""
+    n, rank, rho = 40, 2, 0.2
+    widths = np.linspace(1.3, 2.7, n)
+    lam = np.diag(widths**2)
+    basis, _ = np.linalg.qr(np.random.default_rng(402).normal(size=(n, rank)))
+    left = widths[:, None] * basis * math.sqrt(rho)
+    perturbation = left @ left.T
+    factors = LowRankFactors(left)
+    certificate = certify_warmup_rho(
+        [rho],
+        margin=0.0,
+        tolerance=1.0e-5,
+        multiplicity=rank,
+        lambda_logdets=[lambda_logdet(lam)],
+    )
+    problem = LogDetProblem(
+        lam,
+        perturbation,
+        low_rank_factors=factors,
+        exact_power_traces=_independent_power_traces(
+            lam, perturbation, certificate.order
+        ),
+        trace_order=certificate.order,
+        certified_rho=rho,
+    )
+
+    with jax.enable_x64(True):
+        assert make_trace_log_plan(problem, certificate).order == certificate.order
 
 
 def test_exact_plan_combines_analytic_tail_and_roundoff_in_one_tolerance():
@@ -1530,15 +2835,15 @@ def test_exact_plan_combines_analytic_tail_and_roundoff_in_one_tolerance():
 
 def test_runtime_plan_requires_and_reaudits_a_lambda_logdet_scale_bound():
     """A theta-dependent base scale is certified like rho, not inferred once."""
-    n, rho, tolerance = 10_000, 1.0e-8, 1.0e-12
-    lam = np.ones(n)
+    n, rho, tolerance = 10_000, 1.0e-8, 1.0e-10
+    lam = np.linspace(1.3, 2.3, n) ** 2
     perturbation = rho * lam
     certificate = certify_warmup_rho(
         [rho],
         margin=0.0,
         tolerance=tolerance,
         multiplicity=n,
-        lambda_logdets=[0.0],
+        lambda_logdets=[lambda_logdet(lam)],
     )
     traces = _independent_power_traces(lam, perturbation, certificate.order)
     problem = LogDetProblem(
@@ -1552,7 +2857,9 @@ def test_runtime_plan_requires_and_reaudits_a_lambda_logdet_scale_bound():
     with jax.enable_x64(True):
         plan = make_trace_log_plan(problem, certificate)
     assert plan.order == certificate.order
-    audit = audit_retained_lambda_logdet([0.0, 50.0 * n], certificate)
+    audit = audit_retained_lambda_logdet(
+        [lambda_logdet(lam), 50.0 * n], certificate
+    )
     assert audit.passed is False
     assert audit.violations == (1,)
 
@@ -1567,7 +2874,7 @@ def test_runtime_plan_requires_and_reaudits_a_lambda_logdet_scale_bound():
         margin=0.0,
         tolerance=tolerance,
         multiplicity=n,
-        lambda_logdets=[0.0, 50.0 * n],
+        lambda_logdets=[lambda_logdet(lam), 50.0 * n],
     )
     with jax.enable_x64(True), pytest.raises(ValueError, match="roundoff"):
         make_trace_log_plan(problem, wide)
@@ -1575,26 +2882,27 @@ def test_runtime_plan_requires_and_reaudits_a_lambda_logdet_scale_bound():
 
 def test_frozen_runtime_requires_x64_for_nonnormal_matmul_cancellation():
     """Float32 loses diagonal terms when huge probe products cancel."""
-    lam = np.eye(2)
+    lam = np.diag(np.array([1.3, 1.9]) ** 2)
     x_matrix = np.array([[0.1, 1.0e8], [0.0, 0.2]])
+    perturbation = x_matrix @ lam
     probes = FrozenProbes([[1.0, 1.0], [1.0, -1.0]])
     certificate = certify_warmup_rho(
         [0.2],
         margin=0.0,
         tolerance=1.0e-3,
         multiplicity=2,
-        lambda_logdets=[0.0],
+        lambda_logdets=[lambda_logdet(lam)],
         x_operator_norms=[np.linalg.norm(np.abs(x_matrix), ord=2)],
     )
     problem = LogDetProblem(
         lam,
-        x_matrix,
+        perturbation,
         frozen_probes=probes,
         trace_order=certificate.order,
         certified_rho=certificate.certified_rho,
     )
 
-    with jax.enable_x64(False), pytest.raises(ValueError, match="requires float64"):
+    with jax.enable_x64(False), pytest.raises(ValueError, match="roundoff"):
         make_frozen_trace_log_plan(problem, certificate)
     with jax.enable_x64(True), pytest.raises(ValueError, match="roundoff"):
         make_frozen_trace_log_plan(problem, certificate)
@@ -1634,14 +2942,14 @@ def test_frozen_precision_rejects_plain_norm_when_absolute_action_norm_is_larger
         "margin": 0.0,
         "tolerance": 1.0e-3,
         "multiplicity": n,
-        "lambda_logdets": [0.0],
+        "lambda_logdets": [n * math.log(2.3)],
     }
     understated = certify_warmup_rho(
         **problem_data, x_operator_norms=[ordinary_norm]
     )
     problem = LogDetProblem(
-        np.eye(n),
-        x_matrix,
+        2.3 * np.eye(n),
+        2.3 * x_matrix,
         frozen_probes=probes,
         trace_order=understated.order,
         certified_rho=understated.certified_rho,
@@ -1720,19 +3028,42 @@ def test_runtime_precision_guard_keeps_compact_diagonal_inputs_matrix_free(
 
 
 @pytest.mark.parametrize("rho", [0.01, 0.5, 0.9, 0.99, 1.01])
-def test_spectral_radius_directly_matches_diagonal_and_dense_nonnormal_oracles(rho):
-    """Strict-rho safety is tested at its measurement function, not only downstream."""
+def test_spectral_radius_matches_literal_dense_eigenvalue_construction(rho):
+    """The dense oracle is the fixture parameter, never production eigvals."""
     lam = np.array([1.7, 2.6])
     assert spectral_radius(lam, rho * lam) == pytest.approx(rho, rel=2e-15)
 
-    transform = np.array([[1.0, 1000.0], [0.0, 1.0]])
-    x_matrix = transform @ np.diag([rho, 0.2 * rho]) @ np.linalg.inv(transform)
-    dense_lam = np.diag([1.7, 2.6])
+    rotation = np.array([[1.0, -1.0], [1.0, 1.0]]) / math.sqrt(2.0)
+    x_matrix = rotation @ np.diag([rho, 0.2 * rho]) @ rotation.T
+    dense_lam = 2.3 * np.eye(2)
     perturbation = x_matrix @ dense_lam
-    oracle = float(np.max(np.abs(np.linalg.eigvals(x_matrix))))
+    assert np.max(np.abs(np.diag(x_matrix))) < rho
     assert spectral_radius(dense_lam, perturbation) == pytest.approx(
-        oracle, rel=2e-13, abs=2e-13
+        rho, rel=2e-13, abs=2e-13
     )
+
+    order = 4
+    problem = LogDetProblem(
+        dense_lam,
+        perturbation,
+        exact_power_traces=_independent_power_traces(
+            dense_lam, perturbation, order
+        ),
+        trace_order=order,
+        certified_rho=rho,
+    )
+    disabled = LadderConfig(
+        low_rank_max=0,
+        dense_max_n=0,
+        finite_max_n=0,
+        finite_max_rank=0,
+    )
+    assert check_logdet_premises(problem, config=disabled)[6].satisfied is (
+        rho < 1.0
+    )
+    if rho >= 1.0:
+        with pytest.raises(ResamplingRefused):
+            dispatch_logdet(problem, config=disabled)
 
 
 def test_dispatcher_selects_first_satisfied_row_and_exposes_rejections():
@@ -1800,7 +3131,10 @@ def test_rungs_six_and_seven_share_order_and_rho_without_sharing_error_claims(
     perturbation = (
         np.diag(widths) @ basis @ np.diag(eigenvalues) @ basis.T @ np.diag(widths)
     )
-    order = choose_trace_order(rho, 1.0e-7, multiplicity=n)
+    certificate = float(
+        np.nextafter(spectral_radius(lam, perturbation), np.inf)
+    )
+    order = choose_trace_order(certificate, 1.0e-7, multiplicity=n)
     traces = _independent_power_traces(lam, perturbation, order)
     probes = FrozenProbes(rng.choice((-1.0, 1.0), size=(probes_count, n)))
     exact_trace = truncated_trace_logdet(
@@ -1808,13 +3142,15 @@ def test_rungs_six_and_seven_share_order_and_rho_without_sharing_error_claims(
         perturbation,
         exact_power_traces=traces,
         order=order,
-        rho=rho,
+        rho=certificate,
     )
     frozen = frozen_hutchinson_trace_logdet(
-        lam, perturbation, probes, order=order, rho=rho
+        lam, perturbation, probes, order=order, rho=certificate
     )
     oracle = _oracle(lam + perturbation)
-    bound = n * rho ** (order + 1) / ((order + 1) * (1.0 - rho))
+    bound = n * certificate ** (order + 1) / (
+        (order + 1) * (1.0 - certificate)
+    )
 
     assert abs(exact_trace - oracle) <= bound * (1.0 + 1e-8) + 2e-13
     assert _relative(frozen, oracle) < 2e-2
@@ -1888,28 +3224,21 @@ def test_dense_size_boundary_evaluates_dense_and_finite_methods(n):
     assert _relative(dense, finite) < 2e-13
 
 
-def test_dense_condition_boundary_uses_dtype_specific_ceiling():
-    """A fixed condition ceiling accepts float32 matrices that lost half their digits."""
-    ceiling = condition_ceiling(np.dtype(np.float64))
-    for ratio in (1.0 - 1e-6, 1.0, 1.0 + 1e-6):
-        sigma = np.diag([2.3, 2.3 * ceiling * ratio])
-        lam = 0.8 * sigma
-        perturbation = sigma - lam
-        problem = LogDetProblem(lam, perturbation)
-        verdict = check_logdet_premises(problem)[4]
-        assert verdict.satisfied is (ratio < 1.0)
-        oracle = _oracle(sigma)
-        dense = dense_cholesky_logdet(sigma)
-        assert math.isfinite(dense)
-        assert _relative(dense, oracle) < 2e-13
-        if ratio < 1.0:
-            finite = finite_perturbation_logdet(lam, perturbation)
-            assert math.isfinite(finite)
-            assert _relative(finite, oracle) < 2e-13
-            assert _relative(dense, finite) < 2e-13
-        else:
-            with pytest.raises(ValueError, match="condition"):
-                finite_perturbation_logdet(lam, perturbation)
+def test_dense_condition_gate_refuses_a_non_diagonal_unresolved_matrix():
+    """Dropping rung 4's 1/eps gate admits this cond >= 1e15 fixture."""
+    correlation = np.nextafter(1.0, 0.0)
+    sigma = 2.3 * np.array(
+        [[1.0, correlation], [correlation, 1.0]]
+    )
+    lam = 0.5 * np.eye(2)
+    problem = LogDetProblem(lam, sigma - lam)
+    verdict = check_logdet_premises(problem)[4]
+
+    assert verdict.details["condition"] >= 1.0e15
+    assert verdict.details["condition"] >= verdict.details["condition_ceiling"]
+    assert verdict.satisfied is False
+    with pytest.raises(ResamplingRefused):
+        dispatch_logdet(problem)
 
 
 @pytest.mark.parametrize("n", [2, 3, 4])
@@ -1919,12 +3248,21 @@ def test_finite_trace_boundary_compares_both_direct_methods(n):
     widths = np.linspace(1.4, 2.2, n)
     lam = np.diag(widths**2)
     perturbation = rho * lam
+    certificate = float(
+        np.nextafter(spectral_radius(lam, perturbation), np.inf)
+    )
     traces = _independent_power_traces(lam, perturbation, order)
     exact = finite_perturbation_logdet(lam, perturbation)
     approximate = truncated_trace_logdet(
-        lam, perturbation, exact_power_traces=traces, order=order, rho=rho
+        lam,
+        perturbation,
+        exact_power_traces=traces,
+        order=order,
+        rho=certificate,
     )
-    bound = n * rho ** (order + 1) / ((order + 1) * (1 - rho))
+    bound = n * certificate ** (order + 1) / (
+        (order + 1) * (1 - certificate)
+    )
     assert math.isfinite(exact) and math.isfinite(approximate)
     assert abs(exact - approximate) <= bound * (1 + 1e-8) + 1e-14
     assert _relative(exact, approximate) < 1e-12
@@ -1934,7 +3272,7 @@ def test_finite_trace_boundary_compares_both_direct_methods(n):
             perturbation,
             exact_power_traces=traces,
             trace_order=order,
-            certified_rho=rho,
+            certified_rho=certificate,
         ),
         config=LadderConfig(finite_max_n=3, finite_max_rank=0),
     )[5]
@@ -1954,14 +3292,22 @@ def test_finite_rank_boundary_evaluates_finite_and_trace_methods(rank):
     left[np.arange(rank), np.arange(rank)] = np.linspace(0.03, 0.07, rank)
     factors = LowRankFactors(left)
     perturbation = left @ left.T
-    rho = float(np.max(np.diag(perturbation) / np.diag(lam)))
+    certificate = float(
+        np.nextafter(spectral_radius(lam, perturbation), np.inf)
+    )
     traces = _independent_power_traces(lam, perturbation, order)
     exact = finite_perturbation_logdet(lam, perturbation, factors=factors)
     approximate = truncated_trace_logdet(
-        lam, perturbation, exact_power_traces=traces, order=order, rho=rho
+        lam,
+        perturbation,
+        exact_power_traces=traces,
+        order=order,
+        rho=certificate,
     )
     oracle = _oracle(lam + perturbation)
-    bound = n * rho ** (order + 1) / ((order + 1) * (1.0 - rho))
+    bound = n * certificate ** (order + 1) / (
+        (order + 1) * (1.0 - certificate)
+    )
     verdict = check_logdet_premises(
         LogDetProblem(
             lam,
@@ -1969,7 +3315,7 @@ def test_finite_rank_boundary_evaluates_finite_and_trace_methods(rank):
             low_rank_factors=factors,
             exact_power_traces=traces,
             trace_order=order,
-            certified_rho=rho,
+            certified_rho=certificate,
         ),
         config=LadderConfig(finite_max_n=0, finite_max_rank=2),
     )[5]

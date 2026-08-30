@@ -186,9 +186,11 @@ def reduce_with_evidence(
             "whose evidence_term includes those observations."
         )
 
+    retained_nodes = tuple(node for node in graph.nodes if node.name not in dropped)
+    retained_plates = {plate for node in retained_nodes for plate in node.plate}
     reduced = Graph(
-        nodes=tuple(node for node in graph.nodes if node.name not in dropped),
-        plates=graph.plates,
+        nodes=retained_nodes,
+        plates=tuple(p for p in graph.plates if p.name in retained_plates),
         joint_prior=graph.joint_prior,
         evidence_terms=(*graph.evidence_terms, evidence_term),
     )
