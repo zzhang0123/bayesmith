@@ -29,7 +29,9 @@ bayesmith 的目标是：
 
 > 将显式 Bayesian graph 编译为一条可审计的推断与检验过程：先识别并验证结构，精确消元可解析部分，为剩余问题选择执行后端，再产出带适用条件、诊断和 provenance 的结果。
 
-它不是另一个 probabilistic programming language，也不是 sampler 的集合。它是位于模型声明与数值后端之间的 **structure-aware Bayesian compiler and workflow layer**。
+它不是另一个 probabilistic programming language，也不是 sampler 的集合。它是位于模型声明与数值后端之间的 **graph-aware、task-aware Bayesian compiler and workflow layer**。
+
+“利用结构”本身不是足够精确的差异化表述。BlackJAX 等 inference library 已经提供 latent-Gaussian、Laplace-marginalized 等利用特定结构的算法；bayesmith 的独特职责是从完整 Graph 中发现并验证结构，跨 subgraph 组合 exact 与 numerical routes，并说明为什么该组合对当前 Task 合法。
 
 这里的“通用 Bayesian 工具”指 workflow 的通用性，而不是声称实现所有分布、所有 sampler、所有图结构或所有可视化。对任何处于支持域内的 Graph，bayesmith 应逐步能够回答五个问题：
 
@@ -61,7 +63,7 @@ bayesmith 应拥有：
 bayesmith 不应：
 
 - 重新实现一个完整 PPL、distribution library 或通用 sampler zoo；
-- 取代 NumPyro、JAXNS、ArviZ 等成熟项目已有且维护良好的数值能力；
+- 取代 NumPyro、BlackJAX、JAXNS、ArviZ 等成熟项目已有且维护良好的数值能力；
 - 变成通用 DAG scheduler、任务队列、聊天框架或 agent framework；
 - 允许 LLM 改写统计真值、降低诊断标准或绕过 quality gate；
 - 仅为了接更多 backend 而引入缺乏统计语义的抽象层；
@@ -183,9 +185,11 @@ bayesmith 已有面向天文观测问题的结构识别能力，例如 linear bl
 
 - bayesmith 自有 exact kernels；
 - NumPyro posterior inference；
+- 可选的 BlackJAX MCMC、SMC、VI 或 nested sampling；
 - optimization 或 Laplace 路径；
-- 可选的 nested sampling backend；
 - 未来其他明确适配的 backend。
+
+NumPyro 保持当前 Graph 的通用 posterior fallback 和既有 bridge；引入 BlackJAX 不意味着替换 NumPyro。BlackJAX 更适合作为可选的 inference runtime：接收 compiler 已经锁定语义的 log density 或分离的 log-prior/log-likelihood，提供 bayesmith 不应自行重写的算法。
 
 结果使用 tagged union，而不是一个含义随路径变化的大字典：
 
@@ -262,6 +266,8 @@ Predictive comparison 与 evidence comparison 是不同问题：
 - posterior predictive check 衡量模型能否生成与观察数据在相关方面相似的重复数据。
 
 三者都重要，但不能互相替代。
+
+ESS、R̂、PSIS、Pareto k̂ 等成熟的低层统计量应优先复用 BlackJAX 或 ArviZ，而不是在 bayesmith 中重复实现。bayesmith 拥有的是 observation grouping、方法适用性、结果聚合和 gate 语义，以及 Graph 驱动的 PPC、SBC、identifiability 和 prior-sensitivity workflow。
 
 ### 2.5 Layer 5 — Workflow and Agent Control Plane
 
@@ -416,15 +422,20 @@ EvidenceTask 的首选编译路径是：
 
 结论是：**需要接，但作为可选 backend，不作为核心依赖，也不自己实现通用 nested sampler。**
 
-首选策略：
+接入策略：
 
-- 第一适配目标是 NumPyro 已提供的 JAXNS integration；
-- adapter 只接收 EvidenceTask 编译出的 CompiledProblem；
+- 先定义 backend-neutral CompiledEvidenceProblem；它是 CompiledProblem 的 evidence-specific variant，不是新的顶层 artifact，至少包含分离的 log-prior、log-likelihood、prior sampling 或 transform、参数表示、normalization audit 和 reconstruction information；
+- 第一轮 backend evaluation 同时考察 BlackJAX nested sampling 与 JAXNS，不预先指定胜者；
+- 使用相同的 analytic oracles、代表性的 astronomy-shaped residual problems 和运行预算比较 correctness、bias、uncertainty、termination、multimodal behavior、JIT/compile cost、memory 和 API stability；
+- 至少选择一个 production adapter；只有在第二实现能提供实质性的独立 cross-check 或不同适用域时才长期维护两个；
+- adapter 只接收 EvidenceTask 编译出的 CompiledEvidenceProblem；
 - 未安装可选依赖时返回明确的 capability Refusal；
 - backend 的 termination、logZ uncertainty、weighted samples 和 diagnostics 全部进入 EvidenceResult；
 - 默认至少提供独立重复运行或等价稳定性检查；
 - x64 与数值尺度检查属于 evidence gate；
-- 后续只有在独立 cross-check 价值明确时，再考虑 dynesty 等第二 backend。
+- dynesty 等非 JAX backend 只有在明确补足适用域或提供独立验证价值时才进入后续评估。
+
+BlackJAX 是特别自然的候选，因为它直接以 JAX log density 为边界，nested sampling API 还要求显式分离 log-prior 与 log-likelihood，并且同一 optional dependency 可进一步提供 SMC、MCLMC、Pathfinder 和其他 execution routes。它仍然只是执行层：Graph 解释、exact collapse、evidence eligibility、prior normalization、结果 gate 和 backend 选择继续由 bayesmith 拥有。
 
 不应把“nested sampling 成功返回”当作 evidence 可信。可信还依赖：
 
@@ -729,8 +740,12 @@ model/graph
 4. 是否有独立 oracle 或 cross-check？
 5. backend-specific object 泄漏到公共 API 的范围是否最小？
 6. 升级 backend 时如何检测语义漂移？
+7. 它要求的目标表示是否能由 CompiledProblem 无损提供，而不让 backend 重新解释 Graph？
+8. 如果已有 adapter 能完成任务，第二个 adapter 是否带来独立验证或新的适用域，而不只是增加算法数量？
 
 不以 backend 数量作为成熟度指标。
+
+backend 评估必须针对具体 Task 和 compiled problem family，不能笼统宣布某个 library 为全局首选。对 posterior，NumPyro 可以继续是默认通用 fallback；对 residual evidence，BlackJAX NS 与 JAXNS 通过同一 oracle suite 竞争；对某些 geometry，未来也可以由 Plan 选择 BlackJAX 的专门算法。无论选择哪一个，公共 Result、Report 和 gate 不随 backend 改变。
 
 ---
 
@@ -866,15 +881,19 @@ model/graph
 
 **主要工作**
 
-- 建立可选 JAXNS adapter，优先复用 NumPyro integration；
+- 定义 backend-neutral CompiledEvidenceProblem 与 adapter contract，并保持它是 CompiledProblem 的 evidence-specific variant；
+- 对 BlackJAX nested sampling 和 JAXNS 做同预算、同 oracle 的 backend evaluation；
+- 根据 correctness、bias、uncertainty calibration、termination、multimodal behavior、JIT/compile cost、memory、API stability 和维护成本记录选择决策；
+- 建立至少一个可选 production adapter；
 - exact collapse 后再调用 nested sampling；
 - 记录 termination、uncertainty 和 weighted samples；
 - 独立重复运行或等价 stability check；
 - 加入 x64、尺度和 prior transform 检查；
-- 评估是否需要第二 backend 做独立 cross-check。
+- 仅在有独立验证价值或不同适用域时保留第二 backend。
 
 **完成门槛**
 
+- backend 决策有可复现 benchmark、oracle 结果和明确适用域，而不是预设偏好；
 - 在 analytic oracle 上 log evidence 与声明误差一致；
 - 至少覆盖一个非高斯或多模态 fixture；
 - exact collapse 与未 collapse 的小问题对照一致；
@@ -1062,7 +1081,7 @@ Evidence 测试至少覆盖：
 任何显著新功能先回答：
 
 1. 它解决的是 bayesmith 应拥有的统计语义，还是成熟依赖已经解决的数值问题？
-2. 它是否利用了 Graph 和 structure-aware compilation 的差异化价值？
+2. 它是否利用了 Graph 和 graph-aware、task-aware compilation 的差异化价值？
 3. 它的适用条件能否被检查？
 4. 它失败时能否正式 Refuse 或 ABSTAIN？
 5. 它是否有独立 oracle？
@@ -1127,7 +1146,8 @@ Evidence 测试至少覆盖：
 
 ### 11.7 Adapter 漂移
 
-**风险：** NumPyro、JAXNS 或 ArviZ 升级改变行为。  
+**风险：** NumPyro、BlackJAX、JAXNS 或 ArviZ 升级改变行为。
+
 **缓解：** versioned provenance、contract tests、wheel-level integration tests 和最小 adapter surface。
 
 ### 11.8 Artifact 体系先于真实需求而过度设计
@@ -1180,7 +1200,7 @@ bayesmith 达到“通用 Bayesian workflow 工具”的成熟状态，不以支
 2. 它的通用性来自完整 Bayesian workflow，而不是复制整个 PPL 生态。
 3. 当前 posterior 与结构化 exact inference 是基础优势；下一块最重要的缺口是通用 model checking。
 4. Evidence 应建设为独立、task-aware 的产品能力。
-5. Nested sampling 应接入现成工具，首选可选的 JAXNS/NumPyro 路径；不进入核心依赖。
+5. Nested sampling 应接入现成工具但不进入核心依赖；BlackJAX NS 与 JAXNS 先通过同一 oracle-driven evaluation，再选择至少一个 production adapter。
 6. bayesmith 的独特 evidence 优势应是先精确消元，再对 residual problem 做 nested sampling。
 7. astronomy-oriented structural optimizations 继续作为 first-party compiler capabilities，但不限制顶层定位。
 8. agent 是未来外部控制策略；typed artifact、gate 和 Action protocol 才是核心。
