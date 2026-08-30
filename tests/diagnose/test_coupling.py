@@ -214,7 +214,9 @@ def test_m6_precision_cholesky_matches_an_independent_covariance_oracle():
         )
         * np.finfo(np.float64).eps
     )
-    assert report.correlation.floor == pytest.approx(expected_floor, rel=2e-15)
+    assert report.correlation.floor == pytest.approx(
+        expected_floor, rel=2e-15, abs=0.0
+    )
     assert report.kappa_cond == pytest.approx(np.linalg.cond(precision[3:, 3:]))
     assert report.kappa_joint == pytest.approx(np.linalg.cond(precision))
 

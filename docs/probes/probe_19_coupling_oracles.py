@@ -181,7 +181,12 @@ def m6():
     )
     assert isinstance(report.correlation, Measured)
     assert report.correlation.n_correlations == 3
-    assert np.isclose(report.correlation.floor, expected_floor, rtol=2e-15)
+    assert np.isclose(
+        report.correlation.floor,
+        expected_floor,
+        rtol=2e-15,
+        atol=0.0,
+    )
     print(f"M6 max |precision route - covariance route|  {difference:.16e}")
     print(f"M6 whitening floor                            {expected_floor:.16e}")
 
