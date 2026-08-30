@@ -575,22 +575,32 @@ PredictiveTask 则将这些 forward draws 放回明确的 conditioning 与 predi
 Gate 必须：
 
 - 由明确的 artifact 证据计算；
-- 输出 PASS、FAIL 或 ABSTAIN；
+- 同时表达 gate operational status，以及仅在可计算时产生的统计 verdict；
+- operational status 为 BLOCKED、INVALIDATED、ERROR 或 EVALUATED；
+- 只有 EVALUATED 状态拥有当前有效的 PASS、FAIL 或 ABSTAIN verdict；
 - 说明阻止哪些 action；
 - 说明哪些修复动作仍合法；
 - 在依赖失效时自动回退。
 
-每个 gate 必须声明 required reports、optional reports 和 applicability policy；不能把多份报告交给调用者临时聚合。规范的聚合顺序是：
+每个 gate 必须声明 required reports、optional reports 和 applicability policy；不能把多份报告交给调用者临时聚合。聚合分为两个阶段，先确定 operational status，再在 EVALUATED 状态下计算 verdict。
 
-1. dependency invalidation、运行错误，或被评价的 artifact 及其上游输入（Result、Plan 等）缺失或失效，单独记录为 gate execution failure，不伪装成统计 FAIL；
-2. 任一 required 且 APPLICABLE 的报告为 FAIL，则 gate 为 FAIL；
-3. required 报告为 UNVERIFIABLE、ABSTAIN 或从未产出，则 gate 为 ABSTAIN；
-4. INAPPLICABLE 只有在 gate schema 预先声明该报告可选时才被忽略；若它是 required requirement，则 gate 为 ABSTAIN；
-5. 只有全部 required、applicable reports 为 PASS，且没有上述情况时，gate 才能 PASS。
+Operational status 的规范顺序是：
 
-规则 1 与规则 3 的边界：required 报告从未被尝试产出，是不完整而非故障，gate 为 ABSTAIN 并指出缺失的报告；存在产出尝试但运行出错，或报告已因上游变更失效，才属于规则 1 的 execution failure。两种情形都可以从产物记录中区分，不允许靠猜。
+1. gate 的直接前置 artifact（例如 Plan 或 Result）尚未产出，以致当前不能评价时，状态为 BLOCKED；这表示 workflow 尚未就绪，不是运行故障；
+2. gate、被评价的 artifact 或其上游输入已因依赖变更而失效时，状态为 INVALIDATED；旧 verdict 可以保留在历史中，但不得继续充当当前 verdict；
+3. gate 聚合本身或 required report 的产出已被实际尝试但运行出错时，状态为 ERROR；optional report 的错误是否阻断 gate，必须由 gate schema 预先声明；
+4. 上述情况均不存在时，状态为 EVALUATED，并进入 verdict 聚合。
 
-该聚合函数必须版本化并接受 truth-table tests；报告的排列顺序不得改变 verdict。
+EVALUATED 状态下的 verdict 聚合顺序是：
+
+1. 任一 required 且 APPLICABLE 的报告为 FAIL，则 gate 为 FAIL；
+2. required 报告在前置条件已经满足时仍从未产出，或其适用性为 UNVERIFIABLE、结论为 ABSTAIN，则 gate 为 ABSTAIN，并列出缺失或无法判断的报告；
+3. INAPPLICABLE 只有在 gate schema 预先声明该报告可选时才被忽略；若它是 required requirement，则 gate 为 ABSTAIN；
+4. 只有全部 required、applicable reports 为 PASS，且没有上述情况时，gate 才能 PASS。
+
+边界不允许靠猜：未产出的 gate 前置 artifact 导致 BLOCKED；已满足前置条件但尚未产出的 required report 导致 EVALUATED + ABSTAIN；已有产物因上游变更过期导致 INVALIDATED；实际尝试计算后发生异常才是 ERROR。
+
+operational status 与 verdict 的状态转移及聚合函数都必须版本化并接受 truth-table tests；报告的排列顺序不得改变结果。
 
 ### 4.4 Refusal 与 exception
 
@@ -882,7 +892,7 @@ backend 评估必须针对具体 Task 和 compiled problem family，不能笼统
 - 将 Refusal 的机器字段固定为 `grounds`，不使用会与统计对象混淆的 `evidence`；
 - 建立 schema version、fingerprint 和 lineage；
 - 建立最小 invalidation rules；
-- 定义 required/optional report 的确定性 gate aggregation truth table；
+- 定义 BLOCKED、INVALIDATED、ERROR、EVALUATED operational status，以及 required/optional report 的确定性 gate verdict aggregation truth table；
 - 将现有 posterior routes 适配到新协议；
 - 保留兼容层并制定 deprecation 路径。
 
@@ -892,7 +902,7 @@ backend 评估必须针对具体 Task 和 compiled problem family，不能笼统
 - 同一运行可被稳定记录和读取；
 - 数据或 Graph 改动会使相关 artifact 明确失效；
 - method inapplicability 不再依赖解析异常字符串；
-- 每类 Task 都有唯一主 Result 类型，gate 聚合不依赖报告顺序；
+- 每类 Task 都有唯一主 Result 类型，gate operational status 与 verdict 不混淆，聚合不依赖报告顺序；
 - 数值结果与迁移前保持一致。
 
 ### R2 — 完整 posterior 与 predictive seam

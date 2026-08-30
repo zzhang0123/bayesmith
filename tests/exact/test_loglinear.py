@@ -283,10 +283,24 @@ class _BlockPrior:
 
     ``Graph`` checks a joint prior structurally -- it must answer ``over`` and
     ``log_density``, and its block must name latents -- so the transform's
-    obligation to CARRY the field is testable without also dragging in the
-    Fisher arithmetic of the real prior, its ``ImproperUniform`` requirement on
-    covered latents, and the float64 those need. What is under test here is
-    the graph rebuild, and a double keeps it that way.
+    obligation to CARRY the field is testable on a double. That is a
+    NECESSITY here rather than a convenience, and the reason is worth stating
+    because it is not visible from either side on its own: **the real prior
+    and this transform cannot meet on one graph today.**
+    ``JeffreysPrior.information`` refuses a covered latent that carries a
+    proper density of its own -- two priors on one quantity -- so its block
+    must be declared ``ImproperUniform``. But :func:`log_space` probes at
+    "0.7 of each latent's own prior width" (see ``_two_environments``), and a
+    flat prior has no width: ``_env_before`` reaches ``check_gaussian`` and
+    refuses with ``NotGaussian`` before the rebuild under test is ever
+    reached. Measured in this checkout on 2026-08-29, and note the class --
+    ``NotGaussian``, NOT ``NotLogLinear``, so a caller narrowly catching the
+    blameless class does not catch it.
+
+    So a test of this rebuild that used ``JeffreysPrior`` could not be
+    written, and the field's live consumers are duck-typed joint priors over
+    latents that keep proper densities -- which is exactly what
+    ``Graph.__check_init__`` admits.
     """
 
     over = ("log_gain",)

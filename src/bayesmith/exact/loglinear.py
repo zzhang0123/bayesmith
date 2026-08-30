@@ -68,11 +68,15 @@ converged solve. Data is checked at transform time on concrete values;
 a prediction that goes non-positive at a probe surfaces through the stock
 non-finite-baseline refusal.
 
-Ported from ``rheplicant.inference.loglinear`` and re-founded on the graph:
-what was there a parallel implementation (its own probe loop, its own
-operator export) is here one transform in front of the existing machinery --
-which also upgrades the checking, since the stock check is per-element with
-a sigma-weighted second criterion and the rheplicant original was neither.
+**Ownership.** bayesmith owns the graph-side transform, its approximation
+threshold and mean-shift arithmetic, the refusal vocabulary, and the oracles
+that certify them. rheplicant now consumes that arithmetic while retaining its
+pipeline-specific adapter and probe machinery. This implementation was
+originally ported from ``rheplicant.inference.loglinear`` and re-founded on the
+graph; that is historical provenance, not a second source of truth. The
+bayesmith form is one transform in front of the existing exact machinery,
+whose per-element check also adds a sigma-weighted second criterion absent
+from the original implementation.
 """
 
 from __future__ import annotations

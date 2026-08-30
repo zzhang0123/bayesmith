@@ -26,8 +26,23 @@ htmlcov/
 # identified, stopping it at the source is still the better fix.
 AGENTS.md
 
-# The test runner's own scratch, per CLAUDE.md's recipe. Excluded by the
-# migration plan's commit list already; here so it stops showing up in every
-# `git status` and inviting an accidental `git add -A`.
-run.log
-run.exit
+# The test and verification runners' own scratch, per CLAUDE.md's recipe.
+# Keep the prefixes narrow: repository documentation and arbitrary XML/log
+# files remain visible, while labelled runs such as run.p3.* and verify.gate.*
+# do not invite an accidental `git add -A`.
+run*.log
+run*.exit
+run*.junit.xml
+verify*.log
+verify*.exit
+verify*.junit.xml
+
+# The same artifacts in their DIRECTORY form. The patterns above match flat
+# files only, so `runs/p3-baseline-XXXX/{log,exit,junit.xml}` and a session
+# scratch directory both stayed visible in `git status` after those patterns
+# landed -- the very condition they were added to close. A check that asks
+# `git check-ignore` about four names it chose itself cannot see the layout it
+# did not ask about; the R0 close-out's gitignore row is corrected on this
+# point rather than left reading as complete.
+runs/
+scratchpad/
