@@ -21,6 +21,7 @@ import pytest
 from bayesmith import const, det, observe, plate, sample, trace
 from bayesmith.errors import StructureError
 from bayesmith.marginal import SqrtInfo, compress_campaign, epoch_terms, marginalise
+from bayesmith.marginal.factorize import Factorization, epoch_leakage, factorize
 
 N_EPOCH, TAU, SIGMA, GAIN, PRIOR_MEAN = 4, 1.3, 0.55, 2.0, 0.4
 
@@ -414,3 +415,115 @@ class TestTheRefusalIsMovedNotWeakened:
             both = jnp.asarray([[jnp.inf, 1e-20], [2.0, 1.0]])
             with pytest.raises(StructureError, match="non-finite"):
                 _refuse_unconstrained_epochs(both, 1, ("n",))
+
+class TestAJointlyNonAffineCampaignIsRefused:
+    """``mu = g * n``: affine in each latent GIVEN the other, in neither jointly.
+
+    **Measured on this exact fixture before the guard existed**, and every
+    number is why the guard is a refusal rather than a diagnostic:
+
+    * ``epoch_leakage(graph, "n", "epoch", {})`` returns **0.0** -- perfectly
+      epoch-local -- because the jacobian it reads is taken at zeros, where
+      ``dmu/dn = g = 0``. The leakage probe is blind here for the same reason
+      the fold is.
+    * ``factorize`` accepted it, survivors ``('g',)``, per-epoch ``('n',)``.
+    * every epoch's design came back ``[[0.0]]``, and so did the folded one.
+    * ``compress_campaign(...).log_prob({"g": x})`` returned **-2.0354887565
+      for x = -2.0, 0.0 and +2.0 alike** -- bitwise identical. The campaign's
+      sufficient statistic carried no information about the data at all, and
+      said so with a finite, plausible number.
+
+    The verdict was available the whole time from a function this module's own
+    docstrings name: ``check_linearity`` refuses the same block with "latents
+    ['g', 'n'] are not JOINTLY affine". Nothing called it.
+    """
+
+    @staticmethod
+    def _bilinear(n_epoch=N_EPOCH):
+        data = np.random.default_rng(0).normal(size=n_epoch)
+
+        def model():
+            epoch = plate("epoch", n_epoch)
+            g = sample("g", lambda: ndist.Normal(1.0, 3.0))
+            n = sample("n", lambda: ndist.Normal(PRIOR_MEAN, TAU), plate=epoch)
+            mu = det(
+                "mu", lambda a, b: a * b, g, n, plate=epoch, linear_in=("g", "n")
+            )
+            observe(
+                "d",
+                lambda m: ndist.Normal(m, SIGMA),
+                mu,
+                plate=epoch,
+                obs=jnp.asarray(data),
+            )
+
+        return trace(model)
+
+    def test_factorize_refuses_and_names_the_latents(self):
+        with jax.enable_x64(True), pytest.raises(StructureError) as refused:
+            factorize(self._bilinear(), "epoch")
+        message = str(refused.value)
+        assert "'g'" in message and "'n'" in message
+        assert "affine" in message
+
+    def test_compress_campaign_refuses_through_the_graph(self):
+        """The public entry, not just the checker underneath it."""
+        with jax.enable_x64(True), pytest.raises(StructureError) as refused:
+            compress_campaign(self._bilinear(), "epoch")
+        assert "affine" in str(refused.value)
+
+    def test_epoch_terms_refuses_too(self):
+        with jax.enable_x64(True), pytest.raises(StructureError):
+            epoch_terms(self._bilinear(), "epoch")
+
+    def test_the_leakage_probe_could_not_have_caught_it(self):
+        """Which is why affinity is checked BEFORE leakage, not after.
+
+        A leakage score is one jacobian at one point. On a map that is not
+        affine, that jacobian describes the point and not the model -- here it
+        is identically zero, so the latent is reported as perfectly
+        epoch-local. Ordering the two checks the other way round would run a
+        probe whose answer is meaningless and then refuse anyway.
+        """
+        with jax.enable_x64(True):
+            leak = epoch_leakage(self._bilinear(), "n", "epoch", {})
+        assert leak == 0.0
+
+    def test_an_affine_campaign_is_still_folded(self):
+        """The control. A guard that refuses everything has not been shown to
+        distinguish anything.
+        """
+        with jax.enable_x64(True):
+            graph, _ = _scalar_campaign()
+            found = factorize(graph, "epoch")
+            term = compress_campaign(graph, "epoch")
+        assert found.survivors == ("g",) and found.per_epoch == ("n",)
+        # NumPy, not jnp: the fold's design factor traces at the ambient dtype,
+        # and asking jax for its max would try to widen it and warn about the
+        # truncation instead of just reading the value that is there.
+        assert float(np.max(np.abs(np.asarray(term.factor)))) > 0.0
+
+    # The skipped-check path folds a non-affine map at zeros on purpose, to
+    # prove the OLD behaviour is still what a caller who opts out gets -- so
+    # its fold warns about the dtype it traces at. Expected, and part of what
+    # this test is pinning: the guard is what stops this path, not a silent
+    # dtype widening.
+    @pytest.mark.filterwarnings(
+        "ignore:Explicitly requested dtype float64:UserWarning"
+    )
+    def test_a_declared_factorization_still_skips_the_check(self):
+        """``factorization=`` means "I have already run these checks".
+
+        The same contract the leakage check has had since this module was
+        written; the affinity check joins it rather than inventing a second
+        rule. Spelled out in a test because a caller who passes one is opting
+        out of BOTH, and that is worth being unable to forget.
+        """
+        with jax.enable_x64(True):
+            graph = self._bilinear()
+            declared = Factorization(
+                epoch_plate="epoch", survivors=("g",), per_epoch=("n",)
+            )
+            terms = epoch_terms(graph, "epoch", factorization=declared)
+        assert float(jnp.abs(jnp.asarray(terms[0].factor)).max()) == 0.0
+

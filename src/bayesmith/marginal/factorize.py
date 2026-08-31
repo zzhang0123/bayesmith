@@ -49,6 +49,19 @@ answer by 0.15 nats, and at sixteen and thirty-two epochs the gap runs to
 several and then tens of nats with **no consistent sign**. At zero leakage
 the fold is exact to the bit. Nothing downstream tests for it, which is why
 this is a refusal rather than a diagnostic.
+
+**A second refusal, added 2026-08-31, and found the same way.** The fold's
+design is one jacobian of the observed predictions, taken at zeros. That is
+the whole design ONLY when the predictions are affine in the survivors and
+per-epoch latents jointly; on a map that is not, the jacobian describes the
+point and not the model. Measured on `mu = g * n`: the jacobian at zeros is
+identically zero, so the leakage probe above read 0.0, the folded term was a
+finite constant independent of the data, and `log_prob({"g": x})` was bitwise
+identical for x = -2.0, 0.0 and +2.0. The module's own docstrings had always
+named `check_linearity` as the thing that says a non-affine map "cannot be
+folded at all" -- nothing called it. :func:`factorize` does now, before the
+leakage probe, because a leakage score is meaningless on a map whose jacobian
+does not describe it.
 """
 
 from __future__ import annotations
@@ -59,8 +72,9 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from bayesmith.errors import StructureError
+from bayesmith.errors import AffinityRefused, StructureError
 from bayesmith.exact.block import isolate
+from bayesmith.exact.linearity import check_linearity
 from bayesmith.graph.graph import Graph
 
 #: Relative leakage above which a latent is refused as not epoch-local. The
@@ -176,11 +190,21 @@ def factorize(
 ) -> Factorization:
     """Derive the campaign's factorization from the graph, and check it.
 
-    Plate membership gives the partition; :func:`epoch_leakage` decides
-    whether it is TRUE. Both halves are needed and the second is the one that
-    can fail: a latent under the epoch plate that reaches its neighbours'
-    data would be integrated once per epoch instead of once, and the wrong
-    answer is finite and plausible.
+    Plate membership gives the partition; :func:`epoch_leakage` and
+    :func:`~bayesmith.exact.linearity.check_linearity` decide whether it is
+    TRUE. Both are refusals rather than diagnostics, for measured reasons:
+
+    * a per-epoch latent that reaches its neighbours' data would be integrated
+      once per epoch instead of once, and the wrong answer is finite and
+      plausible;
+    * a map that is not affine in the survivors and per-epoch latents JOINTLY
+      makes the fold's design -- one jacobian, taken at zeros -- describe the
+      point rather than the model. Measured on `mu = g * n`: the jacobian
+      at zeros is identically zero, so the leakage probe read 0.0 and the
+      folded term was a finite constant independent of the data.
+
+    Affinity is checked BEFORE leakage, because the leakage score is one of
+    those jacobians at one point -- on a non-affine map it is meaningless.
 
     Args:
         graph: the model.
@@ -188,14 +212,15 @@ def factorize(
         at: values for the latents this check holds fixed. Defaults to zeros,
             which is enough because the leakage of an affine model does not
             depend on the point -- and a model that is not affine in its
-            per-epoch latents cannot be folded at all, which
-            :func:`~bayesmith.exact.linearity.check_linearity` is what says.
+            per-epoch latents cannot be folded at all.
         rtol: relative leakage above which a latent is refused.
 
     Raises:
         StructureError: if the plate is not in the graph; if no latent
-            survives the epoch, which would leave nothing to accumulate; or
-            if a per-epoch latent is not epoch-local.
+            survives the epoch, which would leave nothing to accumulate; if
+            the observed predictions are not jointly affine in the survivors
+            and per-epoch latents; or if a per-epoch latent is not
+            epoch-local.
     """
     if epoch_plate not in {p.name for p in graph.plates}:
         raise StructureError(
@@ -249,6 +274,32 @@ def factorize(
             "mapped over this one. Fold the other plate into this latent's own "
             "shape, or analyse the two plates as separate campaigns."
         )
+
+    # BEFORE the leakage probe, for the same reason this refusal is a
+    # refusal rather than a diagnostic: the leakage score is one jacobian at
+    # one point, and on a map that is not affine a jacobian describes that
+    # point rather than the model. Measured on `mu = g * n` -- affine in each
+    # latent GIVEN the other, in neither jointly -- the probe's jacobian at
+    # zeros is identically zero, so the per-epoch latent read as perfectly
+    # epoch-local while the folded sufficient statistic carried no information
+    # about the data at all and still returned a finite, plausible number.
+    # `check_linearity` had the verdict the whole time ("not JOINTLY
+    # affine"); nothing here called it.
+    try:
+        # `at_points=[{}]` is deliberate, not a default: the block spans
+        # every latent (survivors + per-epoch), so there is exactly one
+        # outside point and drawing three "alternative" copies of it is a
+        # no-op -- see prior_at_points.
+        check_linearity(graph, survivors + per_epoch, {}, at_points=[{}])
+    except AffinityRefused as refused:
+        raise StructureError(
+            f"a campaign cannot be folded over {epoch_plate!r} unless the "
+            f"observed predictions are affine in {list(survivors + per_epoch)} "
+            "jointly; the fold builds its design as one jacobian at zeros, so "
+            "a map that is not affine there describes the point and not the "
+            "model. Here check_linearity measured a departure and named the "
+            f"latents: {refused}"
+        ) from refused
 
     for name in per_epoch:
         leak = epoch_leakage(graph, name, epoch_plate, at or {})

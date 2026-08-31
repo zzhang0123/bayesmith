@@ -104,6 +104,57 @@ class TestTheRouteIsDerivedByTrying:
         assert "nothing survives an epoch" in dict(route.refused)["epoch"]
 
 
+
+
+def _bilinear_campaign(n_epoch=N_EPOCH):
+    """``mu = g * n`` -- affine per latent, not jointly, and folded wrong before.
+
+    The design at the zeros the fold builds its jacobian at is identically
+    zero, so the route used to report this plate as available and the fold
+    returned a constant -- see ``tests/marginal/test_campaign.py`` for the
+    measured numbers.
+    """
+    data = np.random.default_rng(0).normal(size=n_epoch)
+
+    def model():
+        epoch = plate("epoch", n_epoch)
+        g = sample("g", lambda: ndist.Normal(1.0, 3.0))
+        n = sample("n", lambda: ndist.Normal(PRIOR_MEAN, TAU), plate=epoch)
+        mu = det(
+            "mu", lambda a, b: a * b, g, n, plate=epoch, linear_in=("g", "n")
+        )
+        observe(
+            "d", lambda m: ndist.Normal(m, SIGMA), mu, plate=epoch,
+            obs=jnp.asarray(data),
+        )
+
+    return trace(model)
+
+
+class TestANonAffinePlateIsRefusedNotAdvertised:
+    def test_the_route_refuses_the_plate_in_the_layer_s_own_words(self):
+        """A plate the fold would get wrong must not be reported available.
+
+        ``streaming_route``'s contract is that ``available`` means the fold
+        runs; reporting this plate available was the lie half of the defect,
+        and the constant fold was the other half.
+        """
+        with jax.enable_x64(True):
+            route = streaming_route(_bilinear_campaign())
+        assert not route.available
+        assert route.plate is None
+        assert dict(route.refused).keys() == {"epoch"}
+        assert "affine" in dict(route.refused)["epoch"]
+
+    def test_the_route_does_not_lie_about_this_plate_either(self):
+        """The anti-lying clause, extended to the new refusal."""
+        with jax.enable_x64(True):
+            route = streaming_route(_bilinear_campaign())
+            assert not route.available
+            with pytest.raises(StructureError):
+                compress_campaign(_bilinear_campaign(), "epoch")
+
+
 class TestTheRouteDoesNotLie:
     @pytest.mark.parametrize(
         "build", [_campaign, _unplated, _every_latent_inside_the_plate]

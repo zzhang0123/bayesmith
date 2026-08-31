@@ -391,7 +391,13 @@ class TestTheGuardsOwnFailureModes:
             graph = trace(model)
             with pytest.raises(StructureError, match="not finite at"):
                 epoch_leakage(graph, "eps", "epoch", {})
-            with pytest.raises(StructureError, match="not finite at"):
+            # factorize refuses too, but its message is the affinity check's:
+            # the affinity probe runs FIRST (a leakage score is one jacobian
+            # at one point, meaningless on a non-affine map), and this map's
+            # 1/eps is itself not affine, so it never reaches the leakage
+            # probe's own "not finite at" wording. The leakage-specific
+            # message above is what a genuinely affine but singular map gets.
+            with pytest.raises(StructureError, match="affine"):
                 factorize(graph, "epoch")
 
     def test_python_max_really_does_lose_a_nan(self):
