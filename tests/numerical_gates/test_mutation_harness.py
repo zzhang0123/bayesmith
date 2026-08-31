@@ -19,6 +19,9 @@ from tests.numerical_gates.mutation_harness import (
 from tests.numerical_gates.mutation_specs import DIAGNOSE_GRAPH_MUTATION_SPECS
 from tests.numerical_gates.registry import GATE_REGISTRY
 
+pytestmark = pytest.mark.full
+
+
 _GRAPH_GATE = "GRAPH:_names:duplicate-multiplicity"
 
 

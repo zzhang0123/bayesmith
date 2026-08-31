@@ -33,6 +33,9 @@ from tests.numerical_gates.mutation_specs import LADDER_MUTATION_SPECS
 from tests.numerical_gates.registry import GATE_REGISTRY, MutationMode
 from tests.numerical_gates.source_manifest import EXPECTED_SOURCE_MANIFEST
 
+pytestmark = pytest.mark.full
+
+
 _PROVIDER_PATH = Path(__file__).with_name("boundary_ladder.py")
 _SOURCE_SYNTAX = {item.candidate_id: item.syntax for item in EXPECTED_SOURCE_MANIFEST}
 _RUNG_PAYLOAD_METHODS = {

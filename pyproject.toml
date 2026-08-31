@@ -113,6 +113,7 @@ packages = ["src/bayesmith"]
 testpaths = ["tests"]
 addopts = "-q"
 markers = [
+    "full: heavy numerical-gate boundary and mutation grids; run in the nightly layer, excluded from the fast layer",
     "slow: tests that take more than a few seconds",
     "x64: requires JAX_ENABLE_X64=1 (run as a separate session)",
     "crosscheck: compares this package against rheplicant, which must be installed",

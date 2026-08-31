@@ -38,6 +38,9 @@ from tests.numerical_gates.registry import (
     isolatable_atom_ids,
 )
 
+pytestmark = pytest.mark.full
+
+
 _TWO_SIDED = tuple(
     entry for entry in GATE_REGISTRY if entry.mutation_mode is MutationMode.TWO_SIDED
 )

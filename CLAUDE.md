@@ -17,12 +17,37 @@ committed. If a tool here needs `AGENTS.md`, the ruling to revisit is that one
 
 ## Running the tests
 
+The suite is split into a **fast layer** (the pre-commit habit) and a **full
+layer** (nightly). The heavy numerical-gate boundary and mutation grids are
+marked `full`; everything else is fast.
+
+Fast layer:
+
 ```bash
-.venv/bin/python -m pytest -n 4 > run.log 2>&1; echo "PYTEST_EXIT=$?" > run.exit
-cat run.exit
+.venv/bin/python -m pytest -n 4 -m "not full"
 ```
 
-Measured: **1269 passed, 0 skipped, 0 failed** in about 207 s at `-n 4`.
+Full layer (nightly — everything, including the `full` grids):
+
+```bash
+.venv/bin/python -m pytest -n 4
+```
+
+A meta-test in `tests/numerical_gates/test_boundary_layering.py` fails if any
+registered gate loses its one fast-layer cell, so "fast" cannot silently
+collapse to "no numerical-gate coverage".
+
+Test artifacts go in one directory per run — three products from one
+invocation, all in the same directory (add `-m "not full"` for the fast
+layer):
+
+```bash
+RUN=$(date +%Y%m%dT%H%M%S)-$$; D=runs/$RUN; mkdir -p "$D"
+.venv/bin/python -m pytest -n 4 --junit-xml="$D/junit.xml" > "$D/log" 2>&1
+echo "PYTEST_EXIT=$?" > "$D/exit"
+```
+
+`runs/` is gitignored.
 
 **Do not add `-q`.** `pyproject.toml` already carries `addopts = "-q"`, so a
 second one makes it `-qq` and **the summary line disappears entirely** — no

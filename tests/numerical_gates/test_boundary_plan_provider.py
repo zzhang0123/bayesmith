@@ -31,6 +31,9 @@ from tests.numerical_gates.registry import (
     isolatable_atom_ids,
 )
 
+pytestmark = pytest.mark.full
+
+
 _PLAN_ENTRIES = {
     entry.gate_id: entry
     for entry in GATE_REGISTRY

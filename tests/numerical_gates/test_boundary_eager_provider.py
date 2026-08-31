@@ -28,6 +28,9 @@ from tests.numerical_gates.mutation_harness import (
 )
 from tests.numerical_gates.mutation_specs import EAGER_MUTATION_SPECS
 
+pytestmark = pytest.mark.full
+
+
 _SUITES = {suite.gate_id: suite for suite in EAGER_SUITES}
 
 

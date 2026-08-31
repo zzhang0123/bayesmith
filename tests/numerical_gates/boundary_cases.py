@@ -30,6 +30,16 @@ BOUNDARY_CASES: dict[str, BoundaryCase] = {
     case.case_id: case for suite in _ALL_SUITES for case in suite.cases
 }
 
+# One fast-layer smoke cell per two-sided gate: the tighten witness (the nearest
+# executable gate face).  It is cheap and deterministic -- it never uses the
+# huge VERY_HIGH/EXTREME matrices -- and it is the exact cell the mutation
+# harness mutates for the tighten direction, so the fast layer still exercises
+# each gate's live production predicate once.  test_boundary_layering.py holds
+# the meta-test that enforces this set covers every registered gate.
+FAST_BOUNDARY_CASE_IDS: tuple[str, ...] = tuple(
+    sorted(suite.tighten_case_id for suite in _ALL_SUITES)
+)
+
 _TWO_SIDED_ENTRIES = tuple(
     entry for entry in GATE_REGISTRY if entry.mutation_mode is MutationMode.TWO_SIDED
 )
@@ -72,5 +82,6 @@ __all__ = [
     "ATOM_CASES",
     "BOUNDARY_CASES",
     "BOUNDARY_SUITES",
+    "FAST_BOUNDARY_CASE_IDS",
     "WITNESS_CASES",
 ]

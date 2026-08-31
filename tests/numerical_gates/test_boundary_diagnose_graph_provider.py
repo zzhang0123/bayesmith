@@ -7,6 +7,7 @@ import inspect
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from tests.numerical_gates import boundary_diagnose_graph as diagnose_provider
 from tests.numerical_gates.boundary_core import (
@@ -15,6 +16,8 @@ from tests.numerical_gates.boundary_core import (
     source_alias_canonical,
 )
 from tests.numerical_gates.registry import GATE_REGISTRY, MutationMode
+
+pytestmark = pytest.mark.full
 
 
 def test_diagnose_graph_scores_mutants_from_product_outcomes_only() -> None:
