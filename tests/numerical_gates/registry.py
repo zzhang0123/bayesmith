@@ -125,6 +125,7 @@ MAP = "src/bayesmith/diagnose/map.py"
 GRAPH = "src/bayesmith/graph/reduction.py"
 COSTS = "src/bayesmith/dispatch/costs.py"
 COLLAPSE = "src/bayesmith/dispatch/collapse.py"
+PILOT = "src/bayesmith/dispatch/pilot.py"
 
 
 def _seed_group(
@@ -529,6 +530,24 @@ _SEEDS = (
         CandidateFamily.DECISION_PREDICATE,
         "COLLAPSE:pivots:relative-floor",
     ),
+    *_seed_group(
+        COSTS,
+        "share_is_dominant",
+        CandidateFamily.DECISION_PREDICATE,
+        "COSTS:share_is_dominant:dominance-share",
+    ),
+    *_seed_group(
+        PILOT,
+        "quadratic_cc_crosses_floor",
+        CandidateFamily.DECISION_PREDICATE,
+        "PILOT:quadratic_cc_crosses_floor:sampling-floor",
+    ),
+    *_seed_group(
+        PILOT,
+        "ratio_exceeds_declared_multiple",
+        CandidateFamily.DECISION_PREDICATE,
+        "PILOT:ratio_exceeds_declared_multiple:declared-multiple",
+    ),
 )
 
 
@@ -905,6 +924,24 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
         (
             "src/bayesmith/dispatch/collapse.py::<module>.pivots_constrain_block::compare::fa67000d1d7f01d8::0",
             "pivots[:n_block] > floor",
+        ),
+    ),
+    "COSTS:share_is_dominant:dominance-share": (
+        (
+            "src/bayesmith/dispatch/costs.py::<module>.share_is_dominant::decision_predicate::0ce46d21579c5ee0::0",
+            "share > DOMINANCE_SHARE",
+        ),
+    ),
+    "PILOT:quadratic_cc_crosses_floor:sampling-floor": (
+        (
+            "src/bayesmith/dispatch/pilot.py::<module>.quadratic_cc_crosses_floor::decision_predicate::75b08209273ad6f3::0",
+            "quadratic_cc > floor",
+        ),
+    ),
+    "PILOT:ratio_exceeds_declared_multiple:declared-multiple": (
+        (
+            "src/bayesmith/dispatch/pilot.py::<module>.ratio_exceeds_declared_multiple::decision_predicate::c2fe1a2786d6b1cf::0",
+            "ratio > DECLARED_MULTIPLE",
         ),
     ),
     "LADDER:determinant-lemma:payload": (
@@ -1809,6 +1846,27 @@ _DECLARED_SOURCE_ANCHORS: dict[str, tuple[SourceAnchor, ...]] = {
             CandidateFamily.COMPARE,
         ),
     ),
+    "COSTS:share_is_dominant:dominance-share": (
+        SourceAnchor(
+            "src/bayesmith/dispatch/costs.py",
+            "<module>.share_is_dominant",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
+    "PILOT:quadratic_cc_crosses_floor:sampling-floor": (
+        SourceAnchor(
+            "src/bayesmith/dispatch/pilot.py",
+            "<module>.quadratic_cc_crosses_floor",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
+    "PILOT:ratio_exceeds_declared_multiple:declared-multiple": (
+        SourceAnchor(
+            "src/bayesmith/dispatch/pilot.py",
+            "<module>.ratio_exceeds_declared_multiple",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
     "LADDER:determinant-lemma:payload": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
@@ -2478,6 +2536,13 @@ _DECLARED_SOURCE_CLASSIFICATIONS: dict[str, tuple[CandidateClassification, ...]]
     "COSTS:cg_tol_positive:strictly-positive": (CandidateClassification.NUMERICAL_GATE,),
     "COLLAPSE:pivots:finite": (CandidateClassification.NUMERICAL_GATE,),
     "COLLAPSE:pivots:relative-floor": (CandidateClassification.NUMERICAL_GATE,),
+    "COSTS:share_is_dominant:dominance-share": (CandidateClassification.NUMERICAL_GATE,),
+    "PILOT:quadratic_cc_crosses_floor:sampling-floor": (
+        CandidateClassification.NUMERICAL_GATE,
+    ),
+    "PILOT:ratio_exceeds_declared_multiple:declared-multiple": (
+        CandidateClassification.NUMERICAL_GATE,
+    ),
     "LADDER:determinant-lemma:payload": (CandidateClassification.NUMERICAL_GATE,),
     "LADDER:finite:payload-rho": (
         CandidateClassification.NUMERICAL_GATE,
@@ -4949,6 +5014,48 @@ GATE_METADATA: dict[str, GateMetadata] = {
         extreme="zero pivot, nan pivot, single pivot, degenerate block",
         fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
     ),
+    "COSTS:share_is_dominant:dominance-share": _metadata(
+        quantity="one cost term's share of a row's predicted cost; the ledger names an input only above one half.",
+        threshold="open lower boundary share > 0.5; exact-domain D103 (at most one part of a partition can exceed a half).",
+        provenance=ThresholdProvenance.EXACT_DOMAIN,
+        admitted_outcome="the term is uniquely the largest and the ledger names the input it belongs to",
+        refused_outcome="two terms could be tied for largest, so the ledger abstains with an empty dominant and reports the shares",
+        oracle="direct float comparison share > 0.5 on the independently recomputed term partition.",
+        axis_name="Boundary cells for a cost term's share; dominant when share > 0.5.",
+        low="0.05",
+        endpoints=("nextafter(0.5, +inf)", "0.5, nextafter(0.5, -inf)"),
+        high="0.95",
+        extreme="0, 1, nan, +/-inf",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
+    "PILOT:quadratic_cc_crosses_floor:sampling-floor": _metadata(
+        quantity="the quadratic canonical correlation against sqrt(p_aug / N_eff), the size a null reading reaches.",
+        threshold="open lower boundary quadratic_cc > floor; derived D102 finite-sample canonical-correlation null.",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="the reading is above sampling noise and may take part in a veto",
+        refused_outcome="the reading is what independent features produce, so no veto can rest on it",
+        oracle="direct high-precision comparison of the reading against an independently computed sqrt(p_aug / N_eff).",
+        axis_name="Boundary cells for the quadratic canonical correlation against its sampling floor.",
+        low="0.5 * floor",
+        endpoints=("nextafter(floor, +inf)", "floor, nextafter(floor, -inf)"),
+        high="2 * floor",
+        extreme="0, 1, nan, +/-inf",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
+    "PILOT:ratio_exceeds_declared_multiple:declared-multiple": _metadata(
+        quantity="the quadratic-over-linear canonical-correlation ratio against the declared multiple 7.0.",
+        threshold="open lower boundary ratio > 7.0; derived D101, bracketed by the 6.08x estimator spread and the 8.36x worst funnel draw.",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="the squares changed the answer by more than a change of features can, so the pilot may veto the switch",
+        refused_outcome="inconclusive: the decision already taken stands, reported with blind_to=('gaussian-only',)",
+        oracle="direct float comparison of an independently computed quadratic/linear ratio against 7.0.",
+        axis_name="Boundary cells for the quadratic-over-linear ratio; a veto needs ratio > 7.0.",
+        low="1.0 (the Gaussian null)",
+        endpoints=("nextafter(7.0, +inf)", "7.0, nextafter(7.0, -inf)"),
+        high="14.48 (the measured funnel ratio at seed 0)",
+        extreme="0, nan, +/-inf",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
 }
 
 
@@ -6876,7 +6983,7 @@ def validate_registry(
         raise RegistryValidationError("\n".join(errors))
 
 
-if len(GATE_REGISTRY) != 104:
+if len(GATE_REGISTRY) != 107:
     raise RegistryValidationError(
-        f"semantic registry expected 104 reviewed entries, found {len(GATE_REGISTRY)}"
+        f"semantic registry expected 107 reviewed entries, found {len(GATE_REGISTRY)}"
     )

@@ -21,6 +21,7 @@ scope; this module reaches ``InferencePlan`` for its annotations alone, under
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -31,6 +32,7 @@ from numpyro.diagnostics import effective_sample_size, split_gelman_rubin
 from bayesmith.bridge.numpyro_bridge import nuts as nuts_draws
 from bayesmith.dispatch.classify import block_at
 from bayesmith.dispatch.collapse import collapse_graph
+from bayesmith.dispatch.costs import CostReconciliation, reconcile
 from bayesmith.errors import ConvergenceError, GraphError
 from bayesmith.exact.block import domain_centre, unchecked_operator
 from bayesmith.exact.correct import khat, log_weight, self_normalise, unreliable
@@ -138,6 +140,15 @@ class Posterior(NamedTuple):
             the ``gcr`` and ``gcr+snis`` paths draw independently, so r-hat
             has no referent at all on them. Reporting a number would invent
             one. Read :attr:`ess`, which is always there.
+        cost: the P7 reconciliation ledger -- what the cost scoreboard
+            PREDICTED for the row that ran, what this run actually cost in
+            seconds per effective sample, and which of the prediction's own
+            terms dominated it. ``None`` on every plan compiled with the
+            default ``strategy="declared"``, which is every published path: a
+            plan with no scoreboard made no prediction, and a ledger row
+            against no prediction would be a measurement pretending to be a
+            reconciliation. See
+            :class:`~bayesmith.dispatch.costs.CostReconciliation`.
     """
 
     samples: dict[str, jax.Array]
@@ -148,6 +159,7 @@ class Posterior(NamedTuple):
     method: str
     reason: str
     diagnostics: Mapping[str, SiteDiagnostic] | None = None
+    cost: CostReconciliation | None = None
 
 
 class Estimate(NamedTuple):
@@ -504,6 +516,84 @@ def run_sample(
     Every argument is required here and defaulted there: the method is the
     public spelling and owns the defaults, so there is one place a caller can
     read them off and one place they can drift from.
+    """
+    started = time.perf_counter()
+    posterior = _dispatch_sample(
+        plan,
+        key,
+        num_samples=num_samples,
+        num_warmup=num_warmup,
+        num_chains=num_chains,
+        chain_method=chain_method,
+        progress_bar=progress_bar,
+        nuts_options=nuts_options,
+        tol=tol,
+        maxiter=maxiter,
+        require_convergence=require_convergence,
+        ess_floor=ess_floor,
+        nuts_on_collapse=nuts_on_collapse,
+        collapse=collapse,
+    )
+    return _reconciled(plan, posterior, time.perf_counter() - started)
+
+
+#: Which cost row each executed method is reconciled against. A capability
+#: table rather than a string comparison, for the reason
+#: :data:`_PREDICTION_DEPENDENT_METHODS` gives: a method added later must
+#: declare its row here or it has none, which is a loud absence rather than a
+#: silent mis-attribution of a measurement to the wrong prediction.
+_LEDGER_ROWS = {
+    "gcr": "split",
+    "gcr+snis": "split",
+    "gcr+mh": "split",
+    "collapse": "collapse",
+    "nuts": "joint",
+}
+
+
+def _reconciled(
+    plan: InferencePlan, posterior: Posterior, seconds: float
+) -> Posterior:
+    """Attach the P7 ledger, or hand the posterior back untouched.
+
+    Untouched on every plan compiled with the default
+    ``strategy="declared"``: there is no scoreboard, so there is no prediction
+    to reconcile against, and inventing one here would make the ledger a
+    self-fulfilling record. This is also what keeps the published paths byte
+    for byte what they were -- ``Posterior.cost`` defaults to ``None`` and stays
+    there unless a caller asked for the scoreboard.
+    """
+    row = _LEDGER_ROWS.get(posterior.method)
+    if plan.ladder is None or row is None:
+        return posterior
+    return posterior._replace(
+        cost=reconcile(plan.ladder, row, seconds=seconds, ess=posterior.ess)
+    )
+
+
+def _dispatch_sample(
+    plan: InferencePlan,
+    key: jax.Array,
+    *,
+    num_samples: int,
+    num_warmup: int,
+    num_chains: int,
+    chain_method: str,
+    progress_bar: bool,
+    nuts_options: Mapping[str, Any] | None,
+    tol: float | None,
+    maxiter: int | None,
+    require_convergence: float | None,
+    ess_floor: float,
+    nuts_on_collapse: bool,
+    collapse: bool,
+) -> Posterior:
+    """Section 6.4's five shapes and 6.5's two, with nothing timed around them.
+
+    Split out of :func:`run_sample` so that the wall clock the ledger reads
+    brackets the sampling and only the sampling; a timer wrapped around the
+    ledger's own construction would price this module's bookkeeping as if it
+    were the sampler's.
     """
     draw_key, fallback_key = jax.random.split(key)
     # Every chain setting, in ONE dict that all three sampling paths splat.

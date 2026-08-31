@@ -161,6 +161,15 @@ _add(("COSTS:timing_noise_in_domain:proper-fraction",), ("timing_noise_in_domain
 _add(("COSTS:cg_tol_positive:strictly-positive",), ("cg_tol_positive",))
 _add(("COLLAPSE:pivots:finite",), ("pivots_are_finite",))
 _add(("COLLAPSE:pivots:relative-floor",), ("pivots_constrain_block",))
+_add(("COSTS:share_is_dominant:dominance-share",), ("share_is_dominant",))
+_add(
+    ("PILOT:quadratic_cc_crosses_floor:sampling-floor",),
+    ("quadratic_cc_crosses_floor",),
+)
+_add(
+    ("PILOT:ratio_exceeds_declared_multiple:declared-multiple",),
+    ("ratio_exceeds_declared_multiple",),
+)
 
 _add(
     ("LADDER:sigma:payload-symmetry",),

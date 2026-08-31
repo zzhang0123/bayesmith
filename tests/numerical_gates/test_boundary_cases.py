@@ -56,7 +56,7 @@ def boundary_executions() -> dict[str, BoundaryExecution]:
 def test_every_two_sided_gate_has_exactly_one_executable_boundary_suite() -> None:
     required = {entry.gate_id for entry in _TWO_SIDED}
 
-    assert len(required) == 88
+    assert len(required) == 91
     assert len(BOUNDARY_SUITES) == len(required)
     assert set(BOUNDARY_SUITES) == required
 
@@ -313,7 +313,7 @@ def test_every_reserved_mutation_witness_resolves_to_a_concrete_callable() -> No
         for name in (entry.tighten_witness, entry.loosen_witness)
     }
 
-    assert len(required) == 176
+    assert len(required) == 182
     assert set(WITNESS_CASES) == required
     for name, reference in WITNESS_CASES.items():
         assert reference.name == name

@@ -166,7 +166,32 @@ COLLAPSE_DECLARATIONS = {
 }
 
 
+PILOT_DECLARATIONS = {
+    "PILOT:quadratic_cc_crosses_floor:sampling-floor": _both(
+        "decision_predicate",
+        "quadratic_cc > floor",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
+    "PILOT:ratio_exceeds_declared_multiple:declared-multiple": _both(
+        "decision_predicate",
+        "ratio > DECLARED_MULTIPLE",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
+}
+
+
 COSTS_DECLARATIONS = {
+    "COSTS:share_is_dominant:dominance-share": _both(
+        "decision_predicate",
+        "share > DOMINANCE_SHARE",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
     "COSTS:gap_is_contested:contested-bandwidth": _both(
         "decision_predicate",
         "gap < CONTESTED_BANDWIDTH",
@@ -867,6 +892,7 @@ def _resolve_specs(
 
 DIAGNOSE_GRAPH_MUTATION_SPECS = _resolve_specs(DIAGNOSE_GRAPH_DECLARATIONS)
 COSTS_MUTATION_SPECS = _resolve_specs(COSTS_DECLARATIONS)
+PILOT_MUTATION_SPECS = _resolve_specs(PILOT_DECLARATIONS)
 COLLAPSE_MUTATION_SPECS = _resolve_specs(COLLAPSE_DECLARATIONS)
 EAGER_MUTATION_SPECS = _resolve_specs(EAGER_DECLARATIONS)
 LADDER_MUTATION_SPECS = _resolve_specs(LADDER_DECLARATIONS)
@@ -886,6 +912,8 @@ __all__ = [
     "LADDER_DECLARATIONS",
     "LADDER_MUTATION_SPECS",
     "LADDER_TARGETS",
+    "PILOT_DECLARATIONS",
+    "PILOT_MUTATION_SPECS",
     "PLAN_DECLARATIONS",
     "PLAN_MUTATION_SPECS",
     "PLAN_TARGETS",

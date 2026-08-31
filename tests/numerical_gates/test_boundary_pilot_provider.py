@@ -1,4 +1,4 @@
-"""Contract tests for the cost-scoreboard boundary provider (P5)."""
+"""Contract tests for the A4 pilot boundary provider (P7)."""
 
 from __future__ import annotations
 
@@ -7,31 +7,29 @@ import pytest
 from tests.numerical_gates import oracles
 from tests.numerical_gates.boundary_cases import BOUNDARY_SUITES
 from tests.numerical_gates.mutation_harness import MutationDirection, run_mutation
-from tests.numerical_gates.mutation_specs import COSTS_MUTATION_SPECS
+from tests.numerical_gates.mutation_specs import PILOT_MUTATION_SPECS
 
-_COSTS_GATES = (
-    "COSTS:gap_is_contested:contested-bandwidth",
-    "COSTS:timing_noise_in_domain:proper-fraction",
-    "COSTS:cg_tol_positive:strictly-positive",
-    "COSTS:share_is_dominant:dominance-share",
+_PILOT_GATES = (
+    "PILOT:quadratic_cc_crosses_floor:sampling-floor",
+    "PILOT:ratio_exceeds_declared_multiple:declared-multiple",
 )
 
 
-def test_costs_mutation_specs_exactly_cover_the_two_sided_costs_gates():
+def test_pilot_mutation_specs_exactly_cover_the_two_sided_pilot_gates():
     expected = {
-        (gate_id, direction) for gate_id in _COSTS_GATES for direction in MutationDirection
+        (gate_id, direction) for gate_id in _PILOT_GATES for direction in MutationDirection
     }
-    actual = {(spec.gate_id, spec.direction) for spec in COSTS_MUTATION_SPECS}
+    actual = {(spec.gate_id, spec.direction) for spec in PILOT_MUTATION_SPECS}
     assert actual == expected
-    assert len(COSTS_MUTATION_SPECS) == 8
+    assert len(PILOT_MUTATION_SPECS) == 4
 
 
 @pytest.mark.parametrize(
     "spec",
-    COSTS_MUTATION_SPECS,
+    PILOT_MUTATION_SPECS,
     ids=lambda spec: f"{spec.gate_id}-{spec.direction.value}",
 )
-def test_each_costs_mutation_turns_its_frozen_witness_bad(spec) -> None:
+def test_each_pilot_mutation_turns_its_frozen_witness_bad(spec) -> None:
     suite = BOUNDARY_SUITES[spec.gate_id]
     case_id = (
         suite.tighten_case_id

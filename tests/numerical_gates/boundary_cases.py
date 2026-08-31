@@ -14,6 +14,7 @@ from tests.numerical_gates.boundary_diagnose_graph import (
 )
 from tests.numerical_gates.boundary_eager import EAGER_SUITES
 from tests.numerical_gates.boundary_ladder import LADDER_SUITES
+from tests.numerical_gates.boundary_pilot import PILOT_SUITES
 from tests.numerical_gates.boundary_plan import PLAN_SUITES
 from tests.numerical_gates.registry import GATE_REGISTRY, MutationMode
 
@@ -24,6 +25,7 @@ _ALL_SUITES = (
     *DIAGNOSE_GRAPH_SUITES,
     *COSTS_SUITES,
     *COLLAPSE_SUITES,
+    *PILOT_SUITES,
 )
 
 BOUNDARY_SUITES: dict[str, BoundarySuite] = {

@@ -1,6 +1,6 @@
 """Fast-layer smoke cells and the layering invariant that keeps them honest.
 
-The heavy numerical-gate grids (test_boundary_cases.py and the four
+The heavy numerical-gate grids (test_boundary_cases.py and the
 test_boundary_*_provider.py files) and the mutation harness are marked
 "full" and run only in the nightly layer.  This module carries the fast
 layer's share of the boundary contract: exactly one cheap, deterministic cell

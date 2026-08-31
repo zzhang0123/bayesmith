@@ -8256,7 +8256,6 @@ EXPECTED_SOURCE_MANIFEST = (
         CandidateClassification.STRUCTURAL_CONTROL,
         "check_evidence_nuts_boundary(reduced, nuts)",
     ),
-
     ManifestEntry(
         "src/bayesmith/dispatch/costs.py::<module>.k_cg::decision_predicate::af99b7f76d7e534c::0",
         CandidateClassification.ORDINARY_VALIDATION,
@@ -8341,6 +8340,16 @@ EXPECTED_SOURCE_MANIFEST = (
         "src/bayesmith/dispatch/costs.py::<module>.cg_tol_positive::decision_predicate::135e313228ca2cb8::0",
         CandidateClassification.NUMERICAL_GATE,
         "tol > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.share_is_dominant::compare::0ce46d21579c5ee0::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "share > DOMINANCE_SHARE",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.share_is_dominant::decision_predicate::0ce46d21579c5ee0::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "share > DOMINANCE_SHARE",
     ),
     ManifestEntry(
         "src/bayesmith/dispatch/costs.py::<module>.scoreboard::decision_predicate::1bff0891d01c60f4::0",
@@ -8482,7 +8491,136 @@ EXPECTED_SOURCE_MANIFEST = (
         CandidateClassification.ORDINARY_VALIDATION,
         "verdict.winner is not None",
     ),
-
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>._terms::compare::1a86b7af698f765f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "strategy == 'split'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>._terms::decision_predicate::1a86b7af698f765f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "strategy == 'split'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>._terms::compare::85ffac9aeb280b37::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "strategy == 'collapse'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>._terms::decision_predicate::85ffac9aeb280b37::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "strategy == 'collapse'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>._terms::compare::cca4ec16a15fde57::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "strategy == 'joint'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>._terms::decision_predicate::cca4ec16a15fde57::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "strategy == 'joint'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>._terms::raise::a38e3dafd3b6b67d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f\"there is no cost row called {strategy!r}; the scoreboard prices 'split', 'collapse' and 'joint' and nothing else\")",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.cost_shares::decision_predicate::2992236393fddb89::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not math.isfinite(total) or total <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.cost_shares::boolean_atom::f517e52fd3adde59::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not math.isfinite(total)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.cost_shares::predicate_call_atom::5662962bf2f78843::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(total)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.cost_shares::finite_predicate::5662962bf2f78843::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(total)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.cost_shares::compare::c355389e58b9bab8::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "total <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.cost_shares::boolean_atom::c355389e58b9bab8::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "total <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.dominant_input::decision_predicate::8785dc9d13a486a9::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "share_is_dominant(share)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.dominant_input::predicate_call_atom::8785dc9d13a486a9::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "share_is_dominant(share)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_width::compare::20e56372a0db90b0::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "low <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_width::decision_predicate::fcffd963735c9389::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "low <= 0.0 or not math.isfinite(high)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_width::boolean_atom::20e56372a0db90b0::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "low <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_width::boolean_atom::33133f157701773b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not math.isfinite(high)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_width::predicate_call_atom::2e4bef22275738ae::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(high)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_width::finite_predicate::2e4bef22275738ae::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(high)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.CostReconciliation.line::decision_predicate::d3a73f193ff70ec8::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "self.within",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.CostReconciliation.line::decision_predicate::18131f330b773013::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "self.dominant",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.reconcile::decision_predicate::d1a0e30b46aabd23::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ess",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.reconcile::predicate_call_atom::45125ba6bd0df836::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "bool(row.cost_lo <= measured <= row.cost_hi)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.reconcile::compare::25e7836724f0017d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "row.cost_lo <= measured <= row.cost_hi",
+    ),
     ManifestEntry(
         "src/bayesmith/dispatch/collapse.py::<module>.observed_descendants::decision_predicate::65481ab457807954::0",
         CandidateClassification.ORDINARY_VALIDATION,
@@ -8542,6 +8680,126 @@ EXPECTED_SOURCE_MANIFEST = (
         "src/bayesmith/dispatch/collapse.py::<module>.pivots_constrain_block::compare::fa67000d1d7f01d8::0",
         CandidateClassification.NUMERICAL_GATE,
         "pivots[:n_block] > floor",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.quadratic_cc_crosses_floor::compare::75b08209273ad6f3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "quadratic_cc > floor",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.quadratic_cc_crosses_floor::decision_predicate::75b08209273ad6f3::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "quadratic_cc > floor",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.ratio_exceeds_declared_multiple::compare::c2fe1a2786d6b1cf::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ratio > DECLARED_MULTIPLE",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.ratio_exceeds_declared_multiple::decision_predicate::c2fe1a2786d6b1cf::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "ratio > DECLARED_MULTIPLE",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_is_warranted::decision_predicate::a08dd761fad1ae1b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "switches_away or contested",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_is_warranted::boolean_atom::9048537a0ed27296::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "switches_away",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_is_warranted::boolean_atom::efad76f9e73fe00b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "contested",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.PilotReport.line::decision_predicate::739739e6af42b17e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "self.blind_to",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::75b404545378f608::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.asarray(first, dtype=float)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::e1d97a64789fe17c::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.asarray(second, dtype=float)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::9c6feeb7981c4b23::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "canonical_correlation(left, right)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::caee75f110316c9d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "augment(left)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::7fd27aa0d9e1d538::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "augment(right)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::5c930dbdbfa396e8::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "canonical_correlation(left_augmented, right_augmented)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::19b6a67428420d97::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "int(left_augmented.shape[1] + right_augmented.shape[1])",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::59c9ecff27fbc7cc::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampling_floor(p_aug, n_eff)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::ccc2208f732ab5c3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "quadratic / linear if linear else math.inf",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::c0c609839761c426::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "linear",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::e7704bea22e851c5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "quadratic_cc_crosses_floor(quadratic, floor) and ratio_exceeds_declared_multiple(ratio)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::boolean_atom::9ac277108a79b970::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "quadratic_cc_crosses_floor(quadratic, floor)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::boolean_atom::d58e70f86d2fb82d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ratio_exceeds_declared_multiple(ratio)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::decision_predicate::8d97d956f399e802::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "vetoed",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.pilot_report::predicate_call_atom::f43ebffc6b4096fb::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "bool(vetoed)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/pilot.py::<module>.resolve_switch::decision_predicate::ce2f142c759f7a26::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "report.vetoed",
     ),
 )
 

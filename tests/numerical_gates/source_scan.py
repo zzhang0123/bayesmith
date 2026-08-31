@@ -24,6 +24,7 @@ SOURCE_PATHS = (
     "src/bayesmith/graph/reduction.py",
     "src/bayesmith/dispatch/costs.py",
     "src/bayesmith/dispatch/collapse.py",
+    "src/bayesmith/dispatch/pilot.py",
 )
 
 
@@ -513,7 +514,7 @@ def index_source_text(
 
 
 def scan_repository(root: Path) -> tuple[SourceCandidate, ...]:
-    """Scan exactly the six checked-in Phase-Two source modules."""
+    """Scan exactly the checked-in gate-bearing source modules in SOURCE_PATHS."""
     candidates: list[SourceCandidate] = []
     for relative_path in SOURCE_PATHS:
         path = root / relative_path

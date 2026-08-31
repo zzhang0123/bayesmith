@@ -67,8 +67,8 @@ def test_raw_ast_baseline_is_explicit() -> None:
         for family in CandidateFamily
     }
 
-    assert family_counts[CandidateFamily.RAISE] == 170
-    assert family_counts[CandidateFamily.COMPARE] == 296
+    assert family_counts[CandidateFamily.RAISE] == 171
+    assert family_counts[CandidateFamily.COMPARE] == 305
 
 
 def test_every_raw_candidate_has_exactly_one_code_classification() -> None:
@@ -1792,9 +1792,9 @@ def test_metadata_has_executable_gate_specific_semantics() -> None:
             f"{entry.refused_outcome} | {entry.oracle}"
         )
         assert not any(phrase in rendered for phrase in forbidden), entry.gate_id
-    assert len({entry.admitted_outcome for entry in GATE_REGISTRY}) == 104
-    assert len({entry.refused_outcome for entry in GATE_REGISTRY}) == 104
-    assert len({entry.oracle for entry in GATE_REGISTRY}) == 104
+    assert len({entry.admitted_outcome for entry in GATE_REGISTRY}) == 107
+    assert len({entry.refused_outcome for entry in GATE_REGISTRY}) == 107
+    assert len({entry.oracle for entry in GATE_REGISTRY}) == 107
     intermediate = {entry.gate_id: entry for entry in GATE_REGISTRY}[
         "PLAN:frozen:intermediate-runtime-range"
     ]

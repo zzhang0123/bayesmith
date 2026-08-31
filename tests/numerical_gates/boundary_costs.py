@@ -38,6 +38,10 @@ _WITNESS_ROLES = {
     "COSTS:gap_is_contested:contested-bandwidth": (PointRole.BELOW_ULP, PointRole.AT),
     "COSTS:timing_noise_in_domain:proper-fraction": (PointRole.BELOW_ULP, PointRole.AT),
     "COSTS:cg_tol_positive:strictly-positive": (PointRole.SUBNORMAL_MISMATCH, PointRole.EXACT),
+    # ``share > T`` admits ABOVE, so its nearest admitted face is ABOVE_ULP and
+    # its nearest refused face is the threshold itself -- the mirror image of
+    # the three ``< T`` gates above.
+    "COSTS:share_is_dominant:dominance-share": (PointRole.ABOVE_ULP, PointRole.AT),
 }
 
 
@@ -143,18 +147,22 @@ def _float_suite(
     complement: Callable[[float], bool],
     axis_name: str,
     threshold_label: str,
+    admits_above: bool = False,
+    extreme: float = math.inf,
 ) -> BoundarySuite:
+    below = GateSide.REFUSED if admits_above else GateSide.ADMITTED
+    above = GateSide.ADMITTED if admits_above else GateSide.REFUSED
     runner = _predicate_runner(
-        entry, predicate_name, threshold, math.inf, axis_name=axis_name, complement=complement
+        entry, predicate_name, threshold, extreme, axis_name=axis_name, complement=complement
     )
     cases = make_grid_cases(
         entry=entry,
         points=float_grid(
-            below=GateSide.ADMITTED,
+            below=below,
             at=GateSide.REFUSED,
-            above=GateSide.REFUSED,
-            very_low=GateSide.ADMITTED,
-            very_high=GateSide.REFUSED,
+            above=above,
+            very_low=below,
+            very_high=above,
             extreme=GateSide.REFUSED,
             threshold=threshold_label,
         ),
@@ -228,6 +236,19 @@ COSTS_SUITES: tuple[BoundarySuite, ...] = (
         _ENTRIES["COSTS:cg_tol_positive:strictly-positive"],
         "cg_tol_positive",
         complement=lambda v: _not_le(v, 0.0),
+    ),
+    _float_suite(
+        _ENTRIES["COSTS:share_is_dominant:dominance-share"],
+        "share_is_dominant",
+        costs_module.DOMINANCE_SHARE,
+        complement=lambda v: _not_le(v, costs_module.DOMINANCE_SHARE),
+        axis_name="share",
+        threshold_label="0.5",
+        admits_above=True,
+        # A share is a part of a partition, so the domain extreme on its
+        # refused side is a negative one rather than +inf: a term cannot carry
+        # a negative part of the cost it helps make up.
+        extreme=-math.inf,
     ),
 )
 

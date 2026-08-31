@@ -706,7 +706,12 @@ class InferencePlan(eqx.Module):
                 but wrong marginal. See bayesmith.dispatch.collapse.collapse_graph.
 
         Returns:
-            A :class:`Posterior`, whose ``method`` is what RAN.
+            A :class:`Posterior`, whose ``method`` is what RAN. Its
+            ``cost`` carries the P7 reconciliation ledger -- predicted
+            interval, measured seconds per effective sample, and which of the
+            prediction's own terms dominated it -- on a plan compiled with
+            ``strategy="cost"``, and is ``None`` on every declared plan,
+            which made no prediction to reconcile against.
         """
         return run_sample(
             self,
