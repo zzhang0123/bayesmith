@@ -650,7 +650,7 @@ def test_dense_lambda_base_arithmetic_has_a_strict_solve_logdet_certificate(
 @pytest.mark.parametrize(
     ("position", "rho_gap_in_eps", "rank_valid", "accepted", "rejection"),
     [
-        ("below", 2, True, False, "condition"),
+        ("below", 2, True, True, None),
         ("at", 3, False, False, "projection.*logdet"),
         ("above", 4, True, True, None),
     ],

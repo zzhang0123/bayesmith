@@ -78,11 +78,14 @@ objective(x) = -log_joint(graph, unflatten(x)).
    的 float32 设计（二者上转后都精确），所以诊断家族选择保守一致：两者都拒绝，而不让
    MAP 拒绝、coupling 测量同一张图；
 3. 目标、梯度或 Hessian 非有限：`Refused`，出路是改起点、尺度/坐标，或用 NUTS；
-4. 先量 Hessian 谱，再把梯度与
-   `sqrt(eps)·n_parameter·max(|lambda_max(H)|,1)·max(||x||_inf,1)` 比较；高于这个
-   **局部目标舍入尺度**就 `Refused`，绝不把相对小步泄漏成“已收敛”。`H` 给目标的
-   局部曲率尺度，`max(||x||_inf,1)` 把一个坐标 ulp 换成梯度 ulp；缺任一项都会让一次
-   纯单位换算改变裁决；
+4. 先量 Hessian 谱，再把梯度与 `sqrt(eps)·n_parameter·||H||₂` 比较；高于这个
+   **局部目标舍入尺度**就 `Refused`，绝不把相对小步泄漏成“已收敛”。现行公式没有
+   clamp（B1 删除了 `max(|lambda_max(H)|,1)` 与 `max(||x||_inf,1)` 两个），所以它
+   **对目标尺度不变**（`||H||` 随目标缩放、梯度同向缩放），但**对坐标尺度不保证**：
+   `x→c·x` 时 `||H||₂∝c²` 而梯度 `∝c`，裁决比随 `1/c` 漂移。坐标不变由
+   `test_a_large_candidate_cannot_buy_its_own_gradient_allowance` 的大坐标拒绝钉子
+   替代；若 owner 要恢复坐标不变，需重引入 `||H||₂·max(||x||,1)` 项（不能回退到 B1
+   修掉的逃逸点放水版）——这是策略裁决，本 spec 不拍板；
 5. 驻点的负 log joint Hessian 非正定，或最大曲率本身不高于 `sqrt(eps)`：`Refused`。
    后一条专门区分“真实驻点”和“尾部目标/梯度下溢成零”；
 6. 无 latent：`NotApplicable`，而不是空字典冒充估计。
@@ -136,8 +139,9 @@ ambient float32、显式 float32 起点、以及 x64 外构造而在 x64 内调�
 `||H||` 从 `3.680e5` 放大到 `3.680e13`；五格全部 `MapEstimate`，对独立 NumPy
 正规方程的相对误差不超过 `3.71e-16`。同一模型再做坐标换算
 `x_physical=c x_coordinate`，`c in {1e-2,1,1e2,1e4}`，四格均测量且物理众数在打印的
-九位上逐分量相同：`[1.200038709, -0.549966357, 0.280401865]`。删掉 Hessian/坐标尺度
-后，前一组的后三格和后一组的整项守卫都会变红。
+九位上逐分量相同：`[1.200038709, -0.549966357, 0.280401865]`。删掉 Hessian 尺度
+后，前一组的后三格会变红；删掉坐标尺度对现行公式的裁决不变（现行公式本来就不保证
+坐标不变，由大坐标拒绝钉子覆盖）。
 
 oracle 不使用 MAP 实现的任何例程。线性图的一侧是矩阵自由 `wiener_solve`；funnel
 众数由手写联合密度 `y²/18 + y/2 + x²/(2 exp(y))` 的导数直接得到。
@@ -161,3 +165,12 @@ mode”，绝不表示“funnel 几何已被修好”。
 本包也不把 MAP 或 Hessian 条件数塞进采样成本 argmin。以后若进入 Wave 2，Kish ESS
 与 chain ESS 仍不得同场：计划实测 SNIS 偏 1.40 个 posterior sd、NUTS 偏 18.5，
 而 chain ESS 33 反而高于 Kish ESS 14；共同 argmin 会选离真相远约 13 倍的答案。
+
+## 审计续（2026-08-30）：曲率 clamp 裁决
+
+**F2(A)**：删除 `curvature_floor` 里的 `max(abs(lambda_max), 1.0)` clamp（选 (a)，与 B1 已删的
+两个梯度侧 clamp 一致）。实测：同一后验两次精确单位换算（宽度 30/28/32），`‖H‖=1.276e-03`
+时相对误差 `4.02e-05`、`‖H‖=1.000` 时 `5.13e-08`，比值 `783.7 = 1/‖H‖`；同一物理点在
+一个单位制下返回 `MapEstimate`、在另一个下 `Refused`。clamp 的 `1.0` 是单位尺度锚、无
+推导依据（registry 里唯一的 `magic`），删掉后曲率地板退化为 `eps·|lambda_max|·n`，随目标
+尺度缩放，裁决在单位换算下不变。边界格：`test_subunit_curvature_floor_is_invariant_under_a_unit_conversion`。

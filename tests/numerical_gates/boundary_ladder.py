@@ -994,7 +994,6 @@ def _independent_facts(
         and rank_valid
         and sigma_formation_valid
         and sigma_exact
-        and condition_resolved
     )
     dense_resolved = sigma_formation_valid and (sigma.ndim == 1 or condition_resolved)
     compact = perturb.ndim == 1
@@ -3142,11 +3141,6 @@ def _determinant_lemma_action(record: _FixtureRecord) -> RawObservation:
         right = np.array([[0.2], [-0.1], [0.1]])
         perturbation = left @ right.T
         factors = eager.LowRankFactors(left, right)
-    elif syntax == "condition_resolved":
-        lam = np.diag([1.3, 1.3, 1.3 * np.finfo(float).eps])
-        left = np.zeros((3, 1))
-        perturbation = np.zeros((3, 3))
-        factors = eager.LowRankFactors(left)
     elif record.point.role not in {
         PointRole.EXACT,
         PointRole.VERY_LOW,
@@ -3246,17 +3240,11 @@ def _determinant_lemma_action(record: _FixtureRecord) -> RawObservation:
     production_valid = bool(verdicts[1].details["determinant_lemma_payload"])
     facts = _independent_facts(problem, record.values["config"])
     oracle_exact = facts.sigma_formation_valid and facts.sigma_exactly_symmetric
-    oracle_condition = bool(
-        facts.sigma_formation_valid
-        and oracles.spectral_condition(facts.sigma)
-        < 1.0 / np.finfo(facts.sigma.dtype).eps
-    )
     oracle_valid = bool(
         factors is not None
         and facts.rank_evidence_valid
         and facts.sigma_formation_valid
         and oracle_exact
-        and oracle_condition
     )
     record.returned("determinant_lemma_payload", production_valid)
     record.observed_side = _side(production_valid)
@@ -3269,10 +3257,6 @@ def _determinant_lemma_action(record: _FixtureRecord) -> RawObservation:
             "rank_evidence_valid": bool(verdicts[1].details["rank_evidence_valid"]),
             "sigma_formation_valid": bool(verdicts[1].details["sigma_formation_valid"]),
             "sigma_exactly_symmetric": bool(verdicts[1].details["exactly_symmetric"]),
-            "condition_resolved": bool(
-                verdicts[1].details["condition"]
-                < verdicts[1].details["condition_ceiling"]
-            ),
         },
         {
             "problem.low_rank_factors is not None": factors is not None,
@@ -3281,7 +3265,6 @@ def _determinant_lemma_action(record: _FixtureRecord) -> RawObservation:
             ),
             "sigma_formation_valid": facts.sigma_formation_valid,
             "sigma_exactly_symmetric": oracle_exact,
-            "condition_resolved": oracle_condition,
         },
     )
     if production_valid and oracle_valid:
@@ -5111,7 +5094,6 @@ _DEPENDENCIES: Mapping[
             ("rank_evidence_valid", None),
             ("sigma_formation_valid", None),
             ("sigma_exactly_symmetric", None),
-            ("condition_resolved", None),
         ),
         AtomDependencyLogic.SHORT_CIRCUIT,
         "An absent factor payload short-circuits the remaining determinant-lemma conjuncts.",
@@ -5123,18 +5105,9 @@ _DEPENDENCIES: Mapping[
         (
             ("sigma_formation_valid", None),
             ("sigma_exactly_symmetric", None),
-            ("condition_resolved", None),
         ),
         AtomDependencyLogic.SHORT_CIRCUIT,
         "Invalid rank evidence short-circuits the later determinant-lemma conjuncts.",
-    ),
-    (
-        "LADDER:determinant-lemma:payload",
-        "sigma_exactly_symmetric",
-    ): (
-        (("condition_resolved", None),),
-        AtomDependencyLogic.SHORT_CIRCUIT,
-        "A nonexact Sigma short-circuits the final condition conjunct.",
     ),
     (
         "LADDER:sigma:payload-symmetry",
@@ -5230,7 +5203,6 @@ _DEPENDENCIES: Mapping[
     ): (
         (
             ("sigma_exactly_symmetric", None),
-            ("condition_resolved", None),
         ),
         AtomDependencyLogic.SHORT_CIRCUIT,
         "The fault-seam rank certificate exposes the formation operand; its false result short-circuits later conjuncts.",
@@ -5844,8 +5816,8 @@ LADDER_SUITES = tuple(_build_suite(gate_id) for gate_id in sorted(_ENTRIES))
 
 if len(LADDER_SUITES) != 21:
     raise AssertionError("standalone LADDER provider must export exactly 21 suites")
-if sum(len(suite.atom_case_ids) for suite in LADDER_SUITES) != 57:
-    raise AssertionError("standalone LADDER provider must export exactly 57 atom cases")
+if sum(len(suite.atom_case_ids) for suite in LADDER_SUITES) != 56:
+    raise AssertionError("standalone LADDER provider must export exactly 56 atom cases")
 
 
 __all__ = ["LADDER_SUITES"]

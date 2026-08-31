@@ -281,7 +281,6 @@ def check_logdet_premises(
         and rank_evidence_valid
         and sigma_formation_valid
         and sigma_exactly_symmetric
-        and condition_resolved
     )
     finite_payload_stable = finite_polynomial_stable or determinant_lemma_payload
     dense_arithmetic_resolved = sigma_formation_valid and (

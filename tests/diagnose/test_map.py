@@ -276,6 +276,35 @@ def test_physical_mode_is_invariant_under_a_pure_unit_conversion():
         np.testing.assert_array_equal(np.round(physical, 9), expected_physical)
 
 
+def test_subunit_curvature_floor_is_invariant_under_a_unit_conversion():
+    """Deleting max(|lambda_max|, 1) keeps the curvature verdict unit-invariant.
+
+    With the clamp the relative curvature floor anchors at eps*n*1.0 whenever
+    the Hessian norm drops below one, so a pure width rescaling flips a
+    sub-unit-Hessian posterior between Refused and MapEstimate.  The smallest
+    eigenvalue 4e-16 sits above the unclamped floor eps*0.5*3 but below the
+    clamped floor eps*1.0*3, so the same physical point is Refused in one unit
+    system and a MapEstimate in the other before the clamp is removed.
+    """
+
+    def model(widths):
+        sample(
+            "x",
+            lambda: dist.Normal(jnp.zeros(3), jnp.asarray(widths)).to_event(1),
+        )
+
+    unit = np.array([5.0e7, math.sqrt(2.0), math.sqrt(2.0)])
+    converted = unit / math.sqrt(2.0)
+
+    with jax.enable_x64(True):
+        for widths in (unit, converted):
+            found = map_estimate(trace(lambda w=widths: model(w)))
+            assert isinstance(found, MapEstimate), widths
+            assert widths * np.asarray(found["x"]) == pytest.approx(
+                np.zeros(3), abs=0.0
+            )
+
+
 def test_a_large_candidate_cannot_buy_its_own_gradient_allowance(monkeypatch):
     """Multiplying the floor by max|candidate| changes this refusal to a MAP."""
     centre = np.array([300.0, -400.0, 200.0])

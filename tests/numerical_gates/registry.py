@@ -487,12 +487,6 @@ _SEEDS = (
     *_seed_group(
         MAP,
         "map_estimate",
-        CandidateFamily.CLAMP_SELECTOR,
-        "MAP:map_estimate:curvature-scale-clamp",
-    ),
-    *_seed_group(
-        MAP,
-        "map_estimate",
         CandidateFamily.COMPARE,
         """MAP:map_estimate:relative-positive-curvature
         MAP:map_estimate:absolute-curvature""",
@@ -853,8 +847,8 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "LADDER:determinant-lemma:payload": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::278f9dc6bf731700::0",
-            "problem.low_rank_factors is not None and rank_evidence_valid and sigma_formation_valid and sigma_exactly_symmetric and condition_resolved",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::8f473f76dc3f6936::0",
+            "problem.low_rank_factors is not None and rank_evidence_valid and sigma_formation_valid and sigma_exactly_symmetric",
         ),
     ),
     "LADDER:finite:payload-rho": (
@@ -1009,12 +1003,6 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
         (
             "src/bayesmith/diagnose/map.py::<module>.map_estimate::compare::4811937db4eb0e1e::0",
             "largest > absolute_curvature_floor",
-        ),
-    ),
-    "MAP:map_estimate:curvature-scale-clamp": (
-        (
-            "src/bayesmith/diagnose/map.py::<module>.map_estimate::clamp_selector::d15d694b66805c5e::0",
-            "max(abs(largest), 1.0)",
         ),
     ),
     "MAP:map_estimate:finite-derivative-payload": (
@@ -1913,13 +1901,6 @@ _DECLARED_SOURCE_ANCHORS: dict[str, tuple[SourceAnchor, ...]] = {
             CandidateFamily.COMPARE,
         ),
     ),
-    "MAP:map_estimate:curvature-scale-clamp": (
-        SourceAnchor(
-            "src/bayesmith/diagnose/map.py",
-            "<module>.map_estimate",
-            CandidateFamily.CLAMP_SELECTOR,
-        ),
-    ),
     "MAP:map_estimate:finite-derivative-payload": (
         SourceAnchor(
             "src/bayesmith/diagnose/map.py",
@@ -2438,7 +2419,6 @@ _DECLARED_SOURCE_CLASSIFICATIONS: dict[str, tuple[CandidateClassification, ...]]
     "LADDER:structure:kronecker-evidence": (CandidateClassification.NUMERICAL_GATE,),
     "LADDER:structure:toeplitz-tolerance": (CandidateClassification.NUMERICAL_GATE,),
     "MAP:map_estimate:absolute-curvature": (CandidateClassification.NUMERICAL_GATE,),
-    "MAP:map_estimate:curvature-scale-clamp": (CandidateClassification.NUMERICAL_GATE,),
     "MAP:map_estimate:finite-derivative-payload": (
         CandidateClassification.NUMERICAL_GATE,
         CandidateClassification.NUMERICAL_GATE,
@@ -2719,7 +2699,6 @@ _GATE_ATOM_LINKS: dict[str, tuple[str, ...]] = {
         "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::c515480aa003dc6d::0",
         "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::48196fb8375388cd::0",
         "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::91367abf12d9ecf4::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::0",
     ),
     "LADDER:finite:payload-rho": (
         "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::compare::4a956d9542c5c0c2::0",
@@ -2967,11 +2946,11 @@ _GATE_ATOM_LINKS.update(
         "LADDER:rung2:chain": (
             "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::2df45b3b0a16f43b::0",
             "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::2acb41d6956562c0::1",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::2",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::1",
         ),
         "LADDER:rung4:dense": (
             "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::f0ba3f1026fc300c::0",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::3",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::2",
             "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::2acb41d6956562c0::2",
         ),
         "LADDER:rung5:finite-executable": (
@@ -4756,32 +4735,18 @@ GATE_METADATA: dict[str, GateMetadata] = {
         extreme="zero Hessian, mode sizes 1/large, float32/float64, subnormal gradient",
         fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
     ),
-    "MAP:map_estimate:curvature-scale-clamp": _metadata(
-        quantity="scale factor max(abs(lambda_max),1.0) used in relative curvature floor.",
-        threshold="literal clamp at 1.0; magic/policy constant unless separately justified.",
-        provenance=ThresholdProvenance.MAGIC,
-        admitted_outcome="below/equal unit magnitude use scale 1",
-        refused_outcome="above unit magnitude use abs(lambda_max); the selector itself does not refuse but moving it changes the downstream curvature gate.",
-        oracle="direct two-value maximum and compare downstream floor against an unclamped high-precision formula.",
-        axis_name="Boundary cells for scale factor max(abs(lambda_max),1.0) used in relative curvature floor.",
-        low="abs(lambda_max)=.4",
-        endpoints=("nextafter(1, 0)", "exactly 1, nextafter(1, +inf)"),
-        high="2.4",
-        extreme="zero, negative lambda_max (absolute value), subnormal, largest finite; non-finite excluded earlier",
-        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
-    ),
     "MAP:map_estimate:relative-positive-curvature": _metadata(
-        quantity="smallest Hessian eigenvalue versus curvature_floor=eps(H_dtype)*max(abs(lambda_max),1)*max(mode.size,1); require strict lambda_min > floor.",
-        threshold="eps(H dtype) * max(abs(lambda_max), 1.0) * max(mode.size, 1)",
+        quantity="smallest Hessian eigenvalue versus curvature_floor=eps(H_dtype)*abs(lambda_max)*max(mode.size,1); require strict lambda_min > floor.",
+        threshold="eps(H dtype) * abs(lambda_max) * max(mode.size, 1)",
         provenance=ThresholdProvenance.DERIVED,
         admitted_outcome="continue toward MapEstimate",
         refused_outcome="return degenerate/non-positive-curvature Refused at or below floor.",
         oracle="high-precision symmetric eigensolver/LDL inertia and independent formula evaluation.",
-        axis_name="Boundary cells for smallest Hessian eigenvalue versus curvature_floor=eps(H_dtype)*max(abs(lambda_max),1)*max(mode.size,1); require strict lambda_min > floor.",
+        axis_name="Boundary cells for smallest Hessian eigenvalue versus curvature_floor=eps(H_dtype)*abs(lambda_max)*max(mode.size,1); require strict lambda_min > floor.",
         low="lambda_min twice floor with non-unit spectrum",
         endpoints=("nextafter(floor, +inf)", "equal floor, nextafter(floor, 0)"),
         high="well-curved Hessian",
-        extreme="mode size 1/large, lambda_max below/above clamp, repeated eigenvalues, subnormal positive/zero/negative lambda_min",
+        extreme="mode size 1/large, repeated eigenvalues, subnormal positive/zero/negative lambda_min",
         fixture_scale_policy=FixtureScalePolicy.NON_UNIT_REQUIRED,
     ),
     "MAP:map_estimate:absolute-curvature": _metadata(
@@ -6739,7 +6704,7 @@ def validate_registry(
         raise RegistryValidationError("\n".join(errors))
 
 
-if len(GATE_REGISTRY) != 100:
+if len(GATE_REGISTRY) != 99:
     raise RegistryValidationError(
-        f"semantic registry expected 100 reviewed entries, found {len(GATE_REGISTRY)}"
+        f"semantic registry expected 99 reviewed entries, found {len(GATE_REGISTRY)}"
     )

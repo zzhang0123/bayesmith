@@ -195,38 +195,10 @@ def test_explicit_comparison_threshold_crosses_a_quantized_witness(
 
 
 def test_diagnose_graph_uses_two_distinct_directional_mutation_families() -> None:
-    assert len(DIAGNOSE_GRAPH_MUTATION_SPECS) == 28
+    assert len(DIAGNOSE_GRAPH_MUTATION_SPECS) == 26
     assert all(
         spec.strategy is not MutationStrategy.FLIP_BOOLEAN
         for spec in DIAGNOSE_GRAPH_MUTATION_SPECS
-    )
-
-
-@pytest.mark.parametrize(
-    "spec",
-    tuple(
-        item
-        for item in DIAGNOSE_GRAPH_MUTATION_SPECS
-        if item.gate_id == "MAP:map_estimate:curvature-scale-clamp"
-    ),
-    ids=lambda item: item.direction.value,
-)
-def test_clamp_mutation_changes_the_real_map_result_kind(spec: MutationSpec) -> None:
-    """An internal clamp value alone is not an observable mutation kill."""
-    suite = next(
-        item for item in DIAGNOSE_GRAPH_SUITES if item.gate_id == spec.gate_id
-    )
-    case_id = (
-        suite.tighten_case_id
-        if spec.direction is MutationDirection.TIGHTEN
-        else suite.loosen_case_id
-    )
-    case = next(item for item in suite.cases if item.case_id == case_id)
-
-    result = run_mutation(spec, case)
-
-    assert result.baseline.direct_return_values["result_kind"] != (
-        result.mutant.direct_return_values["result_kind"]
     )
 
 

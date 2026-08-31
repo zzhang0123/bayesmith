@@ -149,7 +149,6 @@ _add(
     (
         "MAP:map_estimate:finite-derivative-payload",
         "MAP:map_estimate:stationarity-floor",
-        "MAP:map_estimate:curvature-scale-clamp",
         "MAP:map_estimate:relative-positive-curvature",
         "MAP:map_estimate:absolute-curvature",
     ),

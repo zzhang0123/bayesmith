@@ -11,7 +11,7 @@ import builtins
 import math
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -131,10 +131,6 @@ _MUTATION_WITNESS_ROLES = {
     "MAP:map_estimate:stationarity-floor": (
         PointRole.AT,
         PointRole.ABOVE_ULP,
-    ),
-    "MAP:map_estimate:curvature-scale-clamp": (
-        PointRole.AT,
-        PointRole.BELOW_ULP,
     ),
     "MAP:map_estimate:relative-positive-curvature": (
         PointRole.ABOVE_ULP,
@@ -1575,29 +1571,6 @@ def _map_runner(entry: GateEntry, atom_id: str | None = None) -> Runner:
             )
             candidate[0] = 4.0 * point_value
             point_key = "gradient_norm"
-        elif gate_id.endswith("curvature-scale-clamp"):
-            threshold = 1.0
-            point_value = _float_neighbour(
-                point,
-                threshold,
-                very_low=0.25,
-                very_high=2.4,
-                extreme=np.finfo(float).max / 4.0,
-            )
-            baseline_floor = (
-                np.finfo(float).eps * max(abs(point_value), 1.0) * 2
-            )
-            if point.role is PointRole.AT:
-                smallest_fixture = 3.0 * np.finfo(float).eps
-            elif point.role is PointRole.BELOW_ULP:
-                relaxed_floor = np.finfo(float).eps * abs(point_value) * 2
-                smallest_fixture = float(np.nextafter(relaxed_floor, math.inf))
-            elif point.expected_side is GateSide.ADMITTED:
-                smallest_fixture = float(np.nextafter(baseline_floor, math.inf))
-            else:
-                smallest_fixture = baseline_floor
-            set_curvature_fixture(np.array([smallest_fixture, point_value]))
-            point_key = "largest_eigenvalue"
         elif gate_id.endswith("relative-positive-curvature"):
             largest = 4.0
             threshold = np.finfo(float).eps * largest * 2
@@ -1653,12 +1626,6 @@ def _map_runner(entry: GateEntry, atom_id: str | None = None) -> Runner:
         hessian_norm_was_consumed = "hessian_norm" in returned
         hessian_norm = (
             float(returned["hessian_norm"]) if hessian_norm_was_consumed else math.nan
-        )
-        curvature_scale_was_consumed = "curvature_scale" in returned
-        curvature_scale = (
-            float(returned["curvature_scale"])
-            if curvature_scale_was_consumed
-            else math.nan
         )
         smallest = float(spectrum[0])
         largest = float(spectrum[-1])
@@ -1717,23 +1684,6 @@ def _map_runner(entry: GateEntry, atom_id: str | None = None) -> Runner:
                 GateSide.ADMITTED
                 if isinstance(result, MapEstimate)
                 else GateSide.REFUSED
-            )
-        elif gate_id.endswith("curvature-scale-clamp"):
-            point_value = largest
-            if not curvature_scale_was_consumed:
-                raise AssertionError("MAP did not execute its curvature-scale clamp")
-            expected_admit = bool(
-                independent_spectrum[0]
-                > oracles.relative_curvature_floor(
-                    independent_spectrum[-1],
-                    candidate.size,
-                    np.finfo(np.float64).eps,
-                )
-                and independent_spectrum[-1]
-                > math.sqrt(np.finfo(np.float64).eps)
-            )
-            observed_side = (
-                GateSide.ADMITTED if isinstance(result, MapEstimate) else GateSide.REFUSED
             )
         elif gate_id.endswith("relative-positive-curvature"):
             threshold = oracles.relative_curvature_floor(
@@ -1797,9 +1747,6 @@ def _map_runner(entry: GateEntry, atom_id: str | None = None) -> Runner:
         if hessian_norm_was_consumed:
             inputs["hessian_norm"] = hessian_norm
             return_keys.append("hessian_norm")
-        if curvature_scale_was_consumed:
-            inputs["curvature_scale"] = curvature_scale
-            return_keys.append("curvature_scale")
         if point_key in direct_input_keys:
             raise AssertionError("MAP point key must retain a production return")
         checks = (
@@ -1936,20 +1883,6 @@ def _map_specs() -> list[tuple[GateEntry, _SuiteSpec]]:
             ),
         )
     )
-    clamp_points = tuple(
-        replace(point, expected_side=GateSide.REFUSED)
-        if point.role is PointRole.BELOW_ULP
-        else point
-        for point in float_grid(
-            below=GateSide.ADMITTED,
-            at=GateSide.ADMITTED,
-            above=GateSide.REFUSED,
-            very_low=GateSide.ADMITTED,
-            very_high=GateSide.REFUSED,
-            extreme=GateSide.REFUSED,
-            threshold="unit curvature scale",
-        )
-    )
     for gate_id, points, execution_class in (
         (
             "MAP:map_estimate:stationarity-floor",
@@ -1962,11 +1895,6 @@ def _map_specs() -> list[tuple[GateEntry, _SuiteSpec]]:
                 extreme=GateSide.REFUSED,
                 threshold="gradient floor",
             ),
-            ExecutionClass.PAYLOAD_OR_REFUSAL,
-        ),
-        (
-            "MAP:map_estimate:curvature-scale-clamp",
-            clamp_points,
             ExecutionClass.PAYLOAD_OR_REFUSAL,
         ),
         (
@@ -2009,19 +1937,7 @@ def _map_specs() -> list[tuple[GateEntry, _SuiteSpec]]:
                     points,
                     _map_runner(entry),
                     lambda atom_id, entry=entry: _map_runner(entry, atom_id),
-                    (
-                        (
-                            (
-                                "Policy ambiguity: the dimensionless clamp 1.0 is "
-                                "a unit-scale anchor, not a model-derived optimum. "
-                                "The 0.0/2.0 mutations prove downstream MAP "
-                                "sensitivity only; they do not prove that 1.0 is "
-                                "uniquely correct."
-                            ),
-                        )
-                        if gate_id == "MAP:map_estimate:curvature-scale-clamp"
-                        else ()
-                    ),
+                    (),
                 ),
             )
         )

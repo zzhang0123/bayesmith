@@ -822,6 +822,36 @@ def test_determinant_lemma_has_no_trace_series_rho_boundary(rank, rho):
     assert _relative(low, independent_lemma) < 2e-11
 
 
+def test_determinant_lemma_admitted_beyond_sigma_condition_resolution():
+    """kappa(Sigma) >= 1/eps must not reject the exact determinant lemma.
+
+    The lemma factorizes only the k-by-k reduced matrix, so its precision is
+    governed by the factor certificate (eta) and kappa(Lambda), never by the
+    n-by-n kappa(Sigma).  Here Lambda is diagonal and ill conditioned while the
+    rank-one perturbation keeps Sigma non-diagonal, so a kappa(Sigma) gate would
+    reject an otherwise exact logdet of log(1.5).
+    """
+    lam = np.diag([1.0e8, 1.0e-8, 1.0, 1.0])
+    left = np.array([[0.0], [0.0], [0.5], [0.5]])
+    perturbation = left @ left.T
+    factors = LowRankFactors(left)
+    sigma = lam + perturbation
+
+    assert np.linalg.cond(sigma) >= 1.0 / np.finfo(float).eps
+
+    problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+    verdicts = check_logdet_premises(problem)
+    details = verdicts[1].details
+
+    assert details["rank_evidence_valid"] is True
+    assert details["condition"] >= details["condition_ceiling"]
+    assert details["determinant_lemma_payload"] is True
+
+    result = dispatch_logdet(problem)
+    assert result.value == pytest.approx(math.log(1.5), rel=0.0, abs=1e-13)
+    assert result.value == pytest.approx(_oracle(sigma), rel=0.0, abs=1e-13)
+
+
 def test_general_determinant_lemma_handles_a_nonsymmetric_reduced_matrix(
     monkeypatch,
 ):

@@ -2837,11 +2837,6 @@ EXPECTED_SOURCE_MANIFEST = (
         "factors is not None",
     ),
     ManifestEntry(
-        "src/bayesmith/marginal/_logdet_eager.py::<module>._newton_logdet::decision_predicate::e91e8dda98b42590::0",
-        CandidateClassification.ORDINARY_VALIDATION,
-        "_require_resolved_dense_condition(sigma, 'determinant lemma')",
-    ),
-    ManifestEntry(
         "src/bayesmith/marginal/_logdet_eager.py::<module>._newton_logdet::decision_predicate::13f99d2de589205e::0",
         CandidateClassification.ORDINARY_VALIDATION,
         "_factor_projection_certificate(perturb, factors, lam)",
@@ -4782,9 +4777,9 @@ EXPECTED_SOURCE_MANIFEST = (
         "finite_payload_rho <= 1.0",
     ),
     ManifestEntry(
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::predicate_call_atom::554b560b2f19402f::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::predicate_call_atom::96e427b5f105da27::0",
         CandidateClassification.ORDINARY_VALIDATION,
-        "bool(problem.low_rank_factors is not None and rank_evidence_valid and sigma_formation_valid and sigma_exactly_symmetric and condition_resolved)",
+        "bool(problem.low_rank_factors is not None and rank_evidence_valid and sigma_formation_valid and sigma_exactly_symmetric)",
     ),
     ManifestEntry(
         "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::compare::14820d49ac03ef64::0",
@@ -4792,9 +4787,9 @@ EXPECTED_SOURCE_MANIFEST = (
         "problem.low_rank_factors is not None",
     ),
     ManifestEntry(
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::278f9dc6bf731700::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::8f473f76dc3f6936::0",
         CandidateClassification.NUMERICAL_GATE,
-        "problem.low_rank_factors is not None and rank_evidence_valid and sigma_formation_valid and sigma_exactly_symmetric and condition_resolved",
+        "problem.low_rank_factors is not None and rank_evidence_valid and sigma_formation_valid and sigma_exactly_symmetric",
     ),
     ManifestEntry(
         "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::14820d49ac03ef64::0",
@@ -4815,11 +4810,6 @@ EXPECTED_SOURCE_MANIFEST = (
         "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::91367abf12d9ecf4::0",
         CandidateClassification.NUMERICAL_GATE,
         "sigma_exactly_symmetric",
-    ),
-    ManifestEntry(
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::0",
-        CandidateClassification.NUMERICAL_GATE,
-        "condition_resolved",
     ),
     ManifestEntry(
         "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::802e5f1296309604::0",
@@ -4862,7 +4852,7 @@ EXPECTED_SOURCE_MANIFEST = (
         "sigma.ndim == 1",
     ),
     ManifestEntry(
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::1",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::0",
         CandidateClassification.ORDINARY_VALIDATION,
         "condition_resolved",
     ),
@@ -5007,7 +4997,7 @@ EXPECTED_SOURCE_MANIFEST = (
         "sigma_spd",
     ),
     ManifestEntry(
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::2",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::1",
         CandidateClassification.NUMERICAL_GATE,
         "condition_resolved",
     ),
@@ -5112,7 +5102,7 @@ EXPECTED_SOURCE_MANIFEST = (
         "n <= config.dense_max_n",
     ),
     ManifestEntry(
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::3",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::2",
         CandidateClassification.NUMERICAL_GATE,
         "condition_resolved",
     ),
@@ -6704,7 +6694,7 @@ EXPECTED_SOURCE_MANIFEST = (
     ManifestEntry(
         "src/bayesmith/marginal/_logdet_plan.py::<module>._validate_plan_certificate::raise::4d12f3b64b3475c1::0",
         CandidateClassification.ORDINARY_VALIDATION,
-        'raise ValueError(f"certificate multiplicity {certificate.multiplicity} is below the problem\'s algebraic rank bound {required_multiplicity}")',
+        "raise ValueError(f\"certificate multiplicity {certificate.multiplicity} is below the problem's algebraic rank bound {required_multiplicity}\")",
     ),
     ManifestEntry(
         "src/bayesmith/marginal/_logdet_plan.py::<module>._validate_plan_certificate::compare::d9a05ea226e3d68e::0",
@@ -7604,7 +7594,7 @@ EXPECTED_SOURCE_MANIFEST = (
     ManifestEntry(
         "src/bayesmith/marginal/_logdet_plan.py::<module>._require_runtime_precision::raise::508fdb9f4f19345d::0",
         CandidateClassification.ORDINARY_VALIDATION,
-        'raise ValueError(f"runtime values must use real floating precision at least the plan\'s certified {expected}; got {rendered}. Keep construction and execution inside the same `jax.enable_x64` context")',
+        "raise ValueError(f\"runtime values must use real floating precision at least the plan's certified {expected}; got {rendered}. Keep construction and execution inside the same `jax.enable_x64` context\")",
     ),
     ManifestEntry(
         "src/bayesmith/marginal/_logdet_plan.py::<module>.make_trace_log_plan::decision_predicate::0c74a65d1edff071::0",
@@ -7975,11 +7965,6 @@ EXPECTED_SOURCE_MANIFEST = (
         "src/bayesmith/diagnose/map.py::<module>.map_estimate::decision_predicate::ed87ffcc51d9fe06::0",
         CandidateClassification.NUMERICAL_GATE,
         "gradient_norm > gradient_floor",
-    ),
-    ManifestEntry(
-        "src/bayesmith/diagnose/map.py::<module>.map_estimate::clamp_selector::d15d694b66805c5e::0",
-        CandidateClassification.NUMERICAL_GATE,
-        "max(abs(largest), 1.0)",
     ),
     ManifestEntry(
         "src/bayesmith/diagnose/map.py::<module>.map_estimate::clamp_selector::64f9a1dc656957b9::0",

@@ -53,7 +53,7 @@ def boundary_executions() -> dict[str, BoundaryExecution]:
 def test_every_two_sided_gate_has_exactly_one_executable_boundary_suite() -> None:
     required = {entry.gate_id for entry in _TWO_SIDED}
 
-    assert len(required) == 84
+    assert len(required) == 83
     assert len(BOUNDARY_SUITES) == len(required)
     assert set(BOUNDARY_SUITES) == required
 
@@ -63,7 +63,7 @@ def test_every_isolatable_atomic_premise_has_one_named_concrete_case() -> None:
         atom_id for entry in _TWO_SIDED for atom_id in isolatable_atom_ids(entry)
     }
 
-    assert len(required) == 213
+    assert len(required) == 212
     assert len(ATOM_CASES) == len(required)
     assert set(ATOM_CASES) == required
     assert len({reference.case_id for reference in ATOM_CASES.values()}) == len(
@@ -222,11 +222,6 @@ def test_internal_selectors_use_their_real_observable_execution_class() -> None:
         BOUNDARY_SUITES[gate_id].execution_class is ExecutionClass.TWO_PAYLOAD
         for gate_id in required_two_payload
     )
-    assert (
-        BOUNDARY_SUITES["MAP:map_estimate:curvature-scale-clamp"].execution_class
-        is ExecutionClass.PAYLOAD_OR_REFUSAL
-    )
-
 
 @pytest.mark.parametrize("gate_id", sorted(BOUNDARY_SUITES))
 def test_every_declared_axis_has_low_endpoints_high_and_extreme(
@@ -315,7 +310,7 @@ def test_every_reserved_mutation_witness_resolves_to_a_concrete_callable() -> No
         for name in (entry.tighten_witness, entry.loosen_witness)
     }
 
-    assert len(required) == 168
+    assert len(required) == 166
     assert set(WITNESS_CASES) == required
     for name, reference in WITNESS_CASES.items():
         assert reference.name == name

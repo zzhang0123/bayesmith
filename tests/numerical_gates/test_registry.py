@@ -519,7 +519,6 @@ def test_compound_atom_sets_are_complete_and_not_cross_contaminated() -> None:
         "rank_evidence_valid",
         "sigma_formation_valid",
         "sigma_exactly_symmetric",
-        "condition_resolved",
     }
     assert atom_syntax("LADDER:rung6:trace") == {
         "sigma_formation_valid",
@@ -933,7 +932,7 @@ def test_representative_gate_metadata_states_exact_live_semantics() -> None:
         "sqrt(eps(gradient dtype)) * mode.size * ||H||_2"
     )
     assert registry["MAP:map_estimate:relative-positive-curvature"].threshold == (
-        "eps(H dtype) * max(abs(lambda_max), 1.0) * max(mode.size, 1)"
+        "eps(H dtype) * abs(lambda_max) * max(mode.size, 1)"
     )
     dense = registry["LADDER:rung4:dense"]
     assert dense.quantity == (
@@ -1793,9 +1792,9 @@ def test_metadata_has_executable_gate_specific_semantics() -> None:
             f"{entry.refused_outcome} | {entry.oracle}"
         )
         assert not any(phrase in rendered for phrase in forbidden), entry.gate_id
-    assert len({entry.admitted_outcome for entry in GATE_REGISTRY}) == 100
-    assert len({entry.refused_outcome for entry in GATE_REGISTRY}) == 100
-    assert len({entry.oracle for entry in GATE_REGISTRY}) == 100
+    assert len({entry.admitted_outcome for entry in GATE_REGISTRY}) == 99
+    assert len({entry.refused_outcome for entry in GATE_REGISTRY}) == 99
+    assert len({entry.oracle for entry in GATE_REGISTRY}) == 99
     intermediate = {entry.gate_id: entry for entry in GATE_REGISTRY}[
         "PLAN:frozen:intermediate-runtime-range"
     ]

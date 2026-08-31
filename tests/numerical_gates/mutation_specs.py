@@ -132,11 +132,6 @@ DIAGNOSE_GRAPH_DECLARATIONS = {
         true_side=GateSide.REFUSED,
         threshold_side=ComparisonThresholdSide.RIGHT,
     ),
-    "MAP:map_estimate:curvature-scale-clamp": _both(
-        "clamp_selector",
-        "max(abs(largest), 1.0)",
-        MutationStrategy.CLAMP_THRESHOLD,
-    ),
     "MAP:map_estimate:relative-positive-curvature": _both(
         "compare",
         "smallest > curvature_floor",
@@ -681,8 +676,7 @@ LADDER_TARGETS = {
         "decision_predicate",
         (
             "problem.low_rank_factors is not None and rank_evidence_valid and "
-            "sigma_formation_valid and sigma_exactly_symmetric and "
-            "condition_resolved"
+            "sigma_formation_valid and sigma_exactly_symmetric"
         ),
         MutationStrategy.FORCE_GATE_SIDE,
         GateSide.ADMITTED,

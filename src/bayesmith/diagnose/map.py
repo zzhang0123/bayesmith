@@ -209,7 +209,7 @@ def map_estimate(
     absolute_curvature_floor = np.sqrt(np.finfo(np.asarray(hessian).dtype).eps)
     curvature_floor = (
         np.finfo(np.asarray(hessian).dtype).eps
-        * max(abs(largest), 1.0)
+        * abs(largest)
         * max(mode.size, 1)
     )
     if not smallest > curvature_floor or not largest > absolute_curvature_floor:

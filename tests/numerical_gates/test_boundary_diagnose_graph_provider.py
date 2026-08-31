@@ -48,7 +48,7 @@ def test_diagnose_graph_provider_covers_every_owned_gate_and_atom() -> None:
         suite.gate_id: set(suite.atom_case_ids) for suite in DIAGNOSE_GRAPH_SUITES
     }
 
-    assert len(required) == 14
+    assert len(required) == 13
     assert sum(map(len, required.values())) == 21
     assert actual == required
 
@@ -108,24 +108,6 @@ def test_diagnose_graph_cells_execute_real_calls_with_relation_aware_atom_eviden
                 assert relation.prerequisites
                 assert relation.logic is not None
                 assert relation.rationale
-
-
-def test_map_curvature_clamp_retains_the_production_scale_result() -> None:
-    """The clamp branch is observed from production, not reclassified in the test."""
-    from tests.numerical_gates.boundary_diagnose_graph import (
-        DIAGNOSE_GRAPH_SUITES,
-    )
-
-    suite = next(
-        item
-        for item in DIAGNOSE_GRAPH_SUITES
-        if item.gate_id == "MAP:map_estimate:curvature-scale-clamp"
-    )
-    for case in suite.cases:
-        execution = case()
-        assert "actual_spectrum" in execution.direct_return_keys
-        assert "curvature_scale" in execution.direct_return_keys
-        assert all(check.passed for check in execution.oracle_checks)
 
 
 def test_condition_finite_gate_uses_a_real_finite_matrix_boundary() -> None:
@@ -236,10 +218,6 @@ def test_reserved_mutation_witnesses_are_the_nearest_executed_gate_faces() -> No
         "MAP:map_estimate:stationarity-floor": (
             PointRole.AT,
             PointRole.ABOVE_ULP,
-        ),
-        "MAP:map_estimate:curvature-scale-clamp": (
-            PointRole.AT,
-            PointRole.BELOW_ULP,
         ),
         "MAP:map_estimate:relative-positive-curvature": (
             PointRole.ABOVE_ULP,

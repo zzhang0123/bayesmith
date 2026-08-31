@@ -20,11 +20,11 @@ runtime 没有 Python 收敛分支。
 | 顺序 | 方法 | 结果 | 具体、可检查的前提 |
 |---:|---|---|---|
 | 0 | `Lambda` 本身 | 精确 | `LogDetProblem` 构造时已验证 `Lambda` 数值对称且 SPD，且 `Sigma == Lambda` 逐元素成立。 |
-| 1 | 低秩 determinant lemma / 有限 e 多项式 | 精确 | 代数因子重构 `P`；列数同时不超过两个低秩阈值；`Sigma` 数值对称且 SPD。稳定因式载荷不要求 `rho(X)<=1`；紧凑对角输入以精确非零支撑给出阶数。 |
+| 1 | 低秩 determinant lemma / 有限 e 多项式 | 精确 | 代数因子重构 `P`；列数同时不超过两个低秩阈值；`Sigma` 数值对称且 SPD。稳定因式载荷不要求 `rho(X)<=1`，也不用 `1/eps` 条件门（精度由因子证书与 `κ(Λ)` 决定）；紧凑对角输入以精确非零支撑给出阶数。 |
 | 2 | 状态空间 / block-LDL | 精确 | 块大小整除维数；远邻块逐位为零；`Sigma` 数值对称且正定；递推条件数严格低于 `1/eps(dtype)`。 |
 | 3 | 结构化精确式 | 精确 | 条目逐位通过对角/circulant/Toeplitz/Kronecker 检查且 `Sigma` SPD；非对角递推/变换载荷通过 `1/eps(dtype)` 分辨率门；Kronecker 每个因子必须非空、方形且在 Cholesky 载荷的 SPD 域内。标签不是证据。 |
 | 4 | 稠密 Cholesky | 精确 | `n <= dense_max_n` 且 `Sigma` 数值对称、SPD；condition 只报告诊断，不借用矩阵求逆的拒绝阈值。 |
-| 5 | 有限 e 多项式微扰 | 精确 | 尺寸或代数 rank 在阈值内且 `Sigma` SPD；通用有限展开要求实测 `rho(X)<=1`，已经验证的 determinant-lemma 稀疏分支不要求。 |
+| 5 | 有限 e 多项式微扰 | 精确 | 尺寸或代数 rank 在阈值内且 `Sigma` SPD；通用有限展开要求实测 `rho(X)<=1`，已经验证的 determinant-lemma 稀疏分支既不要求 rho 也不用 `1/eps` 条件门。 |
 | 6 | 截断 trace-log | 确定性近似 | dispatcher 逐位验证确定性 `Tr(X**r)` 覆盖固定阶数，且标量 rho 证据不低报实测值并严格 `<1`。若调用方要求 tolerance 承诺，则计划工厂另验完整 `RhoCertificate` 的重数、order 与浮点精度。 |
 | 7 | 冻结 Hutchinson trace-log | 对冻结探针确定的近似 | 对象的精确类型必须是 bytes-backed `FrozenProbes`；非负固定阶数；标量 rho 证据不低报实测值且严格 `<1`。直接入口只读一次被检查的 probe 缓冲区；计划工厂再验完整证书；抽样误差不继承第 6 级的解析尾界。 |
 | 8 | 每调用重抽探针 | **拒绝** | 无条件拒绝；逐调用噪声会改变 HMC 目标并破坏 leapfrog 可逆性。 |
@@ -73,10 +73,12 @@ D2 的决定性回归 `n=1000,k=4,rho=100,cond(Sigma)=101` 现在在 level 1 返
 处就是 False，不会产生“前提满足、载荷才抛错”的假裁决。
 
 条件数策略按实际载荷区分。Fisher 的 `1/sqrt(eps)` 来自显式求逆及条件数平方，不能移植给
-logdet：D4 在该阈值两侧和 `cond=1e14` 都直接验证了 Cholesky，因此第 0/1/4/5 级不以它
-拒绝，condition 仅作诊断。另一方面，`nextafter(1/sqrt(2),0)` 构造的 3×3 近奇异矩阵曾让
-block-LDL 和 Toeplitz 分别静默偏离 oracle `0.0589` 与 `0.1011`；第 2 级和第 3 级的
-递推/变换载荷保留方法专属的 `1/eps(dtype)` 分辨率门。这个门比借来的阈值宽约
+logdet：D4 在该阈值两侧和 `cond=1e14` 都直接验证了 Cholesky，因此没有任何一级借用它。
+logdet 自己的分辨率门是更弱的 `1/eps(dtype)`，且**只属于 2D 稠密消元/递推/变换载荷**：第 0 级
+（`Sigma == Lambda` 的 2D base 稠密算术）、第 2 级（block-LDL 递推）、第 3 级（非对角变换载荷）、
+第 4 级（稠密 Cholesky）；determinant-lemma 载荷与对角结构化载荷**不以它拒绝**，condition 仅作
+诊断。`nextafter(1/sqrt(2),0)` 构造的 3×3 近奇异矩阵曾让 block-LDL 和 Toeplitz 分别静默偏离
+oracle `0.0589` 与 `0.1011`，所以递推/变换载荷保留这个门。这个门比借来的阈值宽约
 `1/sqrt(eps)` 倍，仍会拒绝已经没有一个有效数字可分辨的递推。
 
 ## D80 — 问题：为什么第 1 级不是另一套 determinant-lemma 分支？；裁决：它是第 5 级在 rank `k` 的稀疏终止，两入口共享 `_newton_logdet` 的稳定因式化路径并逐位一致。
@@ -213,3 +215,14 @@ probe 22 比较完整 collapsed 目标：固定 `B.T@B` 谱给精确 power trace
 同次 probe 21：所有精确行 rel_err 为 0 至 `1.792e-16`；第 6 级在 `rho=0.5,m=12,n=4`
 的 rel_err 为 `1.079e-6`，whole-trace 尾界 `7.512019e-5`；第 7 级改用非对角 `X` 和
 `p=2<n=4` 后 rel_err 为 `2.612e-2`，且不再打印第 6 级尾界。第 8 级报告 `REFUSED`。
+
+## 审计续（2026-08-30）：F3 / F4 裁决
+
+- **F3**（`_power_traces_match` 逐位比较，`np.array_equal`）：**记录为何容忍，不改**。
+  精确迹 provider 是证书的一部分（D82）：计划按固定 order 与逐位验证的迹构造，误差界
+  假定 provider 与运行期浮点算术**完全一致**。Decimal 精确迹舍入到 float64 后差 1 ULP，
+  说明它与运行期重算的迹不是同一对象，放行它会让证书误差界不再适用。调用方应提供
+  **用同一 float64 算术算出的迹**，而不是更高精度再舍入的迹。
+- **F4**（eta 证书对“巨大+微小”SPD 模式过保守，`Λ=I, P=diag(1e16,0,0), L=[[1e8],[0],[0]]`
+  时 `eta=1` 拒绝但真实 logdet 误差仅 ~1e-16）：**记录，不改**。这是保守方向的假拒绝
+  （安全侧），宁可拒绝也不放行一个无证书的近似；除非出现被误伤的真实用例，否则保持现状。

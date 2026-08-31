@@ -109,7 +109,7 @@ def test_standalone_ladder_provider_covers_all_gates_and_atoms_once() -> None:
     }
 
     assert len(required) == 21
-    assert sum(len(atoms) for atoms in required.values()) == 57
+    assert sum(len(atoms) for atoms in required.values()) == 56
     assert {suite.gate_id for suite in suites} == set(required)
     assert len(suites) == len(required)
     assert {suite.gate_id: set(suite.atom_case_ids) for suite in suites} == required

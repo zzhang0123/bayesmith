@@ -1190,7 +1190,6 @@ def _newton_logdet(
     if not _is_positive_definite(sigma):
         raise ValueError("Sigma must be symmetric positive definite")
     if factors is not None:
-        _require_resolved_dense_condition(sigma, "determinant lemma")
         certificate = _factor_projection_certificate(perturb, factors, lam)
         if not certificate.valid:
             raise ValueError(certificate.reason)
