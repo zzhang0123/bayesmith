@@ -1,4 +1,4 @@
-"""Literal classified snapshot of the six-file numerical-gate census."""
+"""Literal classified snapshot of the numerical-gate source census."""
 
 from tests.numerical_gates.source_scan import (
     CandidateClassification,
@@ -8255,6 +8255,232 @@ EXPECTED_SOURCE_MANIFEST = (
         "src/bayesmith/graph/reduction.py::<module>.reduce_with_evidence::decision_predicate::ef2c804e5d8e7c93::0",
         CandidateClassification.STRUCTURAL_CONTROL,
         "check_evidence_nuts_boundary(reduced, nuts)",
+    ),
+
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.k_cg::decision_predicate::af99b7f76d7e534c::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not cg_tol_positive(tol)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.k_cg::raise::b0d76f34b5fd7144::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'the CG tolerance must be strictly positive, got {tol!r}')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_gap::decision_predicate::db2fc8091e37fa30::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not (math.isfinite(low) and math.isfinite(high))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_gap::decision_predicate::95f7375a73971930::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(low) and math.isfinite(high)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_gap::boolean_atom::4c70b1f370063e75::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(low)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_gap::predicate_call_atom::4c70b1f370063e75::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(low)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_gap::finite_predicate::4c70b1f370063e75::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(low)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_gap::boolean_atom::2e4bef22275738ae::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(high)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_gap::predicate_call_atom::2e4bef22275738ae::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(high)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_gap::finite_predicate::2e4bef22275738ae::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(high)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.relative_gap::clamp_selector::00a3acd297d48c14::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "max(high, low)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.gap_is_contested::compare::2ef630995dace887::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "gap < CONTESTED_BANDWIDTH",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.gap_is_contested::decision_predicate::2ef630995dace887::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "gap < CONTESTED_BANDWIDTH",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.timing_noise_in_domain::compare::3ae6110a138fcde9::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "tol < 1.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.timing_noise_in_domain::decision_predicate::3ae6110a138fcde9::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "tol < 1.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.cg_tol_positive::compare::135e313228ca2cb8::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "tol > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.cg_tol_positive::decision_predicate::135e313228ca2cb8::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "tol > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::decision_predicate::1bff0891d01c60f4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not rows",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::decision_predicate::32f6c31c880ee207::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "[row for row in rows if math.isfinite(row.cost_hi)]",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::predicate_call_atom::091466b7ff3d1301::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(row.cost_hi)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::finite_predicate::091466b7ff3d1301::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(row.cost_hi)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::decision_predicate::1489f243abd828d2::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not finite",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::decision_predicate::80f8776a130004c3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "min(finite, key=lambda row: row.cost_hi)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::clamp_selector::80f8776a130004c3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "min(finite, key=lambda row: row.cost_hi)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::compare::016646050977383d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "row is winner",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::decision_predicate::500b5ab4aeb6371c::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "row is winner or row.cost_hi == math.inf",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::boolean_atom::016646050977383d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "row is winner",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::compare::e4a31fa2f2f7556f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "row.cost_hi == math.inf",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::boolean_atom::e4a31fa2f2f7556f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "row.cost_hi == math.inf",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::compare::80c93fd713b44c17::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "row.cost_lo < winner.cost_hi",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::decision_predicate::80c93fd713b44c17::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "row.cost_lo < winner.cost_hi",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::decision_predicate::2c2cfedc11a2cd61::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "gap_is_contested(relative_gap(row.cost_hi, winner.cost_hi))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::predicate_call_atom::2c2cfedc11a2cd61::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "gap_is_contested(relative_gap(row.cost_hi, winner.cost_hi))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::decision_predicate::29dd74081eba98ad::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "overlap or within_band",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::boolean_atom::acd8e469a74e5aa4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "overlap",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.scoreboard::boolean_atom::d4bba7f806f5434a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "within_band",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>._rows::decision_predicate::b888f6c2e2c8d543::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not timing_noise_in_domain(TIMING_NOISE_TOLERANCE)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>._rows::raise::e9f22179dceec4b4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'the timing noise tolerance must keep the cost interval positive; got {TIMING_NOISE_TOLERANCE!r}')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.LadderRecord::decision_predicate::ccafe5e5a6e100af::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "eqx.field(static=True)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.LadderRecord.line::decision_predicate::581829679cad1ee7::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "self.abstained",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.LadderRecord.line::decision_predicate::e513fbd29886d555::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "self.contested",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.build_ladder::compare::241115a1fe0ae949::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "strategy == 'declared'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.build_ladder::decision_predicate::241115a1fe0ae949::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "strategy == 'declared'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.build_ladder::compare::6b521e0772240877::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "verdict.winner is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/costs.py::<module>.build_ladder::decision_predicate::6b521e0772240877::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "verdict.winner is not None",
     ),
 )
 

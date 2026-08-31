@@ -43,17 +43,25 @@ from __future__ import annotations
 import math
 import textwrap
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 
+from bayesmith.diagnose.coupling import block_coupling
 from bayesmith.dispatch.classify import (
     Classification,
     block_at,
     partition,
     prior_environment,
+)
+from bayesmith.dispatch.costs import (
+    LadderInputs,
+    LadderRecord,
+    TimingConstants,
+    build_ladder,
+    timing_reference,
 )
 from bayesmith.dispatch.execute import (
     SNIS_ESS_FLOOR,
@@ -67,7 +75,7 @@ from bayesmith.dispatch.execute import (
     run_sample,
 )
 from bayesmith.dispatch.streaming import StreamingRoute, streaming_route
-from bayesmith.errors import NotGaussian
+from bayesmith.errors import GraphError, NotGaussian
 from bayesmith.exact.block import _partition_probe_operator, domain_centre
 from bayesmith.exact.gaussian import gaussian_parts, node_shape, precision_at
 from bayesmith.exact.gls import MAX_REWEIGHTS, MIN_REWEIGHTS
@@ -533,6 +541,7 @@ class InferencePlan(eqx.Module):
     blocks: tuple[Block, ...]
     sigma_needs_rebuild: bool = eqx.field(static=True, default=False)
     streaming: StreamingRoute | None = eqx.field(static=True, default=None)
+    ladder: LadderRecord | None = eqx.field(static=True, default=None)
 
     @property
     def exact(self) -> Block | None:
@@ -613,6 +622,8 @@ class InferencePlan(eqx.Module):
         # which is what keeps the twenty existing assertions on `str(plan)`
         # measuring what they were written to measure.
         if self.streaming is not None and (note := self.streaming.line()):
+            lines.append(note)
+        if self.ladder is not None and (note := self.ladder.line()):
             lines.append(note)
         return "\n".join(lines)
 
@@ -779,7 +790,77 @@ def _sampled_reason(classification: Classification) -> str:
     )
 
 
-def compile(graph: Graph, *, key: jax.Array | None = None) -> InferencePlan:
+def _split_m(method: str) -> int:
+    """The split row's CG multiplier: 3 for the GCR+MH sweep, 1 otherwise.
+
+    The Metropolis-Hastings split re-solves for every proposed draw and its
+    proposal, so it pays the CG term three times where the plain GCR split
+    pays it once.  ``gcr+snis`` adds reweighting, not solves, so it stays 1.
+    """
+    return 3 if method == "gcr+mh" else 1
+
+
+def _cost_ladder(
+    graph: Graph,
+    classification: Classification,
+    kappa: float | tuple[float, float] | None,
+    *,
+    strategy: Literal["declared", "cost"],
+    env: dict[str, Any],
+    a: float,
+    timing: TimingConstants,
+) -> LadderRecord | None:
+    """The cost scoreboard, or ``None`` where there is no two-block tradeoff.
+
+    Only a MIXED plan has a split/collapse/joint tradeoff to score, so a fully
+    exact or fully sampled graph returns ``None``.  The scoreboard is advisory
+    and must never change routing, so any inability to measure the coupling --
+    a non-Gaussian latent, a refused condition number, a non-finite
+    correlation -- returns ``None`` rather than raising, and ``compile`` falls
+    back to the declared plan byte for byte.
+    """
+    if strategy == "declared" or not classification.exact or not classification.nuts:
+        return None
+    if kappa is None:
+        return None
+    try:
+        report = block_coupling(
+            graph,
+            classification.exact,
+            classification.nuts,
+            at=block_at(graph, classification.exact, env=env),
+        )
+    except (NotGaussian, GraphError):
+        return None
+    # ``rho`` is the max canonical correlation, read as a NUMBER for the
+    # cost model even when the coupling diagnostic classifies it as at/below
+    # its whitening noise floor -- ``c=0`` is a valid cost input (``tau(0)=1``,
+    # no sweep amplification), and refusing it would hide the one case where
+    # the split route is cheapest.
+    rho = float(report.canonical_correlations[0])
+    if not math.isfinite(rho):
+        return None
+    inputs = LadderInputs(
+        rho=rho,
+        kappa_cond=float(report.kappa_cond),
+        kappa_marg=float(report.kappa_marg),
+        kappa_joint=float(report.kappa_joint),
+        kappa_x=kappa_upper(kappa),
+        a=float(a),
+        timing=timing,
+        m=_split_m(classification.method),
+    )
+    return build_ladder(inputs, strategy="cost")
+
+
+def compile(
+    graph: Graph,
+    *,
+    key: jax.Array | None = None,
+    strategy: Literal["declared", "cost"] = "declared",
+    a: float = 1.0,
+    timing: TimingConstants | None = None,
+) -> InferencePlan:
     """Derive the plan for a graph: what runs, on which latents, and why.
 
     Runs :func:`~bayesmith.dispatch.classify.partition`, then measures the
@@ -815,12 +896,14 @@ def compile(graph: Graph, *, key: jax.Array | None = None) -> InferencePlan:
         An :class:`InferencePlan`, whose ``str`` is the readable form.
     """
     key = jax.random.key(0) if key is None else key
+    timing = timing_reference() if timing is None else timing
     classification = partition(graph, key=key)
     env = prior_environment(graph)
     blocks: list[Block] = []
+    kappa: float | tuple[float, float] | None = None
     if classification.exact:
         low, high, note = kappa_interval(graph, classification.exact, env=env, key=key)
-        kappa: float | tuple[float, float] = high if high <= low else (low, high)
+        kappa = high if high <= low else (low, high)
         epsilon = working_epsilon(
             graph, classification.exact, block_at(graph, classification.exact, env=env)
         )
@@ -843,9 +926,13 @@ def compile(graph: Graph, *, key: jax.Array | None = None) -> InferencePlan:
                 reason=_sampled_reason(classification),
             )
         )
+    ladder = _cost_ladder(
+        graph, classification, kappa, strategy=strategy, env=env, a=a, timing=timing
+    )
     return InferencePlan(
         graph,
         tuple(blocks),
         classification.sigma_needs_rebuild,
         streaming_route(graph),
+        ladder,
     )

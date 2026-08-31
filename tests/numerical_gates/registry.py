@@ -123,6 +123,7 @@ PLAN = "src/bayesmith/marginal/_logdet_plan.py"
 COUPLING = "src/bayesmith/diagnose/coupling.py"
 MAP = "src/bayesmith/diagnose/map.py"
 GRAPH = "src/bayesmith/graph/reduction.py"
+COSTS = "src/bayesmith/dispatch/costs.py"
 
 
 def _seed_group(
@@ -497,6 +498,24 @@ _SEEDS = (
         CandidateFamily.COMPARE,
         "GRAPH:_names:duplicate-multiplicity",
     ),
+    *_seed_group(
+        COSTS,
+        "gap_is_contested",
+        CandidateFamily.DECISION_PREDICATE,
+        "COSTS:gap_is_contested:contested-bandwidth",
+    ),
+    *_seed_group(
+        COSTS,
+        "timing_noise_in_domain",
+        CandidateFamily.DECISION_PREDICATE,
+        "COSTS:timing_noise_in_domain:proper-fraction",
+    ),
+    *_seed_group(
+        COSTS,
+        "cg_tol_positive",
+        CandidateFamily.DECISION_PREDICATE,
+        "COSTS:cg_tol_positive:strictly-positive",
+    ),
 )
 
 
@@ -843,6 +862,24 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
         (
             "src/bayesmith/graph/reduction.py::<module>._names::compare::762259ce967b894b::0",
             "names.count(name) > 1",
+        ),
+    ),
+    "COSTS:gap_is_contested:contested-bandwidth": (
+        (
+            "src/bayesmith/dispatch/costs.py::<module>.gap_is_contested::decision_predicate::2ef630995dace887::0",
+            "gap < CONTESTED_BANDWIDTH",
+        ),
+    ),
+    "COSTS:timing_noise_in_domain:proper-fraction": (
+        (
+            "src/bayesmith/dispatch/costs.py::<module>.timing_noise_in_domain::decision_predicate::3ae6110a138fcde9::0",
+            "tol < 1.0",
+        ),
+    ),
+    "COSTS:cg_tol_positive:strictly-positive": (
+        (
+            "src/bayesmith/dispatch/costs.py::<module>.cg_tol_positive::decision_predicate::135e313228ca2cb8::0",
+            "tol > 0.0",
         ),
     ),
     "LADDER:determinant-lemma:payload": (
@@ -1712,6 +1749,27 @@ _DECLARED_SOURCE_ANCHORS: dict[str, tuple[SourceAnchor, ...]] = {
             CandidateFamily.COMPARE,
         ),
     ),
+    "COSTS:gap_is_contested:contested-bandwidth": (
+        SourceAnchor(
+            "src/bayesmith/dispatch/costs.py",
+            "<module>.gap_is_contested",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
+    "COSTS:timing_noise_in_domain:proper-fraction": (
+        SourceAnchor(
+            "src/bayesmith/dispatch/costs.py",
+            "<module>.timing_noise_in_domain",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
+    "COSTS:cg_tol_positive:strictly-positive": (
+        SourceAnchor(
+            "src/bayesmith/dispatch/costs.py",
+            "<module>.cg_tol_positive",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
     "LADDER:determinant-lemma:payload": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
@@ -2376,6 +2434,9 @@ _DECLARED_SOURCE_CLASSIFICATIONS: dict[str, tuple[CandidateClassification, ...]]
         CandidateClassification.NUMERICAL_GATE,
     ),
     "GRAPH:_names:duplicate-multiplicity": (CandidateClassification.NUMERICAL_GATE,),
+    "COSTS:gap_is_contested:contested-bandwidth": (CandidateClassification.NUMERICAL_GATE,),
+    "COSTS:timing_noise_in_domain:proper-fraction": (CandidateClassification.NUMERICAL_GATE,),
+    "COSTS:cg_tol_positive:strictly-positive": (CandidateClassification.NUMERICAL_GATE,),
     "LADDER:determinant-lemma:payload": (CandidateClassification.NUMERICAL_GATE,),
     "LADDER:finite:payload-rho": (
         CandidateClassification.NUMERICAL_GATE,
@@ -4777,6 +4838,48 @@ GATE_METADATA: dict[str, GateMetadata] = {
         extreme="empty, one name, Unicode aliases, long tuple, widely separated duplicates",
         fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
     ),
+    "COSTS:gap_is_contested:contested-bandwidth": _metadata(
+        quantity="relative cost gap between two strategy rows; contested when the gap is below the contested bandwidth.",
+        threshold="open refusal boundary gap < CONTESTED_BANDWIDTH (0.25); derived D93 contested-bandwidth policy.",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="below the band, mark the row contested rather than a clear winner",
+        refused_outcome="at or above the band, the gap is a decision, not a contest",
+        oracle="direct float comparison gap < 0.25 with an independent high-precision gap formula.",
+        axis_name="Boundary cells for the relative cost gap versus the contested bandwidth; contested when gap < 0.25.",
+        low="0.01",
+        endpoints=("nextafter(0.25, 0)", "0.25, nextafter(0.25, +inf)"),
+        high="0.99",
+        extreme="0, +/-inf, nan",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
+    "COSTS:timing_noise_in_domain:proper-fraction": _metadata(
+        quantity="the timing noise tolerance; it must be a proper fraction (tol < 1.0) or the cost interval spread makes cost_lo non-positive.",
+        threshold="open domain boundary tol < 1.0; derived D94 timing-noise policy.",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="tol below 1.0 keeps the cost interval positive",
+        refused_outcome="tol at or above 1.0 makes cost_lo <= 0 and the interval meaningless",
+        oracle="direct float comparison tol < 1.0.",
+        axis_name="Boundary cells for the timing noise tolerance; proper fraction when tol < 1.0.",
+        low="0.01",
+        endpoints=("nextafter(1.0, 0)", "1.0, nextafter(1.0, +inf)"),
+        high="4.0",
+        extreme="0, +/-inf, nan",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
+    "COSTS:cg_tol_positive:strictly-positive": _metadata(
+        quantity="the CG tolerance in k_cg; it must be strictly positive or log(2 / tol) is undefined.",
+        threshold="strict positivity tol > 0.0; derived D95 k_cg domain.",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="tol > 0 names a finite CG iteration count",
+        refused_outcome="tol <= 0 cannot be priced; raise ValueError",
+        oracle="direct float comparison tol > 0.0.",
+        axis_name="Boundary cells for the CG tolerance; strictly positive when tol > 0.0.",
+        low="1e-6",
+        endpoints=("smallest positive subnormal", "0.0, negative subnormal"),
+        high="1.0",
+        extreme="nan, +/-inf",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
 }
 
 
@@ -6704,7 +6807,7 @@ def validate_registry(
         raise RegistryValidationError("\n".join(errors))
 
 
-if len(GATE_REGISTRY) != 99:
+if len(GATE_REGISTRY) != 102:
     raise RegistryValidationError(
-        f"semantic registry expected 99 reviewed entries, found {len(GATE_REGISTRY)}"
+        f"semantic registry expected 102 reviewed entries, found {len(GATE_REGISTRY)}"
     )

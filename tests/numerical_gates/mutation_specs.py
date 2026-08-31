@@ -149,6 +149,31 @@ DIAGNOSE_GRAPH_DECLARATIONS = {
 }
 
 
+COSTS_DECLARATIONS = {
+    "COSTS:gap_is_contested:contested-bandwidth": _both(
+        "decision_predicate",
+        "gap < CONTESTED_BANDWIDTH",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
+    "COSTS:timing_noise_in_domain:proper-fraction": _both(
+        "decision_predicate",
+        "tol < 1.0",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
+    "COSTS:cg_tol_positive:strictly-positive": _both(
+        "decision_predicate",
+        "tol > 0.0",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
+}
+
+
 EAGER_TARGETS = {
     "EAGER:LadderConfig:integer-threshold-domain": (
         "compare",
@@ -824,12 +849,15 @@ def _resolve_specs(
 
 
 DIAGNOSE_GRAPH_MUTATION_SPECS = _resolve_specs(DIAGNOSE_GRAPH_DECLARATIONS)
+COSTS_MUTATION_SPECS = _resolve_specs(COSTS_DECLARATIONS)
 EAGER_MUTATION_SPECS = _resolve_specs(EAGER_DECLARATIONS)
 LADDER_MUTATION_SPECS = _resolve_specs(LADDER_DECLARATIONS)
 PLAN_MUTATION_SPECS = _resolve_specs(PLAN_DECLARATIONS)
 
 
 __all__ = [
+    "COSTS_DECLARATIONS",
+    "COSTS_MUTATION_SPECS",
     "DIAGNOSE_GRAPH_DECLARATIONS",
     "DIAGNOSE_GRAPH_MUTATION_SPECS",
     "EAGER_DECLARATIONS",

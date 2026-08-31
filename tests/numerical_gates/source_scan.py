@@ -22,6 +22,7 @@ SOURCE_PATHS = (
     "src/bayesmith/diagnose/coupling.py",
     "src/bayesmith/diagnose/map.py",
     "src/bayesmith/graph/reduction.py",
+    "src/bayesmith/dispatch/costs.py",
 )
 
 

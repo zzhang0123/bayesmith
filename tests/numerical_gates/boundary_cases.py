@@ -7,6 +7,7 @@ from tests.numerical_gates.boundary_core import (
     BoundarySuite,
     CaseReference,
 )
+from tests.numerical_gates.boundary_costs import COSTS_SUITES
 from tests.numerical_gates.boundary_diagnose_graph import (
     DIAGNOSE_GRAPH_SUITES,
 )
@@ -20,6 +21,7 @@ _ALL_SUITES = (
     *LADDER_SUITES,
     *PLAN_SUITES,
     *DIAGNOSE_GRAPH_SUITES,
+    *COSTS_SUITES,
 )
 
 BOUNDARY_SUITES: dict[str, BoundarySuite] = {
