@@ -124,6 +124,7 @@ COUPLING = "src/bayesmith/diagnose/coupling.py"
 MAP = "src/bayesmith/diagnose/map.py"
 GRAPH = "src/bayesmith/graph/reduction.py"
 COSTS = "src/bayesmith/dispatch/costs.py"
+COLLAPSE = "src/bayesmith/dispatch/collapse.py"
 
 
 def _seed_group(
@@ -516,6 +517,18 @@ _SEEDS = (
         CandidateFamily.DECISION_PREDICATE,
         "COSTS:cg_tol_positive:strictly-positive",
     ),
+    *_seed_group(
+        COLLAPSE,
+        "pivots_are_finite",
+        CandidateFamily.DECISION_PREDICATE,
+        "COLLAPSE:pivots:finite",
+    ),
+    *_seed_group(
+        COLLAPSE,
+        "pivots_constrain_block",
+        CandidateFamily.DECISION_PREDICATE,
+        "COLLAPSE:pivots:relative-floor",
+    ),
 )
 
 
@@ -880,6 +893,18 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
         (
             "src/bayesmith/dispatch/costs.py::<module>.cg_tol_positive::decision_predicate::135e313228ca2cb8::0",
             "tol > 0.0",
+        ),
+    ),
+    "COLLAPSE:pivots:finite": (
+        (
+            "src/bayesmith/dispatch/collapse.py::<module>.pivots_are_finite::decision_predicate::10b0270e03e50a15::0",
+            "jnp.all(jnp.isfinite(pivots))",
+        ),
+    ),
+    "COLLAPSE:pivots:relative-floor": (
+        (
+            "src/bayesmith/dispatch/collapse.py::<module>.pivots_constrain_block::compare::fa67000d1d7f01d8::0",
+            "pivots[:n_block] > floor",
         ),
     ),
     "LADDER:determinant-lemma:payload": (
@@ -1770,6 +1795,20 @@ _DECLARED_SOURCE_ANCHORS: dict[str, tuple[SourceAnchor, ...]] = {
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
+    "COLLAPSE:pivots:finite": (
+        SourceAnchor(
+            "src/bayesmith/dispatch/collapse.py",
+            "<module>.pivots_are_finite",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
+    "COLLAPSE:pivots:relative-floor": (
+        SourceAnchor(
+            "src/bayesmith/dispatch/collapse.py",
+            "<module>.pivots_constrain_block",
+            CandidateFamily.COMPARE,
+        ),
+    ),
     "LADDER:determinant-lemma:payload": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
@@ -2437,6 +2476,8 @@ _DECLARED_SOURCE_CLASSIFICATIONS: dict[str, tuple[CandidateClassification, ...]]
     "COSTS:gap_is_contested:contested-bandwidth": (CandidateClassification.NUMERICAL_GATE,),
     "COSTS:timing_noise_in_domain:proper-fraction": (CandidateClassification.NUMERICAL_GATE,),
     "COSTS:cg_tol_positive:strictly-positive": (CandidateClassification.NUMERICAL_GATE,),
+    "COLLAPSE:pivots:finite": (CandidateClassification.NUMERICAL_GATE,),
+    "COLLAPSE:pivots:relative-floor": (CandidateClassification.NUMERICAL_GATE,),
     "LADDER:determinant-lemma:payload": (CandidateClassification.NUMERICAL_GATE,),
     "LADDER:finite:payload-rho": (
         CandidateClassification.NUMERICAL_GATE,
@@ -4880,6 +4921,34 @@ GATE_METADATA: dict[str, GateMetadata] = {
         extreme="nan, +/-inf",
         fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
     ),
+    "COLLAPSE:pivots:finite": _metadata(
+        quantity="the pivots of the collapsed block's re-triangularisation; every one must be IEEE finite.",
+        threshold="finite domain; exact numerical-safety boundary (a nan/inf pivot makes the marginal log-density not a number).",
+        provenance=ThresholdProvenance.EXACT_DOMAIN,
+        admitted_outcome="proceed to the relative-floor classification",
+        refused_outcome="raise via eqx.error_if so a non-finite marginal never returns a plausible number",
+        oracle="jnp.all(jnp.isfinite(pivots)) on the independently recomputed QR pivots.",
+        axis_name="Boundary cells for the collapsed block's pivots; require every pivot IEEE finite.",
+        low="positive ordinary pivots",
+        endpoints=("largest finite pivot", "+inf pivot"),
+        high="near-overflow pivots",
+        extreme="nan, +/-inf, zero, smallest subnormal",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
+    "COLLAPSE:pivots:relative-floor": _metadata(
+        quantity="each block pivot versus the relative floor sqrt(eps) * max(pivots); the block must constrain itself.",
+        threshold="open lower boundary pivots[:n_block] > floor; derived D98 relative-floor policy.",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="all block pivots above the floor; the Gaussian integral over the block is convergent",
+        refused_outcome="a pivot at or below the floor means an unconstrained direction; raise rather than return a finite plausible number",
+        oracle="direct high-precision comparison pivot_i > sqrt(eps) * max(pivots) on the independent QR pivots.",
+        axis_name="Boundary cells for the collapsed block's pivots versus the relative floor; constrained when every block pivot is above sqrt(eps) * max(pivots).",
+        low="well-constrained block (all pivots near max)",
+        endpoints=("nextafter(floor, +inf)", "floor, nextafter(floor, -inf)"),
+        high="well-separated pivots",
+        extreme="zero pivot, nan pivot, single pivot, degenerate block",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
 }
 
 
@@ -6807,7 +6876,7 @@ def validate_registry(
         raise RegistryValidationError("\n".join(errors))
 
 
-if len(GATE_REGISTRY) != 102:
+if len(GATE_REGISTRY) != 104:
     raise RegistryValidationError(
-        f"semantic registry expected 102 reviewed entries, found {len(GATE_REGISTRY)}"
+        f"semantic registry expected 104 reviewed entries, found {len(GATE_REGISTRY)}"
     )

@@ -159,6 +159,8 @@ _add(("GRAPH:_names:duplicate-multiplicity",), ("_names",))
 _add(("COSTS:gap_is_contested:contested-bandwidth",), ("gap_is_contested",))
 _add(("COSTS:timing_noise_in_domain:proper-fraction",), ("timing_noise_in_domain",))
 _add(("COSTS:cg_tol_positive:strictly-positive",), ("cg_tol_positive",))
+_add(("COLLAPSE:pivots:finite",), ("pivots_are_finite",))
+_add(("COLLAPSE:pivots:relative-floor",), ("pivots_constrain_block",))
 
 _add(
     ("LADDER:sigma:payload-symmetry",),

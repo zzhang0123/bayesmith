@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.numerical_gates.boundary_collapse import COLLAPSE_SUITES
 from tests.numerical_gates.boundary_core import (
     BoundaryCase,
     BoundarySuite,
@@ -22,6 +23,7 @@ _ALL_SUITES = (
     *PLAN_SUITES,
     *DIAGNOSE_GRAPH_SUITES,
     *COSTS_SUITES,
+    *COLLAPSE_SUITES,
 )
 
 BOUNDARY_SUITES: dict[str, BoundarySuite] = {

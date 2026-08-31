@@ -43,7 +43,7 @@ def test_direct_call_contract_covers_exactly_the_two_sided_registry() -> None:
         if entry.mutation_mode is MutationMode.TWO_SIDED
     }
 
-    assert len(required_gates) == 86
+    assert len(required_gates) == 88
     assert set(REQUIRED_DIRECT_CALLS) == required_gates
     assert set(ALLOWED_DIRECT_CALLS) == required_gates
 

@@ -149,6 +149,23 @@ DIAGNOSE_GRAPH_DECLARATIONS = {
 }
 
 
+COLLAPSE_DECLARATIONS = {
+    "COLLAPSE:pivots:finite": _both(
+        "decision_predicate",
+        "jnp.all(jnp.isfinite(pivots))",
+        MutationStrategy.FORCE_GATE_SIDE,
+        true_side=GateSide.ADMITTED,
+    ),
+    "COLLAPSE:pivots:relative-floor": _both(
+        "compare",
+        "pivots[:n_block] > floor",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
+}
+
+
 COSTS_DECLARATIONS = {
     "COSTS:gap_is_contested:contested-bandwidth": _both(
         "decision_predicate",
@@ -850,12 +867,15 @@ def _resolve_specs(
 
 DIAGNOSE_GRAPH_MUTATION_SPECS = _resolve_specs(DIAGNOSE_GRAPH_DECLARATIONS)
 COSTS_MUTATION_SPECS = _resolve_specs(COSTS_DECLARATIONS)
+COLLAPSE_MUTATION_SPECS = _resolve_specs(COLLAPSE_DECLARATIONS)
 EAGER_MUTATION_SPECS = _resolve_specs(EAGER_DECLARATIONS)
 LADDER_MUTATION_SPECS = _resolve_specs(LADDER_DECLARATIONS)
 PLAN_MUTATION_SPECS = _resolve_specs(PLAN_DECLARATIONS)
 
 
 __all__ = [
+    "COLLAPSE_DECLARATIONS",
+    "COLLAPSE_MUTATION_SPECS",
     "COSTS_DECLARATIONS",
     "COSTS_MUTATION_SPECS",
     "DIAGNOSE_GRAPH_DECLARATIONS",

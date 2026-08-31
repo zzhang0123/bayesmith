@@ -30,7 +30,8 @@ from numpyro.diagnostics import effective_sample_size, split_gelman_rubin
 
 from bayesmith.bridge.numpyro_bridge import nuts as nuts_draws
 from bayesmith.dispatch.classify import block_at
-from bayesmith.errors import ConvergenceError
+from bayesmith.dispatch.collapse import collapse_graph
+from bayesmith.errors import ConvergenceError, GraphError
 from bayesmith.exact.block import domain_centre, unchecked_operator
 from bayesmith.exact.correct import khat, log_weight, self_normalise, unreliable
 from bayesmith.exact.gibbs import assemble
@@ -121,12 +122,13 @@ class Posterior(NamedTuple):
             ``False`` wherever ``khat`` is ``None`` and nothing collapsed,
             which is **abstention, not endorsement** -- read ``ess``, which is
             always there.
-        method: what actually RAN: ``"gcr"``, ``"gcr+snis"``, ``"gcr+mh"`` or
-            ``"nuts"``. Not necessarily ``plan.exact.method``: a collapsed
-            SNIS reports ``"nuts"`` when ``nuts_on_collapse=True`` asked for
-            it, because that is what produced the draws, and ``"gcr+snis"``
-            otherwise -- see :data:`SNIS_ESS_FLOOR` for why the default is
-            to annotate rather than substitute.
+        method: what actually RAN: ``"gcr"``, ``"gcr+snis"``, ``"gcr+mh"``,
+            ``"nuts"`` or ``"collapse"``. Not necessarily ``plan.exact.method``:
+            a collapsed SNIS reports ``"nuts"`` when ``nuts_on_collapse=True``
+            asked for it, because that is what produced the draws, and
+            ``"gcr+snis"`` otherwise -- see :data:`SNIS_ESS_FLOOR` for why the
+            default is to annotate rather than substitute -- and the collapse
+            arm reports ``"collapse"``.
         reason: why that, in the plan's own words, including the measured
             Kish ESS/N wherever the floor fired.
         diagnostics: per-site split r-hat and ESS -- see
@@ -217,6 +219,25 @@ def chain_ess(samples: Mapping[str, Any], *, num_chains: int = 1) -> float:
         measured = np.asarray(effective_sample_size(grouped), dtype=float)
         worst = min(worst, float(np.where(np.isfinite(measured), measured, 1.0).min()))
     return worst
+
+
+#: Which exact methods carry a prediction-dependent sigma, so their point
+#: estimate is the iterative-GLS fixed point rather than one solve. Spelled as
+#: a capability table rather than "method != 'gcr'": a new method must declare
+#: itself here, or it silently reads as prediction-dependent (the defect a
+#: string comparison leaves open for any method added later).
+_PREDICTION_DEPENDENT_METHODS = frozenset({"gcr+snis", "gcr+mh"})
+
+
+def _depends_on_prediction(method: str) -> bool:
+    """Whether an exact method's sigma moves with the block's own prediction.
+
+    Read from the capability table, never from a string comparison: "gcr" and
+    "log-gcr" both solve at a fixed sigma (the latter on the transformed graph),
+    while "gcr+snis" and "gcr+mh" reweight/re-solve because sigma tracks the
+    prediction.
+    """
+    return method in _PREDICTION_DEPENDENT_METHODS
 
 
 CHAIN_ESS_FLOOR: float = 100.0
@@ -476,6 +497,7 @@ def run_sample(
     require_convergence: float | None,
     ess_floor: float,
     nuts_on_collapse: bool,
+    collapse: bool,
 ) -> Posterior:
     """:meth:`~bayesmith.dispatch.plan.InferencePlan.sample`, as a function.
 
@@ -504,6 +526,10 @@ def run_sample(
         return _nuts_posterior(plan.graph, fallback_key, plan.sampled.reason, chain)
     tol = plan.exact.tol if tol is None else tol
     if plan.sampled is not None:
+        if collapse:
+            return _collapsed(
+                plan, draw_key, fallback_key, tol, maxiter, require_convergence, chain
+            )
         return _swept(plan, draw_key, tol, maxiter, chain)
     return _whole_graph(
         plan,
@@ -542,7 +568,7 @@ def run_estimate(
         # per-sample sigma for `sigma_from_graph` to return, and this is the
         # entry the dispatcher promises an exact solve through.
         precision_of=precision_from_graph(plan.graph, at),
-        depends_on_prediction=plan.exact.method != "gcr",
+        depends_on_prediction=_depends_on_prediction(plan.exact.method),
         tol=plan.exact.tol if tol is None else tol,
         maxiter=maxiter,
         reweight_tol=reweight_tol,
@@ -626,6 +652,75 @@ def _swept(
         samples, None, ess, None, False, plan.exact.method, plan._execution(),
         _diagnostics_or_none(samples, chain["num_chains"]),
     )
+
+
+def _collapsed(
+    plan: InferencePlan,
+    draw_key: jax.Array,
+    fallback_key: jax.Array,
+    tol: float,
+    maxiter: int | None,
+    require_convergence: float | None,
+    chain: dict[str, Any],
+) -> Posterior:
+    """The collapse arm: NUTS on the marginal target, then exact regression.
+
+    Only for a MIXED plan whose exact block is solved by plain gcr -- the one
+    case where the noise does not move with the block, so integrating the
+    block out of the joint is an exact Gaussian marginal rather than a
+    freeze-and-hope approximation. collapse_graph replaces the exact block
+    and its data with a graph-level evidence term carrying the marginal
+    log p(d | theta); NUTS then samples that reduced target, and each
+    retained theta gets one exact gcr_sample regression of the block.
+
+    diagnostics stay None. The regression draws are iid conditional on theta,
+    so split r-hat has no referent on them; reporting a number for the block
+    would invent one, exactly as the plain-gcr path's docstring says. The
+    chain ESS over the whole posterior (block + theta) is still reported in
+    Posterior.ess, MIN over every coordinate.
+    """
+    graph = plan.graph
+    exact_names = plan.exact.latents
+    nuts_names = plan.sampled.latents
+    if plan.exact.method != "gcr":
+        raise GraphError(
+            f"collapse() needs a constant-sigma exact block, but the exact "
+            f"block {list(exact_names)} was classified '{plan.exact.method}', "
+            "whose sigma moves with the block. Integrating it out would "
+            "freeze that sigma at the prior centre and return a plausible but "
+            "wrong marginal. Use the split sweep (collapse=False), or make the "
+            "noise independent of the block."
+        )
+    reduced = collapse_graph(graph, exact_names, nuts_names)
+    draws = nuts_draws(reduced, draw_key, **chain)
+    theta = {name: draws[name] for name in nuts_names}
+    count = chain["num_samples"] * chain["num_chains"]
+    keys = jax.random.split(fallback_key, count)
+
+    def regress(key: jax.Array, at: dict[str, jax.Array]) -> dict[str, jax.Array]:
+        block = unchecked_operator(graph, exact_names, at=at, probe_gaussian=False)
+        centre = {name: block.prior_mean[name] for name in exact_names}
+        precision = precision_from_graph(graph, at)(centre)
+        draws_x, _ = gcr_sample(
+            block,
+            precision=precision,
+            key=key,
+            tol=tol,
+            maxiter=maxiter,
+            require_convergence=require_convergence,
+        )
+        return draws_x
+
+    regressed = jax.vmap(regress)(keys, theta)
+    samples = {**regressed, **theta}
+    ess = chain_ess(samples, num_chains=chain["num_chains"])
+    reason = (
+        f"collapse: the exact block {list(exact_names)} was integrated out of "
+        f"the NUTS target and regressed back with one exact gcr_sample per "
+        f"retained draw of {list(nuts_names)}; no Gibbs sweep, so the tau(c) "
+        "amplification the split pays does not apply"
+    )
+    return Posterior(samples, None, ess, None, False, "collapse", reason, None)
 
 
 def _iid_draws(

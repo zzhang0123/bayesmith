@@ -642,18 +642,21 @@ class InferencePlan(eqx.Module):
         require_convergence: float | None = None,
         ess_floor: float = SNIS_ESS_FLOOR,
         nuts_on_collapse: bool = False,
+        collapse: bool = False,
     ) -> Posterior:
         """Run the plan. Section 6.4's dispatch, and nothing else decides.
 
         Five shapes, in the order this reads them: no exact block -> NUTS;
         exact block plus a sampled one -> ``HMCGibbs`` with the sweep the plan
-        printed; whole graph exact with a fixed sigma -> iid GCR draws, no
-        chain; whole graph exact with a moving sigma -> GCR at the GLS fixed
-        point corrected by SNIS; and that last one again when its Kish ESS/N
-        falls under ``ess_floor`` -> the same weighted sample, marked
-        ``unreliable=True`` and saying so, or NUTS instead if
-        ``nuts_on_collapse``. See :data:`SNIS_ESS_FLOOR` for the measurement
-        that decided which of those two is the default.
+        printed, or, with ``collapse=True``, the P6 collapse arm (NUTS on the
+        marginal target with the exact block integrated out, then one exact
+        ``gcr_sample`` regression per retained draw); whole graph exact with a
+        fixed sigma -> iid GCR draws, no chain; whole graph exact with a moving
+        sigma -> GCR at the GLS fixed point corrected by SNIS; and that last
+        one again when its Kish ESS/N falls under ``ess_floor`` -> the same
+        weighted sample, marked ``unreliable=True`` and saying so, or NUTS
+        instead if ``nuts_on_collapse``. See :data:`SNIS_ESS_FLOOR` for the
+        measurement that decided which of those two is the default.
 
         Args:
             key: PRNG key. Split once, so the draws and any fallback chain do
@@ -693,6 +696,14 @@ class InferencePlan(eqx.Module):
                 is therefore something to ask for, with the collapse already
                 reported in ``unreliable`` and ``reason`` for a caller who
                 wants to decide for themselves.
+            collapse: run the P6 collapse arm on a MIXED plan instead of the
+                Gibbs sweep -- NUTS on the marginal target with the exact block
+                integrated out, then one exact gcr_sample regression per
+                retained draw. **Off by default.** Only valid when the exact
+                block's method is "gcr" (constant sigma); a
+                prediction-dependent block refuses, because marginalising it
+                would freeze sigma at the prior centre and return a plausible
+                but wrong marginal. See bayesmith.dispatch.collapse.collapse_graph.
 
         Returns:
             A :class:`Posterior`, whose ``method`` is what RAN.
@@ -711,6 +722,7 @@ class InferencePlan(eqx.Module):
             require_convergence=require_convergence,
             ess_floor=ess_floor,
             nuts_on_collapse=nuts_on_collapse,
+            collapse=collapse,
         )
 
     def estimate(

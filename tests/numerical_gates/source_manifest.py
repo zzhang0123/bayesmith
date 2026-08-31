@@ -8482,6 +8482,67 @@ EXPECTED_SOURCE_MANIFEST = (
         CandidateClassification.ORDINARY_VALIDATION,
         "verdict.winner is not None",
     ),
+
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.observed_descendants::decision_predicate::65481ab457807954::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "set(remove)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.observed_descendants::decision_predicate::82d61e99990b0e15::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "frontier",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.observed_descendants::compare::c7b09b0dff6be71a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "name in seen",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.observed_descendants::decision_predicate::c7b09b0dff6be71a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "name in seen",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.observed_descendants::compare::c7b09b0dff6be71a::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "name in seen",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.pivots_are_finite::decision_predicate::10b0270e03e50a15::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "jnp.all(jnp.isfinite(pivots))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.pivots_are_finite::predicate_call_atom::10b0270e03e50a15::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "jnp.all(jnp.isfinite(pivots))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.pivots_are_finite::predicate_call_atom::6d690e9d76c9cc69::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "jnp.isfinite(pivots)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.pivots_are_finite::finite_predicate::6d690e9d76c9cc69::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "jnp.isfinite(pivots)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.pivots_constrain_block::decision_predicate::a6128093a612fa67::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "jnp.all(pivots[:n_block] > floor)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.pivots_constrain_block::predicate_call_atom::a6128093a612fa67::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "jnp.all(pivots[:n_block] > floor)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.pivots_constrain_block::compare::fa67000d1d7f01d8::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "pivots[:n_block] > floor",
+    ),
 )
 
 EXPECTED_CANDIDATE_IDS = tuple(entry.candidate_id for entry in EXPECTED_SOURCE_MANIFEST)
