@@ -1,5 +1,7 @@
 # Implementation ownership
 
+> **文档状态：`decision-home`** · 某类决定的唯一登记处，仍在更新；决定的答案写回提出它的那一行。索引见 docs/README.md。
+
 This page records who should own bayesmith's current implementation surface.
 It is an R0 inventory, not a claim that every current implementation keeps its
 present shape forever. The governing rule is the

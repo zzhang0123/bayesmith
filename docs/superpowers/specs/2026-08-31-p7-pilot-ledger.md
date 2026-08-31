@@ -1,5 +1,7 @@
 # P7 — A4 pilot 与对账账本（dispatch/pilot.py、dispatch/costs.py）
 
+> **文档状态：`module-spec`** · 已发布模块/能力的当前设计文档，从属于顶层设计；改动对应代码须同步本页。索引见 docs/README.md。
+
 **日期**：2026-08-31　**D 编号**：D101–D103　**probe**：probe_26
 
 ## 一、pilot 的裁决是非对称的

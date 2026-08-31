@@ -1,5 +1,7 @@
 # 执行页 Wave A · 模块 5 第二步 — `parameter_covariance` 与 `propagate_covariance` 切换
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > 计划:§五 Wave A / 铁律 1–5;新增裁决 **D30**、**D31**;**D29 落地**。
 > 前一批次:`2026-08-27-wave-A-uncertainty-fisher.md`(**它的 §八 是本批的开工清单**)。
 > **日期**:2026-08-27 · **本页状态:Wave A 的模块全部切完。`uncertainty.py`

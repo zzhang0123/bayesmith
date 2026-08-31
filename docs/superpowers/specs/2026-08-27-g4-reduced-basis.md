@@ -1,5 +1,7 @@
 # 执行页 **G4** — `exact.reduced_basis`:选择与正交化
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > 计划:§四 **G4 `exact.reduced_basis`**(Wave C 先决)。新增裁决 **D41**。
 > 前一批次:`2026-08-27-g6-enumeration.md`。
 > **日期**:2026-08-27 · 实现全在 bayesmith 一侧,rheplicant **一行未动**

@@ -1,5 +1,7 @@
 # What B11 will find here
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 The migration spec's step 6 and its ledger row B11 describe the streaming
 evidence layer as **rewritten from the graph** rather than transplanted, and
 say it was "waiting on this interface's shape". B9 is finished, so this

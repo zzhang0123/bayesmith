@@ -1,5 +1,7 @@
 # bayesmith P3b — 分派器、InferencePlan、Gibbs 与近似块的修正
 
+> **文档状态：`module-spec`** · 已发布模块/能力的当前设计文档，从属于顶层设计；改动对应代码须同步本页。索引见 docs/README.md。
+
 > 本文是设计（spec），不是实施计划。
 > 上游：`docs/superpowers/specs/2026-08-23-p3-structural-dispatch-design.md`（下称「P3 spec」）的 §四、§五、§六、§七。
 > 前置：P1 图核 + P2 NumPyro 桥 + P3a 精确解核心（已合入 main，HEAD `0c03ea5`，242 测试全绿）。

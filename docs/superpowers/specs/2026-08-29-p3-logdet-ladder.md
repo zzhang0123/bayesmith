@@ -1,5 +1,7 @@
 # P3 — logdet 阶梯：从可证明的特例到有证书的近似
 
+> **文档状态：`module-spec`** · 已发布模块/能力的当前设计文档，从属于顶层设计；改动对应代码须同步本页。索引见 docs/README.md。
+
 本文是 P3 的唯一决策家，承接计划
 [`2026-08-29-coupling-collapse-ladder.md`](../plans/2026-08-29-coupling-collapse-ladder.md)
 的 M8。记

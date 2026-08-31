@@ -1,5 +1,7 @@
 # bayesmith 顶层设计：从结构化推断到可审计的 Bayesian workflow
 
+> **文档状态：`normative`** · 唯一的顶层设计；与它冲突的以它为准。索引见 docs/README.md。
+
 **状态：** 面向未来的规范性设计  
 **日期：** 2026-08-30  
 **采用方案：** A — compiler-first  

@@ -1,5 +1,7 @@
 # 执行页 **G6** — 证据消费面:一个 campaign 对自己说得出什么
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > 计划:§四 **G6 证据消费面**(Wave D 先决)。结清登记页的那条待判项
 > (`memory.reject_bad_term`),新增裁决 **D44**(`compress_reduced_basis` 的波次)、
 > **D45**(`template_modes` 不是 `coherent_mode` 的改名)。

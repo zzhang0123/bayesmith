@@ -1,5 +1,7 @@
 # 执行页 — G15 的 rheplicant 一半:解除那条有条件的延期
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > 计划:§五 G15 / 铁律 1–5;新增 **D48**(裁决)。
 > 前一批次:`2026-08-28-architecture-narrative.md`(bayesmith 侧 0.5.0 发布)。
 > **日期**:2026-08-28 · **本页状态:已落地。** `uncertainty._prior_precision`

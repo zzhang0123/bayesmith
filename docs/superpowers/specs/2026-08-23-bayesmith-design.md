@@ -1,5 +1,7 @@
 # bayesmith — 设计文档
 
+> **文档状态：`superseded`** · 已被 `2026-08-30-bayesmith-top-level-design.md` 取代；仅保留为历史记录。索引见 docs/README.md。
+
 > 本文是设计（spec），不是实施计划。已于 2026-08-23 经用户批准。
 > 实施计划见 `docs/superpowers/plans/`，按 §五 分解的 P1…P7 逐个展开。
 >

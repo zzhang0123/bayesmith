@@ -1,5 +1,7 @@
 # P3b Task 1 — linearity verdicts under three normalisations, measured before B1's fix
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 **Date:** 2026-08-23   **Branch:** `p3b-dispatch-execution`   **Status:** measurement only, no product code changed.
 
 B1's fix changes *which models `check_linearity` accepts*, and Task 5's classifier

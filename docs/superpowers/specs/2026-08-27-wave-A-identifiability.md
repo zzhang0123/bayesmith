@@ -1,5 +1,7 @@
 # 执行页 Wave A · 模块 1 — `identifiability` 切换
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > 计划:`2026-08-26-one-implementation.md` §五 Wave A / 铁律 1–5。
 > 前一批次:`2026-08-27-wave-A-opening.md`。
 > **日期**:2026-08-27 · **本页状态:`identifiability` 已切换。这是本程序第一个

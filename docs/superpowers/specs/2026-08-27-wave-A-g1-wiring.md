@@ -1,5 +1,7 @@
 # 执行页 Wave A · G1 接线 — `FlaggedNoise` 作为声明的掩码过缝
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > 计划:§四 G1 / §三 构图表 `FlaggedNoise` 行 / 铁律 3、5。
 > 前一批次:`2026-08-27-wave-A-identifiability.md`。
 > **日期**:2026-08-27 · **本页状态:完成。这是 `sensitivity` 的先决,不是可选的

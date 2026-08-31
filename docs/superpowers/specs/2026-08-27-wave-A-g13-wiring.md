@@ -1,5 +1,7 @@
 # 执行页 Wave A · G13 接线 — 联合先验作为声明的 factor site 过缝
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > 计划:§四 G13 / 铁律 3、5。前一批次:`2026-08-27-wave-A-s6-widened.md`。
 > **日期**:2026-08-27 · **本页状态:完成。这是 `priors` 与 `numpyro_bridge` 的先决,
 > 不是可选的收尾——同 G1 接线之于 `sensitivity`。**

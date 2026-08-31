@@ -1,5 +1,7 @@
 # From a model to an auto-partitioned sampler: two worked examples
 
+> **文档状态：`module-spec`** · 已发布模块/能力的当前设计文档，从属于顶层设计；改动对应代码须同步本页。索引见 docs/README.md。
+
 Two models, worked end to end: written down, traced, handed to
 `factor_partition`, and sampled by `sample_factors`. Every partition printout
 and every posterior number on this page was produced by running the code shown

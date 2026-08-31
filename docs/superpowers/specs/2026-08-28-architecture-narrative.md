@@ -1,3 +1,7 @@
+# bayesmith 架构叙事审计（2026-08-28 测量页）
+
+> **文档状态：`superseded`** · 已被 `2026-08-30-bayesmith-top-level-design.md` 取代；仅保留为历史记录。索引见 docs/README.md。
+
 > **历史状态：** 产品定位、公共概念模型与长期路线图已由
 > [`2026-08-30-bayesmith-top-level-design.md`](2026-08-30-bayesmith-top-level-design.md)
 > 取代；本文仅保留为测量记录与历史审计。
@@ -25,6 +29,7 @@ HEAD 在审计期间前进了一步（`ffb46d5`，比卷宗里的 `e854a1f` 新�
 ---
 
 # 1. 结论先行
+
 
 叙事**基本成立**：模块级依赖图是干净的无环 DAG（我自己用 AST 重建：`graph` 入度 6、`errors` 入度 7、`dispatch` 入度 0 出度 5，Tarjan 无多节点 SCC），这正是顶层 docstring 与 `pyproject.toml:8` 宣称的"图的结构选择推断方法"。这一半不需要修，只需要写下来——因为它**目前没有写在任何读者够得着的地方**。
 

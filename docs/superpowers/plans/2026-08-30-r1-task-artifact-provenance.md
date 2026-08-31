@@ -1,5 +1,7 @@
 # R1 Task、artifact 与 provenance 执行计划
 
+> **文档状态：`plan-active`** · 尚未执行完的计划，仍指导后续工作。索引见 docs/README.md。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在不改变现有推断数值的前提下，为五类 Bayesian Task 建立稳定、可序列化、可失效、可评价的共同协议，并把现有 posterior 与 point-estimate 路径适配为第一批真实 Result。

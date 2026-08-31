@@ -1,5 +1,7 @@
 # bayesmith P3a 精确解核心 — 实施计划
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 bayesmith 能把一张图里的一组隐变量导出成无矩阵线性算子，检验它们被声明的线性性，并在其上求出线性高斯后验的精确均值与精确抽取——而正确性由一条**与被测者零共享代码**的 NumPy 稠密预言机判定。

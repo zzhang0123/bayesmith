@@ -1,5 +1,7 @@
 # 执行页 Wave A · 模块 5 第一步 — `fisher_information` 的似然一半切换
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > 计划:§五 Wave A / 铁律 1–5;新增 **G15**(缺口)与 **D29**(裁决)。
 > 前一批次:`2026-08-27-wave-A-numpyro-bridge.md`。
 > **日期**:2026-08-27 · **本页状态:`fisher_information` 已切,`parameter_covariance`

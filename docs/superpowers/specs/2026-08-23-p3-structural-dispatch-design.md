@@ -1,5 +1,7 @@
 # bayesmith P3 — 结构分派器 + InferencePlan + 线性高斯精确解
 
+> **文档状态：`superseded`** · 已被 `2026-08-23-p3b-dispatch-execution-design.md` 取代；仅保留为历史记录。索引见 docs/README.md。
+
 > 本文是设计（spec），不是实施计划。
 > 上游：`docs/superpowers/specs/2026-08-23-bayesmith-design.md` §五 的 P3。
 > 前置：P1 图核 + P2 NumPyro 桥（已合入 main，92 测试全绿）。

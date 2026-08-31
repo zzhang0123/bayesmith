@@ -1,5 +1,7 @@
 # bayesmith P3b 分派与执行 — 实施计划
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 `bayesmith.compile(graph)` 从图推导出分区与方法、把理由打印出来，并按分区执行——精确块走 GCR，σ 依赖的块走带修正的提议，其余交给 NUTS——而在此之前先修好两个已被证明会给出静默错误答案的守卫。

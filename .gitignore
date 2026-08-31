@@ -13,18 +13,25 @@ htmlcov/
 .ruff_cache/
 .DS_Store
 
-# Written by a process outside this repository (the rheplicant agent), not by
-# anyone working here. The owner ruled on 2026-08-26 that it not be committed:
-# CLAUDE.md's own opening says there is deliberately no second copy of it
-# beside this file, and an unenforced copy is the defect this project has
-# spent the most time repairing. Deleting it is not a mechanism -- it came
-# back three times on 2026-08-27, the last time carrying a test count one
-# edit stale, which is that defect happening inside a single session.
+# AGENTS.md was ignored here from 2026-08-26 to 2026-08-31, on the ruling that
+# an unenforced second copy of CLAUDE.md is the defect this project has spent
+# the most time repairing. The ignore is REMOVED, and what removed it is that
+# ruling's own failure mode: ignoring a file is not a mechanism. It came back
+# anyway -- untracked, four days stale, still printing the pre-layering test
+# recipe -- and an agent session read it as this repository's instructions,
+# because that is the name those tools look for first. Nothing could have
+# reported it, precisely because it was ignored.
 #
-# This keeps it out of the repository. It does NOT stop a reader of the
-# working directory finding a stale copy there, so if the writer is ever
-# identified, stopping it at the source is still the better fix.
-AGENTS.md
+# It is now tracked and held byte-identical to CLAUDE.md by
+# tests/test_agent_notes_are_one_file.py, which is the price CLAUDE.md itself
+# named for keeping it. One document, two names, one test.
+
+# Session handover notes: written for one execution session, addressed to the
+# next reader, true only while that session is open. The design record that
+# outlives them is the plan under docs/superpowers/plans/, which IS committed
+# and carries a 文档状态 like every other page.
+_*handoff*.md
+_*HANDOFF*.md
 
 # The test and verification runners' own scratch, per CLAUDE.md's recipe.
 # Keep the prefixes narrow: repository documentation and arbitrary XML/log

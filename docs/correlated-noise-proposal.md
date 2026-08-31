@@ -1,5 +1,7 @@
 # Declaring a correlated noise on a graph node
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 An investigation, not an implementation. Nothing in `src/` was changed. Every
 number below comes from a probe in `docs/probes/`, re-runnable as described in
 §0.

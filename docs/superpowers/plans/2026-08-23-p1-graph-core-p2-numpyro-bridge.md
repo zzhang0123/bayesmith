@@ -1,5 +1,7 @@
 # bayesmith P1 图核 + P2 NumPyro 桥 — 实施计划
 
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 bayesmith 能把一个模型函数追踪成显式静态图，在图上算出联合对数密度，并把任意图桥接到 NumPyro 跑 NUTS——形成一个最小可行、且能自我验证的闭环。
