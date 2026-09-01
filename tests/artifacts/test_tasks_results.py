@@ -215,7 +215,7 @@ def analytic() -> AnalyticPosterior:
 
 def fitted() -> FittedConditionalPosterior:
     return FittedConditionalPosterior(
-        estimator_ref=ref(),
+        estimator_ref=ref(ArtifactKind.ESTIMATOR),
         simulation_bank_ref=ref(),
         training_run_id=str(uuid.uuid4()),
         validation_report_refs=(ref(ArtifactKind.EVALUATION_REPORT),),

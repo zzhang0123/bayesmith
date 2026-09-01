@@ -105,10 +105,12 @@ class FingerprintKind(StrEnum):
 class ArtifactKind(StrEnum):
     """The rows of the §0.3 invalidation matrix: what invalidation reasons about.
 
-    Three members, because the matrix has three columns and each is a distinct
-    sensitivity: a Plan is made before compilation, a Result is made by it, and
-    an EvaluationReport is a judgement about a Result. This is the INVALIDATION
-    taxonomy and not a catalogue of artifacts -- which of the five Results a
+    Four members, because the matrix has four columns and each is a distinct
+    sensitivity: a Plan is made before compilation, a Result is made by it, an
+    EvaluationReport is a judgement about a Result, and an Estimator is the
+    fitted weights a heuristic posterior was trained on (§0.7). This is the
+    INVALIDATION taxonomy and not a catalogue of artifacts -- which of the five
+    Results a
     reference points at is ``ResultKind``'s business (Task 3), and asking this enum
     to carry that too would put five identical rows in the matrix.
     """
@@ -116,6 +118,7 @@ class ArtifactKind(StrEnum):
     PLAN = "plan"
     RESULT = "result"
     EVALUATION_REPORT = "evaluation_report"
+    ESTIMATOR = "estimator"
 
 
 @register_artifact_type
@@ -475,6 +478,7 @@ _DEFAULT_POLICY = InvalidationPolicy(
     sensitivities=(
         (ArtifactKind.PLAN, _MODEL_AND_INPUTS),
         (ArtifactKind.RESULT, (*_MODEL_AND_INPUTS, FingerprintKind.COMPILATION)),
+        (ArtifactKind.ESTIMATOR, (*_MODEL_AND_INPUTS, FingerprintKind.COMPILATION)),
         (
             ArtifactKind.EVALUATION_REPORT,
             (

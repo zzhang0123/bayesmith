@@ -434,6 +434,7 @@ def test_the_matrix_table_covers_every_kind_on_both_axes():
         "plan",
         "result",
         "evaluation_report",
+        "estimator",
     }
 
 

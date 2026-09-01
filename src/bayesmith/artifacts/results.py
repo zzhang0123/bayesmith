@@ -205,6 +205,16 @@ def _result_refs(label: str, value: object) -> tuple[ArtifactRef, ...]:
     return value
 
 
+def _estimator_ref(label: str, value: object) -> ArtifactRef:
+    _instance(label, value, ArtifactRef)
+    if value.artifact_type is not ArtifactKind.ESTIMATOR:
+        raise ValueError(
+            f"{label} points at a {value.artifact_type.value}; it names an "
+            "estimator artifact"
+        )
+    return value
+
+
 def _envelope(meta: object, run: object) -> None:
     """Every Result carries these two, and they must agree about what it is."""
     _instance("a result's meta", meta, ArtifactMeta)
@@ -346,7 +356,7 @@ class FittedConditionalPosterior:
     validation_report_refs: tuple[ArtifactRef, ...] = ()
 
     def __post_init__(self) -> None:
-        _result_ref("estimator_ref", self.estimator_ref)
+        _estimator_ref("estimator_ref", self.estimator_ref)
         if self.simulation_bank_ref is not None:
             _result_ref("simulation_bank_ref", self.simulation_bank_ref)
         if self.training_run_id is not None:
