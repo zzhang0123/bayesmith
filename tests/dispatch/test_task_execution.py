@@ -42,6 +42,7 @@ from bayesmith.artifacts.base import (
 from bayesmith.artifacts.refusal import CAPABILITY_UNAVAILABLE_R1, Refusal
 from bayesmith.artifacts.results import (
     DrawsPosterior,
+    LogDensityAvailability,
     PointEstimateResult,
     PosteriorResult,
     PredictiveResult,
@@ -67,6 +68,7 @@ from tests.dispatch.test_task_protocol import model_ref
 from tests.exact.models import (
     bilinear_pair,
     mixed_radiometer,
+    non_gaussian_observed_node,
     radiometer,
     straight_line,
 )
@@ -398,13 +400,53 @@ def test_the_fallback_policy_the_task_asked_for_is_the_one_recorded():
     assert other.record.fallback_policy == "annotate_on_collapse"
 
 
-def test_a_posterior_result_reports_no_pointwise_density_it_did_not_take():
+def test_a_diagonal_exact_posterior_records_pointwise_density():
+    """The exact diagonal route can replay the observations, so it reports
+    POINTWISE rather than NONE (§4.1)."""
     result = execute_task(
         planned_for(straight_line(), posterior_task()), key=jax.random.key(2)
     )
-    assert result.pointwise_log_likelihood is None
-    assert result.log_density_availability.value == "none"
+    assert result.pointwise_log_likelihood is not None
+    assert result.log_density_availability is LogDensityAvailability.POINTWISE
+    assert result.predictive_ready
+    assert result.pointwise_log_likelihood.dims[0] == "draw"
+    assert result.pointwise_log_likelihood.value.shape[0] == 8
     assert result.eliminated_latents == ()
+
+
+def test_a_nuts_posterior_records_pointwise_density():
+    """A Gaussian observation sampled by NUTS still has a pointwise likelihood
+    to replay -- pointwise does not require the exact route (§4.1)."""
+    result = execute_task(
+        planned_for(bilinear_pair(), posterior_task()), key=jax.random.key(4)
+    )
+    assert result.representation.method == "nuts"
+    assert result.pointwise_log_likelihood is not None
+    assert result.log_density_availability is LogDensityAvailability.POINTWISE
+    assert result.predictive_ready
+
+
+def test_a_correlated_posterior_abstains_from_pointwise_density():
+    """A correlated (CirculantNormal) observation has no diagonal loc/scale to
+    replay, so the result ABSTAINs rather than fabricating one (§4.1)."""
+    result = execute_task(
+        planned_for(_correlated_graph(), posterior_task()), key=jax.random.key(2)
+    )
+    assert result.pointwise_log_likelihood is None
+    assert result.log_density_availability is LogDensityAvailability.NONE
+    assert not result.predictive_ready
+
+
+def test_a_non_gaussian_posterior_abstains_from_pointwise_density():
+    """A Student-t observation routed to NUTS has no sigma to replay, so the
+    result ABSTAINs rather than fabricating one (§4.1)."""
+    result = execute_task(
+        planned_for(non_gaussian_observed_node(), posterior_task()),
+        key=jax.random.key(2),
+    )
+    assert result.representation.method == "nuts"
+    assert result.pointwise_log_likelihood is None
+    assert result.log_density_availability is LogDensityAvailability.NONE
     assert not result.predictive_ready
 
 

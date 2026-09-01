@@ -106,6 +106,7 @@ from bayesmith.artifacts.reports import (
 )
 from bayesmith.artifacts.results import (
     DrawsPosterior,
+    LogDensityAvailability,
     PointEstimateResult,
     PosteriorResult,
     PredictiveResult,
@@ -1548,6 +1549,22 @@ def _run_posterior(planned: PlannedTask, key: jax.Array | None) -> Result:
     )
     chained = _ran_a_chain(runtime, posterior)
 
+    pointwise = None
+    if graph.observed:
+        try:
+            pointwise = pointwise_log_likelihood(graph, posterior.samples)
+        except NotGaussian:
+            # A correlated or non-Gaussian observation has no diagonal loc/scale
+            # to replay; the result ABSTAINs rather than fabricating a pointwise
+            # density (§0.4).
+            pointwise = None
+    availability = (
+        LogDensityAvailability.POINTWISE
+        if pointwise is not None
+        else LogDensityAvailability.NONE
+    )
+    predictive_ready = pointwise is not None
+
     if posterior.log_weights is None:
         representation = DrawsPosterior(
             draws=draws,
@@ -1605,6 +1622,9 @@ def _run_posterior(planned: PlannedTask, key: jax.Array | None) -> Result:
         run=run,
         representation=representation,
         latent_names=names,
+        log_density_availability=availability,
+        pointwise_log_likelihood=pointwise,
+        predictive_ready=predictive_ready,
     )
 
 
