@@ -54,19 +54,34 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import math
+import platform
+import time
+import uuid
 from typing import Any
 
 import jax
 import numpy as np
+import numpyro
 
 from bayesmith import __version__
 from bayesmith.artifacts.base import (
     ApproximationClass,
     ApproximationRecord,
     ArtifactRef,
+    BackendRef,
+    ComputeBudget,
+    DeviceRecord,
+    NamedArray,
     ProducerRef,
+    RunRecord,
+    RunWarning,
+    SeedRecord,
     TargetFidelity,
+    TerminationReason,
+    TerminationRecord,
+    TimingRecord,
     new_artifact_meta,
+    utc_timestamp,
 )
 from bayesmith.artifacts.identity import (
     ArtifactKind,
@@ -89,6 +104,13 @@ from bayesmith.artifacts.reports import (
     InferencePlanRecord,
     PlanBlockRecord,
 )
+from bayesmith.artifacts.results import (
+    DrawsPosterior,
+    PointEstimateResult,
+    PosteriorResult,
+    Result,
+    WeightedDrawsPosterior,
+)
 from bayesmith.artifacts.tasks import (
     Estimand,
     Task,
@@ -97,13 +119,14 @@ from bayesmith.artifacts.tasks import (
     task_kind,
 )
 from bayesmith.diagnose.coupling import Refused
-from bayesmith.diagnose.map import MapEstimate, NotApplicable
-from bayesmith.dispatch.execute import _refuse_unless_whole_graph_exact
+from bayesmith.diagnose.map import MapEstimate, NotApplicable, map_estimate
+from bayesmith.dispatch.execute import Posterior, _refuse_unless_whole_graph_exact
 from bayesmith.dispatch.plan import Block, InferencePlan, kappa_upper
 from bayesmith.dispatch.plan import compile as compile_plan
 from bayesmith.errors import NotGaussian, NotLogLinear
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
+from bayesmith.optimize import fit
 
 __all__ = [
     "PRODUCER",
@@ -119,6 +142,7 @@ __all__ = [
     "refusal_from_verdict",
     "PlannedTask",
     "compile_task",
+    "execute_task",
 ]
 
 #: Who wrote the artifacts this module produces. The version is READ from the
@@ -660,6 +684,11 @@ class PlannedTask:
     runtime_plan: InferencePlan = dataclasses.field(compare=False, repr=False)
 
 
+def _map_method(task: Task) -> Any:
+    """Which MAP seam this task asked for, defaulting to the certified one."""
+    return dict(task.optimizer_options).get("method", MAP_METHODS[0])
+
+
 def _known_options(task: Task, kind: TaskKind) -> frozenset[str]:
     if kind is TaskKind.POSTERIOR:
         return _POSTERIOR_OPTIONS
@@ -696,6 +725,39 @@ def _option_refusal(
         ),
         scope=_scope(ScopeKind.TASK, kind.value),
         summary=f"unrecognised option(s) {list(unknown)}",
+    )
+
+
+def _method_refusal(
+    task: Task, method: Any, fingerprints: FingerprintBundle
+) -> Refusal | None:
+    """A MAP task naming an optimiser this package does not have.
+
+    The value, where :func:`_option_refusal` checks the key. Both are the same
+    premise: an option this release cannot read would otherwise be ignored,
+    and a MAP produced by a silently substituted optimiser is a different
+    number under the same name.
+    """
+    if method in MAP_METHODS:
+        return None
+    return _refusal(
+        task,
+        artifact_type=ArtifactKind.PLAN,
+        fingerprints=fingerprints,
+        failed_premise="task_options_recognised",
+        grounds=(
+            Finding(
+                code="unrecognised_optimiser",
+                message=f"{method!r} is not a MAP route this package has; it "
+                f"knows {list(MAP_METHODS)}. Named rather than guessed, because "
+                "a typo falling through to a default would change the algorithm "
+                "silently",
+                observed=method,
+                expected=MAP_METHODS,
+            ),
+        ),
+        scope=_scope(ScopeKind.TASK, TaskKind.POINT_ESTIMATE.value),
+        summary=f"no {method!r} MAP route in this package",
     )
 
 
@@ -812,6 +874,10 @@ def _refuse_before_compiling(
     option_refusal = _option_refusal(task, kind, bundle)
     if option_refusal is not None:
         return option_refusal
+    if kind is TaskKind.POINT_ESTIMATE and task.estimand is Estimand.MAP:
+        method_refusal = _method_refusal(task, _map_method(task), bundle)
+        if method_refusal is not None:
+            return method_refusal
     if kind is TaskKind.POINT_ESTIMATE and task.names is not None:
         unknown = tuple(name for name in task.names if name not in graph.latents)
         if unknown:
@@ -993,7 +1059,7 @@ def _premises(runtime: InferencePlan, task: Task, kind: TaskKind) -> tuple[str, 
             codes.append("whole_graph_exact_solve")
         else:
             codes.append("graph_has_latents")
-            if dict(task.optimizer_options).get("method", "newton") == "newton":
+            if _map_method(task) == MAP_METHODS[0]:
                 codes.append("local_mode_certified")
         if task.names is not None:
             codes.append("named_latents_declared")
@@ -1124,4 +1190,609 @@ def compile_task(
         analysis=analysis,
         record=_plan_record(runtime, task, kind, model_ref, bundle, analysis),
         runtime_plan=runtime,
+    )
+
+# --------------------------------------------------------------- execute_task
+
+
+def _dims(graph: Graph, name: str, value: Any, *, draw: bool) -> tuple[str, ...]:
+    """One name per axis: the draw axis, the node's plate, then its own shape.
+
+    A plate has a NAME the model declared, so a plated latent's second axis is
+    called what the model calls it rather than ``dim0``. Axes the graph has no
+    name for get one derived from the site, which is a label rather than a
+    claim -- :class:`~bayesmith.artifacts.base.NamedArray` requires one name per
+    axis, and an empty string is not a name.
+    """
+    remaining = int(np.ndim(value))
+    names: list[str] = []
+    if draw:
+        names.append("draw")
+        remaining -= 1
+    for plate in graph.node(name).plate:
+        if remaining <= 0:
+            break
+        names.append(plate)
+        remaining -= 1
+    names.extend(f"{name}_dim{index}" for index in range(max(remaining, 0)))
+    return tuple(names)
+
+
+def _named(graph: Graph, name: str, value: Any, *, draw: bool) -> NamedArray:
+    return NamedArray(
+        name=name, value=np.asarray(value), dims=_dims(graph, name, value, draw=draw)
+    )
+
+
+def _measured(value: float | None) -> float | None:
+    """A diagnostic that was taken, or ``None`` where it could not be.
+
+    PSIS answers ``inf`` when there is no tail for it to fit -- measured on
+    ``radiometer`` at eight draws, with numpyro saying so in a warning -- and
+    §0.5 keeps "was not computed" as ``None`` rather than as a number that
+    compares like one. Nothing about whether to believe the weights is lost by
+    this: ``unreliable`` is a stored verdict taken at the run's own threshold,
+    and it stays ``True`` exactly where it was.
+    """
+    if value is None:
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _seed_record(key: jax.Array | None) -> SeedRecord | None:
+    """The entropy the run started from, read off the key itself.
+
+    ``None`` where no key was consumed: a point estimate splits nothing, and a
+    zero written into the field would read as a seed somebody chose.
+    """
+    if key is None:
+        return None
+    seed = 0
+    for word in np.asarray(jax.random.key_data(key)).ravel().tolist():
+        seed = (seed << 32) | int(word)
+    return SeedRecord(seed=seed, key_algorithm=str(jax.random.key_impl(key)))
+
+
+def _devices(values: list[Any]) -> tuple[DeviceRecord, ...]:
+    """The devices the produced arrays actually live on.
+
+    Measured off the arrays rather than taken from ``jax.devices()``, which
+    lists what was AVAILABLE. They agree on a single-device host and stop
+    agreeing on the first machine with two, which is the case the record
+    exists for.
+    """
+    found: dict[tuple[str, str, int], None] = {}
+    for value in values:
+        reader = getattr(value, "devices", None)
+        if reader is None:
+            continue
+        for device in reader():
+            found[(device.platform, device.device_kind, int(device.id))] = None
+    if not found:
+        for device in jax.devices():
+            found[(device.platform, device.device_kind, int(device.id))] = None
+    return tuple(
+        DeviceRecord(platform=platform_name, device_kind=kind, device_id=index)
+        for platform_name, kind, index in sorted(found)
+    )
+
+
+def _dtype(values: list[Any]) -> str:
+    """The dtype the produced values promote to, as one answer.
+
+    Promotion rather than the first array's dtype: a run whose sites disagree
+    has one working precision and it is the wider of them, and reporting the
+    first would make the answer depend on a name's alphabetical position.
+    """
+    return str(np.result_type(*[np.asarray(value).dtype for value in values]))
+
+
+def _jax_config() -> tuple[tuple[str, Any], ...]:
+    return (
+        ("jax_enable_x64", bool(jax.config.jax_enable_x64)),
+        ("jax_default_backend", jax.default_backend()),
+    )
+
+
+def _environment_fingerprint():
+    """The ENVIRONMENT slot: the interpreter and the stack that ran.
+
+    In no row of the §0.3 invalidation matrix on purpose -- a backend patch
+    leaves stored artifacts readable and gives the NEXT run new provenance --
+    so this is recorded and never used to retire anything.
+    """
+    return fingerprint(
+        FingerprintKind.ENVIRONMENT,
+        {
+            "python": platform.python_version(),
+            "jax": jax.__version__,
+            "numpyro": numpyro.__version__,
+            "bayesmith": __version__,
+            "x64": bool(jax.config.jax_enable_x64),
+            "backend": jax.default_backend(),
+        },
+    )
+
+
+def _backend_ref(chained: bool) -> BackendRef:
+    """Which package's machinery actually ran, never the policy value auto.
+
+    A chain is numpyro's kernel -- bare NUTS, the Gibbs sweep and the collapse
+    arm all run through it -- and everything else is this package's own exact
+    solver or optimiser.
+    """
+    if chained:
+        return BackendRef(name="numpyro", version=numpyro.__version__)
+    return BackendRef(name="bayesmith", version=__version__)
+
+
+def _ran_a_chain(runtime: InferencePlan, posterior: Posterior) -> bool:
+    """Whether these draws came from a chain, read off the PLAN and not the
+    method string.
+
+    The method string cannot answer it: :func:`~bayesmith.dispatch.execute._swept`
+    reports the exact block's own method, so a MIXED plan whose exact block is
+    plain ``gcr`` comes back labelled ``"gcr"`` having run an HMCGibbs chain,
+    while a whole-graph ``gcr`` draws iid under the same label. What separates
+    them is the plan: a sampled block means a chain, and the one path that
+    grows a chain without one is the collapse substitution, which does say so
+    in its method.
+    """
+    return posterior.method == "nuts" or runtime.sampled is not None
+
+
+def _planned_method(runtime: InferencePlan) -> str:
+    return runtime.exact.method if runtime.exact is not None else "nuts"
+
+
+def _or_default(name: str, value: Any) -> Any:
+    return _SAMPLE_DEFAULTS[name] if value is None else value
+
+
+def _sample_settings(task: Task) -> dict[str, Any]:
+    """The task's budget and knobs as :meth:`InferencePlan.sample` keywords.
+
+    A field the task left empty is filled from the runtime's own default and
+    then passed explicitly, so the run record can say what actually ran
+    without a second copy of the number: ``_SAMPLE_DEFAULTS`` reads the
+    signature that owns it.
+    """
+    budget = task.budget
+    settings: dict[str, Any] = {
+        "num_samples": _or_default("num_samples", budget.draws),
+        "num_warmup": _or_default("num_warmup", budget.warmup),
+        "num_chains": _or_default("num_chains", budget.chains),
+        "nuts_on_collapse": task.nuts_on_collapse,
+    }
+    if task.chain_method is not None:
+        settings["chain_method"] = task.chain_method
+    if task.solver_tolerance is not None:
+        settings["tol"] = task.solver_tolerance
+    if task.solver_maxiter is not None:
+        settings["maxiter"] = task.solver_maxiter
+    if task.ess_floor is not None:
+        settings["ess_floor"] = task.ess_floor
+    options = dict(task.backend_options)
+    for name in sorted(_POSTERIOR_OPTIONS):
+        if name in options:
+            settings[name] = options[name]
+    return settings
+
+
+def _sample_termination(
+    posterior: Posterior, chained: bool
+) -> TerminationRecord:
+    """Why the run stopped, which is not the same question as whether it worked.
+
+    A weighted sample that crossed its floor is ``TOLERANCE_UNMET``: the
+    correction collapsed and the draws are annotated rather than replaced. A
+    chain is ``CONVERGED`` only where every site's own diagnostic says so --
+    the diagnostic that was actually taken, not a re-judgement of it here --
+    and ``COMPLETED`` otherwise, which is the honest word for "it ran to the
+    end of its budget".
+    """
+    if posterior.log_weights is not None and posterior.unreliable:
+        return TerminationRecord(
+            reason=TerminationReason.TOLERANCE_UNMET, message=posterior.reason
+        )
+    if chained:
+        report = posterior.diagnostics
+        if report and all(site.converged for site in report.values()):
+            return TerminationRecord(
+                reason=TerminationReason.CONVERGED, message=posterior.reason
+            )
+    return TerminationRecord(
+        reason=TerminationReason.COMPLETED, message=posterior.reason
+    )
+
+
+def _sample_warnings(
+    task: Task,
+    runtime: InferencePlan,
+    posterior: Posterior,
+    chained: bool,
+    termination: TerminationRecord,
+) -> tuple[RunWarning, ...]:
+    """What the run noticed and did not fail over.
+
+    Three separate statements, kept separate: the executed method is not the
+    planned one; a chain's sites could not be certified; and the TASK asked for
+    convergence and did not get a certificate. The last is the task's own
+    requirement rather than a verdict about the draws, so it is a warning here
+    and not a Refusal -- the draws exist and are handed back.
+    """
+    warnings: list[RunWarning] = []
+    planned_method = _planned_method(runtime)
+    if posterior.method != planned_method:
+        warnings.append(
+            RunWarning(
+                code="executed_method_differs_from_plan",
+                message=posterior.reason,
+                scope=planned_method,
+            )
+        )
+    if chained:
+        if posterior.diagnostics is None:
+            warnings.append(
+                RunWarning(
+                    code="chain_diagnostics_unavailable",
+                    message="split r-hat needs at least four draws per chain, so "
+                    "this run reports the effective sample size alone",
+                )
+            )
+        else:
+            for name, site in posterior.diagnostics.items():
+                if not site.converged:
+                    warnings.append(
+                        RunWarning(
+                            code="chain_not_converged",
+                            message=site.reason,
+                            scope=name,
+                        )
+                    )
+    certified = termination.reason is TerminationReason.CONVERGED
+    if task.require_convergence and not certified:
+        warnings.append(
+            RunWarning(
+                code="convergence_not_certified",
+                message="the task asked for convergence and this run stopped "
+                f"{termination.reason.value}; the draws are handed back with "
+                "that said rather than withheld",
+            )
+        )
+    return tuple(warnings)
+
+
+def _run_record(
+    planned: PlannedTask,
+    *,
+    key: jax.Array | None,
+    values: list[Any],
+    budget: ComputeBudget,
+    termination: TerminationRecord,
+    timing: TimingRecord,
+    approximation: ApproximationRecord,
+    warnings: tuple[RunWarning, ...],
+    chained: bool,
+) -> RunRecord:
+    return RunRecord(
+        run_id=str(uuid.uuid4()),
+        plan_ref=plan_ref(planned.record),
+        fingerprints=dataclasses.replace(
+            planned.record.meta.fingerprints, environment=_environment_fingerprint()
+        ),
+        seed=_seed_record(key),
+        dtype=_dtype(values),
+        devices=_devices(values),
+        jax_config=_jax_config(),
+        backend=_backend_ref(chained),
+        budget=budget,
+        termination=termination,
+        timing=timing,
+        approximation=approximation,
+        warnings=warnings,
+    )
+
+
+def _result_meta(planned: PlannedTask, run: RunRecord, summary: str):
+    """A Result's envelope: the plan it came from is its PARENT, by version.
+
+    The same reference the run record carries, because a result whose lineage
+    and whose run disagreed about which plan produced it could not be
+    invalidated by a change to either.
+    """
+    return new_artifact_meta(
+        artifact_type=ArtifactKind.RESULT,
+        fingerprints=run.fingerprints,
+        producer=PRODUCER,
+        parent_refs=(plan_ref(planned.record),),
+        summary=summary,
+    )
+
+
+def _timing(started: str, finished: str, elapsed: float) -> TimingRecord:
+    return TimingRecord(
+        started_at=started, finished_at=finished, wall_clock_seconds=elapsed
+    )
+
+
+def _run_posterior(planned: PlannedTask, key: jax.Array | None) -> Result:
+    task = planned.task
+    if key is None:
+        raise TypeError(
+            "a posterior run needs a PRNG key: execute_task(planned, "
+            "key=jax.random.key(0)). Minting one here would make the run "
+            "irreproducible while looking exactly like one that was seeded."
+        )
+    runtime = planned.runtime_plan
+    settings = _sample_settings(task)
+
+    started = utc_timestamp()
+    clock = time.perf_counter()
+    posterior = runtime.sample(key, **settings)
+    elapsed = time.perf_counter() - clock
+    finished = utc_timestamp()
+
+    graph = runtime.graph
+    names = tuple(name for name in graph.latents if name in posterior.samples)
+    values = [posterior.samples[name] for name in names]
+    draws = tuple(
+        _named(graph, name, value, draw=True)
+        for name, value in zip(names, values, strict=True)
+    )
+    chained = _ran_a_chain(runtime, posterior)
+
+    if posterior.log_weights is None:
+        representation = DrawsPosterior(
+            draws=draws,
+            chain_shape=(settings["num_chains"], settings["num_samples"])
+            if chained
+            else None,
+            method=posterior.method,
+        )
+    else:
+        representation = WeightedDrawsPosterior(
+            draws=draws,
+            log_weights=NamedArray(
+                name="log_weights",
+                value=np.asarray(posterior.log_weights),
+                dims=("draw",),
+            ),
+            ess=float(posterior.ess),
+            khat=_measured(posterior.khat),
+            unreliable=bool(posterior.unreliable),
+            method=posterior.method,
+        )
+
+    termination = _sample_termination(posterior, chained)
+    run = _run_record(
+        planned,
+        key=key,
+        values=values,
+        budget=ComputeBudget(
+            draws=settings["num_samples"],
+            warmup=settings["num_warmup"],
+            chains=settings["num_chains"],
+            max_iterations=task.solver_maxiter,
+        ),
+        termination=termination,
+        timing=_timing(started, finished, elapsed),
+        approximation=ApproximationRecord(
+            representation_class=ApproximationClass.MONTE_CARLO,
+            target_fidelity=TargetFidelity.EXACT,
+            details=(
+                ("method", posterior.method),
+                ("planned_method", _planned_method(runtime)),
+                ("requested_backend", task.backend),
+                # The one measurement §0.5 gives no field to on three of the
+                # four representation arms. The weighted arm DOES have one, and
+                # the two are held equal by test_task_execution.py rather than
+                # left to agree by habit.
+                ("effective_sample_size", float(posterior.ess)),
+            ),
+        ),
+        warnings=_sample_warnings(task, runtime, posterior, chained, termination),
+        chained=chained,
+    )
+    return PosteriorResult(
+        meta=_result_meta(planned, run, posterior.reason),
+        run=run,
+        representation=representation,
+        latent_names=names,
+    )
+
+
+def _selected(values: dict[str, Any], task: Task, graph: Graph) -> list[str]:
+    """The latents this task asked to be reported, in declaration order."""
+    wanted = set(values) if task.names is None else set(task.names)
+    return [name for name in graph.latents if name in wanted]
+
+
+def _run_posterior_mean(planned: PlannedTask) -> Result:
+    task = planned.task
+    options = dict(task.optimizer_options)
+    settings: dict[str, Any] = {}
+    if task.budget.max_iterations is not None:
+        settings["maxiter"] = task.budget.max_iterations
+    if "tolerance" in options:
+        settings["tol"] = options["tolerance"]
+
+    started = utc_timestamp()
+    clock = time.perf_counter()
+    estimate = planned.runtime_plan.estimate(**settings)
+    elapsed = time.perf_counter() - clock
+    finished = utc_timestamp()
+
+    graph = planned.runtime_plan.graph
+    names = _selected(estimate.values, task, graph)
+    values = [estimate.values[name] for name in names]
+    iterations = int(estimate.iterations)
+    run = _run_record(
+        planned,
+        key=None,
+        values=values,
+        budget=ComputeBudget(max_iterations=task.budget.max_iterations),
+        termination=TerminationRecord(
+            reason=TerminationReason.CONVERGED
+            if bool(estimate.converged)
+            else TerminationReason.TOLERANCE_UNMET,
+            iterations=iterations,
+            message="the generalised least squares solve reached its fixed point",
+        ),
+        timing=_timing(started, finished, elapsed),
+        approximation=ApproximationRecord(
+            representation_class=ApproximationClass.CERTIFIED_DETERMINISTIC,
+            target_fidelity=TargetFidelity.EXACT,
+            details=(
+                ("method", _planned_method(planned.runtime_plan)),
+                ("requested_backend", task.backend),
+            ),
+        ),
+        warnings=(),
+        chained=False,
+    )
+    return PointEstimateResult(
+        meta=_result_meta(planned, run, "the posterior mean of a whole-graph solve"),
+        run=run,
+        estimand=task.estimand,
+        values=tuple(
+            _named(graph, name, value, draw=False)
+            for name, value in zip(names, values, strict=True)
+        ),
+        residual=float(estimate.residual),
+        iterations=iterations,
+    )
+
+
+#: How each MAP seam's answer is produced, on §0.2's two axes. The Newton
+#: route checks stationarity AND curvature before it returns anything, so its
+#: point is a certified deterministic answer to the exact question; a descent
+#: spends a fixed budget and certifies nothing, which is HEURISTIC of an
+#: APPROXIMATE target however good the number turns out to be.
+_MAP_APPROXIMATION = {
+    "newton": (ApproximationClass.CERTIFIED_DETERMINISTIC, TargetFidelity.EXACT),
+    "adam": (ApproximationClass.HEURISTIC, TargetFidelity.APPROXIMATE),
+    "gradient": (ApproximationClass.HEURISTIC, TargetFidelity.APPROXIMATE),
+}
+
+
+def _run_map(planned: PlannedTask) -> Result | Refusal:
+    task = planned.task
+    options = dict(task.optimizer_options)
+    method = _map_method(task)
+    graph = planned.runtime_plan.graph
+
+    started = utc_timestamp()
+    clock = time.perf_counter()
+    if method == MAP_METHODS[0]:
+        outcome = map_estimate(graph)
+    else:
+        settings: dict[str, Any] = {"method": method}
+        if task.budget.max_iterations is not None:
+            settings["steps"] = task.budget.max_iterations
+        if "learning_rate" in options:
+            settings["learning_rate"] = options["learning_rate"]
+        outcome = fit(graph, **settings)
+    elapsed = time.perf_counter() - clock
+    finished = utc_timestamp()
+
+    if isinstance(outcome, (Refused, NotApplicable)):
+        return refusal_from_verdict(
+            outcome,
+            task=task,
+            model_ref=planned.record.model_ref,
+            fingerprints=planned.record.meta.fingerprints,
+            artifact_type=ArtifactKind.RESULT,
+        )
+
+    found = outcome.point if isinstance(outcome, MapEstimate) else outcome.values
+    names = _selected(found, task, graph)
+    values = [found[name] for name in names]
+    iterations = (
+        int(outcome.steps)
+        if isinstance(outcome, MapEstimate)
+        else int(np.shape(outcome.history)[0])
+    )
+    representation, fidelity = _MAP_APPROXIMATION[method]
+    run = _run_record(
+        planned,
+        key=None,
+        values=values,
+        budget=ComputeBudget(max_iterations=task.budget.max_iterations),
+        termination=TerminationRecord(
+            reason=TerminationReason.CONVERGED
+            if isinstance(outcome, MapEstimate)
+            else TerminationReason.BUDGET_EXHAUSTED,
+            iterations=iterations,
+            message="a stationary point with positive curvature"
+            if isinstance(outcome, MapEstimate)
+            else "the descent spent its step budget, which is not a convergence "
+            "claim",
+        ),
+        timing=_timing(started, finished, elapsed),
+        approximation=ApproximationRecord(
+            representation_class=representation,
+            target_fidelity=fidelity,
+            details=(("method", method), ("requested_backend", task.backend)),
+        ),
+        warnings=(),
+        chained=False,
+    )
+    return PointEstimateResult(
+        meta=_result_meta(planned, run, "a local mode of the graph's posterior"),
+        run=run,
+        estimand=task.estimand,
+        values=tuple(
+            _named(graph, name, value, draw=False)
+            for name, value in zip(names, values, strict=True)
+        ),
+        objective=float(outcome.objective),
+        gradient_norm=(
+            float(outcome.gradient_norm) if isinstance(outcome, MapEstimate) else None
+        ),
+        iterations=iterations,
+        # An optimiser reports a stationary point. Calling it THE mode would be
+        # a global claim nothing here took.
+        local_only=True,
+    )
+
+
+def execute_task(
+    planned: PlannedTask, *, key: jax.Array | None = None
+) -> Result | Refusal:
+    """Run a compiled task and project what came back into a Result.
+
+    One call to one seam, with the key it was given and no extra split, timed
+    from just before to just after. Nothing here decides a number: the method,
+    the tolerance, the budget and the fallback policy were all fixed by
+    :func:`compile_task` and by the plan it holds.
+
+    Args:
+        planned: what :func:`compile_task` produced.
+        key: the PRNG key a posterior run draws from. Required there, and
+            unused by a point estimate -- which splits nothing, so its run
+            record carries no seed rather than one it never consumed.
+
+    Returns:
+        A :class:`~bayesmith.artifacts.results.PosteriorResult` or
+        :class:`~bayesmith.artifacts.results.PointEstimateResult`, or a
+        :class:`~bayesmith.artifacts.refusal.Refusal` where the method turned
+        out not to apply. A genuine execution failure --
+        :class:`~bayesmith.errors.ConvergenceError` above all -- is raised, not
+        refused: a run that broke is an ERROR for a workflow to mark, and
+        filing it as "this method does not apply" would lose that distinction.
+    """
+    _check(planned, PlannedTask, "execute_task's planned")
+    kind = task_kind(planned.task)
+    if kind is TaskKind.POSTERIOR:
+        return _run_posterior(planned, key)
+    if kind is TaskKind.POINT_ESTIMATE:
+        if planned.task.estimand is Estimand.POSTERIOR_MEAN:
+            return _run_posterior_mean(planned)
+        return _run_map(planned)
+    # compile_task never produces one of these; a PlannedTask assembled by
+    # hand gets the same verdict rather than an execution that half-works.
+    return _capability_refusal(
+        planned.task, kind, planned.record.meta.fingerprints, ArtifactKind.RESULT
     )

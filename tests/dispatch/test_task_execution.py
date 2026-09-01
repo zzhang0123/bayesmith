@@ -1,0 +1,517 @@
+"""Running a compiled task: the same numbers, with provenance around them.
+
+The whole of Task 7 is that the artifact path must be a WRAPPER. Every test in
+the first half runs the old entry point and the new one on one graph, one key
+and one budget, and compares them element by element -- ``rtol=0``, so a
+resample, an extra ``jax.random.split`` or a differently ordered call would show
+up as a difference rather than as a tolerance. The old objects are untouched:
+:class:`~bayesmith.dispatch.execute.Posterior` and
+:class:`~bayesmith.dispatch.execute.Estimate` come back exactly as they did.
+
+The second half is what the wrapper adds. A Result names the plan it came from
+by id AND revision; a run record says which backend actually ran, at what
+dtype, on which device, under which budget, and how it stopped. Two things are
+deliberately NOT invented: a graph drawn iid has no chain, so it carries no
+``chain_shape`` and no r-hat, and a weighted sample keeps its weights rather
+than being handed back as an unweighted one that happens to be wrong.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import math
+import uuid
+
+import jax
+import numpy as np
+import numpyro
+import pytest
+
+from bayesmith import compile as compile_graph
+from bayesmith import optimize
+from bayesmith.artifacts.base import (
+    ApproximationClass,
+    ArtifactKind,
+    ComputeBudget,
+    TargetFidelity,
+    TerminationReason,
+)
+from bayesmith.artifacts.refusal import CAPABILITY_UNAVAILABLE_R1, Refusal
+from bayesmith.artifacts.results import (
+    DrawsPosterior,
+    PointEstimateResult,
+    PosteriorResult,
+    WeightedDrawsPosterior,
+)
+from bayesmith.artifacts.tasks import (
+    Estimand,
+    EvidenceTask,
+    PointEstimateTask,
+    PosteriorTask,
+    new_task_meta,
+)
+from bayesmith.diagnose.map import map_estimate
+from bayesmith.dispatch.task import (
+    MAP_METHODS,
+    compile_task,
+    execute_task,
+    plan_ref,
+)
+from bayesmith.optimize import fit
+from tests.dispatch.test_task_protocol import model_ref
+from tests.exact.models import (
+    bilinear_pair,
+    mixed_radiometer,
+    radiometer,
+    straight_line,
+)
+
+BUDGET = ComputeBudget(draws=8, warmup=8, chains=1)
+
+#: Enough draws for PSIS to have a tail to fit. See the khat tests below.
+WEIGHTED = ComputeBudget(draws=32, warmup=8, chains=1)
+
+
+def posterior_task(**overrides) -> PosteriorTask:
+    """A task whose fallback policy matches the runtime default.
+
+    ``PosteriorTask.nuts_on_collapse`` defaults to True and
+    :meth:`~bayesmith.dispatch.plan.InferencePlan.sample`'s keyword defaults to
+    False -- the protocol's default is the caller's consent, the runtime's is
+    the measured preference for annotating rather than substituting. The
+    parity tests below pin the numbers, not that disagreement, so they ask for
+    the runtime's default explicitly on both sides.
+    """
+    fields: dict = {
+        "meta": new_task_meta(label="run"),
+        "budget": BUDGET,
+        "nuts_on_collapse": False,
+    }
+    fields.update(overrides)
+    return PosteriorTask(**fields)
+
+
+def point_task(**overrides) -> PointEstimateTask:
+    fields: dict = {"meta": new_task_meta(label="point"), "estimand": Estimand.MAP}
+    fields.update(overrides)
+    return PointEstimateTask(**fields)
+
+
+def planned_for(graph, task):
+    planned = compile_task(graph, task, model_ref=model_ref())
+    assert not isinstance(planned, Refusal), planned
+    return planned
+
+
+def drawn(result: PosteriorResult) -> dict:
+    return {array.name: array.value for array in result.representation.draws}
+
+
+def same(old, new) -> None:
+    """Bitwise, through ``assert_allclose`` at zero tolerance.
+
+    A tolerance here would hide exactly the failure this file exists to catch:
+    an adapter that re-ran the sampler, split the key once more, or reordered
+    the calls produces numbers that are close and not the same.
+    """
+    np.testing.assert_allclose(np.asarray(old), np.asarray(new), rtol=0.0, atol=0.0)
+
+
+def details(result) -> dict:
+    return dict(result.run.approximation.details)
+
+
+# --------------------------------------------------------- 7.1 numerical parity
+
+
+def test_pure_exact_draws_are_the_old_draws():
+    """``straight_line`` is whole-graph exact with a constant sigma: iid GCR
+    draws, no chain, and ESS is the draw count exactly."""
+    graph = straight_line()
+    key = jax.random.key(11)
+    old = compile_graph(graph).sample(
+        key, num_samples=8, num_warmup=8, num_chains=1, nuts_on_collapse=False
+    )
+    result = execute_task(planned_for(graph, posterior_task()), key=key)
+
+    assert isinstance(result, PosteriorResult)
+    assert isinstance(result.representation, DrawsPosterior)
+    assert result.representation.method == old.method == "gcr"
+    assert set(drawn(result)) == set(old.samples)
+    for name, draws in old.samples.items():
+        same(draws, drawn(result)[name])
+    assert result.representation.chain_shape is None
+    assert details(result)["effective_sample_size"] == old.ess
+
+
+def test_a_weighted_sample_keeps_its_weights_and_its_diagnostics():
+    """``radiometer``'s sigma tracks its own prediction, so the exact draws are
+    a proposal corrected by self-normalised weights. Dropping the weights
+    would leave a WRONG unweighted sample rather than a lossy one, which is
+    why §0.5 gives the weighted case its own arm.
+
+    Thirty-two draws rather than eight, measured: PSIS has no tail to fit at
+    eight and answers ``inf``, which the next test is about -- so the khat
+    compared here is a number both paths actually took.
+    """
+    graph = radiometer()
+    key = jax.random.key(5)
+    old = compile_graph(graph).sample(
+        key, num_samples=32, num_warmup=8, num_chains=1, nuts_on_collapse=False
+    )
+    result = execute_task(planned_for(graph, posterior_task(budget=WEIGHTED)), key=key)
+
+    assert isinstance(result.representation, WeightedDrawsPosterior)
+    assert old.log_weights is not None
+    assert math.isfinite(old.khat)
+    for name, draws in old.samples.items():
+        same(draws, drawn(result)[name])
+    same(old.log_weights, result.representation.log_weights.value)
+    assert result.representation.ess == old.ess
+    assert result.representation.khat == old.khat
+    assert result.representation.unreliable == old.unreliable
+    assert result.representation.method == old.method == "gcr+snis"
+
+
+def test_a_diagnostic_that_could_not_be_fitted_is_absent_rather_than_infinite():
+    """Eight draws leave PSIS no tail, and the old path reports ``inf`` for
+    khat. §0.5 keeps "not computed" as ``None`` and refuses a non-finite
+    number as a measurement, so the projection drops it -- and drops nothing
+    else: ``unreliable`` is a stored verdict taken at the run's own threshold
+    and comes through exactly as it was."""
+    graph = radiometer()
+    key = jax.random.key(5)
+    old = compile_graph(graph).sample(
+        key, num_samples=8, num_warmup=8, num_chains=1, nuts_on_collapse=False
+    )
+    result = execute_task(planned_for(graph, posterior_task()), key=key)
+
+    assert not math.isfinite(old.khat)
+    assert result.representation.khat is None
+    assert result.representation.unreliable is old.unreliable is True
+    assert result.representation.ess == old.ess
+
+
+def test_the_two_places_the_effective_sample_size_appears_cannot_drift():
+    """§0.5 gives the weighted arm an ``ess`` field and the unweighted arms
+    none, so the run record carries the number for every path and the weighted
+    representation carries it as well. Two homes for one measurement is the
+    defect this repository has spent the most time repairing; the protocol
+    fixes both fields, so what holds them together is this test."""
+    graph = radiometer()
+    result = execute_task(
+        planned_for(graph, posterior_task(budget=WEIGHTED)), key=jax.random.key(5)
+    )
+    assert details(result)["effective_sample_size"] == result.representation.ess
+
+
+def test_a_sampled_graph_is_the_old_chain():
+    """``bilinear_pair`` declares an affinity that is false, so the classifier
+    routes the whole graph to NUTS -- the third of §6.4's shapes."""
+    graph = bilinear_pair()
+    key = jax.random.key(3)
+    old = compile_graph(graph).sample(
+        key, num_samples=8, num_warmup=8, num_chains=1, nuts_on_collapse=False
+    )
+    result = execute_task(planned_for(graph, posterior_task()), key=key)
+
+    assert result.representation.method == old.method == "nuts"
+    for name, draws in old.samples.items():
+        same(draws, drawn(result)[name])
+    assert result.representation.chain_shape == (1, 8)
+    assert details(result)["effective_sample_size"] == old.ess
+
+
+def test_a_posterior_mean_is_the_old_estimate():
+    graph = straight_line()
+    old = compile_graph(graph).estimate()
+    task = point_task(estimand=Estimand.POSTERIOR_MEAN)
+    result = execute_task(planned_for(graph, task))
+
+    assert isinstance(result, PointEstimateResult)
+    assert result.estimand is Estimand.POSTERIOR_MEAN
+    values = {array.name: array.value for array in result.values}
+    for name, value in old.values.items():
+        same(value, values[name])
+    same(old.residual, result.residual)
+    assert result.iterations == int(old.iterations)
+    assert result.objective is None
+    assert not result.local_only
+
+
+def test_a_newton_map_is_the_old_map_estimate():
+    """The graph is built inside the x64 block, not merely the call: ``const``
+    and ``observe`` capture their arrays at trace time, and
+    :func:`~bayesmith.diagnose.map.map_estimate` refuses a float32 starting
+    point rather than pretending the wider call widened the model."""
+    with jax.enable_x64(True):
+        graph = straight_line()
+        old = map_estimate(graph)
+        result = execute_task(planned_for(graph, point_task()))
+
+    values = {array.name: array.value for array in result.values}
+    for name, value in old.point.items():
+        same(value, values[name])
+    assert result.objective == old.objective
+    assert result.gradient_norm == old.gradient_norm
+    assert result.iterations == old.steps
+    assert result.local_only
+
+
+def test_a_descent_map_is_the_old_fit():
+    graph = straight_line()
+    task = point_task(
+        optimizer_options=(("method", "adam"),),
+        budget=ComputeBudget(max_iterations=25),
+    )
+    old = fit(graph, method="adam", steps=25)
+    result = execute_task(planned_for(graph, task))
+
+    values = {array.name: array.value for array in result.values}
+    for name, value in old.values.items():
+        same(value, values[name])
+    same(old.objective, result.objective)
+    assert result.iterations == 25
+    assert result.local_only
+
+
+def test_the_map_methods_are_the_optimisers_own_plus_the_newton_seam():
+    """``MAP_METHODS`` names three routes and two of them belong to
+    :mod:`bayesmith.optimize`. A second copy of a vocabulary is what goes
+    stale, so the copy is held to its source here rather than trusted."""
+    assert MAP_METHODS == ("newton", *optimize._METHODS)
+
+
+def test_an_unknown_optimiser_is_refused_before_anything_runs():
+    refusal = compile_task(
+        straight_line(),
+        point_task(optimizer_options=(("method", "bfgs"),)),
+        model_ref=model_ref(),
+    )
+    assert isinstance(refusal, Refusal)
+    assert refusal.failed_premise == "task_options_recognised"
+    assert refusal.grounds[0].observed == "bfgs"
+    assert refusal.grounds[0].expected == MAP_METHODS
+
+
+# ------------------------------------------------------------- 7.2 provenance
+
+
+def test_a_result_names_the_plan_it_came_from_by_id_and_revision():
+    """A reference carrying only an id would be satisfied by a later,
+    invalidated revision of the same plan -- the impersonation §0.2 rules
+    out."""
+    planned = planned_for(straight_line(), posterior_task())
+    result = execute_task(planned, key=jax.random.key(2))
+    reference = plan_ref(planned.record)
+
+    assert result.run.plan_ref == reference
+    assert result.meta.parent_refs == (reference,)
+    assert reference.artifact_id == planned.record.meta.artifact_id
+    assert reference.revision == planned.record.meta.revision
+    assert result.meta.artifact_type is ArtifactKind.RESULT
+
+
+def test_the_run_record_says_what_actually_ran():
+    planned = planned_for(straight_line(), posterior_task())
+    key = jax.random.key(7)
+    result = execute_task(planned, key=key)
+    run = result.run
+
+    assert run.backend.name == "bayesmith"
+    assert run.seed is not None
+    assert run.seed.seed == 7
+    assert run.seed.key_algorithm == str(jax.random.key_impl(key))
+    assert run.dtype == str(np.asarray(next(iter(drawn(result).values()))).dtype)
+    assert run.devices
+    assert dict(run.jax_config)["jax_enable_x64"] is False
+    assert run.budget == ComputeBudget(draws=8, warmup=8, chains=1)
+    assert run.timing.wall_clock_seconds >= 0.0
+    assert run.approximation.representation_class is ApproximationClass.MONTE_CARLO
+    assert run.approximation.target_fidelity is TargetFidelity.EXACT
+    assert run.fingerprints.environment is not None
+    assert run.fingerprints.compilation == planned.record.meta.fingerprints.compilation
+
+
+def test_the_backend_that_ran_is_recorded_apart_from_the_one_requested():
+    """A task asks for ``auto`` and a run record may not answer ``auto``: the
+    graph that goes to NUTS is run by numpyro, and the record is where that
+    is written down."""
+    planned = planned_for(bilinear_pair(), posterior_task())
+    result = execute_task(planned, key=jax.random.key(4))
+
+    assert planned.task.backend == "auto"
+    assert planned.record.backend == "auto"
+    assert result.run.backend.name == "numpyro"
+    assert result.run.backend.version == numpyro.__version__
+    assert details(result)["requested_backend"] == "auto"
+    assert details(result)["method"] == "nuts"
+    assert details(result)["planned_method"] == "nuts"
+
+
+def test_a_run_that_took_no_key_records_no_seed():
+    """A point estimate splits nothing, so there is no entropy to record and
+    ``None`` is the honest answer rather than a zero that reads as a seed."""
+    task = point_task(estimand=Estimand.POSTERIOR_MEAN)
+    result = execute_task(planned_for(straight_line(), task))
+    assert result.run.seed is None
+    assert result.run.termination.reason is TerminationReason.CONVERGED
+    assert result.run.termination.iterations == result.iterations
+
+
+def test_iid_draws_carry_no_chain_and_no_invented_r_hat():
+    """``gcr`` draws independently, so split r-hat has no referent at all.
+    Reporting a number for it would invent one; the field stays empty and the
+    effective sample size, which is real, is what a caller reads."""
+    result = execute_task(
+        planned_for(straight_line(), posterior_task()), key=jax.random.key(2)
+    )
+    assert result.representation.chain_shape is None
+    codes = {warning.code for warning in result.run.warnings}
+    assert not {code for code in codes if code.startswith("chain_")}
+
+
+def test_a_short_chain_is_reported_as_uncertified_rather_than_as_converged():
+    """Eight draws cannot certify convergence -- ``CHAIN_ESS_FLOOR`` is 100 --
+    and the task asked for convergence by default. Both halves are recorded:
+    the sites that could not be certified, and that the task's requirement was
+    not met."""
+    result = execute_task(
+        planned_for(bilinear_pair(), posterior_task()), key=jax.random.key(4)
+    )
+    codes = {warning.code for warning in result.run.warnings}
+    assert "chain_not_converged" in codes
+    assert "convergence_not_certified" in codes
+    assert result.run.termination.reason is TerminationReason.COMPLETED
+    assert all(warning.message for warning in result.run.warnings)
+
+
+def test_the_fallback_policy_the_task_asked_for_is_the_one_recorded():
+    planned = planned_for(radiometer(), posterior_task(nuts_on_collapse=True))
+    assert planned.record.fallback_policy == "nuts_on_collapse"
+    other = planned_for(radiometer(), posterior_task(nuts_on_collapse=False))
+    assert other.record.fallback_policy == "annotate_on_collapse"
+
+
+def test_a_posterior_result_reports_no_pointwise_density_it_did_not_take():
+    result = execute_task(
+        planned_for(straight_line(), posterior_task()), key=jax.random.key(2)
+    )
+    assert result.pointwise_log_likelihood is None
+    assert result.log_density_availability.value == "none"
+    assert result.eliminated_latents == ()
+    assert not result.predictive_ready
+
+
+# ------------------------------------------------------------ 7.4 the refusals
+
+
+def test_a_posterior_run_without_a_key_is_a_programming_error():
+    """Not a Refusal: a missing key is a caller mistake, and §0.6 keeps those
+    as exceptions rather than dressing them as verdicts about a method."""
+    planned = planned_for(straight_line(), posterior_task())
+    with pytest.raises(TypeError, match="key"):
+        execute_task(planned, key=None)
+
+
+def test_a_hand_built_task_for_a_capability_r1_lacks_is_refused_defensively():
+    """``compile_task`` never produces one of these; a caller who assembles a
+    PlannedTask by hand gets the same verdict rather than an execution that
+    half-works."""
+    planned = planned_for(straight_line(), posterior_task())
+    forged = dataclasses.replace(planned, task=EvidenceTask(meta=new_task_meta()))
+    refusal = execute_task(forged)
+
+    assert isinstance(refusal, Refusal)
+    assert refusal.failed_premise == CAPABILITY_UNAVAILABLE_R1
+    assert refusal.meta.artifact_type is ArtifactKind.RESULT
+    assert refusal.remedies
+
+
+def test_a_convergence_failure_is_raised_rather_than_refused(monkeypatch):
+    """``ConvergenceError`` is a real execution failure -- the reweighting did
+    not reach a fixed point -- and a workflow marks it ERROR. Turning it into
+    a Refusal would file a broken run under "this method does not apply".
+
+    The failure is injected at the seam rather than provoked by a fixture,
+    because what is under test is which of the two kinds of bad news the
+    adapter produces, not the arithmetic that would produce it.
+    """
+    from bayesmith.errors import ConvergenceError
+
+    planned = planned_for(
+        radiometer(), point_task(estimand=Estimand.POSTERIOR_MEAN)
+    )
+
+    def refuse(*args, **kwargs):
+        raise ConvergenceError("the GLS reweighting did not reach a fixed point")
+
+    monkeypatch.setattr(type(planned.runtime_plan), "estimate", refuse)
+    with pytest.raises(ConvergenceError):
+        execute_task(planned)
+
+
+def test_execute_task_refuses_something_that_is_not_a_planned_task():
+    with pytest.raises(TypeError, match="PlannedTask"):
+        execute_task(object())
+
+
+# ------------------------------------------- 7.5 the old API, entirely unmoved
+
+
+def test_the_old_entry_points_return_the_old_types():
+    """The red line of this session, as an assertion rather than as a habit:
+    nothing above changed what ``sample`` and ``estimate`` hand back."""
+    graph = straight_line()
+    plan = compile_graph(graph)
+    posterior = plan.sample(jax.random.key(1), num_samples=8, num_warmup=8)
+    estimate = plan.estimate()
+
+    assert type(posterior).__name__ == "Posterior"
+    assert type(estimate).__name__ == "Estimate"
+    assert posterior.log_weights is None
+    assert math.isfinite(float(estimate.residual))
+    assert isinstance(dict(posterior.samples), dict)
+    assert uuid.UUID(planned_for(graph, posterior_task()).record.task_id).version == 4
+
+
+def test_a_swept_graph_reports_a_chain_even_though_its_method_names_a_solve():
+    """The trap ``_ran_a_chain`` exists for.
+
+    The mixed path reports the EXACT BLOCK's method, so a plan whose exact
+    block is solved by ``gcr`` comes back labelled with that even though an
+    HMCGibbs chain is what produced the draws -- while a whole-graph ``gcr``
+    plan carries the same label and draws iid. Reading the label would file a
+    chain's draws as independent ones and lose the structure every chain
+    diagnostic is about, so the plan is what is read instead.
+    """
+    graph = mixed_radiometer()
+    key = jax.random.key(6)
+    old = compile_graph(graph).sample(
+        key, num_samples=8, num_warmup=8, num_chains=1, nuts_on_collapse=False
+    )
+    result = execute_task(planned_for(graph, posterior_task()), key=key)
+
+    assert compile_graph(graph).sampled is not None, "this fixture must be mixed"
+    for name, draws in old.samples.items():
+        same(draws, drawn(result)[name])
+    assert result.representation.method == old.method
+    assert result.representation.chain_shape == (1, 8)
+    assert result.run.backend.name == "numpyro"
+    assert details(result)["planned_method"] == old.method
+
+
+def test_a_mixed_graph_still_sweeps_through_the_old_path():
+    """The mixed shape is the one this session must not disturb, so it is run
+    through the OLD entry point here and compared against the new one's
+    refusal to take a posterior mean of it (which is a compile-time verdict,
+    not a change to the sweep)."""
+    graph = mixed_radiometer()
+    posterior = compile_graph(graph).sample(
+        jax.random.key(6), num_samples=8, num_warmup=8, num_chains=1
+    )
+    assert set(posterior.samples) == set(graph.latents)
+    refusal = compile_task(
+        graph, point_task(estimand=Estimand.POSTERIOR_MEAN), model_ref=model_ref()
+    )
+    assert isinstance(refusal, Refusal)
