@@ -141,3 +141,47 @@ def test_graph_is_the_foundation_and_dispatch_is_the_top():
     assert in_degree["dispatch"] == 0, "something now depends on dispatch"
     assert in_degree["graph"] >= 4, in_degree
     assert edges["graph"] <= {"errors", "distributions"}, edges["graph"]
+
+
+def test_the_artifact_protocol_is_a_leaf_and_dispatch_is_what_reaches_it():
+    """§0.1's ladder, in the only direction that can be checked structurally.
+
+    ``artifacts`` imports no other unit of this package: it is data about what
+    was asked, planned, produced and judged, and a protocol that reached back
+    into the graph layer would put a Graph inside an artifact by the shortest
+    available route. ``dispatch`` is what bridges the two, so the edge exists
+    there and only there -- if a second unit grows one, this assertion is
+    where the decision to allow it gets made.
+    """
+    edges = _graph()
+    assert edges["artifacts"] == set()
+    assert "artifacts" in edges["dispatch"]
+    reaching = sorted(unit for unit in edges if "artifacts" in edges[unit])
+    assert reaching == ["dispatch"], reaching
+
+
+def test_importing_the_artifact_protocol_pulls_in_no_numerical_stack():
+    """The leaf is meant to be CHEAP as well as low: a consumer reading a
+    stored artifact should not pay for jax, numpyro or equinox to do it.
+
+    In a subprocess, because by the time this test runs the whole numerical
+    stack is in this process's ``sys.modules`` several times over, and an
+    in-process check would be a check of the test runner rather than of the
+    package. numpy is deliberately not in the set: the codec encodes arrays
+    and :class:`~bayesmith.artifacts.base.NamedArray` copies them, so numpy is
+    a dependency of the protocol itself rather than of the runtime it avoids.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import bayesmith.artifacts as a, sys; "
+        "assert a.__doc__; "
+        "print(sorted({'jax', 'numpyro', 'equinox'} & set(sys.modules)))"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"
+

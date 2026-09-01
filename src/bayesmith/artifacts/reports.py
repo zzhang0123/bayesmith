@@ -14,7 +14,12 @@ order is what will run; a parameter belongs to exactly one block, because two
 blocks claiming it is a schedule with no answer to which draws it. The
 ``premises`` it lists are the codes a :class:``bayesmith.artifacts.refusal.Refusal``
 names in ``failed_premise`` when one of them turns out to be false -- one
-vocabulary, both directions.
+vocabulary, both directions. That vocabulary is
+:data:`bayesmith.artifacts.refusal.PREMISES`, which is not enforced HERE
+because a plan record is also read by consumers whose premises this package
+has never heard of; what holds bayesmith's own plans and refusals to it is
+``tests/dispatch/test_task_protocol.py``, so the claim above is checked rather
+than merely stated.
 
 **An evaluation report has two axes.** §0 ruling 7: whether the check applied
 and what it concluded are different questions, so they are different enums.

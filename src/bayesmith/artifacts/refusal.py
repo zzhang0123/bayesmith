@@ -54,7 +54,49 @@ __all__ = [
     "Conservatism",
     "FallbackOption",
     "Refusal",
+    "CAPABILITY_UNAVAILABLE_R1",
+    "PREMISES",
 ]
+
+#: The premise a task names when this package can hold the QUESTION and not
+#: yet answer it -- R1 freezes five tasks and executes two. Spelled once, here,
+#: because it is written by the compiler that refuses and read by every
+#: consumer that branches on the refusal, and two spellings of one code is two
+#: branches that agree until somebody improves one of them.
+CAPABILITY_UNAVAILABLE_R1: str = "capability_unavailable_r1"
+
+#: This package's own premise vocabulary: the codes a
+#: :class:`~bayesmith.artifacts.reports.InferencePlanRecord` lists in
+#: ``premises`` and a :class:`Refusal` names in ``failed_premise``. One
+#: vocabulary read in both directions, which is what ``reports``' docstring
+#: claims and what ``tests/dispatch/test_task_protocol.py`` holds it to.
+#:
+#: **Not enforced at construction, deliberately.** A ``Refusal`` is the type two
+#: repositories agree about (§0 ruling 3), and the sibling's translation names
+#: premises this package has never heard of; refusing them here would make the
+#: shared type unusable on the side that does not own this list. What IS
+#: enforced is that a code is a code -- :func:`_code` refuses prose -- and what
+#: is checked is that bayesmith's own refusals and plans draw from this set.
+#:
+#: Not every member appears in both directions: a capability gap is never a
+#: premise a plan RELIES on, it is the reason no plan exists.
+PREMISES: frozenset[str] = frozenset(
+    {
+        CAPABILITY_UNAVAILABLE_R1,
+        # the compile-time checks a plan rests on
+        "backend_supported",
+        "model_source_identified",
+        "task_options_recognised",
+        # what an exact route needs of the graph
+        "gaussian_likelihood",
+        "affine_prediction",
+        "log_linear_route",
+        # what a point estimate needs of the plan and of the arithmetic
+        "whole_graph_exact_solve",
+        "local_mode_certified",
+        "graph_has_latents",
+    }
+)
 
 
 def _code(label: str, value: object) -> str:
