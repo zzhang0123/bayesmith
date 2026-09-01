@@ -762,7 +762,8 @@ def test_the_artifact_docs_pin_the_five_results_and_grounds():
     """
     import pathlib
 
-    text = pathlib.Path("docs/artifacts.md").read_text(encoding="utf-8")
+    root = pathlib.Path(__file__).resolve().parent.parent
+    text = (root / "docs/artifacts.md").read_text(encoding="utf-8")
     for name in (
         "PosteriorResult",
         "EvidenceResult",
@@ -778,7 +779,8 @@ def test_the_readme_workflow_mentions_the_typed_round_trip():
     """README must show the typed chain and say the legacy entry points stay."""
     import pathlib
 
-    text = pathlib.Path("README.md").read_text(encoding="utf-8")
+    root = pathlib.Path(__file__).resolve().parent.parent
+    text = (root / "README.md").read_text(encoding="utf-8")
     for token in ("PosteriorTask", "compile_task", "execute_task", "PosteriorResult"):
         assert token in text, token
     assert "legacy" in text.lower()

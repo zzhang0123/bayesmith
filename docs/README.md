@@ -98,6 +98,7 @@
 | `docs/superpowers/specs/2026-08-29-wave-D-opening.md` | `record` | 执行页 Wave D 开波 —— 八个模块,而「切」的其实很少 |
 | `docs/superpowers/specs/2026-08-30-bayesmith-top-level-design.md` | `normative` | bayesmith 顶层设计：从结构化推断到可审计的 Bayesian workflow |
 | `docs/superpowers/specs/2026-08-30-r0-close-out.md` | `record` | R0 close-out — 稳定现有核心与基线 |
+| `docs/superpowers/specs/2026-08-30-r1-close-out.md` | `record` | R1 close-out — 冻结 artifact 协议与 provenance 基线 |
 | `docs/superpowers/specs/2026-08-31-p5-costs.md` | `module-spec` | P5 — 只读成本记分板（dispatch/costs.py） |
 | `docs/superpowers/specs/2026-08-31-p6-collapse.md` | `module-spec` | P6 — collapsed target 与 collapse 臂（dispatch/collapse.py） |
 | `docs/superpowers/specs/2026-08-31-p7-pilot-ledger.md` | `module-spec` | P7 — A4 pilot 与对账账本（dispatch/pilot.py、dispatch/costs.py） |
