@@ -47,6 +47,10 @@ __all__ = [
     "log_joint",
     # inference
     "compile",
+    # the R1 task-aware entry points, kept lazy because resolving them
+    # imports JAX/NumPyro through the dispatch bridge
+    "compile_task",
+    "execute_task",
     "factor_partition",
     "sample_factors",
     "declared_partition",
@@ -165,6 +169,8 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "evaluate": ("bayesmith.graph.evaluate", "evaluate"),
     "log_joint": ("bayesmith.graph.evaluate", "log_joint"),
     "compile": ("bayesmith.dispatch.plan", "compile"),
+    "compile_task": ("bayesmith.dispatch.task", "compile_task"),
+    "execute_task": ("bayesmith.dispatch.task", "execute_task"),
     "Posterior": ("bayesmith.dispatch.execute", "Posterior"),
     "Estimate": ("bayesmith.dispatch.execute", "Estimate"),
     "to_numpyro": ("bayesmith.bridge.numpyro_bridge", "to_numpyro"),

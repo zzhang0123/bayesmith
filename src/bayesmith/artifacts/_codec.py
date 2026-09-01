@@ -39,10 +39,13 @@ from __future__ import annotations
 import base64
 import dataclasses
 import datetime as _dt
+import hashlib
 import json
 import math
+import os
+import tempfile
 from enum import StrEnum
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import numpy as np
 
@@ -52,6 +55,10 @@ __all__ = [
     "canonical_payload",
     "canonical_dumps",
     "canonical_loads",
+    "ArtifactFile",
+    "UnsupportedSchemaVersion",
+    "dump_artifact",
+    "load_artifact",
 ]
 
 T = TypeVar("T")
@@ -511,3 +518,154 @@ def _refuse_constant(token: str) -> object:
     """Python's json reads ``NaN``/``Infinity``; JSON does not, and neither
     does this codec -- its own floats are tagged."""
     raise ArtifactCodecError(f"{token!r} is not JSON and not a canonical float")
+
+
+# ---------------------------------------------------------------- persistence
+
+#: The disk format's fixed marker. Read by :func:`load_artifact` to refuse
+#: anything that is not a bayesmith artifact envelope rather than decode it
+#: and discover the same thing three fields deep.
+_ARTIFACT_FORMAT = "bayesmith-artifact"
+
+#: The one codec version this package writes and reads. Bumped only when a
+#: stored artifact's shape changes in a way a reader cannot ignore -- never
+#: guessed at, because a migration guessed wrong reads as silently dropped
+#: fields, and there is no slower way to find that out.
+_ARTIFACT_CODEC_VERSION = 1
+
+
+class UnsupportedSchemaVersion(ArtifactCodecError):
+    """A stored artifact was written in a codec version this package cannot read.
+
+    Raised when the envelope names a version NEWER than the one this package
+    writes. The caller is expected to upgrade the package rather than guess at
+    a migration, so no attempt is made to read the payload.
+    """
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ArtifactFile:
+    """The canonical JSON transport envelope (§8.2).
+
+    Not the artifact, and not a second copy of its digest the artifact
+    computes for itself: ``payload_sha256`` is the SHA-256 of the DECODED
+    payload bytes -- exactly what ``canonical_dumps`` produced -- and
+    ``payload_base64`` is those bytes under base64. ``load_artifact`` checks
+    the digest before it decodes, so a corrupted payload cannot hand back a
+    corrupted object with a freshly matching digest.
+    """
+
+    format: Literal["bayesmith-artifact"]
+    codec_version: Literal[1]
+    payload_sha256: str
+    payload_base64: str
+
+
+def _envelope_bytes(artifact: object) -> bytes:
+    """The disk bytes of one artifact: a JSON envelope, atomic by construction."""
+    payload = canonical_dumps(artifact)
+    envelope = ArtifactFile(
+        format=_ARTIFACT_FORMAT,
+        codec_version=_ARTIFACT_CODEC_VERSION,
+        payload_sha256=hashlib.sha256(payload).hexdigest(),
+        payload_base64=base64.b64encode(payload).decode("ascii"),
+    )
+    return json.dumps(
+        dataclasses.asdict(envelope),
+        ensure_ascii=True,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def dump_artifact(artifact: object, path: str | os.PathLike[str]) -> None:
+    """Write ``artifact`` to ``path`` as a canonical transport envelope.
+
+    The write is atomic at the filesystem level: the bytes are written to a
+    temporary file in the same directory and moved into place with
+    ``os.replace``, so a reader -- including one racing this write -- sees
+    either the previous complete file or the new complete file, never a
+    half-written one. A failure to serialise the artifact raises before any
+    file is touched, because ``canonical_dumps`` runs first.
+    """
+    text = _envelope_bytes(artifact) + b"\n"
+    target = os.fspath(path)
+    directory = os.path.dirname(target) or "."
+    fd, temporary = tempfile.mkstemp(
+        dir=directory, prefix=".bayesmith-artifact-", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(text)
+        os.replace(temporary, target)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def load_artifact(
+    path: str | os.PathLike[str], *, expected: type[T] | None = None
+) -> T | object:
+    """Read an artifact written by :func:`dump_artifact`, verifying it first.
+
+    Three checks, in the order that closes the most holes first: the envelope
+    is what it claims to be and a version this package can read; the decoded
+    payload hashes to the digest the envelope states; and the payload decodes
+    to the ``expected`` type. A payload byte flipped anywhere, a digest byte
+    flipped, or a type name the registry does not know all fail here before
+    any object is handed back.
+    """
+    target = os.fspath(path)
+    with open(target, "rb") as handle:
+        raw = handle.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ArtifactCodecError(f"{target} is not UTF-8") from exc
+    try:
+        parsed = json.loads(text, parse_constant=_refuse_constant)
+    except json.JSONDecodeError as exc:
+        raise ArtifactCodecError(f"{target} is not a JSON envelope: {exc}") from exc
+
+    if not isinstance(parsed, dict):
+        raise ArtifactCodecError(
+            f"{target} is not an artifact envelope: {type(parsed).__name__}"
+        )
+    if parsed.get("format") != _ARTIFACT_FORMAT:
+        raise ArtifactCodecError(
+            f"{target} is not a {_ARTIFACT_FORMAT!r} envelope; its format is "
+            f"{parsed.get('format')!r}"
+        )
+    version = parsed.get("codec_version")
+    if version != _ARTIFACT_CODEC_VERSION:
+        if isinstance(version, int) and version > _ARTIFACT_CODEC_VERSION:
+            raise UnsupportedSchemaVersion(
+                f"{target} was written in codec version {version}; this package "
+                f"reads version {_ARTIFACT_CODEC_VERSION} and does not guess a "
+                "migration"
+            )
+        raise ArtifactCodecError(
+            f"{target} carries codec_version {version!r}, which is not the "
+            f"{_ARTIFACT_CODEC_VERSION} this package reads"
+        )
+
+    digest = parsed.get("payload_sha256")
+    encoded = parsed.get("payload_base64")
+    if not isinstance(digest, str) or not isinstance(encoded, str):
+        raise ArtifactCodecError(
+            f"{target} is missing its payload_sha256 or payload_base64"
+        )
+    try:
+        payload = base64.b64decode(encoded, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise ArtifactCodecError(f"{target}'s payload_base64 is not base64") from exc
+    actual = hashlib.sha256(payload).hexdigest()
+    if actual != digest:
+        raise ArtifactCodecError(
+            f"{target}'s payload hashes to {actual}, not the stated {digest}; "
+            "the bytes do not match the envelope that claims them"
+        )
+    return canonical_loads(payload, expected=expected)

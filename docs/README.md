@@ -27,6 +27,7 @@
 
 | 文档 | 状态 | 标题 |
 |---|---|---|
+| `docs/artifacts.md` | `module-spec` | The artifact protocol: Tasks, Results, provenance and gates |
 | `docs/correlated-noise-proposal.md` | `record` | Declaring a correlated noise on a graph node |
 | `docs/evidence-layer-readiness.md` | `record` | What B11 will find here |
 | `docs/factor-partition-examples.md` | `module-spec` | From a model to an auto-partitioned sampler: two worked examples |

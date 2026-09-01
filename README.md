@@ -66,6 +66,48 @@ two models from declaration to auto-partitioned sampling -- three factors
 three routes, then a hierarchy where the ancestry rule earns its keep. Every
 printout there was produced by running the code shown, and the partitions are
 pinned by ``tests/dispatch/test_factor.py``.
+### The typed task workflow (R1)
+
+R1 publishes a serialisable, invalidatable, evaluable protocol in
+`bayesmith.artifacts`, reached from the root through two lazy entry points.
+The five Tasks map one-to-one onto five Results; a task that cannot be
+compiled or executed returns a typed `Refusal` rather than an exception in
+disguise. The legacy entry points (`compile()`, `InferencePlan.sample()` /
+`.estimate()`, `Posterior`, `Estimate`, `fit`) are unchanged and remain
+supported -- the typed entry points wrap them, they do not replace them.
+
+```python
+import jax
+import jax.numpy as jnp
+import numpyro.distributions as dist
+
+import bayesmith
+from bayesmith.artifacts import PosteriorTask, model_ref_from_callable, new_task_meta
+
+
+def model(data):
+    x = bayesmith.sample("x", lambda: dist.Normal(0.0, 2.0))
+    bayesmith.observe("d", lambda v: dist.Normal(v, 0.5), x, obs=data)
+
+
+graph = bayesmith.trace(model, jnp.array([1.0, 2.0]))
+task = PosteriorTask(meta=new_task_meta(label="radiometer posterior"))
+ref = model_ref_from_callable(model, identifier="radiometer")
+
+planned = bayesmith.compile_task(graph, task, model_ref=ref, key=jax.random.key(0))
+result = bayesmith.execute_task(planned, key=jax.random.key(0))
+# result is a PosteriorResult: a DrawsPosterior or WeightedDrawsPosterior,
+# with run provenance, fingerprints and a frozen Refusal.grounds on refusal.
+```
+
+`model_ref_from_callable` derives the source digest automatically when the
+model is defined in an importable module. A model typed into a REPL or built
+by `exec` has no recoverable source, so pass `source_digest=...` explicitly --
+`repr()` is never a fallback, because it carries a memory address.
+
+The full protocol -- the five-in/five-out table, fingerprint boundaries, the
+invalidation matrix, `Refusal.grounds` and the gate truth table -- is
+documented in [`docs/artifacts.md`](docs/artifacts.md).
 
 ## Status
 
@@ -84,7 +126,7 @@ still move -- 0.3.0 made `reason` required on `NotGaussian` and
 `NotLogLinear`, and 0.4.0 tightens two precision refusals, each breaking for
 a caller who was relying on the wrong answer.
 
-Implemented and tested, 4961 tests: the graph core with plates and joint
+Implemented and tested, 5342 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every
 route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR

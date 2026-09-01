@@ -551,3 +551,234 @@ class TestTheDeprecatedEvidencePathStillResolves:
             if not info.name.startswith("_")
         }
         assert set(bayesmith.evidence._ALIASED) == on_disk
+
+def test_the_artifacts_subpackage_reexports_each_owning_module_s_protocol():
+    """bayesmith.artifacts is the one public inventory for the R1 protocol.
+
+    Checked by IDENTITY against each owning submodule, the way the exact and
+    bridge pins above are: a re-export that returned a copy, or a name that
+    resolved through the wrong module, would pass a hasattr check and fail
+    here. The __all__ equality closes the other direction -- a name re-exported
+    but left out of __all__, or a name in __all__ with no import behind it.
+    """
+    from bayesmith import artifacts
+    from bayesmith.artifacts import (
+        _codec,
+        base,
+        gates,
+        identity,
+        refusal,
+        reports,
+        results,
+        tasks,
+    )
+
+    expected = {}
+    for module in (identity, base, tasks, results, refusal, reports, gates):
+        for name in module.__all__:
+            expected[name] = getattr(module, name)
+    for name in (
+        "ArtifactCodecError",
+        "ArtifactFile",
+        "UnsupportedSchemaVersion",
+        "dump_artifact",
+        "load_artifact",
+    ):
+        expected[name] = getattr(_codec, name)
+
+    assert set(expected) == set(artifacts.__all__), (
+        "artifacts.__all__ and the owning modules disagree: "
+        f"only in __all__ {sorted(set(artifacts.__all__) - set(expected))}; "
+        f"missing from __all__ {sorted(set(expected) - set(artifacts.__all__))}"
+    )
+    for name, target in expected.items():
+        assert getattr(artifacts, name) is target, name
+
+
+def test_the_artifact_root_exposes_only_compile_and_execute_task():
+    """Root adds exactly two R1 names, lazily, and leaks no schema names.
+
+    compile_task/execute_task resolve through _LAZY_ATTRS to dispatch.task --
+    importing them pulls in JAX/NumPyro, so they must stay lazy, and the
+    dozens of Task/Result/Refusal/Gate names belong to bayesmith.artifacts,
+    not to the root namespace.
+    """
+    import bayesmith
+    from bayesmith.dispatch import task as task_module
+
+    assert bayesmith.compile_task is task_module.compile_task
+    assert bayesmith.execute_task is task_module.execute_task
+    assert "compile_task" in bayesmith.__all__
+    assert "execute_task" in bayesmith.__all__
+    for name in (
+        "PosteriorTask",
+        "EvidenceResult",
+        "Refusal",
+        "GateResult",
+        "NamedArray",
+        "Fingerprint",
+    ):
+        assert name not in bayesmith.__all__, name
+        assert not hasattr(bayesmith, name), name
+
+
+class TestArtifactPersistence:
+    """dump_artifact / load_artifact: the 8.2 canonical transport envelope.
+
+    The envelope is NOT a bare pickle and not a digest the artifact computes
+    for itself: payload_sha256 hashes the decoded payload bytes, and
+    load_artifact checks schema, digest and expected type before handing any
+    object back. A payload byte, a digest byte, or the type tag, each flipped
+    alone, must fail before returning.
+    """
+
+    @staticmethod
+    def _artifact():
+        import numpy as np
+
+        from bayesmith.artifacts import NamedArray
+
+        return NamedArray("x", np.array([1.0, 2.0, 3.0]), ("draw",))
+
+    def test_round_trip_and_no_temp_residue(self, tmp_path):
+        from bayesmith.artifacts import NamedArray, dump_artifact, load_artifact
+
+        artifact = self._artifact()
+        path = tmp_path / "posterior.json"
+        dump_artifact(artifact, path)
+        assert [entry.name for entry in tmp_path.iterdir()] == ["posterior.json"]
+        loaded = load_artifact(path, expected=NamedArray)
+        assert loaded == artifact
+        assert loaded is not artifact
+
+    def test_a_flipped_payload_byte_fails_before_returning(self, tmp_path):
+        import base64
+        import json
+
+        from bayesmith.artifacts import (
+            ArtifactCodecError,
+            NamedArray,
+            dump_artifact,
+            load_artifact,
+        )
+
+        path = tmp_path / "a.json"
+        dump_artifact(self._artifact(), path)
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        payload = bytearray(base64.b64decode(envelope["payload_base64"]))
+        payload[len(payload) // 2] ^= 0x01
+        envelope["payload_base64"] = base64.b64encode(bytes(payload)).decode("ascii")
+        path.write_text(json.dumps(envelope), encoding="utf-8")
+        with pytest.raises(ArtifactCodecError):
+            load_artifact(path, expected=NamedArray)
+
+    def test_a_flipped_digest_byte_fails_before_returning(self, tmp_path):
+        import json
+
+        from bayesmith.artifacts import (
+            ArtifactCodecError,
+            NamedArray,
+            dump_artifact,
+            load_artifact,
+        )
+
+        path = tmp_path / "a.json"
+        dump_artifact(self._artifact(), path)
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        digest = envelope["payload_sha256"]
+        envelope["payload_sha256"] = ("0" if digest[0] != "0" else "1") + digest[1:]
+        path.write_text(json.dumps(envelope), encoding="utf-8")
+        with pytest.raises(ArtifactCodecError):
+            load_artifact(path, expected=NamedArray)
+
+    def test_a_flipped_type_tag_fails_before_returning(self, tmp_path):
+        import base64
+        import hashlib
+        import json
+
+        from bayesmith.artifacts import (
+            ArtifactCodecError,
+            NamedArray,
+            dump_artifact,
+            load_artifact,
+        )
+
+        path = tmp_path / "a.json"
+        dump_artifact(self._artifact(), path)
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(
+            base64.b64decode(envelope["payload_base64"]).decode("utf-8")
+        )
+        # Flip the qualified type name the decoder resolves THROUGH its
+        # registry, and recompute the digest so only the type tag is wrong.
+        payload["type"] = payload["type"].replace("NamedArray", "NotNamedArray")
+        reencoded = json.dumps(
+            payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        envelope["payload_base64"] = base64.b64encode(reencoded).decode("ascii")
+        envelope["payload_sha256"] = hashlib.sha256(reencoded).hexdigest()
+        path.write_text(json.dumps(envelope), encoding="utf-8")
+        with pytest.raises(ArtifactCodecError):
+            load_artifact(path, expected=NamedArray)
+
+    def test_an_expected_type_mismatch_fails_before_returning(self, tmp_path):
+        from bayesmith.artifacts import (
+            ArtifactCodecError,
+            ComputeBudget,
+            dump_artifact,
+            load_artifact,
+        )
+
+        path = tmp_path / "a.json"
+        dump_artifact(self._artifact(), path)
+        with pytest.raises(ArtifactCodecError):
+            load_artifact(path, expected=ComputeBudget)
+
+    def test_a_newer_codec_version_is_refused_as_unsupported(self, tmp_path):
+        import json
+
+        from bayesmith.artifacts import (
+            UnsupportedSchemaVersion,
+            dump_artifact,
+            load_artifact,
+        )
+
+        path = tmp_path / "a.json"
+        dump_artifact(self._artifact(), path)
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        envelope["codec_version"] = 2
+        path.write_text(json.dumps(envelope), encoding="utf-8")
+        with pytest.raises(UnsupportedSchemaVersion):
+            load_artifact(path)
+
+
+def test_the_artifact_docs_pin_the_five_results_and_grounds():
+    """docs/artifacts.md is a published module-spec, so a lightweight guard
+    pins the protocol's own names and the frozen Refusal field -- not the prose.
+
+    The tables are a design decision to edit freely; what must not silently
+    drift is the five Result names and the field 0 ruling 3 froze as grounds
+    (never evidence).
+    """
+    import pathlib
+
+    text = pathlib.Path("docs/artifacts.md").read_text(encoding="utf-8")
+    for name in (
+        "PosteriorResult",
+        "EvidenceResult",
+        "PredictiveResult",
+        "PointEstimateResult",
+        "SimulationResult",
+    ):
+        assert name in text, name
+    assert "`grounds`" in text
+
+
+def test_the_readme_workflow_mentions_the_typed_round_trip():
+    """README must show the typed chain and say the legacy entry points stay."""
+    import pathlib
+
+    text = pathlib.Path("README.md").read_text(encoding="utf-8")
+    for token in ("PosteriorTask", "compile_task", "execute_task", "PosteriorResult"):
+        assert token in text, token
+    assert "legacy" in text.lower()
