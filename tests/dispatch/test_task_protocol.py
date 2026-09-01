@@ -413,14 +413,6 @@ def test_a_planned_task_is_identified_by_its_records_and_not_by_the_runtime():
     [
         pytest.param(lambda: EvidenceTask(meta=new_task_meta(label="Z")), id="evidence"),
         pytest.param(
-            lambda: PredictiveTask(
-                meta=new_task_meta(label="ppc"),
-                source_posterior_ref=result_ref(),
-                replicated_sites=("d",),
-            ),
-            id="predictive",
-        ),
-        pytest.param(
             lambda: SimulationTask(
                 meta=new_task_meta(label="forward"),
                 parameter_source=ParameterSource.prior(),
@@ -430,10 +422,10 @@ def test_a_planned_task_is_identified_by_its_records_and_not_by_the_runtime():
         ),
     ],
 )
-def test_the_three_tasks_r1_cannot_answer_are_refused_as_a_capability(build):
-    """§0 ruling 1 keeps five tasks in the protocol and R1 answers two of
-    them. The other three are refused with the premise the plan names, not
-    with a ``NotImplementedError`` a caller cannot branch on."""
+def test_the_two_tasks_r1_cannot_answer_are_refused_as_a_capability(build):
+    """§0 ruling 1 keeps five tasks in the protocol and this release answers
+    three of them. The other two are refused with the premise the plan names,
+    not with a ``NotImplementedError`` a caller cannot branch on."""
     task = build()
     refusal = compile_task(straight_line(), task, model_ref=model_ref())
     assert isinstance(refusal, Refusal)
@@ -442,6 +434,18 @@ def test_the_three_tasks_r1_cannot_answer_are_refused_as_a_capability(build):
     assert refusal.grounds and refusal.remedies
     assert refusal.scope.kind is ScopeKind.TASK
     assert refusal.meta.artifact_type is ArtifactKind.PLAN
+
+
+def test_a_predictive_task_compiles_into_a_planned_task():
+    """R2 answers predictive: the task compiles against the graph it will push
+    draws through, rather than being refused as a capability gap."""
+    task = PredictiveTask(
+        meta=new_task_meta(label="ppc"),
+        source_posterior_ref=result_ref(),
+        replicated_sites=("d",),
+    )
+    planned = compile_task(straight_line(), task, model_ref=model_ref())
+    assert isinstance(planned, PlannedTask)
 
 
 def test_an_unsupported_backend_is_a_typed_refusal():

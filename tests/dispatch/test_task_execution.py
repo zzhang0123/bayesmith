@@ -23,15 +23,18 @@ import math
 import uuid
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import numpyro
+import numpyro.distributions as dist
 import pytest
 
 from bayesmith import compile as compile_graph
-from bayesmith import optimize
+from bayesmith import const, det, observe, optimize, sample, trace
 from bayesmith.artifacts.base import (
     ApproximationClass,
     ArtifactKind,
+    ArtifactRef,
     ComputeBudget,
     TargetFidelity,
     TerminationReason,
@@ -41,6 +44,7 @@ from bayesmith.artifacts.results import (
     DrawsPosterior,
     PointEstimateResult,
     PosteriorResult,
+    PredictiveResult,
     WeightedDrawsPosterior,
 )
 from bayesmith.artifacts.tasks import (
@@ -48,6 +52,7 @@ from bayesmith.artifacts.tasks import (
     EvidenceTask,
     PointEstimateTask,
     PosteriorTask,
+    PredictiveTask,
     new_task_meta,
 )
 from bayesmith.diagnose.map import map_estimate
@@ -515,3 +520,88 @@ def test_a_mixed_graph_still_sweeps_through_the_old_path():
         graph, point_task(estimand=Estimand.POSTERIOR_MEAN), model_ref=model_ref()
     )
     assert isinstance(refusal, Refusal)
+
+
+# ------------------------------------------------------------- predictive seam
+
+
+def _correlated_graph(size=8, weight=2.0, decay=0.4):
+    """A graph whose observed node declares correlated (CirculantNormal) noise."""
+    lag = np.minimum(np.arange(size), size - np.arange(size))
+    kernel = jnp.asarray(1.0 * decay**lag + 0.5)
+    x = jnp.linspace(1.0, 4.0, size)
+    data = weight * x
+
+    def model():
+        xs = const("X", x)
+        w = sample("w", lambda: dist.Normal(0.0, 5.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe("d", lambda m: dist.CirculantNormal(m, kernel), mu,
+                depends_on_prediction=False, obs=data)
+
+    return trace(model)
+
+
+def _source_ref(source):
+    return ArtifactRef(
+        artifact_id=source.meta.artifact_id,
+        revision=source.meta.revision,
+        artifact_type=ArtifactKind.RESULT,
+    )
+
+
+def _predictive_task(source, **overrides):
+    fields = {
+        "meta": new_task_meta(label="ppc"),
+        "source_posterior_ref": _source_ref(source),
+        "conditioned_sites": ("d",),
+        "replicated_sites": ("d",),
+        "latent_sites": ("w",),
+    }
+    fields.update(overrides)
+    return PredictiveTask(**fields)
+
+
+def test_a_predictive_task_executes_into_a_predictive_result():
+    graph = straight_line()
+    posterior = execute_task(planned_for(graph, posterior_task()), key=jax.random.key(2))
+    task = _predictive_task(posterior)
+    planned = planned_for(graph, task)
+    result = execute_task(planned, key=jax.random.key(3), source_posterior=posterior)
+
+    assert isinstance(result, PredictiveResult)
+    assert result.source_posterior_ref == task.source_posterior_ref
+    latent = {array.name: array for array in result.latent_draws}
+    replicated = {array.name: array for array in result.replicated_draws}
+    assert set(latent) == {"w"}
+    assert set(replicated) == {"d"}
+    assert latent["w"].value.shape[0] == replicated["d"].value.shape[0] == 8
+    observed = np.asarray(graph.node("d").observed)
+    assert not bool(np.any(replicated["d"].value == observed))
+    assert result.pointwise_log_density is not None
+    assert result.pointwise_log_density.value.shape[0] == 8
+
+
+def test_a_predictive_task_refuses_a_mismatched_source_posterior():
+    posterior = execute_task(
+        planned_for(straight_line(), posterior_task()), key=jax.random.key(2)
+    )
+    other = straight_line(weight=3.0)  # same structure, different data
+    planned = planned_for(other, _predictive_task(posterior))
+    result = execute_task(planned, key=jax.random.key(3), source_posterior=posterior)
+
+    assert isinstance(result, Refusal)
+    assert result.failed_premise == "posterior_data_mismatch"
+    assert result.grounds and result.remedies
+
+
+def test_a_predictive_task_refuses_a_correlated_observation():
+    graph = _correlated_graph()
+    posterior = execute_task(planned_for(graph, posterior_task()), key=jax.random.key(2))
+    planned = planned_for(graph, _predictive_task(posterior))
+    result = execute_task(planned, key=jax.random.key(3), source_posterior=posterior)
+
+    assert isinstance(result, Refusal)
+    assert result.failed_premise == "predictive_noise_unsupported"
+    assert result.grounds and result.remedies
+

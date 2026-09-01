@@ -108,6 +108,7 @@ from bayesmith.artifacts.results import (
     DrawsPosterior,
     PointEstimateResult,
     PosteriorResult,
+    PredictiveResult,
     Result,
     WeightedDrawsPosterior,
 )
@@ -123,6 +124,11 @@ from bayesmith.diagnose.map import MapEstimate, NotApplicable, map_estimate
 from bayesmith.dispatch.execute import Posterior, _refuse_unless_whole_graph_exact
 from bayesmith.dispatch.plan import Block, InferencePlan, kappa_upper
 from bayesmith.dispatch.plan import compile as compile_plan
+from bayesmith.dispatch.predictive import (
+    _dims,
+    pointwise_log_likelihood,
+    replicated_draws,
+)
 from bayesmith.errors import NotGaussian, NotLogLinear
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
@@ -158,11 +164,12 @@ PRODUCER = ProducerRef(package="bayesmith", version=__version__)
 #: honouring it silently, which is what a field nobody reads amounts to.
 SUPPORTED_BACKENDS: frozenset[str] = frozenset({"auto"})
 
-#: The two of §0 ruling 1's five questions R1 answers. The other three are
-#: refused with :data:`~bayesmith.artifacts.refusal.CAPABILITY_UNAVAILABLE_R1`,
-#: which is a verdict a caller can branch on rather than a NotImplementedError.
+#: The three of §0 ruling 1's five questions this release answers. The other
+#: two (evidence and simulation) are refused with
+#: :data:`~bayesmith.artifacts.refusal.CAPABILITY_UNAVAILABLE_R1`, which is a
+#: verdict a caller can branch on rather than a NotImplementedError.
 SUPPORTED_TASK_KINDS: frozenset[TaskKind] = frozenset(
-    {TaskKind.POSTERIOR, TaskKind.POINT_ESTIMATE}
+    {TaskKind.POSTERIOR, TaskKind.POINT_ESTIMATE, TaskKind.PREDICTIVE}
 )
 
 #: The MAP seams, named so a task can choose one. ``"newton"`` is
@@ -528,6 +535,24 @@ _REMEDIES: dict[str, tuple[Remedy, ...]] = {
             "estimate. Evaluate it directly.",
         ),
     ),
+    "posterior_data_mismatch": (
+        Remedy(
+            action="run_the_source_posterior_on_the_same_data",
+            message="A predictive task may only reuse a posterior drawn from the "
+            "same model, graph and conditioning data. Run the posterior task "
+            "against the same graph this predictive task names, then reference "
+            "that result.",
+        ),
+    ),
+    "predictive_noise_unsupported": (
+        Remedy(
+            action="use_a_diagonal_gaussian_observation",
+            message="R2 generates predictive draws only for a diagonal-Gaussian "
+            "observed node. A correlated or non-Gaussian observation has no "
+            "per-sample loc/scale for this seam to draw from; keep the observed "
+            "node diagonal Gaussian, or ask a later release.",
+        ),
+    ),
 }
 
 
@@ -692,11 +717,13 @@ def _map_method(task: Task) -> Any:
 def _known_options(task: Task, kind: TaskKind) -> frozenset[str]:
     if kind is TaskKind.POSTERIOR:
         return _POSTERIOR_OPTIONS
+    if kind is TaskKind.PREDICTIVE:
+        return frozenset()
     return _MAP_OPTIONS if task.estimand is Estimand.MAP else _POSTERIOR_MEAN_OPTIONS
 
 
 def _given_options(task: Task, kind: TaskKind) -> tuple[tuple[str, Any], ...]:
-    if kind is TaskKind.POSTERIOR:
+    if kind in (TaskKind.POSTERIOR, TaskKind.PREDICTIVE):
         return task.backend_options
     return task.optimizer_options
 
@@ -1015,13 +1042,14 @@ def _block_approximation(task: Task, method: str) -> ApproximationRecord | None:
     optimiser this plan's blocks do not schedule, so the block says nothing
     about it and the run record answers for it instead.
     """
-    if task_kind(task) is TaskKind.POSTERIOR:
+    kind = task_kind(task)
+    if kind is TaskKind.POSTERIOR:
         return ApproximationRecord(
             representation_class=ApproximationClass.MONTE_CARLO,
             target_fidelity=TargetFidelity.EXACT,
             details=(("method", method),),
         )
-    if task.estimand is Estimand.POSTERIOR_MEAN:
+    if kind is TaskKind.POINT_ESTIMATE and task.estimand is Estimand.POSTERIOR_MEAN:
         return ApproximationRecord(
             representation_class=ApproximationClass.CERTIFIED_DETERMINISTIC,
             target_fidelity=TargetFidelity.EXACT,
@@ -1193,29 +1221,6 @@ def compile_task(
     )
 
 # --------------------------------------------------------------- execute_task
-
-
-def _dims(graph: Graph, name: str, value: Any, *, draw: bool) -> tuple[str, ...]:
-    """One name per axis: the draw axis, the node's plate, then its own shape.
-
-    A plate has a NAME the model declared, so a plated latent's second axis is
-    called what the model calls it rather than ``dim0``. Axes the graph has no
-    name for get one derived from the site, which is a label rather than a
-    claim -- :class:`~bayesmith.artifacts.base.NamedArray` requires one name per
-    axis, and an empty string is not a name.
-    """
-    remaining = int(np.ndim(value))
-    names: list[str] = []
-    if draw:
-        names.append("draw")
-        remaining -= 1
-    for plate in graph.node(name).plate:
-        if remaining <= 0:
-            break
-        names.append(plate)
-        remaining -= 1
-    names.extend(f"{name}_dim{index}" for index in range(max(remaining, 0)))
-    return tuple(names)
 
 
 def _named(graph: Graph, name: str, value: Any, *, draw: bool) -> NamedArray:
@@ -1758,8 +1763,193 @@ def _run_map(planned: PlannedTask) -> Result | Refusal:
     )
 
 
+def _observation_unit(graph: Graph) -> str | None:
+    """The observation-unit declaration: which observed nodes these are."""
+    return ", ".join(graph.observed) if graph.observed else None
+
+
+def _grouping(graph: Graph) -> str | None:
+    """The plate/group name shared by the observed nodes, or ``None``."""
+    plates: set[str] = set()
+    for name in graph.observed:
+        plates.update(graph.node(name).plate)
+    return next(iter(plates)) if len(plates) == 1 else None
+
+
+def _run_predictive(
+    planned: PlannedTask,
+    key: jax.Array | None,
+    source_posterior: PosteriorResult | None,
+) -> Result | Refusal:
+    """Push a source posterior's draws onto the graph's observations (§0.1).
+
+    The source posterior is the caller's to supply -- there is no artifact store
+    here -- so its id and revision are checked against the task's reference
+    first, and its data/graph/model fingerprints against this task's own (§0.6)
+    before any number is generated.  A correlated or non-Gaussian observed node
+    raises :class:`~bayesmith.errors.NotGaussian` out of the primitives, which is
+    adapted into the typed :data:`predictive_noise_unsupported` Refusal rather
+    than a silent approximation.
+    """
+    task = planned.task
+    if key is None:
+        raise TypeError(
+            "a predictive run needs a PRNG key: execute_task(planned, key=..., "
+            "source_posterior=...). Minting one here would make the run "
+            "irreproducible while looking exactly like one that was seeded."
+        )
+    if source_posterior is None:
+        raise TypeError(
+            "a predictive task names a source posterior and this release has no "
+            "artifact store to load one from; pass it as source_posterior=..."
+        )
+    _check(source_posterior, PosteriorResult, "execute_task's source_posterior")
+
+    reference = task.source_posterior_ref
+    if (
+        source_posterior.meta.artifact_id != reference.artifact_id
+        or source_posterior.meta.revision != reference.revision
+    ):
+        raise TypeError(
+            "the supplied source posterior is not the version the task's "
+            "source_posterior_ref names; pass the posterior that reference "
+            "points at rather than another one"
+        )
+
+    expected = planned.record.meta.fingerprints
+    source = source_posterior.meta.fingerprints
+    mismatched = tuple(
+        kind.value
+        for kind, left, right in (
+            (FingerprintKind.DATA, source.data, expected.data),
+            (
+                FingerprintKind.GRAPH_STRUCTURE,
+                source.graph_structure,
+                expected.graph_structure,
+            ),
+            (FingerprintKind.MODEL_SOURCE, source.model_source, expected.model_source),
+        )
+        if left != right
+    )
+    if mismatched:
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.RESULT,
+            fingerprints=expected,
+            failed_premise="posterior_data_mismatch",
+            grounds=(
+                Finding(
+                    code="posterior_data_mismatch",
+                    message="the source posterior was drawn from a different "
+                    "model, graph or conditioning data than this predictive task "
+                    "names, so its draws cannot be pushed forward against this "
+                    "graph",
+                    observed=mismatched,
+                    expected=("data", "graph_structure", "model_source"),
+                ),
+            ),
+            scope=_scope(ScopeKind.DATA, "source_posterior"),
+            summary=f"source posterior fingerprints disagree on {list(mismatched)}",
+        )
+
+    representation = source_posterior.representation
+    if not isinstance(representation, (DrawsPosterior, WeightedDrawsPosterior)):
+        raise TypeError(
+            "a predictive task needs a source posterior that holds draws; this "
+            f"one is a {type(representation).__name__}"
+        )
+
+    graph = planned.runtime_plan.graph
+    unknown = tuple(name for name in task.replicated_sites if name not in graph.observed)
+    if unknown:
+        raise TypeError(
+            f"replicated_sites names {list(unknown)}, which are not observed "
+            f"nodes of this graph; its observed nodes are {list(graph.observed)}"
+        )
+
+    latent_values = {array.name: array.value for array in representation.draws}
+    draw_count = len(representation.draws[0].value) if representation.draws else 0
+
+    started = utc_timestamp()
+    clock = time.perf_counter()
+    try:
+        replicated = replicated_draws(graph, latent_values, key)
+        pointwise = pointwise_log_likelihood(graph, latent_values)
+    except NotGaussian as exc:
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.RESULT,
+            fingerprints=expected,
+            failed_premise="predictive_noise_unsupported",
+            grounds=(
+                Finding(
+                    code=f"not_gaussian.{exc.reason}",
+                    message=str(exc),
+                    observed=exc.found,
+                    expected="diagonal_normal",
+                ),
+            ),
+            scope=(
+                node_scope(exc.node)
+                if exc.node
+                else _scope(ScopeKind.MODEL, "predictive")
+            ),
+            summary="predictive generation needs a diagonal-Gaussian observation",
+        )
+    elapsed = time.perf_counter() - clock
+    finished = utc_timestamp()
+
+    replicated_named = tuple(
+        _named(graph, name, replicated[name], draw=True)
+        for name in task.replicated_sites
+    )
+    carried = tuple(
+        array for array in representation.draws if array.name in set(task.latent_sites)
+    )
+
+    chained = source_posterior.run.backend.name == "numpyro"
+    run = _run_record(
+        planned,
+        key=key,
+        values=list(replicated.values()),
+        budget=ComputeBudget(draws=draw_count),
+        termination=TerminationRecord(
+            reason=TerminationReason.COMPLETED,
+            message="replicated draws generated from the source posterior's draws",
+        ),
+        timing=_timing(started, finished, elapsed),
+        approximation=ApproximationRecord(
+            representation_class=ApproximationClass.MONTE_CARLO,
+            target_fidelity=TargetFidelity.EXACT,
+            details=(
+                ("method", representation.method),
+                ("requested_backend", task.backend),
+            ),
+        ),
+        warnings=(),
+        chained=chained,
+    )
+    return PredictiveResult(
+        meta=_result_meta(planned, run, "posterior predictive of the observations"),
+        run=run,
+        source_posterior_ref=task.source_posterior_ref,
+        conditioning_data=task.conditioning_data,
+        prediction_design=task.prediction_design,
+        conditioned_sites=task.conditioned_sites,
+        latent_draws=carried,
+        replicated_draws=replicated_named,
+        pointwise_log_density=pointwise,
+        observation_unit=_observation_unit(graph),
+        grouping=_grouping(graph),
+        report_refs=(),
+    )
+
+
 def execute_task(
-    planned: PlannedTask, *, key: jax.Array | None = None
+    planned: PlannedTask,
+    *,
+    key: jax.Array | None = None,
+    source_posterior: PosteriorResult | None = None,
 ) -> Result | Refusal:
     """Run a compiled task and project what came back into a Result.
 
@@ -1770,13 +1960,18 @@ def execute_task(
 
     Args:
         planned: what :func:`compile_task` produced.
-        key: the PRNG key a posterior run draws from. Required there, and
-            unused by a point estimate -- which splits nothing, so its run
-            record carries no seed rather than one it never consumed.
+        key: the PRNG key a posterior or predictive run draws from. Required
+            there, and unused by a point estimate -- which splits nothing, so
+            its run record carries no seed rather than one it never consumed.
+        source_posterior: the :class:`~bayesmith.artifacts.results.PosteriorResult`
+            a predictive task pushes forward. Required for a predictive task,
+            where its id/revision and its data/graph/model fingerprints are
+            checked against the task's before anything is generated.
 
     Returns:
-        A :class:`~bayesmith.artifacts.results.PosteriorResult` or
-        :class:`~bayesmith.artifacts.results.PointEstimateResult`, or a
+        A :class:`~bayesmith.artifacts.results.PosteriorResult`,
+        :class:`~bayesmith.artifacts.results.PointEstimateResult` or
+        :class:`~bayesmith.artifacts.results.PredictiveResult`, or a
         :class:`~bayesmith.artifacts.refusal.Refusal` where the method turned
         out not to apply. A genuine execution failure --
         :class:`~bayesmith.errors.ConvergenceError` above all -- is raised, not
@@ -1791,6 +1986,8 @@ def execute_task(
         if planned.task.estimand is Estimand.POSTERIOR_MEAN:
             return _run_posterior_mean(planned)
         return _run_map(planned)
+    if kind is TaskKind.PREDICTIVE:
+        return _run_predictive(planned, key, source_posterior)
     # compile_task never produces one of these; a PlannedTask assembled by
     # hand gets the same verdict rather than an execution that half-works.
     return _capability_refusal(
