@@ -299,14 +299,32 @@ class Conclusion(StrEnum):
     ABSTAIN = "abstain"
 
 
+#: §0.6's legal pairs, and the whole of the two-axis ruling in one table.
+#: Only an APPLICABLE check may PASS or FAIL: a check that did not apply, or
+#: could not be run, has concluded nothing about the subject, and a PASS from
+#: one would be counted by :func:``bayesmith.artifacts.gates.aggregate_gate`` as
+#: a check that was made. The other direction is the same statement: ABSTAIN is
+#: available to all three, because "applicable but undecided" is a real
+#: outcome.
+_LEGAL_PAIRS = frozenset(
+    {
+        (Applicability.APPLICABLE, Conclusion.PASS),
+        (Applicability.APPLICABLE, Conclusion.FAIL),
+        (Applicability.APPLICABLE, Conclusion.ABSTAIN),
+        (Applicability.INAPPLICABLE, Conclusion.ABSTAIN),
+        (Applicability.UNVERIFIABLE, Conclusion.ABSTAIN),
+    }
+)
+
+
 @register_artifact_type
 @dataclasses.dataclass(frozen=True, slots=True)
 class EvaluationReport:
     """One check's judgement of one result, on the two axes of §0 ruling 7.
 
-    Task 4 freezes the shape. Which pairs of ``applicability`` and
-    ``conclusion`` are legal is decided in :mod:``bayesmith.artifacts.gates``,
-    beside the aggregation that consumes them.
+    The legal combinations are refused HERE, where the report is built, rather
+    than where a gate reads it: an inapplicable check reporting PASS has passed
+    nothing, and an aggregator handed one would count it faithfully.
     """
 
     meta: ArtifactMeta
@@ -329,4 +347,10 @@ class EvaluationReport:
         _code("an evaluation report's report_kind", self.report_kind)
         _member("applicability", self.applicability, Applicability)
         _member("conclusion", self.conclusion, Conclusion)
+        if (self.applicability, self.conclusion) not in _LEGAL_PAIRS:
+            raise ValueError(
+                f"an {self.applicability.value} check cannot conclude "
+                f"{self.conclusion.value}; only an applicable check reaches a "
+                "pass or a fail, and the other two abstain"
+            )
         _tuple_of("an evaluation report's findings", self.findings, Finding)
