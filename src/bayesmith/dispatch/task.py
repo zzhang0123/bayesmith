@@ -57,6 +57,7 @@ import math
 import platform
 import time
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 import jax
@@ -101,6 +102,9 @@ from bayesmith.artifacts.refusal import (
 from bayesmith.artifacts.reports import (
     AnalysisFinding,
     AnalysisReport,
+    Applicability,
+    Conclusion,
+    EvaluationReport,
     InferencePlanRecord,
     PlanBlockRecord,
 )
@@ -122,7 +126,11 @@ from bayesmith.artifacts.tasks import (
 )
 from bayesmith.diagnose.coupling import Refused
 from bayesmith.diagnose.map import MapEstimate, NotApplicable, map_estimate
-from bayesmith.dispatch.execute import Posterior, _refuse_unless_whole_graph_exact
+from bayesmith.dispatch.execute import (
+    Posterior,
+    SiteDiagnostic,
+    _refuse_unless_whole_graph_exact,
+)
 from bayesmith.dispatch.plan import Block, InferencePlan, kappa_upper
 from bayesmith.dispatch.plan import compile as compile_plan
 from bayesmith.dispatch.predictive import (
@@ -1517,6 +1525,63 @@ def _result_meta(planned: PlannedTask, run: RunRecord, summary: str):
     )
 
 
+def _chain_diagnostics_report(
+    diagnostics: Mapping[str, SiteDiagnostic],
+    *,
+    subject_ref: ArtifactRef,
+    fingerprints: FingerprintBundle,
+) -> EvaluationReport:
+    """The per-site chain diagnostics, projected into one evaluation report.
+
+    This does NOT re-judge convergence: the verdict already lives in each
+    SiteDiagnostic, and this function only projects it into a serialisable
+    EvaluationReport. Re-deriving it here would make the verdict answer to two
+    callers -- the one that measured it and the one that filed it -- which is
+    the defect this package has spent the most time repairing.
+
+    One Finding per site. The six values a consumer needs to audit the verdict
+    are all carried:
+
+    * message is the site reason, or "converged" where that is empty (a
+      converged site has no reason, and Finding.message may not be empty).
+    * observed is the 6-tuple (name, r_hat, ess, ceiling, worst, converged):
+      the site name, the measured pair and ceiling, the deciding coordinate,
+      and the stored verdict. worst is itself a tuple, so a scalar site
+      empty coordinate survives the codec unchanged.
+    * expected is True: the premise a convergence check requires.
+    """
+    findings = tuple(
+        Finding(
+            code="chain_diagnostics",
+            message=site.reason or "converged",
+            observed=(
+                name,
+                site.r_hat,
+                site.ess,
+                site.ceiling,
+                tuple(site.worst),
+                site.converged,
+            ),
+            expected=True,
+        )
+        for name, site in diagnostics.items()
+    )
+    converged = all(site.converged for site in diagnostics.values())
+    return EvaluationReport(
+        meta=new_artifact_meta(
+            artifact_type=ArtifactKind.EVALUATION_REPORT,
+            fingerprints=fingerprints,
+            producer=PRODUCER,
+            parent_refs=(subject_ref,),
+            summary="split r-hat and ESS, one finding per sampled site",
+        ),
+        subject_ref=subject_ref,
+        report_kind="chain_diagnostics",
+        applicability=Applicability.APPLICABLE,
+        conclusion=Conclusion.PASS if converged else Conclusion.FAIL,
+        findings=findings,
+    )
+
 def _timing(started: str, finished: str, elapsed: float) -> TimingRecord:
     return TimingRecord(
         started_at=started, finished_at=finished, wall_clock_seconds=elapsed
@@ -1617,14 +1682,31 @@ def _run_posterior(planned: PlannedTask, key: jax.Array | None) -> Result:
         warnings=_sample_warnings(task, runtime, posterior, chained, termination),
         chained=chained,
     )
+    meta = _result_meta(planned, run, posterior.reason)
+    report_refs = ()
+    if posterior.diagnostics:
+        subject_ref = _ref(meta.artifact_id, meta.revision, ArtifactKind.RESULT)
+        report = _chain_diagnostics_report(
+            posterior.diagnostics,
+            subject_ref=subject_ref,
+            fingerprints=run.fingerprints,
+        )
+        report_refs = (
+            _ref(
+                report.meta.artifact_id,
+                report.meta.revision,
+                ArtifactKind.EVALUATION_REPORT,
+            ),
+        )
     return PosteriorResult(
-        meta=_result_meta(planned, run, posterior.reason),
+        meta=meta,
         run=run,
         representation=representation,
         latent_names=names,
         log_density_availability=availability,
         pointwise_log_likelihood=pointwise,
         predictive_ready=predictive_ready,
+        report_refs=report_refs,
     )
 
 
