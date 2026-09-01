@@ -1,6 +1,8 @@
 # R1 Task、artifact 与 provenance 执行计划
 
-> **文档状态：`plan-active`** · 尚未执行完的计划，仍指导后续工作。索引见 docs/README.md。
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+>
+> R1 已 closed，证据见 `../specs/2026-08-30-r1-close-out.md`；本文保留为协议冻结的完整出处。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
