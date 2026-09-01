@@ -39,6 +39,12 @@ dev = [
     "pytest-xdist",
     "hypothesis",
     "ruff",
+    # Optional ArviZ export seam (R2 Task 6), dev-only: the package never
+    # imports it at runtime, but tests/bridge/test_arviz_export.py needs it to
+    # RUN rather than importorskip. Kept out of [project].dependencies for the
+    # same reason rheplicant stays out of dev -- a test-only weight no runtime
+    # consumer should pay.
+    "arviz",
 ]
 # The cross-check harness, and the only place rheplicant is ever named. It is a
 # LOCAL PATH dependency, it is not in the wheel, and it is not in `dev` -- so a
