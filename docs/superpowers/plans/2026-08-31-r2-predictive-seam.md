@@ -1,6 +1,8 @@
 # R2 执行计划：完整 posterior 与 predictive seam
 
-> **文档状态：`plan-active`** · 尚未执行完的计划，仍指导后续工作。索引见 docs/README.md。
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+>
+> R2 已 closed，证据见 `../specs/2026-08-31-r2-close-out.md`；本文保留为 §0 九条冻结裁决（conditioning vs replicated、observation unit、ESTIMATOR 唯一 schema 例外等）的完整出处。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. **本计划只写到计划为止，任何 task 都要等 owner 过目后再在单独的执行 session 里开跑。**
 
