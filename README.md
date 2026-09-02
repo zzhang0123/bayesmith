@@ -109,15 +109,30 @@ The full protocol -- the five-in/five-out table, fingerprint boundaries, the
 invalidation matrix, `Refusal.grounds` and the gate truth table -- is
 documented in [`docs/artifacts.md`](docs/artifacts.md).
 
+Since 0.7.0 the `PredictiveTask` executes as well (R2): `execute_task(planned,
+key=..., source_posterior=...)` pushes a `PosteriorResult`'s draws onto the
+observed nodes and returns a `PredictiveResult` whose replicated draws and
+pointwise log-likelihood come from one loc/scale read, so an observed-data
+replay is never mistaken for a posterior predictive. A source posterior drawn
+under different data, graph or model is refused as `posterior_data_mismatch`;
+a correlated or non-Gaussian observed node is refused as
+`predictive_noise_unsupported`. `EvidenceTask` and `SimulationTask` still
+return the typed `capability_unavailable_r1` refusal. An optional, export-only
+ArviZ seam lives in `bayesmith.bridge.arviz`.
+
 ## Status
 
-**0.6.2.** Published so other packages can depend on it by name. rheplicant
+**0.7.0.** What other packages can depend on by name is whatever
+`pypi.org/simple/bayesmith/` lists, and that index is the place to ask rather
+than this line: 0.6.0, 0.6.1 and 0.6.2 were each tagged and never reached it,
+every one failing its own built-wheel test (see `CHANGELOG.md`), so the index
+carried 0.5.0 as its newest release from 2026-08-28 until 0.7.0. rheplicant
 uses bayesmith across its production inference layer: its auto-partition and
 log-space seams import `dispatch.factor.first_fit` and `exact.loglinear`; its
 adapter presents a pipeline as a `Graph`, reads `AffinityRefused`'s payload and
 declares complex latents with `ComplexNormal`; and its diagnostics delegate to
 `diagnose.identifiability`, `diagnose.sensitivity` and `diagnose.local`. It pins
-`bayesmith>=0.4`. The consumer contract is guarded by running rheplicant's own
+`bayesmith>=0.5`. The consumer contract is guarded by running rheplicant's own
 inference and seam suites against the candidate bayesmith checkout, not by a
 hard-coded count of importing modules.
 

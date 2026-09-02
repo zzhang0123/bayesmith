@@ -2,7 +2,169 @@
 
 ## Unreleased
 
-## 0.6.2 -- 2026-08-30
+## 0.7.0 -- 2026-09-02
+
+**0.6.2 was tagged and never published either.** Its built-wheel test failed
+the way 0.6.1's had, plus one more: the README still said 1560 tests where the
+collection found 1684, and `tests/diagnose/test_map.py` asserted a stationarity
+residual under `5e-8` that the unpinned publish environment measured at
+`5.8e-8`. Both were repaired on `main` within the day -- the MAP verdict is
+scale aware now, the count was rewritten by the next batch that touched the
+README -- and no tag followed. So the index has carried 0.5.0 as its newest
+release since 2026-08-28, while this file's 0.6.2 entry and the README's
+"published so other packages can depend on it by name" said otherwise. Both
+are corrected here rather than rewritten in place. The three 0.6.x tags stay
+where they are, for the reason 0.6.1's entry gives; nothing can depend on them.
+CLAUDE.md's rule applies to this file too: ask `/simple/`, not a changelog.
+
+The minor slot, for the same reason 0.3.0 through 0.6.0 took it: four of the
+fixes below CHANGE VALUES a caller could have been reading. A campaign fold
+that used to return a constant now refuses; a determinant-lemma rung that used
+to refuse now answers; a Newton rung that used to label a wrong number "exact"
+now refuses; and a MAP verdict that used to flip under a unit change no longer
+does. Everything else is additive: the R1 artifact protocol, the R2 predictive
+seam, the cost scoreboard, the collapse arm and the pilot.
+
+### Added
+
+**The typed task workflow (R1).** `bayesmith.artifacts` is a pure-data leaf
+layer -- no JAX, NumPyro, Equinox or Graph import, held by a subprocess test --
+holding five Tasks, five Results in a one-to-one mapping, four posterior
+representations, a structured `Refusal` whose machine field is `grounds`
+(never `evidence`, which is the name of a number here), analysis and plan
+records, two-axis `EvaluationReport`s (applicability and conclusion are
+different questions) and a deterministic gate aggregator whose verdict cannot
+depend on the order the reports arrived in. `bayesmith.compile_task` and
+`bayesmith.execute_task` are the runtime bridge: the legacy `compile()`,
+`sample()`, `estimate()`, `Posterior`, `Estimate` and `fit` are unchanged, and
+the typed entry points wrap them, pinned field by field at `rtol=0`. Artifacts
+persist through `dump_artifact` / `load_artifact` as a canonical JSON envelope
+with a payload digest -- not pickle -- and a seven-slot fingerprint bundle
+drives an invalidation matrix that APPENDS an invalidated revision rather than
+rewriting the one it retires. `docs/artifacts.md` is the protocol page.
+
+**The predictive seam (R2).** `PredictiveTask` executes. `dispatch.predictive`
+pushes a source posterior's draws onto the observed nodes through ONE loc/scale
+read (`exact.gaussian.observation_parts`), so replay -- `log_prob(observed)`,
+the pointwise log-likelihood, the conditioning half -- and replicate --
+`sample` -- differ only by which method is called, and an observed-data replay
+cannot be mistaken for a posterior predictive. `PosteriorResult` now records
+`pointwise_log_likelihood` with an auditable observation unit (draw axis
+leading, a plated node's axis named what the model named it) and
+`predictive_ready`. A source posterior drawn under different data, graph or
+model is refused as `posterior_data_mismatch`; a correlated or non-Gaussian
+observed node is refused as `predictive_noise_unsupported` rather than
+approximated, and the posterior it came from abstains from a pointwise density
+rather than fabricating one. The multi-chain diagnostics `chain_diagnostics`
+already computed -- per-site split r-hat, ESS, its ceiling and the deciding
+coordinate -- are projected, not re-judged, into an `EvaluationReport` that a
+chained `PosteriorResult` references; the iid routes reference none, because
+r-hat has no referent there.
+
+**`bayesmith.bridge.arviz.to_inference_data`**, an export-only seam behind an
+optional dependency: `posterior`, `posterior_predictive`, `log_likelihood` and
+`observed_data` groups, with the chain/draw split and the plate axes intact.
+Importing the module does not import arviz, and `arviz` is in the dev group
+only -- the package never imports it at runtime.
+
+**The amortized posterior is a `FittedConditionalPosterior`.** A trained
+`NeuralPosterior` is encoded by `dispatch.amortized` as a REFERENCE to an
+artifact of the new kind `ArtifactKind.ESTIMATOR` -- an opaque equinox leaf
+blob plus a static manifest -- never as a callable inside an artifact, and it
+decodes to an estimator that samples identically. That kind is the one schema
+addition R2 made to R1's frozen protocol, and its invalidation row is the same
+five slots as a Result's: over-conservative on the compilation slot, on
+purpose.
+
+**A read-only cost scoreboard, a collapse arm and a pilot (P5-P7).**
+`compile(strategy="cost")` measures block coupling and appends the
+split / collapse / joint cost expressions to `str(plan)` without changing any
+routing, and an abstained plan prints byte-identically. `InferencePlan.sample(
+collapse=True)` integrates the exact block out of the NUTS target and regresses
+it back, its marginal log-likelihood checked at `1.8e-14` against a dense
+`slogdet` oracle, with the two traced guards raising rather than returning a
+finite plausible number for an unconstrained block. `Posterior.cost`
+reconciles the predicted seconds-per-effective-sample interval against the
+measured one and names which of the prediction's own terms dominated a miss;
+it is `None` on every declared plan, because a ledger row against no prediction
+is a measurement pretending to be a reconciliation. `dispatch.pilot` can veto
+a sampler switch on a funnel-shaped posterior and can never order one --
+measured on Neal's funnel, 20 of 20 draws veto and 0 of 20 Gaussian controls
+do. The thresholds D93 through D103 are registered with two-sided boundary
+cells, and the count of magic ones is zero.
+
+**Numerical gates are an inventory.** Every numerical decision in the logdet
+ladder, the MAP seam, graph reduction and the three new dispatch arms -- 107
+gates -- is registered in `tests/numerical_gates/registry.py` with a
+line-independent source identity, an independent oracle, boundary cells on
+both sides of its threshold and a tighten and a loosen mutation that each turn
+a frozen witness cell red. The suite is split into a fast layer
+(`-m "not full"`, the pre-commit habit) and a nightly full layer; a meta-test
+fails if any registered gate loses its fast-layer cell.
+
+### Fixed
+
+**`marginal.factorize` and `compress_campaign` refuse a campaign fold whose map
+is not jointly affine.** THIS CHANGES VALUES. The fold built its design as one
+Jacobian at zeros and nothing ever asked whether the map it linearised was
+affine, though the module's own docstring had said for months that
+`check_linearity` is what settles it. Measured on `mu = g * n` -- affine in
+each latent GIVEN the other, in neither jointly -- through the public
+`compress_campaign`: the leakage probe read `0.0`, every epoch's design came
+back `[[0.0]]`, and `log_prob({"g": x})` was bitwise identical at `x = -2.0`,
+`0.0` and `+2.0`. A sufficient statistic carrying no information about the
+data, reported as a finite, plausible number. `check_linearity` now runs over
+the survivors and the per-epoch latents BEFORE the leakage probe, and the
+affinity refusal is re-raised as a campaign-specific `StructureError` naming
+the latents. The declared-factorization opt-out still skips both checks, as it
+always did, and a test pins that. Cost: one `check_linearity` call on the fold
+path, about 0.6 s of a 1.5 s cold compile on a four-epoch campaign.
+
+**The determinant-lemma rung no longer mis-refuses a low-rank SPD input whose
+preconditioner is ill conditioned** (F1). The `1/eps` gate on `kappa(Sigma)`
+was applied twice, once in the ladder's lemma payload where it does not belong:
+lemma precision is governed by the factor certificate and `kappa(Lambda)`.
+Both boundary cells are pinned -- `kappa(Sigma) >= 1/eps` with an exact lemma
+is admitted, bad factor evidence is still refused.
+
+**The Newton rung's stability gate is `rho <= 1.0` at every degree.** It read
+`termination <= DEGREE_LIMIT or rho <= 1.0`, so rho was measured and then
+discarded at any termination degree under nine. What that disjunct admitted was
+measured: a log-determinant 22% wrong -- a determinant off by about `4e22` --
+returned under the label "exact", out of a premise that had reported
+satisfied. The ladder is split into eager premises, dispatch, verified plans
+and pure-JAX kernels along the line its own docstring named; the public
+`marginal.logdet` names are unchanged, re-exported from one shim.
+
+**MAP convergence and curvature are scale aware** (F2). The
+`max(abs(lambda_max), 1.0)` curvature floor -- the last magic gate in the
+package -- anchored the relative floor at 1.0 for sub-unit Hessians, so a pure
+unit conversion flipped the verdict; it is deleted, and convergence is scaled
+from the Hessian rather than from the candidate coordinate. Scale invariance is
+pinned from both sides.
+
+### Changed
+
+**Every document declares its authority.** Each page under `docs/` carries one
+machine-readable 文档状态 -- `normative` (exactly one), `module-spec`,
+`decision-home`, `plan-active`, `record` or `superseded` -- `docs/README.md`
+indexes them, and `tests/test_document_status.py` checks the two against each
+other in both directions. `AGENTS.md` is tracked and held byte-identical to
+`CLAUDE.md` by a test, reversing the 2026-08-26 ruling for the reason recorded
+in `.gitignore`. `docs/ownership.md` classifies every shipped module as
+first-party core, thin adapter, reference / upstream candidate or
+compatibility. The README no longer calls the streamed marginal-likelihood
+layer Bayesian evidence, and presents NumPyro as the current general posterior
+backend rather than as the whole boundary.
+
+**`tests/crosscheck/` guards its subjects at symbol level.** After rheplicant
+delegated `marginalise_arrays`'s Schur complement here, the bitwise cross-check
+kept passing for two days with nothing left to compare. `test_provenance.py`
+now asserts, in both directions and by a same-module AST walk, which
+comparison subjects still have their own implementation; the four collapsed
+cases are retired.
+
+## 0.6.2 -- tagged 2026-08-30, never published
 
 **0.6.1 was tagged and never published either**, and for a third reason
 unrelated to the first two: its wheel test found the README's test count stale.
