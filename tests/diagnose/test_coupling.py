@@ -299,12 +299,37 @@ def test_roundoff_perfect_correlation_is_refused_when_conditioning_is_infinite()
 
 
 def test_a_reachable_infinite_floor_names_the_nonfinite_arithmetic():
-    base = np.random.default_rng(18).normal(size=(7, 2))
-    rank_deficient = np.column_stack((base, base[:, 0] + base[:, 1]))
+    # The redundant latent is axis-aligned on purpose -- its design column is
+    # exactly zero -- so the redundancy is paid in the exponent rather than in
+    # the last bits.  Measured 2026-09-02 on macOS/Accelerate and
+    # Linux/OpenBLAS: `first`'s posterior precision is the same 64 bits on
+    # both, an exactly decoupled 1e-300 beside a 2x2 block of size 1.6e13.
+    # eigvalsh deflates at the exact zeros and returns 1e-300 exactly on both
+    # platforms, so on both `_condition_number` reaches inf through
+    # 1.6e13 / 1e-300 overflowing the divide rather than through its
+    # `smallest <= 0` sentinel.  Nothing here HOLDS it to that route, and it
+    # does not need to: either route yields the non-finite floor this test is
+    # about, so a LAPACK that deflated to a small negative instead would still
+    # produce the verdict asserted below.
+    #
+    # The previous fixture spelled the redundancy `col3 = col1 + col2` under a
+    # prior std of 1e8, and that is why it failed on Linux only.  A prior
+    # precision of 1e-16 vanishes when it is added to a Gram of norm 47, so
+    # the matrix reaching Cholesky was the singular Gram itself -- bit for bit
+    # the same on both platforms -- whose third pivot is
+    # -7.105427357601002e-15 under textbook Cholesky on both.  Accelerate's
+    # blocked dpotrf lands that same pivot at +8.08e-16 and returns a factor;
+    # OpenBLAS's raises, and block_coupling turns that into a GraphError.
+    # Which side of zero a rotated null direction falls on is a fact about a
+    # LAPACK, not about the model, so the old fixture was pinning a coin flip.
+    # `_condition_number`'s `smallest <= 0` sentinel keeps its own direct test
+    # in test_condition_number_uses_distinct_sentinels_for_singular_and_nonfinite.
+    measured = 1e6 * np.random.default_rng(18).normal(size=(7, 2))
+    unmeasured = np.zeros((7, 1))
     regular = np.random.default_rng(19).normal(size=(7, 3))
     design = np.block(
         [
-            [rank_deficient, np.zeros((7, 3))],
+            [measured, unmeasured, np.zeros((7, 3))],
             [np.zeros((7, 3)), regular],
         ]
     )
@@ -312,7 +337,9 @@ def test_a_reachable_infinite_floor_names_the_nonfinite_arithmetic():
     def model():
         first = sample(
             "first",
-            lambda: dist.Normal(jnp.zeros(3), jnp.full(3, 1e8)).to_event(1),
+            lambda: dist.Normal(
+                jnp.zeros(3), jnp.array([1e8, 1e8, 1e150])
+            ).to_event(1),
         )
         second = sample(
             "second",
@@ -341,6 +368,10 @@ def test_a_reachable_infinite_floor_names_the_nonfinite_arithmetic():
         at={"first": jnp.zeros(3), "second": jnp.zeros(3)},
     )
 
+    # The premise, asserted rather than assumed: the second block is healthy,
+    # so the non-finite floor is the first block's exponent range and nothing
+    # else.  Measured both platforms 2026-09-02: kappa_cond = 18.4968869338.
+    assert np.isfinite(report.kappa_cond)
     assert np.isinf(report.kappa_joint)
     assert isinstance(report.correlation, Refused)
     assert "whitening noise floor is non-finite" in report.correlation.reason
