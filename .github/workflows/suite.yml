@@ -82,6 +82,18 @@ jobs:
       # suite whose answers depend on these builds, and when a cell moves the
       # first question is "against which BLAS" -- so the log answers it every
       # run rather than only when someone thinks to ask.
+      #
+      # THE CPU IS PART OF THAT ANSWER, and it took a measurement to learn it.
+      # On 2026-09-02 a local linux/amd64 container resolved the same numpy
+      # 2.5.2, scipy 1.18.1, jax 0.11.1 and scipy-openblas 0.3.34.0.0 as this
+      # runner, and still disagreed with it on two cells: a Decimal oracle over
+      # a `left @ left.T` product at condition 3.6e15, and a Vandermonde MAP
+      # residual computed through JAX. OpenBLAS selects kernels at RUNTIME from
+      # the host's instruction set and XLA generates code the same way, so the
+      # container -- QEMU TCG, avx2 only, no AVX-512 -- rounds those two
+      # differently while every library version matches. With the versions
+      # identical the CPU was the only remaining variable, and nothing in the
+      # log said what it was.
       - name: Say what the numerical stack is
         run: |
           .venv/bin/python - <<'PY'
@@ -97,6 +109,10 @@ jobs:
           except Exception as exc:
               print("numpy blas: unavailable --", exc)
           PY
+          echo "cpu      : $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
+          echo "simd     : $(grep -m1 ^flags /proc/cpuinfo | tr ' ' '\n' \
+            | grep -E '^(avx|avx2|avx512[a-z]*|fma|sse4_2)$' | sort -u | tr '\n' ' ')"
+          echo "openblas : ${OPENBLAS_CORETYPE:-runtime-dispatched}"
 
       - name: Run the suite
         env:
