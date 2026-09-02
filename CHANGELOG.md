@@ -2,7 +2,31 @@
 
 ## Unreleased
 
-## 0.7.0 -- 2026-09-02
+## 0.7.0 -- tagged 2026-09-02, never published
+
+**Tagged and never published, like the three before it, and for a new
+reason.** The built-wheel test in `publish.yml` runs on Linux x86_64, and
+every full-suite run this repository had recorded until then was on macOS
+arm64, where the same commit is green (5375 passed, from the built wheel, in
+a fresh unpinned venv). On the runner: 16 failed, 2091 errors. The errors
+share one line: the layout-stress fixture in
+`tests/numerical_gates/boundary_eager.py` asserts that a C-order and an
+F-order matmul of the same 3x3 factors differ in their last bit. They do
+under Apple's Accelerate (measured here: one ULP apart) and they do not under
+OpenBLAS, and the assertion sits inside the module-scoped fixture that builds
+every boundary case, so every test in `test_boundary_cases.py` errors at
+setup. The 16 failures are the same shape by hand: `test_logdet.py`'s
+`test_exact_factor_reconstruction_recognizes_both_blas_layout_origins` asserts
+the identical layout inequality, and the determinant-lemma stability,
+subnormal-scale condition, exact-symmetry, condition-policy, coupling-floor
+and Vandermonde-MAP tests pin roundoff-level values of one machine's
+arithmetic (the Vandermonde residual reads `5.8e-8` on the runner against a
+`5e-8` bound, `2.2e-8` here). No source behaviour is known to be wrong; what is
+wrong is a suite that had only ever run on one platform, and a publish job
+that was the first place it ran on another. The next release waits on a Linux
+run of the suite that is not the publish job, so the repair can be measured
+where it failed. The tag stays where it is, for the reason 0.6.1's entry
+gives.
 
 **0.6.2 was tagged and never published either.** Its built-wheel test failed
 the way 0.6.1's had, plus one more: the README still said 1560 tests where the
