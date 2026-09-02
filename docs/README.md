@@ -103,3 +103,4 @@
 | `docs/superpowers/specs/2026-08-31-p5-costs.md` | `module-spec` | P5 — 只读成本记分板（dispatch/costs.py） |
 | `docs/superpowers/specs/2026-08-31-p6-collapse.md` | `module-spec` | P6 — collapsed target 与 collapse 臂（dispatch/collapse.py） |
 | `docs/superpowers/specs/2026-08-31-p7-pilot-ledger.md` | `module-spec` | P7 — A4 pilot 与对账账本（dispatch/pilot.py、dispatch/costs.py） |
+| `docs/superpowers/specs/2026-08-31-r2-close-out.md` | `record` | R2 close-out — 完整 posterior 与 predictive seam |

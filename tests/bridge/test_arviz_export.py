@@ -24,7 +24,17 @@ from bayesmith.dispatch.task import compile_task, execute_task
 from tests.dispatch.test_task_protocol import model_ref
 from tests.exact.models import bilinear_pair, plated_latent, straight_line
 
-arviz = pytest.importorskip("arviz")
+try:
+    import arviz as _arviz
+except ImportError:  # the wheel venv omits the dev-only arviz extra
+    _arviz = None
+
+#: Skip the export tests at RUN time, not at collection. A module-level
+#: ``pytest.importorskip`` would drop these seven tests from collection when
+#: arviz is absent, shrinking the collection that ``tests/test_readme_count.py``
+#: pins to the README's count -- a partial view read as a shrunken suite. A
+#: class-level ``skipif`` keeps them collected and skips them when they run.
+requires_arviz = pytest.mark.skipif(_arviz is None, reason="arviz is not installed")
 
 BUDGET = ComputeBudget(draws=8, warmup=8, chains=1)
 
@@ -65,6 +75,7 @@ def predictive_task(source, **overrides) -> PredictiveTask:
     return PredictiveTask(**fields)
 
 
+@requires_arviz
 class TestAPosteriorExportsItsLatentsAndLikelihood:
     def test_a_chained_run_splits_the_draw_axis_into_chain_and_draw(self):
         """A NUTS posterior came from a chain, so its draw axis becomes arviz's
@@ -133,6 +144,7 @@ class TestAPosteriorExportsItsLatentsAndLikelihood:
         )
 
 
+@requires_arviz
 class TestAPredictiveExportsItsReplicatedDraws:
     def test_a_predictive_result_exports_posterior_predictive_and_log_likelihood(self):
         graph = straight_line()
