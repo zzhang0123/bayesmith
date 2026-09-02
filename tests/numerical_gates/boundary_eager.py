@@ -269,6 +269,70 @@ _FALSE_NEUTRAL = frozenset(
     }
 )
 
+#: The factors the layout-exactness atom reconstructs from. Module level so
+#: that :data:`LAYOUTS_SEPARATE` can be measured once, and so a test that needs
+#: to know whether this platform exercises the axis can import the same numbers
+#: the atom uses rather than a second copy of them.
+_RECONSTRUCTION_LEFT = np.array(
+    [
+        [-0.024895779915063802, -2.599679359057706e-06, 53864.52227247717],
+        [20766.170605107334, -3.427476755552765, 5.1286725272340755e-06],
+        [-0.00015773049500113667, 1.345493870380258e-08, 6.593835057093625e-07],
+    ]
+)
+_RECONSTRUCTION_RIGHT = np.array(
+    [
+        [-867038.8976499407, -1.4729351079461674, 0.044913211378915706],
+        [-1.7139199408547847e-06, 261216.58902192063, -6142.464524260306],
+        [-0.5285622735918152, -11.076426184894645, -1.665057247153446e-07],
+    ]
+)
+
+
+def _layout_products(left: np.ndarray, right: np.ndarray):
+    """``(canonical, alternate, separated)`` -- two EXACT products of one pair.
+
+    :func:`~bayesmith.marginal._logdet_eager._matching_factor_reconstruction`
+    exists because numpy may select different BLAS kernels for C- and
+    F-contiguous loadings, so byte-identical factors can produce
+    last-bit-different products, both of which are exact algebraic evidence.
+    Whether a given BLAS actually does that is a property of the INSTALLED
+    LIBRARY, not something a fixture may assert.
+
+    Measured 2026-09-02 with numpy 2.5.2 on both sides. Apple's Accelerate
+    separates these factors by one ULP -- and separates the right operand's
+    layout only, ``C@C`` and ``F@C`` being equal. scipy-openblas 0.3.34 returns
+    all four layout products bitwise equal, and separated none of thirty
+    randomly generated shapes either, so the fallback loop that function walks
+    is unreachable there.
+
+    This used to be an assertion, and the assertion was inside the fixture that
+    builds every boundary case, so on OpenBLAS it took 2091 tests down at setup
+    -- discovered in a publish job, after the tag was pushed. Searching and
+    reporting is what it should always have done: when the platform separates
+    the layouts the atom stresses them, and when it does not the atom still
+    reaches the same verdict from the canonical product alone.
+    """
+    left_c, right_c = np.ascontiguousarray(left), np.ascontiguousarray(right)
+    left_f, right_f = np.asfortranarray(left), np.asfortranarray(right)
+    canonical = left_c @ right_c.T
+    for one, other in ((left_f, right_f), (left_c, right_f), (left_f, right_c)):
+        alternate = one @ other.T
+        if not np.array_equal(canonical, alternate):
+            return canonical, alternate, True
+    return canonical, canonical.copy(), False
+
+
+#: Whether THIS platform's BLAS gives the reconstruction factors a last-bit
+#: layout distinction. False means the cross-layout branch of
+#: ``_matching_factor_reconstruction`` cannot be reached here, so a mutation of
+#: it is equivalent rather than surviving -- see
+#: ``tests/numerical_gates/test_boundary_eager_provider.py``.
+LAYOUTS_SEPARATE: bool = _layout_products(
+    _RECONSTRUCTION_LEFT, _RECONSTRUCTION_RIGHT
+)[2]
+
+
 # Reviewed source-control-flow rows for fixtures whose target necessarily
 # changes or skips companion expressions.  Omitted companions retain their
 # ordinary admitted-fixture baseline.  This table is declaration metadata;
@@ -340,6 +404,27 @@ _RELATION_COMPANIONS: dict[
     ("EAGER:frozen-probes:identity-width-order", "type(probes) is not FrozenProbes"): (("vectors.shape[1] != _n(lam)", None), ("order < 0", None)),
     ("EAGER:frozen-probes:identity-width-order", "vectors.shape[1] != _n(lam)"): (("order < 0", None),),
 }
+
+if not LAYOUTS_SEPARATE:
+    # The row above says the canonical comparison must MISS before the loop
+    # that atom lives in is reached. That is a statement about a BLAS which
+    # separates C- and F-order products: the atom supplies the F-order one, the
+    # canonical comparison fails, and the loop runs. Where the BLAS does not
+    # separate them the two products ARE one value, the canonical comparison
+    # succeeds in baseline and mutant alike, and the loop is unreachable -- so
+    # there is no sibling CHANGE to declare, and `validate_atom_relation`
+    # rejects a declared dependency that does not differ from its baseline.
+    # Removing the row is therefore the accurate declaration here, not a
+    # relaxation of one. Measured 2026-09-02, numpy 2.5.2 on both sides: Apple
+    # Accelerate separates these factors by one ULP, scipy-openblas 0.3.34
+    # separates neither them nor any of thirty randomly generated shapes.
+    del _RELATION_COMPANIONS[
+        (
+            "EAGER:factor-reconstruction:layout-exactness",
+            "np.array_equal(reconstructed, value)",
+        )
+    ]
+
 
 
 def _neutral(atom_id: str) -> bool:
@@ -3392,25 +3477,10 @@ def _balance_atom(point: ThresholdPoint, syntax: str) -> RawObservation:
 def _reconstruction_atom(point: ThresholdPoint, syntax: str) -> RawObservation:
     method = "_matching_factor_reconstruction"
     oracle = "explicit exact factor reconstruction"
-    left = np.array(
-        [
-            [-0.024895779915063802, -2.599679359057706e-06, 53864.52227247717],
-            [20766.170605107334, -3.427476755552765, 5.1286725272340755e-06],
-            [-0.00015773049500113667, 1.345493870380258e-08, 6.593835057093625e-07],
-        ]
-    )
-    right = np.array(
-        [
-            [-867038.8976499407, -1.4729351079461674, 0.044913211378915706],
-            [-1.7139199408547847e-06, 261216.58902192063, -6142.464524260306],
-            [-0.5285622735918152, -11.076426184894645, -1.665057247153446e-07],
-        ]
-    )
+    left = _RECONSTRUCTION_LEFT
+    right = _RECONSTRUCTION_RIGHT
     factors = eager.LowRankFactors(left, right)
-    canonical = np.ascontiguousarray(factors.left) @ np.ascontiguousarray(factors.right).T
-    alternate = np.asfortranarray(factors.left) @ np.asfortranarray(factors.right).T
-    if np.array_equal(canonical, alternate):
-        raise AssertionError("layout stress fixture lost its last-bit distinction")
+    canonical, alternate, _separated = _layout_products(factors.left, factors.right)
     value = alternate.copy()
     canonical_atom = "canonical" in syntax
     if not canonical_atom:

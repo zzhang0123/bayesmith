@@ -189,6 +189,22 @@ def test_every_eager_gate_has_explicit_reviewed_witness_roles() -> None:
     ids=lambda spec: f"{spec.direction.value}-{spec.gate_id}",
 )
 def test_eager_witness_kills_exact_live_source_mutation(spec: MutationSpec) -> None:
+    if (
+        spec.gate_id == "EAGER:factor-reconstruction:layout-exactness"
+        and spec.direction is MutationDirection.TIGHTEN
+        and not eager_provider.LAYOUTS_SEPARATE
+    ):
+        pytest.skip(
+            "THIS IS NOT A PASS. This BLAS returns C- and F-order products "
+            "bitwise equal, so the cross-layout branch of "
+            "_matching_factor_reconstruction is unreachable here and tightening "
+            "it to the canonical product alone is an EQUIVALENT mutant, not a "
+            "surviving one. Measured 2026-09-02, numpy 2.5.2 both sides: Apple "
+            "Accelerate separates the fixture's factors by one ULP; "
+            "scipy-openblas 0.3.34 separates neither them nor any of thirty "
+            "randomly generated shapes. The branch is guarded on a separating "
+            "BLAS and untested on this one -- see boundary_eager.LAYOUTS_SEPARATE."
+        )
     suite = _SUITES[spec.gate_id]
     case_id = (
         suite.tighten_case_id

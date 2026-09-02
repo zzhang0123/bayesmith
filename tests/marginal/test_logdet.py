@@ -612,7 +612,20 @@ def test_exact_factor_reconstruction_recognizes_both_blas_layout_origins(
     problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
     config = LadderConfig(low_rank_max=rank, low_rank_fraction=1.0)
 
-    assert not np.array_equal(products["C"], products["F"])
+    if np.array_equal(products["C"], products["F"]):
+        pytest.skip(
+            "THIS IS NOT A PASS. Whether C- and F-order products differ in "
+            "their last bit is a property of the installed BLAS, and this one "
+            "returns them bitwise equal, so there are no 'both origins' to "
+            "recognise here and the cross-layout branch of "
+            "_matching_factor_reconstruction is unreachable. Measured "
+            "2026-09-02 with numpy 2.5.2 on both sides: Apple Accelerate "
+            "separates this shape by 1 ULP at n=277 and 5 at n=511; "
+            "scipy-openblas 0.3.34 separates neither, nor any of thirty "
+            "randomly generated shapes. Asserting the separation instead of "
+            "measuring it is what took 2091 tests down at fixture setup in a "
+            "publish job, on a tag that could not be un-pushed."
+        )
     verdict = check_logdet_premises(problem, config=config)[1]
     direct = low_rank_logdet(lam, perturbation, factors=factors)
     result = dispatch_logdet(problem, config=config)
@@ -1058,7 +1071,18 @@ def test_direct_lambda_and_problem_callers_require_exact_symmetry():
     basis, _ = np.linalg.qr(np.random.default_rng(1).normal(size=(8, 8)))
     matrix = basis @ np.diag(np.linspace(6.25, 25.0, 8)) @ basis.T
     asymmetry = float(np.max(np.abs(matrix - matrix.T)))
-    assert asymmetry == 8.881784197001252e-16
+    # The fixture's premise, as a PROPERTY rather than as one machine's digits.
+    # What has to be true is that `basis @ diag @ basis.T` comes back
+    # asymmetric by roundoff and only by roundoff: zero would mean the fixture
+    # stresses nothing, and anything above roundoff would mean it is testing a
+    # real asymmetry instead of the Cholesky-input hazard it is named for.
+    # This assertion read `== 8.881784197001252e-16` until 2026-09-02, which is
+    # what LAPACK's QR happens to leave on Apple Accelerate; scipy-openblas
+    # 0.3.34 leaves 1.7763568394002505e-15, twice that, and the literal took
+    # the test down on Linux for a matrix it should have accepted. Measured as
+    # a fraction of `eps * max|matrix|`: 0.194 on Accelerate, 0.387 on
+    # OpenBLAS, so the band below holds with room while still refusing zero.
+    assert 0.0 < asymmetry < 2.0 * np.finfo(float).eps * np.max(np.abs(matrix))
     assert np.linalg.cond(matrix) == pytest.approx(4.0, rel=2e-15)
 
     with pytest.raises(ValueError, match="symmetric positive definite"):
