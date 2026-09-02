@@ -1,0 +1,220 @@
+# Run this package's own test suite on Linux.
+#
+# WHY THIS FILE EXISTS, measured: until 2026-09-02 the suite had never run on
+# anything but one macOS arm64 laptop, and the ONLY place it met Linux was the
+# publish job -- after the tag was pushed and therefore after the version
+# number was spent. Four tags died there. v0.7.0 died with 16 failures and
+# 2091 errors on ubuntu while the same wheel passed 5375/5375 on the laptop,
+# and the largest single cause was one assertion: a fixture requiring a C-order
+# and an F-order matmul of the same factors to differ in their last bit, which
+# is true under Apple's Accelerate (one ULP) and false under OpenBLAS.
+#
+# A tag is immutable, so "the suite is green" has to be answerable BEFORE one
+# is pushed, on the platform the release is built on. That is this workflow.
+# It is not a substitute for the publish job's wheel test; it is the thing that
+# has to be green first, so that the wheel test is a confirmation rather than a
+# discovery.
+#
+# TWO JOBS ON PURPOSE, because they fail differently:
+#
+#   source -- the working tree with the dev group, which is what a developer
+#             runs. arviz is present, so the seven ArviZ export tests actually
+#             EXECUTE here; in the wheel job they skip.
+#   wheel  -- byte-for-byte what publish.yml does, so a packaging fault (a
+#             module the wheel excludes) surfaces here rather than at a tag.
+#
+# `fail-fast: false` is deliberate: when both are red the two logs answer
+# different questions, and cancelling one to save a runner minute throws away
+# half the evidence.
+#
+# LAYER, and why it is chosen by event rather than by an input: `-m "not full"`
+# is this repository's pre-commit habit and the whole suite is the nightly
+# layer (CLAUDE.md). A pull request gets the fast layer so review stays quick;
+# main, the nightly schedule and a manual run get everything, because that is
+# the claim a release rests on. There are no `workflow_dispatch` inputs at all,
+# which is the cheapest way to have no injection surface.
+#
+# ON INJECTION SAFETY. This workflow interpolates nothing into a `run:` block.
+# The one piece of context it consumes, `github.event_name`, is a GitHub-set
+# enum rather than attacker-controllable text, and it is still passed through
+# `env:` and expanded by the shell rather than substituted by the expression
+# engine -- because the rule that survives review is "never in a run block",
+# not "never unless I judged this one safe". It reads no titles, bodies,
+# comments, branch names or commit messages.
+#
+# `-q` IS NOT ADDED ANYWHERE. `pyproject.toml` already carries `addopts = -q`,
+# and a second one makes it `-qq`, which deletes the summary line entirely.
+# Counts come from the JUnit XML and the verdict from the exit code, which is
+# also why each pytest step writes XML and the floor step parses it.
+
+name: Suite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 03:17 UTC, an odd minute rather than the top of the hour: GitHub queues
+    # scheduled jobs and the hour boundary is where every repository piles up.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  source:
+    name: source tree, dev group
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install this package and its dev group
+        run: |
+          uv venv --python 3.12
+          uv pip install -e . --group dev
+
+      # What actually ran, printed. A numerical suite that pins roundoff is a
+      # suite whose answers depend on these builds, and when a cell moves the
+      # first question is "against which BLAS" -- so the log answers it every
+      # run rather than only when someone thinks to ask.
+      - name: Say what the numerical stack is
+        run: |
+          .venv/bin/python - <<'PY'
+          import platform, numpy, scipy, jax
+          print("platform :", platform.platform(), platform.machine())
+          print("numpy    :", numpy.__version__)
+          print("scipy    :", scipy.__version__)
+          print("jax      :", jax.__version__)
+          try:
+              deps = numpy.__config__.CONFIG["Build Dependencies"]
+              print("numpy blas:", deps["blas"]["name"], deps["blas"].get("version"))
+              print("numpy lapack:", deps["lapack"]["name"], deps["lapack"].get("version"))
+          except Exception as exc:
+              print("numpy blas: unavailable --", exc)
+          PY
+
+      - name: Run the suite
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            layer='-m'; expr='not full'
+          else
+            layer=''; expr=''
+          fi
+          set +e
+          # shellcheck disable=SC2086
+          .venv/bin/python -m pytest -n 4 -p no:cacheprovider \
+            ${layer:+"$layer"} ${expr:+"$expr"} --junit-xml=suite.xml
+          echo "PYTEST_EXIT=$?" | tee suite.exit
+
+      - name: Report the counts, and refuse a run that collected nothing
+        if: always()
+        run: |
+          .venv/bin/python - <<'PY'
+          import pathlib, sys, xml.etree.ElementTree as ET
+          path = pathlib.Path("suite.xml")
+          if not path.exists():
+              sys.exit("no JUnit XML: pytest did not get far enough to write one")
+          root = ET.parse(path).getroot()
+          suite = root[0] if root.tag == "testsuites" else root
+          a = suite.attrib
+          tests = int(a["tests"]); skipped = int(a["skipped"])
+          failures = int(a["failures"]); errors = int(a["errors"])
+          passed = tests - skipped - failures - errors
+          print(f"collected={tests} passed={passed} skipped={skipped} "
+                f"failed={failures} errors={errors}")
+          # A suite that stood itself down exits 0 and looks identical to one
+          # that passed. crosscheck.yml learned this; the floor is the half
+          # that tells them apart. 2500 is under the fast layer's own 2826.
+          if passed < 2500:
+              sys.exit(f"only {passed} tests passed; this run compared almost "
+                       "nothing and must not read as green")
+          PY
+          exit_code=$(cut -d= -f2 suite.exit)
+          echo "pytest exit was ${exit_code}"
+          # Only 1 is a test failure. 2 interrupted, 3 internal, 4 usage,
+          # 5 nothing collected, 143 killed -- all of them are still red here,
+          # but the log says which, because scoring any non-zero as "a test
+          # failed" is how a usage error gets debugged as a numerical one.
+          [ "$exit_code" = "0" ]
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: suite-source-junit
+          path: suite.xml
+
+  wheel:
+    name: built wheel, no dev extras
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      # Identical to publish.yml's build and test steps, deliberately. If these
+      # two ever disagree, this job has stopped being the rehearsal it exists
+      # to be -- so keep them in step, and prefer changing both in one commit.
+      - name: Build the distributions
+        run: |
+          uv venv --python 3.12
+          uv pip install build
+          uv run python -m build
+
+      - name: Test the built wheel
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          uv venv --python 3.12 .testenv
+          uv pip install --python .testenv/bin/python dist/*.whl \
+            pytest pytest-xdist hypothesis
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            layer='-m'; expr='not full'
+          else
+            layer=''; expr=''
+          fi
+          set +e
+          # shellcheck disable=SC2086
+          .testenv/bin/python -m pytest -n 4 -p no:cacheprovider \
+            ${layer:+"$layer"} ${expr:+"$expr"} --junit-xml=wheel.xml
+          echo "PYTEST_EXIT=$?" | tee wheel.exit
+
+      - name: Report the counts, and refuse a run that collected nothing
+        if: always()
+        run: |
+          .testenv/bin/python - <<'PY'
+          import pathlib, sys, xml.etree.ElementTree as ET
+          path = pathlib.Path("wheel.xml")
+          if not path.exists():
+              sys.exit("no JUnit XML: pytest did not get far enough to write one")
+          root = ET.parse(path).getroot()
+          suite = root[0] if root.tag == "testsuites" else root
+          a = suite.attrib
+          tests = int(a["tests"]); skipped = int(a["skipped"])
+          failures = int(a["failures"]); errors = int(a["errors"])
+          passed = tests - skipped - failures - errors
+          print(f"collected={tests} passed={passed} skipped={skipped} "
+                f"failed={failures} errors={errors}")
+          # Lower floor than the source job: this venv has no rheplicant and no
+          # arviz, so roughly 111 tests skip by design.
+          if passed < 2400:
+              sys.exit(f"only {passed} tests passed; this run compared almost "
+                       "nothing and must not read as green")
+          PY
+          exit_code=$(cut -d= -f2 wheel.exit)
+          echo "pytest exit was ${exit_code}"
+          [ "$exit_code" = "0" ]
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: suite-wheel-junit
+          path: wheel.xml
