@@ -40,6 +40,7 @@
 | `docs/superpowers/plans/2026-08-30-audit-continuation.md` | `record` | 数值门审计修复 + Wave 2 执行（P5/P6/P7）—— 合并交接 |
 | `docs/superpowers/plans/2026-08-30-r1-task-artifact-provenance.md` | `record` | R1 Task、artifact 与 provenance 执行计划 |
 | `docs/superpowers/plans/2026-08-31-r2-predictive-seam.md` | `record` | R2 执行计划：完整 posterior 与 predictive seam |
+| `docs/superpowers/plans/2026-09-02-r3-model-checking.md` | `plan-active` | R3 执行计划：model checking 与 calibration |
 | `docs/superpowers/plans/HANDOFF-p3b-tasks-4-10.md` | `record` | 交接：bayesmith P3b Tasks 4–10 —— **已全部完成（2026-08-24）** |
 | `docs/superpowers/specs/2026-08-23-bayesmith-design.md` | `superseded` | bayesmith — 设计文档 |
 | `docs/superpowers/specs/2026-08-23-p3-structural-dispatch-design.md` | `superseded` | bayesmith P3 — 结构分派器 + InferencePlan + 线性高斯精确解 |
