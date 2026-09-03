@@ -228,3 +228,24 @@ probe 22 比较完整 collapsed 目标：固定 `B.T@B` 谱给精确 power trace
 - **F4**（eta 证书对“巨大+微小”SPD 模式过保守，`Λ=I, P=diag(1e16,0,0), L=[[1e8],[0],[0]]`
   时 `eta=1` 拒绝但真实 logdet 误差仅 ~1e-16）：**记录，不改**。这是保守方向的假拒绝
   （安全侧），宁可拒绝也不放行一个无证书的近似；除非出现被误伤的真实用例，否则保持现状。
+- **F5**（`_factor_projection_certificate` 把自己乘积的舍入当成 off-span 方向，在近奇异
+  `Sigma` 上抢在 reduced 门之前发言）：**记录；本轮只补可观测性，不改数值行为**。
+  证书用 `_two_sum_error` 处理了 `Lambda+P` 的加法误差，却没有为它自己的
+  `left_basis.T @ P @ right_basis` 与 `left_basis @ core @ right_basis.T` 两次乘积留
+  前向误差余量，然后把这份 O(eps*||P||) 噪声除以 whitened `Sigma` 的最小特征值。近奇异
+  `Sigma` 恰恰是 reduced 门存在的场景，于是 eta 变成 O(1) 噪声，projection 门先于
+  reduced 门拒绝——方向仍然保守（多拒不是少拒），但拒绝的理由换了人。
+  2026-09-03 实测，同一 fixture
+  （`tests/marginal/test_determinant_lemma_stability.py::test_diagonal_lambda_rejects_near_singular_reduced_lemma_arithmetic`）：
+  Accelerate 上 `core=-0x1.ffffffffffffap-1`、残差恰好 0、`eta=0.0`；scipy-openblas 上
+  `core=-0x1.ffffffffffff9p-1`、残差范数 `1.4533008067806857e-16`、
+  `eta=0.21816949906249125`、projection 界 `0.4922346252999127` 大于 ceiling
+  `1.4901161193847656e-08`。一个 ULP 决定哪道门说话。
+  **本轮唯一的源码改动，不动任何数值**：`_FactorProjectionCertificate` 增加
+  `reduced_arithmetic_valid` 字段，`_logdet_ladder` 以 `factor_reduced_arithmetic_valid`
+  导出，与既有的 `factor_base_arithmetic_valid` 对称。没有它时 reduced 门的裁决只能从
+  raise 文本读出，而在 Linux 上那段文本被 projection 门占用，于是一个删掉 reduced 判据的
+  实现会在 CI 上悄悄变绿。
+  **真正的修法留待独立的边界验证**：在除以 lambda_min 之前，从 `residual_norm` 减去
+  `_roundoff_gamma(n, work_dtype) * ||P||` 的前向误差余量，与加法误差已有的待遇一致；
+  之后 eta 会在两个平台上都回到 ~0，上述测试的 raise 断言可以收回 `reduced.*arithmetic`。

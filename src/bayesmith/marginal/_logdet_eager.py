@@ -365,6 +365,7 @@ class _FactorProjectionCertificate:
     base_condition_ceiling: float
     base_log_error_bound: float
     base_arithmetic_valid: bool
+    reduced_arithmetic_valid: bool
     reduced_eta: float
     reduced_condition: float
     reduced_formation_error_norm: float
@@ -953,6 +954,7 @@ def _factor_projection_certificate(
         base_condition_ceiling=base_condition_ceiling,
         base_log_error_bound=base_log_error_bound,
         base_arithmetic_valid=base_arithmetic_valid,
+        reduced_arithmetic_valid=reduced_arithmetic_valid,
         reduced_eta=reduced_eta,
         reduced_condition=reduced_condition,
         reduced_formation_error_norm=reduced_formation_error_norm,

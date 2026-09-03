@@ -43,7 +43,14 @@ def _decimal_three_by_three_logdet(matrix: np.ndarray) -> float:
             - b * (d * i - f * g)
             + c * (d * h - e * g)
         )
-        assert determinant > 0
+        # A caller nudges its fixture by one ULP to measure how sensitive this
+        # determinant is, and at cond ~ 1e16 one ULP is a real fraction of the
+        # determinant.  Name the failure, so a future kernel that pushes a
+        # nudged matrix across zero reports which matrix it was instead of a
+        # bare AssertionError from inside a helper.
+        assert determinant > 0, (
+            f"exact 3x3 determinant is not positive: {determinant}"
+        )
         return float(determinant.ln())
 
 
@@ -145,15 +152,81 @@ def test_authoritative_perturbation_rejects_roundoff_outside_factor_spans():
     problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
     config = _factor_only_config()
 
+    # The stress IS the product this machine's BLAS returned.  The guard under
+    # test only fires while the stored perturbation is bit-for-bit what
+    # ``left @ left.T`` produced, so substituting a correctly-rounded product
+    # trips the factor-reconstruction guard instead -- measured, the raise
+    # becomes "low-rank factors do not exactly reconstruct".  That makes
+    # sigma's exact logdet a function of the dgemm microkernel, and no fixture
+    # can pin it.  Measured 2026-09-03, numpy 2.5.2 / scipy 1.18.1 /
+    # scipy-openblas 0.3.34 on both sides:
+    #   macOS arm64 / Accelerate                     23.325967986165086
+    #   linux/amd64 container, OpenBLAS default      23.325967986165086
+    #   the same container, OPENBLAS_CORETYPE=ZEN    22.66752332813057
+    #   the correctly-rounded product, exact         22.64137869659024
+    # The ZEN row is what the ubuntu runner printed when it failed the old pin
+    # (`assert 22.66752332813057 == 23.325967986165086 +- 2.0e-15`), and the
+    # runner is an AMD EPYC 7763 advertising `avx avx2 fma sse4_2` -- there is
+    # no AVX-512 anywhere in this story.  One container, one CPU, two
+    # microkernels, both values: the cause is a fused multiply-add the FMA
+    # kernel takes and the fallback kernel does not.
+    # cond(sigma) spreads 3.62e15 (Accelerate) / 4.83e15 (OpenBLAS default,
+    # on BIT-IDENTICAL sigma -- all nine hex entries match Accelerate, so that
+    # gap is np.linalg.cond's own LAPACK SVD and not the kernel) / 1.10e16
+    # (ZEN).  That is why the floor below is 1.0e15 and not the 3.0e15 that
+    # had only the Accelerate row under it.
+    # One ULP in one entry of sigma moves the exact logdet by 0.2762337
+    # (Accelerate) or 0.4790928 (ZEN), so the 0.66 spread above is one
+    # rounding of one product, not a defect.  Assert the band, and assert the
+    # sensitivity that says why a band is all there can be.
     oracle = _decimal_three_by_three_logdet(sigma)
-    assert oracle == pytest.approx(23.325967986165086, rel=0.0, abs=2.0e-15)
-    assert np.linalg.cond(sigma) > 3.0e15
+    nudged = sigma.copy()
+    nudged[0, 1] = nudged[1, 0] = np.nextafter(sigma[0, 1], math.inf)
+    assert 22.0 < oracle < 24.0
+    assert abs(_decimal_three_by_three_logdet(nudged) - oracle) > 0.1
+    assert np.linalg.cond(sigma) > 1.0e15
 
     verdict = check_logdet_premises(problem, config=config)[1]
     assert verdict.satisfied is False
     assert verdict.details["rank_evidence_valid"] is False
-    assert verdict.details["factor_projection_eta"] > 1.0
-    assert math.isinf(verdict.details["factor_log_error_bound"])
+    # eta is the off-span residual over the smallest whitened-Sigma
+    # eigenvalue, and this fixture makes BOTH of them rounding-sized on
+    # purpose: measured on Accelerate, eps*||P||_2 = 1.0423e-07 against
+    # Lambda = 5.0e-08, the residual norm is 3.8759e-07 and lambda_min(Sigma)
+    # is 9.3120e-08 (container fallback kernel: 1.2426e-07 and 1.0014e-07).
+    # A ratio of two rounding-level quantities is O(1) with a prefactor that
+    # is only ever "which way this kernel's roundings fell" -- measured
+    # 2.372047713963753 (Accelerate), 1.0990634630349854
+    # (OPENBLAS_CORETYPE=ZEN, the runner's own dispatch class) and
+    # 0.7744534567262651 (the container's fallback SSE kernel).  So a floor
+    # here is a claim about that ORDER; it cannot be a pin.
+    # Being straight about why this moved at all: on the runner's own kernel
+    # the old ``> 1.0`` and ``isinf(bound)`` would BOTH still have passed, at
+    # 1.099 and inf.  They are relaxed because a second OpenBLAS kernel in the
+    # same container lands at 0.774 with a FINITE bound of 4.4677 and is
+    # rejected for exactly the same reason -- the decision never depended on
+    # which side of one this week's kernel landed.
+    # 1.0e-2 is two decades under the derived O(1) scale and twelve decades
+    # over the healthy one: factors that really do span the perturbation give
+    # eta < 1.0e-14, pinned by
+    # test_maximum_finite_power_of_two_gauge_is_balanced_exactly above.
+    # Measured against two broken builds of the certificate, 2026-09-03: zero
+    # the residual and eta is 0.0; normalise by the LARGEST whitened
+    # eigenvalue instead of the smallest and eta is 8.257251913777933e-16.
+    # Both land thirteen decades under this floor, so 1.0e-2 kills exactly
+    # what 1.0 killed, and rank_evidence_valid goes True in both -- which the
+    # line above already catches.
+    # The bound assertion is the source's own rejection predicate --
+    # ``projection_valid`` requires ``log_error_bound <= ceiling`` -- and the
+    # next line pins that ceiling to an absolute sqrt(eps), so this is not a
+    # comparison of the implementation against itself.  It is also not
+    # vacuous: ``bound > ceiling`` on its own already forces eta above
+    # 4.967e-09, and the smallest measured eta is 5.2e7 ceilings.
+    assert verdict.details["factor_projection_eta"] > 1.0e-2
+    assert (
+        verdict.details["factor_log_error_bound"]
+        > verdict.details["factor_log_error_ceiling"]
+    )
     assert verdict.details["factor_log_error_ceiling"] == math.sqrt(
         np.finfo(float).eps
     )
@@ -731,8 +804,67 @@ def test_diagonal_lambda_rejects_near_singular_reduced_lemma_arithmetic():
 
     assert oracle == pytest.approx(-34.94450169735032, rel=0.0, abs=2.0e-14)
     assert details["condition"] < details["condition_ceiling"]
-    assert details["factor_projection_eta"] == 0.0
-    assert details["factor_log_error_bound"] == 0.0
+    # ``eta == 0.0`` here was luck, and the luck is one ULP wide.  Measured
+    # 2026-09-03: every input and every intermediate of the projection
+    # certificate is bitwise identical on the two platforms -- the rank-1
+    # outer product, Sigma, the balanced columns, Q_L and Q_R alike -- except
+    # the scalar core = Q_L.T @ P @ Q_R:
+    #   Accelerate      core -0x1.ffffffffffffap-1, residual exactly 0,
+    #                   eta 0.0, projection bound 0.0
+    #   scipy-openblas  core -0x1.ffffffffffff9p-1, residual norm
+    #                   1.4533008067806857e-16, eta 0.21816949906249125,
+    #                   projection bound 0.4922346252999127
+    # The OpenBLAS value is the one CI printed (`assert 0.21816949906249125
+    # == 0.0`), and it does not move with OPENBLAS_CORETYPE -- unset and ZEN
+    # agree to the bit -- so this one is the library, not the microkernel.
+    # No fixture can pick between them, and the reason is a derivation rather
+    # than a sweep: a rank-1 near-singular reduced lemma needs a non-diagonal
+    # Sigma, while an exactly representable QR basis for a 2x1 column needs a
+    # dyadic point on the unit circle -- and the only ones are the coordinate
+    # axes, which force Sigma diagonal. The axis case is the half that was
+    # measured: rung 3 then answers it exactly and dispatch does not refuse at
+    # all.
+    #
+    # So assert the premise the fixture actually needs, which is not "eta is
+    # zero" but "the factors leave no real off-span direction": the residual
+    # is at the ULP level of P either way.  eta multiplied back by the
+    # smallest whitened-Sigma eigenvalue recovers that residual norm, and
+    # Lambda is exactly the identity here so whitened Sigma is Sigma.  The
+    # band is the forward error of this rank-1 projection itself, a small
+    # multiple of eps*||P||_2; measured 0.0 and 1.4533008067806857e-16 against
+    # the 8.881784197001246e-16 the line below actually evaluates -- that is
+    # 4*eps*||P||_2 at ||P||_2 = 0.9999999999999993, not bare 4*eps, which
+    # would read ...252 -- i.e. 0.65 of one ULP of ||P|| against a band of
+    # four.  In eta units that band admits up to
+    # 4*eps/6.661338147750939e-16 = 1.333, which sounds loose and is loose
+    # only because lambda_min is legitimately 6.66e-16; the unit that carries
+    # the meaning is the residual norm, and a factor pair that genuinely
+    # missed a direction of this unit-norm P would sit orders above the band
+    # in that unit.
+    smallest_whitened = float(np.min(np.linalg.eigvalsh(sigma)))
+    projection_residual = details["factor_projection_eta"] * smallest_whitened
+    assert projection_residual <= 4.0 * np.finfo(float).eps * np.linalg.norm(
+        perturbation, ord=2
+    )
+    # The reduced certificate's own decision, rather than the message that
+    # reports it.  It is newly exported for the reason its sibling
+    # factor_base_arithmetic_valid already was: without it the reduced guard
+    # is observable ONLY through the raise text, and on Linux the projection
+    # guard consumes that text (see the raises below).  Measured False on
+    # both platforms.  Deleting the reduced-arithmetic term from the validity
+    # decision leaves every other detail on this fixture untouched -- reduced
+    # bound inf, total bound inf, rank evidence still False by way of the
+    # total -- so this is the line that fails, and it fails on both: measured
+    # 2026-09-03 red on macOS/Accelerate and red in the linux/amd64 container
+    # under OPENBLAS_CORETYPE=ZEN.
+    assert details["factor_reduced_arithmetic_valid"] is False
+    # Replaces ``factor_log_error_bound == 0.0``, which was the same ULP of
+    # luck (0.0 on Accelerate, 0.4922346252999127 on OpenBLAS).  What is true
+    # on both, and is what this test is named for, is that the REDUCED
+    # certificate carries the larger objection.
+    assert details["factor_log_error_bound"] < details[
+        "factor_reduced_log_error_bound"
+    ]
     assert details["factor_reduced_log_error_bound"] > details[
         "factor_log_error_ceiling"
     ]
@@ -741,8 +873,25 @@ def test_diagonal_lambda_rejects_near_singular_reduced_lemma_arithmetic():
     ]
     assert details["rank_evidence_valid"] is False
     assert verdict.satisfied is False
+    # Which certificate speaks first is that same ULP.  With a zero residual
+    # the reduced-arithmetic guard rejects; with the 1.45e-16 one the
+    # projection guard gets there first, because it divides a residual that is
+    # pure arithmetic noise by an eigenvalue that is legitimately 6.66e-16.
+    # That over-rejection is a weakness in the certificate, not in this
+    # fixture -- recorded as F5 in
+    # docs/superpowers/specs/2026-08-29-p3-logdet-ladder.md -- and it is why
+    # the message may no longer name one guard.  It is not a catch-all, and it
+    # is narrower than what it replaces: matched by AST against every raise
+    # and every reason literal in _logdet_eager.py, ``reduced.*arithmetic``
+    # admitted SIX distinct messages (five of them evaluation failures such
+    # as "reduced determinant-lemma conditioning could not be measured"),
+    # while ``cannot certify.*logdet error`` admits exactly TWO -- the
+    # projection reason and the reduced reason -- and rejects the
+    # reconstruction, base, total and success ones.  What it gives up is
+    # telling those two apart, and the assertion above takes that back
+    # directly and unconditionally.
     for direct in (low_rank_logdet, finite_perturbation_logdet):
-        with pytest.raises(ValueError, match="reduced.*arithmetic"):
+        with pytest.raises(ValueError, match=r"cannot certify.*logdet error"):
             direct(lam, perturbation, factors=factors)
     with pytest.raises(ResamplingRefused):
         dispatch_logdet(problem, config=config)

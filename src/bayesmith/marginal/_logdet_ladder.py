@@ -196,6 +196,7 @@ def check_logdet_premises(
     factor_base_condition_ceiling: float | None = None
     factor_base_log_error_bound: float | None = None
     factor_base_arithmetic_valid = False
+    factor_reduced_arithmetic_valid = False
     factor_reduced_eta: float | None = None
     factor_reduced_condition: float | None = None
     factor_reduced_formation_error_norm: float | None = None
@@ -224,6 +225,9 @@ def check_logdet_premises(
             factor_base_condition_ceiling = factor_certificate.base_condition_ceiling
             factor_base_log_error_bound = factor_certificate.base_log_error_bound
             factor_base_arithmetic_valid = factor_certificate.base_arithmetic_valid
+            factor_reduced_arithmetic_valid = (
+                factor_certificate.reduced_arithmetic_valid
+            )
             factor_reduced_eta = factor_certificate.reduced_eta
             factor_reduced_condition = factor_certificate.reduced_condition
             factor_reduced_formation_error_norm = (
@@ -456,6 +460,7 @@ def check_logdet_premises(
                 ),
                 "factor_reduced_log_error_bound": factor_reduced_log_error_bound,
                 "factor_reduced_sign": factor_reduced_sign,
+                "factor_reduced_arithmetic_valid": factor_reduced_arithmetic_valid,
                 "factor_total_log_error_bound": factor_total_log_error_bound,
                 "sigma_formation_valid": sigma_formation_valid,
                 "sigma_formation_reason": sigma_formation_reason,
@@ -536,6 +541,7 @@ def check_logdet_premises(
                 ),
                 "factor_reduced_log_error_bound": factor_reduced_log_error_bound,
                 "factor_reduced_sign": factor_reduced_sign,
+                "factor_reduced_arithmetic_valid": factor_reduced_arithmetic_valid,
                 "factor_total_log_error_bound": factor_total_log_error_bound,
                 "sigma_formation_valid": sigma_formation_valid,
                 "sigma_formation_reason": sigma_formation_reason,
