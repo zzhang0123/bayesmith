@@ -216,15 +216,32 @@ rheplicant 当作 cross-check 基准是安全的**——它的数值层确实还
 
 ### 4.2 尚未开始（P3b 后半与 P5）
 
+> **⚠️【标题已过期，保留而不改写；答案写在下面每一行的第三栏。实测 2026-09-03。】**
+> 本节**七行全部已落地**。三行（`identifiability`、`sensitivity`、`priors`）
+> 从 2026-08-25 起就带着「已落地」字样；另外四行同一天也做完了，只是没有人
+> 回来写——现在写上了。最后一行是 `numpyro_bridge`（`8199377`，2026-08-25），
+> 它的记录页第一句就是「**这是 §四 的最后一行，闭合它就打开 §六 的门**」。
+>
+> 不改标题，是因为「尚未开始」曾经为真，而本仓库的规矩是把过期的话留在原处、
+> 在旁边写清它为什么不再适用。但**只读标题就决定要不要往下读**的人会得到一个
+> 反的结论，所以答案放在这里，而不是留给读者去数七行。
+>
+> 一条不必读七行就能核的旁证，而且它是可执行的：
+> `tests/test_migration_records.py` 的
+> `test_the_gate_on_section_six_is_open_and_every_module_has_a_page`
+> 在 2026-08-25 **把断言翻了向**——它原先断言「只要还有 §四 模块没有记录页，
+> §六 就不许开始」，现在断言「每个 §四 模块都必须有记录页」。那次翻向就是本
+> 节归零的那一刻。
+
 | rheplicant | 目的地 | 必须一致的内容 |
 |---|---|---|
-| `parameters.py`（`Latent`/`Bind`/`ParameterSpace`/`validate`/`refuse_stochastic_stages`） | 节点声明层（`linear_in`） | 语义映射而非逐行移植。最小集：三种绑定形态（derived/tied/direct）在同一 toy pipeline 上给出相同预测；`refuse_stochastic_stages` 有等价物（这边表述为「无密度的随机节点不能进联合分布」）——**理由改写，行为不得变** |
-| `noise.py`（协议、`RadiometerNoise`、`FlaggedNoise`、`NoiseModelLikelihood`、`check_noise_std_axis`、`inverse_variance`） | 概率节点（`dist_fn`） | 三个噪声模型 × 有/无 flags：log-density 与抽样分布一致。`FlaggedNoise` 的 σ=∞→零权重必须是 **mask**。**顺序：§五 B9（相关噪声）会改这一层的接口形态，先定接口再定稿本模块** |
-| `plan.py` + `engines.py` 的 Gibbs | P3b 分派执行 | 同 partition 同 toy 模型下 `plan.estimate` 逐值一致；`plan.sample` 比后验矩（χ² 迹线跨 NUTS 实现不可比）。**先落 B1** |
+| `parameters.py`（`Latent`/`Bind`/`ParameterSpace`/`validate`/`refuse_stochastic_stages`） | 节点声明层（`linear_in`） | 语义映射而非逐行移植。最小集：三种绑定形态（derived/tied/direct）在同一 toy pipeline 上给出相同预测；`refuse_stochastic_stages` 有等价物（这边表述为「无密度的随机节点不能进联合分布」）——**理由改写，行为不得变**。<br><br>**已落地（2026-08-25，`d58a079`）**：三种绑定形态在同一 toy pipeline（4×5 网格、两级乘性）上给出的预测**逐位相同**；tied 的可观测后果单独钉住（增益进平方，3 → 9，而这个 9 是两个包都没算过的独立算术——防的是「tied 只是把一次乘法改了个名」这种空洞通过）；FAN fixture 直接用 rheplicant 自己的 `TestFanOut`（`t_physical = 0` 使效率成为纯乘法，向量取故意不对称的 `[2, 5]`，因为对称向量会让两种读法一致从而致盲整个比对），两侧读数 4.0 与 10.0 逐一复现。<br><br>**本行真正的工作落在第二个分句上，而它比本行预期的重：那个行为这边当时还不存在。** `refuse_stochastic_stages` 的等价物是为本行写的——`Graph.__check_init__` 拒绝持有 PRNG key 的 `Const`，异常映射 `ParameterSpaceError` → `GraphError`。三个变异全部被具名测试杀死。记录：`docs/migration/parameters.md`；测试 `tests/crosscheck/test_parameters.py`。 |
+| `noise.py`（协议、`RadiometerNoise`、`FlaggedNoise`、`NoiseModelLikelihood`、`check_noise_std_axis`、`inverse_variance`） | 概率节点（`dist_fn`） | 三个噪声模型 × 有/无 flags：log-density 与抽样分布一致。`FlaggedNoise` 的 σ=∞→零权重必须是 **mask**。**顺序：§五 B9（相关噪声）会改这一层的接口形态，先定接口再定稿本模块**。<br><br>**已落地（2026-08-25，`e971e53`）**，且这条排序条件当时已经满足——B9 先落，协方差以 `Precision` 到达每一个消费者，对角是那个退化情形而不是一条平行通路。fixture 的预测**故意穿过零**（`[3, −2, 5, 1, −4, 2.5]`）：那是辐射计的乘性生成器与一个加性生成器唯一分叉、`RadiometerNoise.std` 的 `abs` 唯一承重的区间。常数 σ 密度**五种拼法末位相同**（−5.846065603244213）；flagged 密度**四种拼法相同**（−3.5202942825891324）；辐射计密度三种拼法差一个 ULP（`rel=1e-15`——两侧以不同表达式到同一个 σ、求和次序也不同，所以不是逐位，而且记录页把这句诚实地写了出来）；`inverse_variance` 对 `Precision.apply` **逐位相同**，flagged 项正好 `0.0`，即本行要求的「σ=∞→零权重必须是 **mask**」；`HomoscedasticNoise.realise` 与图上节点的抽样在同一 key 下**逐位相同**，即本行要求的「抽样分布一致」。<br><br>**反空洞条款：**`include_logdet=False` 必须是**另一个数**，差额等于 `−½Σ log 2πσ²` 且符号固定——没有这一条，那张密度对照根本没有在测 log-determinant，而 log-determinant 正是 B1 的全部主题。记录：`docs/migration/noise.md`（与 4.1 的 `likelihood`/`noise` 行同页，因为两行都点名同一个模块）；测试 `tests/crosscheck/test_gaussian.py`。 |
+| `plan.py` + `engines.py` 的 Gibbs | P3b 分派执行 | 同 partition 同 toy 模型下 `plan.estimate` 逐值一致；`plan.sample` 比后验矩（χ² 迹线跨 NUTS 实现不可比）。**先落 B1**。<br><br>**已落地（2026-08-25，`d2ca7fe`）**：`plan.estimate` 的三个系数**绝对差 8.9e-15**（相对 ~1e-15），两侧各自对稠密预言机 ~1e-14；`plan.sample` 均值 \|z\| = 0.89（上游）与 0.72（本侧）；`plan.sample` 方差落在预言机的 1.6% 与 6.3% 内，对照的是 5.0% 的抽样误差；预测依赖 σ 上的共轭块两包差 **9e-12**。**不是逐位，而且记录页把理由写了出来**：两侧跑的是收敛到同一个固定点的不同迭代格式（块坐标下降 对 单次重加权求解），float64 roundoff 才是能立住的断言，「逐位」这个说法在这里根本不可用。抽样那一栏比的是**稠密预言机**而不是另一个包——同一个 key 下两次 Gibbs 扫过的状态序列本就不同，能要求一致的是它们保持不变的那个分布。<br><br>**本行的排序条件「先落 B1」在本行做不到，而查清为什么做不到，是本行的主要结果**（记录页 §5(a)）。**B1 自己在 2026-08-28 闭合**（e-RHINO `74fac09`，见 §三 B1），比本行晚三天——本行落不了它，但本行是定位到它的地方。记录：`docs/migration/plan.md`；测试 `tests/crosscheck/test_dispatch.py`。 |
 | `identifiability.py` | P5 `diagnose/` | 同一退化模型的 rank/nullity 相同；`IdentifiabilityReport.direction` 逐分量一致。**必须重测 `rtol=1e-8` 的谱隙论证**——rheplicant 的论证建立在进程全局 x64 上（实测：null 方向 6.6e-17、最弱可辨识方向 4.8e-5、SVD 噪声底 ~1e-14；float32 下 null 方向浮到 3.1e-8），上下文管理器的 dtype 边界不同，谱可能略变。**已落地（2026-08-25）**：常数重测而非搬运——本侧机制下 null 方向 **7.479e-17**（谱确实动了，判决没动）、最弱可辨识 **4.822138e-5**（逐位相同）、float32 null **3.116759e-8**；1e-8 仍成立，理由文字已换成本侧实测。四行表逐格一致；方向按符号固定后逐分量 1e-9，八维 null 空间按投影算子比对。记录：`docs/migration/identifiability.md` |
 | `sensitivity.py` | P5 `diagnose/` | 闭式 `Δ = H⁻¹P(m−θ̂)` 与重拟合两条路线在 tour 模型上复现 rheplicant 的实测表（0.0069σ 等）；同一 pass 修 B3。**已落地（2026-08-25）**：tour 表逐项复现（mode、shift、sigma_post、criterion 0.0795、七级 s-ladder），并与 rheplicant 活体报告逐字段比对；B3 修法为 eigvalsh 判定 + Cholesky-with-jitter（shift 取 2·\|λ_min\| 反射式——只加过零的 shift 会返回 2e7 长度的方向）。**一个移植暴露的语义发现**：秩拒绝的裁决对象从观测 Jacobian 挪到 rest 项自身曲率——图里被选 latent 可以只被下游 latent 密度约束（`child ~ Normal(parent, s)`），似然 mode 存在而观测 Jacobian rank 0，rheplicant 的平坦结构表达不出这种情形。记录：`docs/migration/sensitivity.md` |
 | `priors.py`（`JeffreysPrior`） | P5 `diagnose/` 或桥层 | 复现 RadiometerNoise 下 Jeffreys 退化为平坦先验的实测常数 **+15.80169853**——既是回归测试，也是对「先验形状由噪声模型选择」这一语义的 cross-check。保留 `eigh` + 秩下限；**不得**换回 `slogdet`/Cholesky（病态块上它们给出貌似合理的有限值）。**已落地（2026-08-25），取 `diagnose/`**：常数九格逐位复现（对 rheplicant 活体、对 numpy 独立闭式各 1e-8）；奇异块的两个"貌似合理"数也逐位复现（slogdet +6.420496、cholesky pivot 9.755e-05），eigh+floor 给 −338；噪声改从图读取，行序保留 over= 顺序（sorted 之疣不移植）；今日消费者是 `numpyro.factor` 模式（套件演示），图上声明 + 桥集成留给 numpyro_bridge 行。记录：`docs/migration/priors.md` |
-| `numpyro_bridge.py` | `bridge/numpyro_bridge.py`（已有） | 补三条 rheplicant 特有的：`init_to_declared` 等价物（实测 r_hat 840 vs 1.002——**带过去的是教训不是代码**）、`predict_from_samples` 的形状守卫、Jeffreys factor site 的「密度只加一次」 |
+| `numpyro_bridge.py` | `bridge/numpyro_bridge.py`（已有） | 补三条 rheplicant 特有的：`init_to_declared` 等价物（实测 r_hat 840 vs 1.002——**带过去的是教训不是代码**）、`predict_from_samples` 的形状守卫、Jeffreys factor site 的「密度只加一次」。<br><br>**已落地（2026-08-25，`8199377`）——这是 §四 的最后一行，闭合它就打开了 §六 的门。** 本行**不做数值对照，而且记录页把为什么写清楚了**：两个包各自构造一个 NumPyro 模型、交给同一个 NUTS，逐值比对等于拿 NumPyro 和 NumPyro 比。比的是上游点名的那三种失败模式下的**行为**。三条里**有两条在本侧是可达的失败，本次一并修掉**：`predict` 的每样本形状守卫——漏网的恰好是方阵（长度 3 的 latent 抽 3 次，转置后形状不变，守卫看不见它），以及 Jeffreys 的「密度只加一次」，由 `JeffreysPrior._check_against` 接住。唯一被比的那个数是 Jeffreys factor 的贡献：联合 log-density 只按先验自己的那一项移动、不多不少，对独立求值的 `JeffreysPrior.log_density` 到 `rel=1e-12`——是一次减法，不是去 trace 里看一眼。预言机是手写算术（三次抽样下 `c ⊙ x` 的 `[[0, 2, 6], [3, 8, 15], [6, 14, 24]]`），**连转置后的答案也一并写出**，那是「静默的那一格确实静默」的证据。三个变异全部被针对它们具名的测试杀死。记录：`docs/migration/numpyro_bridge.md`；测试 `tests/crosscheck/test_bridge.py`。 |
 
 ### 4.3 不迁移
 
@@ -363,6 +380,23 @@ circulant 也正是推动这件事的物理的正确模型：1/f 漂移与大气
 加密度类型，让分派决定「能精确就精确，否则 NUTS」。
 **验收**：一个非高斯节点能产出**抽样**，而不只是一个 loss。
 
+> **【已闭合 2026-08-25，`074848a`。答案写在这一行下面，因为问它的是这一行。】**
+> 两个具名测试，都在 `tests/dispatch/test_acceptance.py`：
+> `test_a_poisson_observation_produces_draws_and_they_match_quadrature` 与
+> `test_a_student_t_observation_produces_draws_on_both_of_its_latents`。
+>
+> Poisson 那条挑的是**方差跟着预测走**的形状——Poisson 的均值就是它的方差——
+> 所以它不只是「一个非高斯密度」，而是精确通路装不出来的那一种；分派对它给出
+> `plan.exact is None`，路由到 NUTS。预言机是那个文件自己的 `log_joint` 网格
+> 求积，与被测对象共享模型、不共享别的；比的是后验标准差，那是「采样器找到了
+> 对的分布」唯一有意义的尺度。
+>
+> **闭合前它的状态不是「没做」，而是「做了但从没有人跑过」，这个区别才是本条
+> 留下的东西。** 分派表自分类器存在的那天起就已经这么路由，但**没有任何测试把
+> 一个非高斯观测节点一路带到抽样**，于是这条验收靠的是**读**分派表而不是**跑**
+> 它。那个测试文件的注释把这句原话记了下来——「Assumed to hold, with no guard」
+> ——而那正是本仓库反复记录的那种绿灯。
+
 ### B11 — 流式证据，从图重写 `[互证]`
 
 README 的第四条头条能力，也是 config 完全够不着的子系统（`campaign:` 保留并
@@ -447,6 +481,23 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
    列入 Track A 的 Batch 1：B1 的 `plan.py` docstring 补写（它今天只写了
    conjugate 块的冻结-σ 情形，应补上 gradient 块同样不含 logdet），以及 B4 的
    一行修复。任何指向 bayesmith 的 docstring 指针也算例外。
+
+   > **【本步骤已被 2026-08-26 的 owner 裁决整条取代，原文保留而非删除。实测
+   > 2026-09-03，e-RHINO `27e621b`。】**「一行不动」的有效期止于当日的「未迁移
+   > 的全部迁移」：Wave A–D 与 D10/D11 授权了成批切换，今天
+   > `src/rheplicant/inference/` 的 **28 个 `.py` 文件里有 12 个** import bayesmith
+   > （`calibrate`、`chain`、`diagnostics`、`gls`、`identifiability`、`linear`、
+   > `loglinear`、`npe`、`partition`、`reduced_basis`、`sensitivity`、
+   > `sqrtinfo`）。那条执行计划的家是 `2026-08-26-one-implementation.md`。
+   >
+   > **本步骤点名的两项例外都已兑现，答案写在这里而不是留在别处：**
+   > B4 的一行修复已落地（e-RHINO `d499171`，2026-08-24：`npe.py:165` 改用
+   > `noise.realise(prediction, key=…)`，docstring 同步改写成「the draw is taken
+   > with the model's own ``realise``, so the simulator and the likelihood cannot
+   > disagree about the law」）；B1 的 `plan.py` docstring 补写随 B1 整条闭合，
+   > 今天那份 docstring 明写 gradient 块从 **6.248269** 移到 **5.004059**、
+   > 并载着「**It is the BLOCK TYPE that decides, not the exit**」那张四行表——
+   > 它同时更正了本文与它自己都曾把这件事说成「`plan.sample` 做的事」。
 2. **【owner 已拍板 2026-08-26：本步骤重写为「两个包各自成立、互相比对」。】**
 
    原文是「`inference/` 转薄壳（重导出 + `DeprecationWarning`，或设计文档附录
@@ -566,15 +617,106 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
    进程全局的。证据层迁出后两个 session 可能重新合一——届时重估
    `tests/test_evidence_session.py` 的存在理由，并改写 README 关于覆盖率的叙事
    （88.2 % vs ~99.7 % 那一段）。
+
+   > **【答案：红利不会到，而且数字朝反方向走了——不是两个 session 合成一个，
+   > 是变成了三个。实测 2026-09-03，e-RHINO `27e621b`。】**
+   >
+   > **(一) 前提永久为假：证据层不迁出。** `src/rheplicant/inference/` 里那
+   > 八个模块一个不少，共 6199 行——`archive.py` 444、`memory.py` 1045、
+   > `compress.py` 1029、`compressed.py` 594、`chain.py` 1255、
+   > `factorize.py` 205、`reduced_basis.py` 807、`diagnostics.py` 820；
+   > `tests/evidence/` 仍有 40 个测试文件，仍带 x64 采集门。这不是拖延，是
+   > 下面步骤 2 那条 owner 裁决（2026-08-26）的直接后果：两个包各自成立、
+   > `inference/` 不废弃，于是证据层没有「迁出」这件事可做。四个模块确实已经
+   > 在委托远端（`chain.py`、`reduced_basis.py`、`diagnostics.py`、
+   > `sqrtinfo.py` 各自 import bayesmith），但**委托不是迁出**：文件还在、
+   > 测试还在、x64 还在，第二个 session 一天也没有少跑。
+   >
+   > **(二) 「两个 session」这个数在 2026-08-27 就不对了。** `647a2ed` 加了
+   > `tests/seam/`（适配器的确定性层，断言是对稠密法方程的 `rtol <= 1e-12`，
+   > float32 说不出这句话），它带自己的 x64 采集门和自己的驱动
+   > `tests/test_seam_session.py`。今天一次 `pytest` 调用跑**三个** session。
+   >
+   > **(三) 「重估 `tests/test_evidence_session.py` 的存在理由」这件事已经做
+   > 了，而且做在它自己的 docstring 里**，比本行早得多，两条实测：
+   > 2026-08-25 量到 `tests/evidence/` 当时是套件里唯一带 x64 采集门的目录，
+   > 所以「合一」的真实含义是「删掉这个文件和那个 conftest」而不是「给全套件
+   > 打开 x64」；2026-08-27 就地更正——seam 的 x64 需求**不随迁移离开**，因为
+   > 适配器是 rheplicant **留下**的东西而不是交出去的东西，所以「两个 session
+   > 合一」最好的情形也只是「两个里走掉一个」。那份 docstring 还把代价量了出
+   > 来：22 个只在 float32 下才成立的拒绝里，只有 6 个在 `tests/inference/`、
+   > 会随迁移走；另外 16 个在 `tests/core/` 与 `tests/radio/`，不迁移，而且
+   > 承重——float32 是这台仪器的生产 dtype，与推断层做什么无关。
+   >
+   > **(四) README 的覆盖率叙事不必改，因为它讲的那件事没有变。** e-RHINO 的
+   > `README.md` 仍写着「the 99.7 % it was before the evidence layer landed」，
+   > 理由仍然是第二个 session 在自己的进程里跑 `--no-cov`。**但同一段把 session
+   > 数写成了 two**，那在 2026-08-27 之后少了一个。那是 e-RHINO 的行，不是本
+   > 仓库能改的，记在这里等那边的人来读。
 4. README 的「四能力」叙事改写：贝叶斯推断与流式证据指向 bayesmith；
    `docs/inference.md`、`docs/inference-*.md`、`docs/evidence.md` 改为迁移指南
    或移除。
+
+   > **【答案：已做，2026-08-26；而做出来的东西与本行预设的方向相反，所以本行
+   > 的原文一个字不动，答案写在这里。实测 2026-09-03，e-RHINO `27e621b`。】**
+   >
+   > 本行预设「贝叶斯推断与流式证据**指向** bayesmith」、那几页「改为迁移指南
+   > 或移除」。下面步骤 2 的 owner 裁决取消了这个前提（`inference/` 不废弃、不
+   > 转薄壳），于是执行出来的是另一件事：
+   >
+   > - **README（`575c07c`，2026-08-26）**：「四能力」那张表**原样保留**，四条
+   >   仍然都是 rheplicant 自己的能力；表下新增一段，标题式的一句是「**2 和 4
+   >   有一个兄弟，而它是一个独立的包而不是继任者**」，并写明重叠部分靠
+   >   cross-check 套件而不是共享代码维持一致、这边没有任何东西在迁走或被废弃、
+   >   以及该拿哪一个（有 RHINO twin 就在这边，模型不是这台仪器就去那边）。
+   > - **`docs/inference.md`、`docs/inference-linear.md`、
+   >   `docs/inference-plans.md`、`docs/inference-spaces.md`、`docs/evidence.md`
+   >   （`ce282dd`，2026-08-26）**：五页**都没有**改成迁移指南、**都没有**移除，
+   >   正文原样保留；五页各在第 3 行 `{include}` 同一个片段
+   >   `docs/_migration-to-bayesmith.md`，而那个片段的第一句就是答案——
+   >   「There is a sibling package, and this layer is not moving to it」。
+   >   片段列在 `docs/conf.py` 的 `exclude_patterns` 里，不另外成页。
+   >
+   > **为什么是一处 include 而不是五页各写一遍，那个片段自己在注释里说了**，
+   > 理由正是本仓库的常客：一句话拼五遍，就是五个要更新的地方和一个真会被更新
+   > 的地方。而这不是假想——那份片段**在写下后几小时之内就过期了一次**（当天
+   > owner 做了裁决），一处源正是「修那一次只花一次编辑」的原因。
 5. **跨仓库已发布契约**——rheplicant 改动其中任何一条都是对 bayesmith 的
    breaking change，值得在 rheplicant 侧加一个具名测试把它们标出来
    （散文挡不住，守卫才行）：
    - `build_forward_fn` 接缝（bayesmith 的「pipeline = 确定性节点」经此零适配接入）
    - `core` 异常类的共享 identity（52 处测试 import）
    - `AbstractOperator` 的「`__call__` 内只做结构校验」契约（函数追踪安全性的前提）
+
+   > **【答案：已做，2026-08-26，e-RHINO `eed1357`，
+   > `tests/test_published_contracts.py`——295 行、9 个测试函数、实收 27 passed
+   > （`pytest tests/test_published_contracts.py --no-cov`，2026-09-03）。】** 三条各有自己的具名类，与上面三个 bullet 一一对应：
+   >
+   > - `build_forward_fn` 接缝 → `TestTheForwardSeamKeepsItsPublishedSurface`：
+   >   发布路径与定义模块持有同一个对象；形参名、顺序与默认值；返回消费者要
+   >   解包的那个 pair。**行为**不在这里重测（那是 `tests/inference/test_forward.py`
+   >   的题目），这个文件守的是**表面**，而表面正是那个文件不钉的东西。
+   > - `core` 异常类的共享 identity → `TestTheExceptionClassesKeepTheirIdentity`：
+   >   先断言这一遍**真的看见了那个模块**（否则一次扫空的普查会读起来像全过），
+   >   再逐名断言每个类既能按族捕获也能按其内建基类捕获，且根导出是**同一个
+   >   对象**而不是一个副本。
+   > - `AbstractOperator.__call__` 只做结构校验 → `TestAPipelineStaysTraceableAsANode`：
+   >   jit 复现 eager 的结果、梯度到得了 pipeline 内部的参数，外加一个**阳性
+   >   对照**——`__call__` 里放一个取值检查，必须在这里被抓到。
+   >
+   > 它的模块 docstring 把本行那句「散文挡不住，守卫才行」接了下去，并说清了
+   > 为什么这个守卫**必须长在上游**：**每一种破坏方式的症状都落在另一个仓库。**
+   > 改一个关键字名、或者把异常类**重建**而不是**重导出**，rheplicant 自己的
+   > 套件照样是绿的——因为它内部没有任何一处像外部消费者那样 import 这些名字；
+   > 而 `except ParameterSpaceError` 会在跨仓库的另一侧安静地不再触发。
+   >
+   > **三条里今天真正被消费的是哪几条，那份 docstring 也是量出来的而不是假设
+   > 的**：契约 2 与 3 是活的（bayesmith 从 `rheplicant.core.errors` import
+   > `ParameterSpaceError` 与 `StateValidationError`；`graph/nodes.py` 把一个
+   > `eqx.Module` 当作节点的 `fn`、经 `__call__` 调用）；契约 1 **被设计针对
+   > 但今天尚未被 import**——`build_forward_fn` 出现在 bayesmith 的文档里，
+   > `.py` 文件里一次都没有。它照样被钉住，理由写在那里：「published」说的是
+   > 外部消费者**可以**依赖什么，不是今天谁在依赖。
 
 ---
 
@@ -672,6 +814,24 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
 rheplicant 作仅测试依赖」提出并给出落地命令。若 owner 反对，替代方案是在
 e-RHINO 侧装 bayesmith——但那会让 rheplicant 依赖一个 0.0.0 版包，不推荐。
 
+> **【已定，而且是被执行定的，不是被裁决定的；答案写回提问的这一行。实测
+> 2026-09-03。】** 取本文提的那条：harness 住在 bayesmith 这边，rheplicant
+> 作仅测试依赖。落地在 §0.1（2026-08-24），CI 形态在
+> `.github/workflows/crosscheck.yml`（2026-08-26）——按 URL 从 rheplicant 的
+> **main** 装、`--no-deps`、打印解析出的 commit，并从 junit XML 读计数，比过
+> 0 个就红。**没有 owner 的反对记录**，所以这条是「已执行且无人反对」，不是
+> 「已裁决」；两者的区别在于后者会挡住重开，前者不会。
+>
+> **而那句「不推荐」的理由今天已经不成立，这一点必须一起写下**——否则下一个
+> 读到本行的人会以为替代方案仍被同一个论据挡着，并据此重新论证一遍。当时的
+> 论据是「那会让 rheplicant 依赖一个 0.0.0 版包」。2026-08-26 起 rheplicant
+> **本来就**声明了 `bayesmith>=0.5`（e-RHINO `pyproject.toml:82`）并在运行时
+> import 它（`partition.py`、`loglinear.py`），而 bayesmith 已经在 PyPI 上——
+> 实测 `pypi.org/simple/bayesmith/`（照 `CLAUDE.md` 的规矩问 `/simple/`，
+> 不问 JSON API）：0.1.0、0.2.0、0.3.0、0.4.0、0.5.0、0.7.1。所以两条路今天
+> 都装得上；本条继续取第一条的理由变成了「它已经在跑，而且跑的就是 CI 里那
+> 一份」，而不再是「另一条装不上」。
+
 ---
 
 ## 八、执行顺序
@@ -689,6 +849,9 @@ e-RHINO 侧装 bayesmith——但那会让 rheplicant 依赖一个 0.0.0 版包�
 6. **P6 = B11 流式证据重写**。
 7. **B10**，然后 §六的 rheplicant 收尾。**B12 已于 2026-08-25 由
    owner 拍板取 (c)（不动 config 层），无代码可写**——见 §五 B12 的批注。
+   **B10 也已于 2026-08-25 闭合**（`074848a`，两个具名验收测试）——见 §五 B10
+   的批注；证据不在这里复述，这一行只是指针。§六 的收尾状态同样写在 §六 各步
+   骤自己的行上：步骤 1 被取代、2 已重写并落地、3 的红利不会到、4 与 5 已做。
 
 ---
 
