@@ -274,6 +274,38 @@ def standardised_spread(y, loc):
         return (per_draw - per_draw.min()) / (per_draw.max() - per_draw.min())
 
 
+def replicated_only_nan(y, loc):
+    """``standardised_spread`` read backwards: NaN on the replicated draws and
+    finite on the observed one.
+
+    The guard's other half.  ``always_nan`` is undefined on both arguments and
+    ``standardised_spread`` is undefined on the observed one, so between them
+    a guard that consults only ``t_observed`` still fires on every fixture in
+    this file -- MEASURED on the text this fixture was added to: delete the
+    ``t_replicated`` clause and all 50 tests still passed, exit 0.  Half of
+    the guard could not fail, which this repository holds to be worse than no
+    guard at all.
+
+    The same construction as its mirror, with the sign moved.  DERIVED: the
+    observed argument is ONE data vector broadcast to every draw, so its
+    per-draw spreads are identical floats, their range is exactly ``0.0``, and
+    ``sqrt(-0.0)`` is ``-0.0`` -- finite wherever IEEE-754 holds, so no
+    machine gets a vote on that half.  MEASURED, and only qualitatively: 2000
+    replicated datasets are not all identical, so their range is positive
+    (``1.2322274`` on the development laptop) and the square root of its
+    negation is NaN.  What is measured is "2000 random draws differ", which is
+    a fact about the fixture rather than a constant about a machine; there is
+    nothing here to tune to a CPU.
+
+    ``+ np.zeros(y.shape[0])`` because a range is one scalar and the
+    discrepancy contract owes one value per draw.
+    """
+    del loc
+    per_draw = np.std(y, axis=-1)
+    with np.errstate(invalid="ignore"):
+        return np.sqrt(-(per_draw.max() - per_draw.min())) + np.zeros(y.shape[0])
+
+
 def p_values(report):
     """``{short discrepancy name: p}`` off a report's own findings."""
     return {
@@ -924,6 +956,59 @@ def test_the_finite_guard_reads_the_observed_argument_as_well(measured):
     assert finding.observed == (
         "d",
         f"{standardised_spread.__module__}.standardised_spread",
+    )
+
+
+def test_the_finite_guard_reads_the_replicated_argument_as_well(measured):
+    """The clause the test above cannot reach, by the mirror of its fixture.
+
+    ``standardised_spread`` fires the guard through ``t_observed``, so it
+    kills a guard that reads only the replicated half; nothing in this file
+    was undefined the other way round, so the ``t_replicated`` clause itself
+    could not fail.  Measured before this test was written: with that clause
+    deleted the file still reported 50 passed, exit 0.
+
+    Both premises are asserted here rather than only described, because the
+    fixture is worthless if either stops holding.  The derived one is exact --
+    identical rows, so an across-draw range of exactly zero -- and the
+    measured one is a strict inequality with no constant in it.
+
+    What the clause is worth is the quiet half.  With it deleted this cell
+    does not merely lose its abstention -- the NaN reaches ``_p_value``, where
+    ``nan >= nan`` is ``False`` at every draw, and the report comes back
+    MEASURED as ``applicable / fail / ['discrepancy_outside_band']`` carrying
+    ``('d', 'tests.evaluation.test_checks.replicated_only_nan', 0.0, 0.0)``: a
+    saturated FAIL spelled exactly like a real one, same code, same shape.
+    """
+    posterior, predictive = measured["straight_line"]
+    graph = straight_line()
+    replicated = np.asarray(predictive.replicated_draws[0].value)
+    observed = np.broadcast_to(
+        np.asarray(graph.node("d").observed), replicated.shape
+    )
+    # DERIVED: identical rows give identical row statistics, so the observed
+    # argument's across-draw range is exactly zero and sqrt of its negation is
+    # -0.0.  MEASURED, qualitatively: the replicated draws are not identical.
+    observed_spread = np.std(observed, axis=-1)
+    replicated_spread = np.std(replicated, axis=-1)
+    assert observed_spread.max() - observed_spread.min() == 0.0
+    assert replicated_spread.max() - replicated_spread.min() > 0.0
+    assert not np.any(np.isfinite(replicated_only_nan(replicated, None)))
+    assert np.all(np.isfinite(replicated_only_nan(observed, None)))
+
+    report = posterior_predictive_check(
+        graph,
+        predictive,
+        source_posterior=posterior,
+        discrepancies=(replicated_only_nan,),
+    )
+    assert report.applicability is Applicability.UNVERIFIABLE
+    assert report.conclusion is Conclusion.ABSTAIN
+    (finding,) = report.findings
+    assert finding.code == "discrepancy_not_finite"
+    assert finding.observed == (
+        "d",
+        f"{replicated_only_nan.__module__}.replicated_only_nan",
     )
 
 
