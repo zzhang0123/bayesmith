@@ -2110,11 +2110,44 @@ def test_factor_free_dense_level_five_rejects_an_unresolved_matrix():
 
 def test_dense_condition_policy_stays_at_one_over_eps_not_one_over_sqrt_eps():
     """A resolved non-diagonal cell between the two ceilings remains admissible."""
-    correlation = 1.0 - 2.0e-10
+    # `correlation` is a negative power of two so that the disagreement
+    # between LAPACKs here is BOUNDED rather than accidental, and the exponent
+    # is large so that buying the bound costs no ill-conditioning:
+    # kappa_2(sigma) = (1 + r) / (1 - r) = 2**44 - 1 = 17592186044415, which
+    # is 262144x above the 1/sqrt(eps) floor asserted below and 256x below the
+    # 1/eps ceiling -- 1759x MORE ill-conditioned than the `1.0 - 2.0e-10`
+    # this line held until 2026-09-03, not less. That literal pinned a
+    # machine. dpotrf sets L22 = sqrt(1 - r*r), so the answer turns on how
+    # 1 - r*r is evaluated: measured 2026-09-03, Apple Accelerate returned
+    # -21.639556486180197, error 0 against the oracle below, while
+    # scipy-openblas 0.3.34 returned -21.6395564860802, error 9.99982e-11 --
+    # fifty times the tolerance, so Linux failed a cell it had resolved
+    # correctly. r*r is inexact here too, and has to be: exactness needs 2**27
+    # to divide D in r = 1 - D * 2**-53, which would cap kappa at 2**27 - 1.
+    # What changes is that the spread is now derivable. fl(r*r) discards the
+    # exact square's D**2 * 2**-106 tail against a determinant of D * 2**-52,
+    # so the naive and exact routes differ by D * 2**-54 = 2**-44 in the log,
+    # and the two libraries land on the two ends of exactly that: Accelerate
+    # L22 0x1.fffffffffff00p-22 -> -29.11218158351776, error 0; scipy-openblas
+    # L22 0x1.0000000000000p-21 -> -29.112181583517703, error
+    # 5.684341886080802e-14, which is 2**-44 to the last bit and 35x inside
+    # the tolerance below.
+    correlation = 1.0 - 2.0**-43
     sigma = np.array([[1.0, correlation], [correlation, 1.0]])
     lam = 2.0 * np.eye(2)
     problem = LogDetProblem(lam, sigma - lam)
     exact = _exact_two_by_two_correlation_logdet(correlation)
+    # This test is the oracle's only caller in the repository, so pin what it
+    # returns rather than leaving the band below to do it by accident. Gutting
+    # the oracle to `math.log(1.0 - correlation * correlation)` -- the naive
+    # route dpotrf itself takes -- moves it by 5.684e-14, which the band
+    # absorbs; this equality does not. The band never did that job portably
+    # anyway: measured 2026-09-03 at the old fixture, gutting the oracle took
+    # macOS red and Linux GREEN, because there the payload took the same naive
+    # route. Decimal(prec=100) is software arithmetic, so this pin is
+    # platform- and libm-independent -- identical on Accelerate, on
+    # scipy-openblas 0.3.34, and under the pure-Python _pydecimal fallback.
+    assert exact == -29.11218158351776
 
     verdict = check_logdet_premises(problem)[4]
     result = dispatch_logdet(problem)
@@ -2123,6 +2156,15 @@ def test_dense_condition_policy_stays_at_one_over_eps_not_one_over_sqrt_eps():
     assert verdict.details["condition"] < verdict.details["condition_ceiling"]
     assert verdict.satisfied is True
     assert result.level == 4
+    # 2.0e-12 is unchanged and still bites. The factorization spread above is
+    # bounded at 5.684e-14 and libm's `log` adds a few of the 1.776e-15 ULPs
+    # that the payload's `2 *` doubles, so the band has room for a third BLAS
+    # while a 1e-13 relative error injected into the rung-4 payload still
+    # fails here and 5e-14 still passes (measured 2026-09-03, both platforms).
+    # It is nowhere near slack either: 3 * u * kappa, all that backward
+    # stability alone promises at this condition number, is 5.9e-03 nats --
+    # 2.9e9 times wider than this band, so the bound doing the work here is
+    # the derived 2**-44 above and not a generic one.
     assert result.value == pytest.approx(exact, rel=0.0, abs=2.0e-12)
 
 
