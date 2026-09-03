@@ -90,10 +90,15 @@ jobs:
       # a `left @ left.T` product at condition 3.6e15, and a Vandermonde MAP
       # residual computed through JAX. OpenBLAS selects kernels at RUNTIME from
       # the host's instruction set and XLA generates code the same way, so the
-      # container -- QEMU TCG, avx2 only, no AVX-512 -- rounds those two
-      # differently while every library version matches. With the versions
-      # identical the CPU was the only remaining variable, and nothing in the
-      # log said what it was.
+      # container -- QEMU TCG, avx2 only -- rounds those two differently while
+      # every library version matches. With the versions identical the CPU was
+      # the only remaining variable, and nothing in the log said what it was.
+      #
+      # AND THE POOL IS HETEROGENEOUS, which the log then showed: three runs
+      # served an AMD EPYC 7763 (no AVX-512), an AMD EPYC 9V74 and an Intel
+      # Xeon Platinum 8370C. Two jobs of one workflow landed on the last two
+      # while a third run put the same job on the first, so "the runner" is not
+      # a machine and a fixture tuned to one is a fixture that will flap.
       - name: Say what the numerical stack is
         run: |
           .venv/bin/python - <<'PY'

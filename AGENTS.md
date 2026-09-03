@@ -183,10 +183,19 @@ If a repair cannot show what it still kills, it is not finished.
 **Reproducing CI locally.** A `linux/amd64` container resolves the same numpy,
 scipy, jax and scipy-openblas as the runner, but QEMU's CPU is unrecognised so
 OpenBLAS falls back to a non-FMA kernel. **Set `OPENBLAS_CORETYPE=ZEN`** and it
-reproduces the runner bit for bit — 14 of 16 failures without it, 16 of 16 with
-it. The runner is an AMD EPYC 7763 with `avx avx2 fma sse4_2` and **no**
-AVX-512; `suite.yml` logs the CPU and the BLAS every run, because when a cell
-moves that is the first question. Mind that **zsh does not word-split unquoted
+reproduces one runner bit for bit — 14 of 16 failures without it, 16 of 16
+with it.
+
+**But there is no such thing as "the runner".** GitHub allocates a fresh VM per
+job and the `ubuntu-latest` pool is heterogeneous: measured across three runs
+it served an AMD EPYC 7763 (`avx avx2 fma sse4_2`, no AVX-512), an AMD EPYC
+9V74 and an Intel Xeon Platinum 8370C (both with the AVX-512 family). Two jobs
+of ONE workflow ran on the last two and a third run put the same job on the
+first. So a boundary cell can pass in one job and fail in the other on the same
+commit — that happened, and it is what identified the sixteenth repair. Do not
+tune a fixture to a CPU; make it insensitive to one. `suite.yml` logs the CPU
+and the BLAS in both jobs, because when a cell moves that is the first
+question. Mind that **zsh does not word-split unquoted
 variables**, so a `-e VAR=x` held in a shell variable reaches `docker` as one
 argument and is silently ignored — that alone produced a confident and wrong
 "the coretype makes no difference".
