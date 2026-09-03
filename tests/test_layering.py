@@ -152,12 +152,22 @@ def test_the_artifact_protocol_is_a_leaf_and_dispatch_is_what_reaches_it():
     available route. ``dispatch`` is what bridges the two, so the edge exists
     there and only there -- if a second unit grows one, this assertion is
     where the decision to allow it gets made.
+
+    **``evaluation`` is the second unit, and this is that decision.** R3 §0.1
+    puts the evaluation layer above the execution adapters and gives it
+    ``dispatch``, ``graph``, ``artifacts`` and ``bridge.arviz`` to read; an
+    :class:`~bayesmith.artifacts.reports.EvaluationReport` is the whole output
+    of that layer, so it cannot be written without reaching the protocol that
+    defines one. What the rule above was protecting is untouched by it: the
+    edge still runs DOWNWARD, ``artifacts`` still imports nothing, and the
+    list below is exact rather than a wildcard, so a THIRD unit growing the
+    edge still stops here.
     """
     edges = _graph()
     assert edges["artifacts"] == set()
     assert "artifacts" in edges["dispatch"]
     reaching = sorted(unit for unit in edges if "artifacts" in edges[unit])
-    assert reaching == ["dispatch"], reaching
+    assert reaching == ["dispatch", "evaluation"], reaching
 
 
 def test_importing_the_artifact_protocol_pulls_in_no_numerical_stack():
