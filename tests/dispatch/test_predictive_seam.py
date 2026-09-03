@@ -21,14 +21,14 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 import pytest
-from bayesmith.dispatch.predictive import (
-    pointwise_log_likelihood,
-    replicated_draws,
-)
 
 from bayesmith import compile as compile_graph
 from bayesmith import const, det, observe, sample, trace
 from bayesmith.artifacts.base import NamedArray
+from bayesmith.dispatch.predictive import (
+    pointwise_log_likelihood,
+    replicated_draws,
+)
 from bayesmith.errors import NotGaussian
 from bayesmith.exact.gaussian import observation_parts
 from bayesmith.graph.evaluate import evaluate

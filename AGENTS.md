@@ -124,7 +124,20 @@ not `rhino_cal`; checking the wrong name reads exactly like "never installed".
 
 ## Linting
 
-`ruff check src/ tests/` is clean. `ruff format` reports **31 files / 517
+**Pass `--no-cache`, or the check can report on a run it did not make.**
+Measured 2026-09-03: `ruff check src/ tests/` printed `All checks passed!` in
+this checkout while the identical command, same binary, in a fresh worktree of
+the same commit found an `I001` in `tests/dispatch/test_predictive_seam.py`.
+The difference was `.ruff_cache/`, which is gitignored and therefore exists
+only where someone has run ruff before. `ruff check --no-cache src/ tests/`
+finds it in both. Three separate agents reported the error and this checkout
+denied it, which is how long a stale cache can hold a lie.
+
+Same family as the zsh glob and the PyPI index below: a result that cannot
+distinguish "clean" from "the check did not really run". And take the exit code
+from ruff itself -- `ruff check ... | tail -3; echo $?` reports on `tail`.
+
+`ruff check --no-cache src/ tests/` is clean. `ruff format` reports **31 files / 517
 lines** of drift, left there on purpose: nothing enforces it (no CI, no
 pre-commit), and `c2a0605` shows formatting here has been applied per file
 behind a waiver rather than swept. If it is ever swept, **pass the 31 file
