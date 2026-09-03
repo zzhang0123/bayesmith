@@ -127,18 +127,29 @@ def test_the_function_scope_borrow_this_rule_tolerates_is_still_exactly_one():
     assert borrows == ["fisher.py"], borrows
 
 
-def test_graph_is_the_foundation_and_dispatch_is_the_top():
+def test_graph_is_the_foundation_and_evaluation_is_the_top():
     """The narrative in the top-level docstring, measured.
 
-    ``graph`` is depended on by the most units; ``dispatch`` by none. If that
-    ever inverts, the package's own description of itself has stopped being
-    true.
+    ``graph`` is depended on by the most units; the top of the ladder by none.
+
+    **The top moved in R3, and the move is the point.** This assertion used to
+    read ``in_degree["dispatch"] == 0``, which was true while ``dispatch`` was
+    the last rung. R3 §0.1 puts ``evaluation`` above it -- the checks read a
+    finished Result through ``dispatch.predictive`` and ``dispatch.task``, and
+    §7.2's chain is ``model/graph -> analysis/compiler -> execution adapters ->
+    evaluation -> workflow``. So the roof is ``evaluation`` now, and the one
+    arrow into ``dispatch`` is the one the design draws. Naming the units
+    ABOVE dispatch rather than counting them is what keeps this honest: a
+    second, unplanned unit reaching down would show up as a name here rather
+    than as a number that someone bumps.
     """
     edges = _graph()
     in_degree = {
         unit: sum(1 for other in edges if unit in edges[other]) for unit in edges
     }
-    assert in_degree["dispatch"] == 0, "something now depends on dispatch"
+    assert in_degree["evaluation"] == 0, "something now depends on evaluation"
+    above_dispatch = sorted(unit for unit in edges if "dispatch" in edges[unit])
+    assert above_dispatch == ["evaluation"], above_dispatch
     assert in_degree["graph"] >= 4, in_degree
     assert edges["graph"] <= {"errors", "distributions"}, edges["graph"]
 
@@ -149,15 +160,21 @@ def test_the_artifact_protocol_is_a_leaf_and_dispatch_is_what_reaches_it():
     ``artifacts`` imports no other unit of this package: it is data about what
     was asked, planned, produced and judged, and a protocol that reached back
     into the graph layer would put a Graph inside an artifact by the shortest
-    available route. ``dispatch`` is what bridges the two, so the edge exists
-    there and only there -- if a second unit grows one, this assertion is
-    where the decision to allow it gets made.
+    available route.
+
+    TWO units reach it, and the second one arrived with R3. ``dispatch``
+    bridges a Graph to a Result; ``evaluation`` builds ``EvaluationReport``
+    objects ABOUT those results, so it must reach the protocol too (§0.1). The
+    list is spelled out rather than counted so that a THIRD unit growing an
+    edge is a failure with a name in it, which is the whole value of this
+    assertion -- the direction that stays forbidden is the reverse one, and
+    ``edges["artifacts"] == set()`` above is what holds it.
     """
     edges = _graph()
     assert edges["artifacts"] == set()
     assert "artifacts" in edges["dispatch"]
     reaching = sorted(unit for unit in edges if "artifacts" in edges[unit])
-    assert reaching == ["dispatch"], reaching
+    assert reaching == ["dispatch", "evaluation"], reaching
 
 
 def test_importing_the_artifact_protocol_pulls_in_no_numerical_stack():

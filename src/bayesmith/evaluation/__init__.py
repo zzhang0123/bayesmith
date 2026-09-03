@@ -36,7 +36,7 @@ it installed gets an UNVERIFIABLE report rather than an ImportError (§7.3).
 
 from __future__ import annotations
 
-__all__ = ["ALPHA"]
+__all__ = ["ALPHA", "held_out_report"]
 
 #: D104. The two-sided false-positive rate EVERY random check in this layer
 #: declares in advance, as §9.3 requires.
@@ -56,3 +56,10 @@ __all__ = ["ALPHA"]
 #: m held-out points is ``ALPHA / (2 * m)``, and for K latent coordinates in
 #: SBC it is ``ALPHA / K``.
 ALPHA = 0.05
+
+# The re-exports sit BELOW ``ALPHA`` because they read it: ``heldout`` (and any
+# sibling check) does ``from bayesmith.evaluation import ALPHA`` at module
+# scope, so the name has to exist by the time this line runs.  Moving this line
+# above ``ALPHA`` turns the import into a circular one that fails at import
+# time, which is a real ordering constraint rather than a style choice.
+from bayesmith.evaluation.heldout import held_out_report
