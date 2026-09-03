@@ -16,6 +16,11 @@ The governing spec is the
 [top-level design](superpowers/specs/2026-08-30-bayesmith-top-level-design.md)
 §2, §4 and §8 R1; the execution plan is
 [the R1 plan](superpowers/plans/2026-08-30-r1-task-artifact-provenance.md).
+R2 moved exactly two things on this page: it made `PredictiveTask` executable,
+and it added one member to `ArtifactKind`. Its plan is
+[the R2 plan](superpowers/plans/2026-08-31-r2-predictive-seam.md), and what was
+accepted rather than merely planned is
+[the R2 close-out](superpowers/specs/2026-08-31-r2-close-out.md).
 
 ---
 
@@ -36,16 +41,106 @@ standing in for the main Result.
 `PredictiveResult` is its own Result, not `SimulationResult` plus a Report: a
 predictive task conditions on data, names the posterior it came from, and
 distinguishes replicated sites from carried-forward latents; a simulation has
-none of those. R1 answers `PosteriorTask` and `PointEstimateTask`; the other
-three tasks and their Results are frozen schema, and the runtime bridge
-returns a typed `Refusal` with the code `capability_unavailable_r1`.
+none of those.
+
+Three of the five are executed and two are not. `SUPPORTED_TASK_KINDS` in
+`bayesmith.dispatch.task` is `{POSTERIOR, POINT_ESTIMATE, PREDICTIVE}` -- R1
+answered the first two and R2 added the third. `EvidenceTask` and
+`SimulationTask` remain frozen schema and nothing else: the runtime bridge
+refuses them in `_refuse_before_compiling`, before a plan is paid for, with the
+code `capability_unavailable_r1` and a `Finding` whose `expected` field is that
+same supported set. A caller therefore reads which questions are answered off
+the refusal it just received, not off this page, which is the only version of
+that list that cannot go stale.
 
 ### Posterior representations
 
 A posterior Result carries exactly one of four tagged representations:
 `DrawsPosterior`, `WeightedDrawsPosterior`, `AnalyticPosterior` or
 `FittedConditionalPosterior`. R1 adapts the existing exact-draw and NUTS routes
-into the first two; the analytic and amortized shapes are reserved.
+into the first two.
+
+`FittedConditionalPosterior` is no longer reserved.
+`bayesmith.dispatch.amortized` encodes a trained
+`bayesmith.amortize.NeuralPosterior` into one:
+`fitted_conditional_posterior()` returns the representation together with the
+`EstimatorArtifact` its `estimator_ref` points at, so a caller can persist the
+estimator and keep the reference honest. What crosses into the artifact layer is
+a reference, an opaque `bytes` blob (the parameter leaves that
+`equinox.tree_serialise_leaves` writes) and a canonical manifest -- the embed
+callable's module and qualname, the mixture shape, the MLP's structure, the
+training bank's standardization arrays. Never the `eqx.Module` and never the
+callable, because a callable has no canonical form (§0 ruling 4). That split is
+what keeps this page's opening claim true: JAX and equinox are imported on the
+dispatch side of the bridge, and the artifacts layer still sees no array of
+theirs.
+
+Two things that does not yet mean. No execution route emits an amortized
+posterior -- `execute_task` never constructs a `FittedConditionalPosterior`, and
+the calibration that would let one be believed is R3's. And `AnalyticPosterior`
+is still reserved in the original sense: nothing under `src/` constructs one.
+
+---
+
+## The predictive seam: replay, replication, and what is refused
+
+`execute_task(planned, key=..., source_posterior=...)` runs a predictive task.
+Both keyword arguments are required there and a missing one raises rather than
+being invented: minting a key here would produce a run that is irreproducible
+while looking exactly like a seeded one, and there is no artifact store in this
+release to load the source posterior from.
+
+The source posterior is checked twice before any number is generated. Its
+`(artifact_id, revision)` must be the pair `task.source_posterior_ref` names --
+a different posterior is a caller error and raises. Then its `data`,
+`graph_structure` and `model_source` fingerprints must equal this task's, and a
+disagreement is not an exception but a typed `Refusal` with the premise
+`posterior_data_mismatch`, whose `Finding.observed` lists exactly which of the
+three slots moved.
+
+Replay and replication are two verbs over ONE forward model. Both
+`bayesmith.dispatch.predictive` primitives read the same `loc`/`scale` from
+`bayesmith.exact.gaussian.observation_parts`; `replicated_draws` calls
+`Normal(loc, scale).sample`, one draw per source draw with the draw axis
+one-to-one and no resampling, and `pointwise_log_likelihood` calls
+`Normal(loc, scale).log_prob(observed)`, zeroing masked positions. There is no
+second, hand-written simulator that could drift from the density.
+`observation_parts` is a diagonal walk, so a correlated or non-Gaussian
+observed node raises `NotGaussian` out of the primitive, and the bridge adapts
+it into the `predictive_noise_unsupported` Refusal rather than approximating
+quietly.
+
+### The observation unit
+
+The pointwise array is indexed by draw first. After that leading axis:
+
+* one observed node keeps its own axis names -- its declared plate names, then
+  `{name}_dim{i}` for axes the graph has no name for;
+* several observed nodes are flattened and concatenated into a single
+  `observation` axis, in declaration order.
+
+`PredictiveResult` records what those units were: `observation_unit` is the
+observed node names joined by `", "`, and `grouping` is the plate the observed
+nodes share when they share exactly one and `None` otherwise. Both are `None`
+when the graph observes nothing.
+
+Mind the two field names, which are not the same word: a `PosteriorResult`
+carries `pointwise_log_likelihood`, a `PredictiveResult` carries
+`pointwise_log_density`. The array inside both is the one
+`pointwise_log_likelihood()` produced and is named `log_likelihood` either way.
+
+### `predictive_ready`, and abstaining instead of fabricating
+
+A posterior run computes the pointwise log-likelihood whenever the graph has an
+observed node, and swallows `NotGaussian` into `None` when the observation is
+not diagonal Gaussian. Three fields then agree by construction:
+`log_density_availability` is `POINTWISE` exactly when
+`pointwise_log_likelihood` is present -- `PosteriorResult.__post_init__`
+asserts that biconditional in both directions -- and `predictive_ready` is that
+same fact as a flag a caller can branch on before compiling a predictive task.
+A correlated or non-Gaussian observation leaves all three at
+`NONE` / `None` / `False`: an ABSTAIN, which is a verdict, rather than a number
+that was never earned.
 
 ---
 
@@ -84,20 +179,39 @@ finds stable source; otherwise the caller must supply the digest -- never a
 
 ## Invalidation matrix
 
+`ArtifactKind` has four members -- `PLAN`, `RESULT`, `EVALUATION_REPORT` and
+`ESTIMATOR` -- and the last is R2's single addition to R1's frozen schema. It is
+the invalidation taxonomy and not a catalogue of artifacts: which of the five
+Results a reference points at is `ResultKind`'s business, and asking this enum
+to carry that as well would put five identical rows in the matrix below.
+`ESTIMATOR` earns a row of its own because fitted weights are a separate thing
+to go stale -- they are trained once, referenced by a
+`FittedConditionalPosterior`, and outlive the run that made them.
+
 `InvalidationPolicy.default()` encodes, per artifact category, which changed
 slots invalidate the artifact. "Invalidate" produces an immutable, revision
 `n + 1` copy marked INVALIDATED with the changed inputs and time recorded; it
 never rewrites the old revision. ENVIRONMENT is in no row: a backend patch
 leaves stored artifacts readable and gives the next run new provenance.
 
-| Change | Plan | Result | EvaluationReport/Gate |
-|---|:---:|:---:|:---:|
-| model source / graph structure | invalidate | invalidate | invalidate |
-| data / task | invalidate | invalidate | invalidate |
-| compilation | — | invalidate | invalidate |
-| evaluation threshold/grouping | — | reusable | invalidate |
-| display option | reusable | reusable | reusable |
-| backend patch/environment | readable; next run re-provenances | readable; next run re-provenances | re-evaluated by new Result identity |
+| Change | Plan | Result | Estimator | EvaluationReport/Gate |
+|---|:---:|:---:|:---:|:---:|
+| model source / graph structure | invalidate | invalidate | invalidate | invalidate |
+| data / task | invalidate | invalidate | invalidate | invalidate |
+| compilation | — | invalidate | invalidate | invalidate |
+| evaluation threshold/grouping | — | reusable | reusable | invalidate |
+| display option | reusable | reusable | reusable | reusable |
+| backend patch/environment | readable; next run re-provenances | readable; next run re-provenances | readable; next run re-provenances | re-evaluated by new Result identity |
+
+The `Estimator` column is `Result`'s, slot for slot: `_MODEL_AND_INPUTS` plus
+`COMPILATION`. The narrower four-slot reading is the more accurate one -- an
+estimator's weights do not depend on a block partition, a tolerance or a
+fallback policy -- and the R2 close-out chose "same as RESULT" anyway, on the
+ground that it errs toward retraining rather than toward silently reusing
+weights across a changed compilation. That is a decision, not an oversight,
+and `test_amortized_encoding.py`'s
+`test_the_estimator_row_invalidates_on_model_graph_data_and_task` pins it: five
+slots affect, `EVALUATION` and `ENVIRONMENT` do not.
 
 ---
 
