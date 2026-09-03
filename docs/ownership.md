@@ -29,18 +29,19 @@ one-implementation migration has moved the behavior and its oracles here.
 
 The patterns below cover every Python module shipped under `src/bayesmith`. A
 new module must either fit an existing row or update this inventory in the same
-change -- the table was born at the R0 close-out and R2's `bridge.arviz` is the
-one module that reached it late, which is what the check below exists to catch
-next time.
+change -- the table was born at the R0 close-out, and two modules have reached
+it late: R2's `bridge.arviz`, and R3's `bayesmith.evaluation`, which 0.7.2
+opened in the same release that added the `bridge.arviz` row and declared the
+table exhaustive at 69. The check below exists to catch the third.
 
 Re-measure rather than trust this sentence. Read the `Module surface` column,
 expand each `x.*` pattern over the shipped modules, and list what nothing
 matches. Note that the obvious pathspec is not the whole package: `git ls-files
-'src/bayesmith/**/*.py'` returned 64 files here and misses the five top-level
+'src/bayesmith/**/*.py'` returned 65 files here and misses the five top-level
 modules (`__init__`, `amortize`, `distributions`, `errors`, `optimize`), so
-pass `'src/bayesmith/*.py' 'src/bayesmith/**/*.py'` and expect 69. Measured
-2026-09-03, after the `bridge.arviz` row below: 69 modules, 0 uncovered; the
-same check before that row was added reported 1.
+pass `'src/bayesmith/*.py' 'src/bayesmith/**/*.py'` and expect 70. Measured
+2026-09-03, after the `bayesmith.evaluation` row below: 70 modules, 0
+uncovered; the same check before that row was added reported 1.
 
 | Module surface | Class | What bayesmith owns | Boundary or intended evolution |
 |---|---|---|---|
@@ -51,6 +52,7 @@ same check before that row was added reported 1.
 | `bayesmith.exact.*` | First-party core | Checked Gaussian/linear/log-linear structure, conditioning certificates, first-party Wiener/GCR/GLS sampling and solving, exact discrete enumeration, corrections, Fisher and reduced-basis graph semantics. | The linear sampler remains first-party. Generic low-level kernels may be reused when they preserve the same certificates and oracles. |
 | `bayesmith.marginal.*` | First-party core | Square-root information terms, exact folding/marginalisation, campaign and chain semantics, graph-derived factorization, diagnostics and the premise-checked logdet ladder. | These are marginal-likelihood components, not the future graph-level EvidenceTask. External residual integration must consume their normalized output rather than replace it. |
 | `bayesmith.diagnose.*` | First-party core | Graph-native identifiability, coupling, local structure, prior sensitivity, MAP interpretation and prior diagnostics. | Mature libraries may supply low-level statistics, while observation grouping, applicability and graph interpretation remain here. |
+| `bayesmith.evaluation` | First-party core | The model-checking layer R3 opened: reports ABOUT finished Results, never Results. It reads `PosteriorResult`, `PredictiveResult` and `SimulationResult` and produces `EvaluationReport`s whose `subject_ref` points back at what was read; the one declared false-positive rate (`ALPHA`) every R3 check shares lives here. | Depends only downward (`dispatch`, `graph`, `artifacts`, `bridge.arviz`); `artifacts` and `dispatch` never import it, and `tests/test_layering.py` holds that in a subprocess. It does not modify a result, choose an algorithm, or re-judge a verdict that has a home in `bayesmith.diagnose`. Mature statistics (LOO, PSIS) stay upstream; what is owned is observation grouping, applicability and the gate semantics. |
 | `bayesmith.distributions` | First-party core | Distribution declarations required by Graph semantics, including the real-coordinate convention for complex latents. | Prefer upstream distributions when their support and transform semantics are identical; compatibility of stored Graphs remains a bayesmith obligation. |
 | `bayesmith.errors` | First-party core | Typed refusal and invariant vocabulary exposed by current APIs. | R1 may adapt these errors into typed `Refusal.grounds`; exceptions remain for implementation or environment failures. |
 | `bayesmith.__init__`, `bayesmith.exact.__init__`, `bayesmith.dispatch.__init__`, `bayesmith.diagnose.__init__`, `bayesmith.marginal.__init__`, `bayesmith.bridge.__init__`, `bayesmith.artifacts.__init__` | First-party core | Public facade, lazy-loading behavior and stable re-export decisions. | Backend-native objects receive weaker compatibility guarantees than bayesmith artifacts. |

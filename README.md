@@ -21,6 +21,13 @@ the approved boundary and roadmap live in the
 [top-level design](docs/superpowers/specs/2026-08-30-bayesmith-top-level-design.md).
 Those future protocols are not claimed as current API here.
 
+An illustrated overview -- what the package is, where it sits next to NumPyro,
+BlackJAX and ArviZ, what each subpackage owns, and where the roadmap stands --
+is published as a page:
+[bayesmith Overview](https://claude.ai/code/artifact/e3514ec4-000f-4a59-9e6c-79b12281b83c)
+(English, with a Chinese toggle; generated from the 0.7.2 checkout on
+2026-09-03, so it describes that release rather than tracking this file).
+
 ## What bayesmith is not
 
 It is **not another probabilistic programming language or a sampler zoo**.
