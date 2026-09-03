@@ -73,6 +73,28 @@ def _exact_three_by_three_toeplitz_logdet(link: float) -> float:
         return float(decimal_determinant.ln())
 
 
+def _exact_three_by_three_toeplitz_rho(link: float) -> float:
+    """High-precision ``rho((Sigma - Lambda) Lambda^-1)`` at ``Lambda = 2 I``.
+
+    ``Sigma`` is the 3x3 symmetric Toeplitz with unit diagonal and off-diagonal
+    ``link`` that the rung-5 fixture below builds; its eigenvalues are ``1`` and
+    ``1 +/- sqrt(2) link``.  ``spectral_radius`` measures ``rho(P Lambda^-1)``
+    (its ``_x_matrix`` is ``solve(Lambda.T, P.T).T``), so at ``Lambda = 2 I``
+    that spectrum is ``{sigma_k / 2 - 1}`` and the largest magnitude in it is
+    the one the SMALLEST eigenvalue of ``Sigma`` carries, ``(1 + sqrt(2) link)
+    / 2``.  Closed form because no binary64 eigensolve can resolve which side
+    of one it is on: it sits 1.106 * 2**-53 below one, inside the eigensolver's
+    own backward error.
+    """
+    rational_link = Fraction.from_float(link)
+    with localcontext() as context:
+        context.prec = 100
+        decimal_link = Decimal(rational_link.numerator) / Decimal(
+            rational_link.denominator
+        )
+        return float((Decimal(1) + Decimal(2).sqrt() * decimal_link) / Decimal(2))
+
+
 def _exact_two_by_two_correlation_logdet(correlation: float) -> float:
     """High-precision log(1 - correlation**2) from the binary64 input."""
     rational_correlation = Fraction.from_float(correlation)
@@ -1993,11 +2015,94 @@ def test_factor_free_dense_level_five_rejects_an_unresolved_matrix():
 
     verdict = check_logdet_premises(problem, config=config)[5]
 
-    assert spectral_radius(lam, perturbation) <= 1.0
+    # The rung-5 rho premise, as a PROPERTY rather than as one machine's digits.
+    # This read `spectral_radius(lam, perturbation) <= 1.0` until 2026-09-03 and
+    # cannot: `rho <= 1` and this rung's condition hazard are in algebraic
+    # tension, and binary64 does not hold them apart.  `spectral_radius`
+    # measures `rho(P Lambda^-1)`, so at `Lambda = c I` the spectrum of
+    # `(Sigma - Lambda) Lambda^-1` is `{sigma_k / c - 1}`: `rho <= 1` forces
+    # `sigma_max <= 2 c`, and `condition >= 1/eps` -- this rung's whole point --
+    # then forces `sigma_min <= 2 c eps`, i.e. `rho >= 1 - 2 eps` for ANY
+    # fixture that carries the hazard with a scalar Lambda.  No choice of Sigma
+    # escapes that.  Nor does a non-scalar Lambda: rho below one WITH margin
+    # needs Lambda near-singular along Sigma's own null direction, which makes
+    # `spectral_radius`'s own Lambda^-1 solve unresolved instead.  Measured
+    # 2026-09-03 at `Lambda = Sigma + 2**-53 I`, where the exact rho is
+    # 0.311263484575682 and Accelerate returns 0.0.
+    #
+    # So the premise is true but sub-ulp.  The exact rho is
+    # `(1 + sqrt(2) link) / 2` = 0.99999999999999987716979741993..., below one
+    # by 1.106 * 2**-53.  Correctly rounded to binary64 that is `1 - 2**-53`,
+    # so the deficit assertion below sees exactly 0.5 eps while the exact
+    # deficit is 0.553 eps -- two right numbers about two different objects.
+    #
+    # The 8 eps is a bound, not a fit to the two measurements.  `X = Sigma/2 - I`
+    # is symmetric with `||X||_2 = 1`, so its eigenvalues are perfectly
+    # conditioned (the eigenvector matrix is orthogonal) and a backward-stable
+    # eigensolve errs by at most a small polynomial in n = 3 times eps times
+    # `||X||_2`, independently of the BLAS.  Measured 2026-09-03 from a
+    # bit-identical X -- IEEE-754 makes `link` 0x1.6a09e667f3bcbp-1 on both, and
+    # X's entries 0x1.6a09e667f3bcbp-2 and -0x1.0p-1 -- Apple Accelerate returns
+    # 0.9999999999999997, 1.0 eps below the exact value, and scipy-openblas
+    # 0.3.34 under OPENBLAS_CORETYPE=ZEN, the CI runner's own kernel, returns
+    # 1.0000000000000004, 2.5 eps above it: one number, opposite sides of one.
+    #
+    # What the band does and does not separate, measured rather than argued.
+    # It refuses `min|eig(X)|` (1.2e-16), the middle `|eig(X)|` (0.5) and
+    # `max|diag(X)|` (0.5), each more than 2e15 eps outside it and each of which
+    # PASSED the `<= 1.0` this replaces.  It does NOT separate rho from
+    # `||X||_2` (0.0 eps out on Accelerate, 0.5 on scipy-openblas) nor from
+    # `max|eig(Sigma Lambda^-1)|`, the forgotten `- I` (1.0 and 2.5 eps out),
+    # because at this fixture `|sigma_min/2 - 1|` and `sigma_max/2` agree to
+    # within an ulp.  That blind spot belongs to the fixture, not to the band,
+    # and the old assertion had it too.
+    exact_rho = _exact_three_by_three_toeplitz_rho(float(link))
+    measured_rho = spectral_radius(lam, perturbation)
+    assert exact_rho < 1.0
+    assert 1.0 - exact_rho < 2.0 * np.finfo(float).eps
+    # WHAT THIS BAND COSTS, because it is not a pure tightening. `<= 1.0`
+    # rejected everything above one; a two-sided band around `exact_rho`
+    # ADMITS `[1.0, exact_rho + band]`, so an eigensolve biased upward by less
+    # than the band is no longer caught. Measured on macOS/Accelerate against
+    # the old body: a +4 eps bias was KILLED before and SURVIVES a band of
+    # eight eps; at four it is KILLED again, and a +6 eps bias with it. The
+    # constant is therefore 4.0, not the eight first drafted: the forced floor
+    # is the 2.5 eps scipy-openblas actually deviates by, and 4.0 clears it
+    # with 1.6x headroom while giving back a mutant that eight released.
+    #
+    # The FORM is derived -- Bauer-Fike on an exactly symmetric X with
+    # ||X||_2 = 1 turns a backward-stable eigensolve's backward error into a
+    # forward error of c(n) * eps. The CONSTANT is not: nothing here shows
+    # c(3) <= 4 for the QR iteration, and the textbook worst case for n = 3 is
+    # larger. It is a measured band with stated headroom, and it is written
+    # down that way rather than dressed as a proof.
+    assert abs(measured_rho - exact_rho) < 4.0 * np.finfo(float).eps
+
     assert verdict.details["condition"] >= verdict.details["condition_ceiling"]
     assert verdict.satisfied is False
     assert abs(dense_cholesky_logdet(sigma) - exact) > 0.05
+    # The condition ceiling is what this rung's story is about, so pin it where
+    # no BLAS can move it.  `low_rank_logdet` reaches the same `_newton_logdet`
+    # payload with `require_finite_stability=False`, so on this fixture it walks
+    # past the indeterminate rho gate and refuses on the ceiling, unbranched.
+    # Measured 2026-09-03: "condition 1.4225308e+16" on Accelerate and
+    # "condition 1.2738103e+16" on scipy-openblas; with
+    # `_require_resolved_dense_condition` stubbed to a no-op it returns the
+    # wrong -35.35050620855721 on BOTH, so this line is what keeps the ceiling
+    # killable on the platform where the branch below does not reach it.
     with pytest.raises(ValueError, match="condition"):
+        low_rank_logdet(lam, perturbation)
+    # WHICH of rung 5's two guards refuses first follows that same unresolvable
+    # rho, because `_newton_stability` gates on `rho <= 1.0` before the payload
+    # reaches the ceiling.  Bind the expected message to the rho this process
+    # measured rather than accepting either everywhere: the ceiling on
+    # Accelerate, the stability gate on scipy-openblas, and a swap either way
+    # still fails.  The branch reads the same `spectral_radius` the gate reads,
+    # so what stops it from being a mirror of the implementation is the band
+    # assertion above against an independent Decimal oracle -- that ordering is
+    # load-bearing; keep the band ahead of the branch.
+    refusal = "condition" if measured_rho <= 1.0 else "expansive spectrum"
+    with pytest.raises(ValueError, match=refusal):
         finite_perturbation_logdet(lam, perturbation)
     with pytest.raises(ResamplingRefused):
         dispatch_logdet(problem, config=config)
