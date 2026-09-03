@@ -25,6 +25,12 @@ SOURCE_PATHS = (
     "src/bayesmith/dispatch/costs.py",
     "src/bayesmith/dispatch/collapse.py",
     "src/bayesmith/dispatch/pilot.py",
+    # R3 Task 3.  The evaluation layer's first two registered thresholds
+    # (D104, D105) live in this module, so the census has to see it -- an
+    # unscanned gate-bearing file is a threshold with no boundary grid and no
+    # mutation, which is the arrangement this whole directory exists to make
+    # impossible.
+    "src/bayesmith/evaluation/checks.py",
 )
 
 

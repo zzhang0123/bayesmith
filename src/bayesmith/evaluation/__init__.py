@@ -56,3 +56,27 @@ __all__ = ["ALPHA"]
 #: m held-out points is ``ALPHA / (2 * m)``, and for K latent coordinates in
 #: SBC it is ``ALPHA / K``.
 ALPHA = 0.05
+
+
+# The predictive checks (R3 Task 3).  Imported at the FOOT of this module, not
+# the head, and the order is load-bearing rather than untidy: `checks` reads
+# `ALPHA` from here, so the constant has to be bound before that module runs.
+# Python has already put this package in `sys.modules` by then, so the cycle
+# resolves -- but only in this direction.  Appended as its own block, and
+# `__all__` extended rather than rewritten, so the other R3 modules can land
+# their own blocks beside it without three tasks editing one line.
+from bayesmith.evaluation.checks import (
+    DEFAULT_DISCREPANCIES,
+    DRAW_FLOOR,
+    discrepancy_identity,
+    posterior_predictive_check,
+    prior_predictive_check,
+)
+
+__all__ += [
+    "DRAW_FLOOR",
+    "DEFAULT_DISCREPANCIES",
+    "discrepancy_identity",
+    "posterior_predictive_check",
+    "prior_predictive_check",
+]

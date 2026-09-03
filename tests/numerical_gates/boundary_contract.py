@@ -170,6 +170,14 @@ _add(
     ("PILOT:ratio_exceeds_declared_multiple:declared-multiple",),
     ("ratio_exceeds_declared_multiple",),
 )
+_add(
+    ("CHECKS:tail_mass_within_rate:declared-false-positive-rate",),
+    ("tail_mass_within_rate",),
+)
+_add(
+    ("CHECKS:draws_resolve_the_band:p-value-draw-floor",),
+    ("draws_resolve_the_band",),
+)
 
 _add(
     ("LADDER:sigma:payload-symmetry",),

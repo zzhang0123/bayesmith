@@ -8801,6 +8801,352 @@ EXPECTED_SOURCE_MANIFEST = (
         CandidateClassification.ORDINARY_VALIDATION,
         "report.vetoed",
     ),
+    # --- R3 Task 3: src/bayesmith/evaluation/checks.py -------------------
+    # Two decision predicates carry registered thresholds (D104 in
+    # tail_mass_within_rate, D105 in draws_resolve_the_band); the three
+    # structural_control rows are the graph-latent-name check that decides
+    # whether the observation mean can be recomputed at all.  Everything
+    # else in the module is argument validation.
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.draws_resolve_the_band::compare::1b8786c9fa6a0ea4::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'draws >= DRAW_FLOOR',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.draws_resolve_the_band::decision_predicate::1b8786c9fa6a0ea4::0',
+        CandidateClassification.NUMERICAL_GATE,
+        'draws >= DRAW_FLOOR',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.tail_mass_within_rate::compare::d2588ff81b262ab1::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'tail_mass >= ALPHA / 2.0',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.tail_mass_within_rate::decision_predicate::d2588ff81b262ab1::0',
+        CandidateClassification.NUMERICAL_GATE,
+        'tail_mass >= ALPHA / 2.0',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::decision_predicate::28a4863deba7d86e::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "getattr(discrepancy, '__module__', None)",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::decision_predicate::41be2cdc001d5167::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "getattr(discrepancy, '__qualname__', None)",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::decision_predicate::3f6f65dbbf5fdf56::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not isinstance(module_name, str) or not module_name',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::boolean_atom::48ab166ae193fc6a::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not isinstance(module_name, str)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::boolean_atom::6c8bdc711d2afc1a::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not module_name',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::raise::994bb75fdf848c2d::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'the discrepancy {discrepancy!r} has no __module__; a report records where a statistic was defined, not the object itself')",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::decision_predicate::dc9e3460fb99a3dc::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not isinstance(qualname, str) or not qualname',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::boolean_atom::7cf6a67fd63771af::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not isinstance(qualname, str)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::boolean_atom::0e6c08b8e1258815::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not qualname',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::raise::4f451d4dbb6ccf6d::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'the discrepancy {discrepancy!r} has no __qualname__; a report records where a statistic was defined, not the object itself')",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::raise::134a25d113603f1f::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'the discrepancy {identity!r} does not import back: {exc}. A lambda, a function defined inside another function and a REPL definition all have an address and none of them has a home, so recording one would put a name in the artifact that no later reader can turn into the statistic that was actually computed') from exc",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::compare::aee7a6b06c82f706::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'resolved is not discrepancy',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::decision_predicate::aee7a6b06c82f706::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'resolved is not discrepancy',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.discrepancy_identity::raise::e8e054c74ccbe280::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'{identity!r} resolves to {resolved!r}, which is not the discrepancy that was passed ({discrepancy!r}); the identity a report would record names a different statistic')",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._conditioned_units::compare::e4407f710d4859bf::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'mask is None',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._conditioned_units::decision_predicate::e4407f710d4859bf::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'mask is None',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._p_value::compare::0e347f87993748c4::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        't_replicated >= t_observed',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._weights::decision_predicate::0370eadc359c11cf::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not isinstance(representation, WeightedDrawsPosterior)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._cell_finding::decision_predicate::1c4d01a90c1de4a5::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'within',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::decision_predicate::b37e5c2377659c21::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'tuple((discrepancy_identity(item) for item in discrepancies))',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::decision_predicate::02d4c37b58ede5ff::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not identities',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::raise::597e2c70c9282154::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise TypeError('a predictive check needs at least one discrepancy; with none there is no statistic to compare and the report would be a PASS nobody measured')",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::decision_predicate::895009b0f88d7de5::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not replicated',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::decision_predicate::90de10656f096353::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not draws_resolve_the_band(draws)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::decision_predicate::8dbdf6926d4d0468::0',
+        CandidateClassification.STRUCTURAL_CONTROL,
+        'tuple((name for name in graph.latents if name not in latents))',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::compare::488aedfb0ffd9bf7::0',
+        CandidateClassification.STRUCTURAL_CONTROL,
+        'name not in latents',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::decision_predicate::8f3abdef9d2c768f::0',
+        CandidateClassification.STRUCTURAL_CONTROL,
+        'absent',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::decision_predicate::327187dedc88139f::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not np.all(np.isfinite(t_replicated)) or not np.all(np.isfinite(t_observed))',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::boolean_atom::843c325667fa94c9::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not np.all(np.isfinite(t_replicated))',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::predicate_call_atom::5fa23c7375c450bd::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'np.all(np.isfinite(t_replicated))',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::predicate_call_atom::303e9352877c1658::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'np.isfinite(t_replicated)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::finite_predicate::303e9352877c1658::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'np.isfinite(t_replicated)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::boolean_atom::221b0168be46c694::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not np.all(np.isfinite(t_observed))',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::predicate_call_atom::49756607d525d1ca::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'np.all(np.isfinite(t_observed))',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::predicate_call_atom::aba216bd8616be12::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'np.isfinite(t_observed)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::finite_predicate::aba216bd8616be12::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'np.isfinite(t_observed)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::clamp_selector::b554237a2faec5cb::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'min(p_value, 1.0 - p_value)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::compare::930dba4c7f16b5b9::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "item.code == 'discrepancy_outside_band'",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::compare::5d710c72cee6875d::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'outside == 0',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>._predictive_check::decision_predicate::19ef4f4c3201261a::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'passed',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::decision_predicate::392a55c78b8f7c6a::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not isinstance(graph, Graph)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::raise::c3b30a0ed02e5126::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'raise TypeError(f"posterior_predictive_check\'s graph is a Graph; got {graph!r}")',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::decision_predicate::15d78773004243c6::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not isinstance(predictive, PredictiveResult)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::raise::08bc9d4b1c7dbf3e::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise TypeError(f'posterior_predictive_check judges a PredictiveResult; got {type(predictive).__name__}')",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::decision_predicate::4f017fd4bb4a3cb3::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not isinstance(source_posterior, PosteriorResult)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::raise::92ca4f921293748d::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise TypeError(f'source_posterior is the PosteriorResult the predictive result names; got {type(source_posterior).__name__}')",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::compare::f658ec4fe3e1d46e::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'source_posterior.meta.artifact_id != reference.artifact_id',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::decision_predicate::daec19e547e75fd2::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'source_posterior.meta.artifact_id != reference.artifact_id or source_posterior.meta.revision != reference.revision',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::boolean_atom::f658ec4fe3e1d46e::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'source_posterior.meta.artifact_id != reference.artifact_id',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::compare::90a2cade023ea052::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'source_posterior.meta.revision != reference.revision',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::boolean_atom::90a2cade023ea052::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'source_posterior.meta.revision != reference.revision',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::raise::6bd3773e4a83cd72::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'raise TypeError("the supplied source posterior is not the version this predictive result\'s source_posterior_ref names; its weights would be some other run\'s")',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::compare::0b073c9f0493b1bd::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'int(array.value.shape[0]) != int(weights.shape[0])',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::decision_predicate::0b073c9f0493b1bd::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'int(array.value.shape[0]) != int(weights.shape[0])',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.posterior_predictive_check::raise::b4d024828eaff27a::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'raise TypeError(f"the predictive result\'s {array.name!r} has {array.value.shape[0]} draws and the source posterior has {weights.shape[0]}; the p-value pairs draw i of one with draw i of the other, so a mismatch is not a rescaling")',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.prior_predictive_check::decision_predicate::392a55c78b8f7c6a::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not isinstance(graph, Graph)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.prior_predictive_check::raise::168fa9c864b0853c::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'raise TypeError(f"prior_predictive_check\'s graph is a Graph; got {graph!r}")',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.prior_predictive_check::decision_predicate::c51431d7497d039d::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'not isinstance(simulation, SimulationResult)',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.prior_predictive_check::raise::0ce28e6800ced8f7::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise TypeError(f'prior_predictive_check judges a SimulationResult; got {type(simulation).__name__}')",
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.prior_predictive_check::compare::d11e135d43761c32::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'source is not ParameterSourceKind.PRIOR',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.prior_predictive_check::decision_predicate::d11e135d43761c32::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'source is not ParameterSourceKind.PRIOR',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.prior_predictive_check::decision_predicate::f180bdda3343421b::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'int(simulation.observation_draws[0].value.shape[0]) if simulation.observation_draws else 0',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.prior_predictive_check::decision_predicate::070446107c737df0::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'simulation.observation_draws',
+    ),
+    ManifestEntry(
+        'src/bayesmith/evaluation/checks.py::<module>.prior_predictive_check::decision_predicate::f859e929d7cef145::0',
+        CandidateClassification.ORDINARY_VALIDATION,
+        'count',
+    ),
 )
 
 EXPECTED_CANDIDATE_IDS = tuple(entry.candidate_id for entry in EXPECTED_SOURCE_MANIFEST)
