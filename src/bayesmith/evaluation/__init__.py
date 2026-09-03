@@ -44,9 +44,11 @@ __all__ = [
     "SbcRanks",
     "discrepancy_identity",
     "held_out_report",
+    "identifiability_report",
     "loo_report",
     "posterior_predictive_check",
     "prior_predictive_check",
+    "prior_sensitivity_report",
     "sbc_ranks",
     "sbc_report",
     "simulation_based_calibration",
@@ -92,6 +94,10 @@ from bayesmith.evaluation.checks import (
     discrepancy_identity,
     posterior_predictive_check,
     prior_predictive_check,
+)
+from bayesmith.evaluation.diagnostics import (
+    identifiability_report,
+    prior_sensitivity_report,
 )
 from bayesmith.evaluation.heldout import held_out_report
 from bayesmith.evaluation.loo import loo_report
