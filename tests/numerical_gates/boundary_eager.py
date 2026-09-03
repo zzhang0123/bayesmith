@@ -2202,13 +2202,33 @@ def _reconstruction_runner(point: ThresholdPoint) -> RawObservation:
     matches, reconstructed = eager._matching_factor_reconstruction(perturbation, factors)
     scalar = np.array([[sum(float(factors.left[i, k]) * float(factors.right[j, k]) for k in range(factors.rank_bound)) for j in range(3)] for i in range(3)])
     expected = np.array_equal(perturbation, reconstructed)
+    # `reconstructed` and `scalar` are two evaluation orders of the same
+    # rank_bound-term dot product, so what separates them is accumulation
+    # error and the bound has to SCALE WITH THE FIXTURE. Each of the two
+    # evaluations carries at most `rank_bound * eps * sum_k |a_k b_k|`, so
+    # their difference is at most twice that. This replaces `atol=2e-17`,
+    # which was a fixed absolute figure over fixtures that deliberately scale:
+    # VERY_LOW halves the factors and VERY_HIGH doubles them, so the products
+    # span 16x while the tolerance stood still.
+    #
+    # Measured 2026-09-03, numpy 2.5.2 both sides. On Accelerate the two
+    # orders agree EXACTLY -- max|difference| is 0.0 at every scale -- so the
+    # old figure was never tested. Under scipy-openblas 0.3.34.0.0 with
+    # OPENBLAS_CORETYPE=ZEN, the microkernel CI selects, the FMA kernel fuses
+    # one multiply-add and the difference is 3.469447e-18 / 1.387779e-17 /
+    # 5.551115e-17 at the low, exact and high fixtures -- exactly
+    # 0.6250 * eps * sum_k |a_k b_k| at all three, against the derived ceiling
+    # of 4. Only the high one crosses 2e-17, which is why this surfaced as one
+    # failing cell rather than three.
+    magnitude = np.abs(factors.left) @ np.abs(factors.right).T
+    tolerance = 2.0 * factors.rank_bound * np.finfo(float).eps * magnitude
     if matches:
         return _checked(
             method=method,
             oracle=oracle,
             actual=bool(
                 expected
-                and np.allclose(reconstructed, scalar, rtol=0.0, atol=2e-17)
+                and bool(np.all(np.abs(reconstructed - scalar) <= tolerance))
             ),
             expected=True,
         )
