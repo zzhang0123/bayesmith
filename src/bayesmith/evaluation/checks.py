@@ -66,11 +66,9 @@ from typing import Any
 import jax
 import numpy as np
 
-from bayesmith import __version__
 from bayesmith.artifacts.base import (
     ArtifactRef,
     NamedArray,
-    ProducerRef,
     new_artifact_meta,
 )
 from bayesmith.artifacts.identity import ArtifactKind
@@ -87,6 +85,7 @@ from bayesmith.artifacts.results import (
     WeightedDrawsPosterior,
 )
 from bayesmith.artifacts.tasks import ParameterSourceKind
+from bayesmith.dispatch.task import PRODUCER
 from bayesmith.errors import NotGaussian
 from bayesmith.evaluation import ALPHA
 from bayesmith.exact.correct import self_normalise
@@ -112,14 +111,14 @@ __all__ = [
 
 #: The package and version that wrote a report from this layer.
 #:
-#: The same value as :data:`bayesmith.dispatch.task.PRODUCER`, spelled again
-#: rather than imported, because importing it would put an ``evaluation ->
-#: dispatch`` edge at module scope and ``tests/test_layering.py`` asserts that
-#: the in-degree of ``dispatch`` is zero.  A second spelling of one fact is the
-#: defect this repository has spent the most time repairing, so it is not left
-#: to a hope: ``tests/evaluation/test_checks.py`` compares the two objects, and
-#: editing either alone turns the suite red.
-PRODUCER = ProducerRef(package="bayesmith", version=__version__)
+#: IMPORTED from :mod:`bayesmith.dispatch.task` rather than spelled again.  It
+#: was spelled again while this branch was written, for a reason that was true
+#: then and is not now: importing it puts an ``evaluation -> dispatch`` edge at
+#: module scope, and ``tests/test_layering.py`` asserted that the in-degree of
+#: ``dispatch`` was zero.  R3 §0.1 authorises that edge and the layering
+#: assertions now name ``evaluation`` as the unit above ``dispatch``, so the
+#: obstacle is gone and the second spelling has nothing left holding it up.
+#: ``tests/test_layering.py`` counts the constructions and refuses a second.
 
 #: D105.  The smallest number of draws at which a p-value can LAND in the tail
 #: the declared rate reserves, derived from D104 and carrying no number of its

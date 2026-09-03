@@ -56,10 +56,8 @@ from typing import Any
 
 import numpy as np
 
-from bayesmith import __version__
 from bayesmith.artifacts.base import (
     ArtifactRef,
-    ProducerRef,
     new_artifact_meta,
 )
 from bayesmith.artifacts.identity import ArtifactKind
@@ -71,6 +69,7 @@ from bayesmith.artifacts.results import (
     WeightedDrawsPosterior,
 )
 from bayesmith.bridge.arviz import to_inference_data
+from bayesmith.dispatch.task import PRODUCER
 from bayesmith.graph.graph import Graph
 
 __all__ = ["REPORT_KIND", "loo_report"]
@@ -79,7 +78,6 @@ __all__ = ["REPORT_KIND", "loo_report"]
 #: ``evaluation/gate.py`` looks reports up by it.
 REPORT_KIND = "loo_psis"
 
-PRODUCER = ProducerRef(package="bayesmith", version=__version__)
 
 
 def _pointwise(result: Any) -> Any:

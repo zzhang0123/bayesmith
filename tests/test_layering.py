@@ -101,6 +101,54 @@ def _graph() -> dict[str, set[str]]:
     return edges
 
 
+def test_the_producer_this_package_stamps_on_artifacts_is_one_object():
+    """One fact, one object -- checked by identity, not by spelling.
+
+    ``ProducerRef(package="bayesmith", version=__version__)`` is who wrote an
+    artifact. Three modules built it independently while R3 Wave A was written
+    in five parallel branches, and two said in a comment why: importing
+    :data:`bayesmith.dispatch.task.PRODUCER` would put an ``evaluation ->
+    dispatch`` edge at module scope, which the layering assertions then forbade.
+    R3 §0.1 authorises that edge and those assertions now name ``evaluation`` as
+    the unit above ``dispatch``, so the obstacle is gone.
+
+    **The first version of this test scanned the AST for calls named
+    ``ProducerRef`` and it did not work.** Re-introducing the duplicate as
+    ``from ... import ProducerRef as _PR`` followed by ``_PR(package=...)``
+    left it green -- measured, that is not a worry. A test that reads the
+    spelling can be walked past by a rename, which is the same shape as the
+    relative-import hole below. So this one reads the OBJECT: every module that
+    exports a ``PRODUCER`` must export the same one, and a second construction
+    is a different object however it is spelled.
+
+    ``CLAUDE.md`` opens on the defect this repository has spent the most time
+    repairing -- six copies of one measurement, all stale on a day none of them
+    was edited -- and the rule it draws is: one file, or a test; not two files
+    and a hope.
+    """
+    import importlib
+
+    exporters: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            names = (
+                [t.id for t in node.targets if isinstance(t, ast.Name)]
+                if isinstance(node, ast.Assign)
+                else [node.target.id]
+                if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+                else []
+            )
+            if "PRODUCER" in names:
+                rel = path.relative_to(SRC).with_suffix("")
+                exporters.append("bayesmith." + ".".join(rel.parts))
+
+    assert "bayesmith.dispatch.task" in exporters, exporters
+    canonical = importlib.import_module("bayesmith.dispatch.task").PRODUCER
+    for name in exporters:
+        assert importlib.import_module(name).PRODUCER is canonical, name
+
+
 def test_a_relative_import_is_the_same_edge_as_the_absolute_one():
     """The scanner every other assertion in this file reads through.
 
