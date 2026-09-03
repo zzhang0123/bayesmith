@@ -130,6 +130,67 @@ pre-commit), and `c2a0605` shows formatting here has been applied per file
 behind a waiver rather than swept. If it is ever swept, **pass the 31 file
 names, not `src/ tests/`** — `ruff format --check` prints them.
 
+## A numerical fixture that pins one machine's arithmetic will burn a release tag
+
+It burned four. `v0.6.0`, `v0.6.1`, `v0.6.2` and `v0.7.0` were tagged and none
+reached the index, because until 2026-09-02 the only place this suite ever met
+Linux was `publish.yml` — which runs *after* the tag is pushed, and a PyPI
+version number is spent once used. `v0.7.0` failed there with 16 failures and
+2091 errors while the same wheel passed 5375/5375 on the development laptop.
+`suite.yml` now runs the suite on ubuntu before any tag exists; that is the
+mechanism, and the rest of this section is the discipline it enforces.
+
+**None of the sixteen was a typo.** Every one was a fixture that had written
+down what one machine's arithmetic happened to produce and called it a
+property. macOS numpy uses **Accelerate**; Linux wheels use **scipy-openblas**;
+the versions are otherwise identical. What differed:
+
+* **Layout invariance.** Accelerate returns C-order and F-order products of the
+  same factors one ULP apart; OpenBLAS returns them bitwise equal, and
+  separates none of 96 swept shapes. `_matching_factor_reconstruction`'s
+  cross-layout fallback is therefore unreachable code on Linux.
+* **Subnormal resolution.** A singular value at the bottom of the subnormal
+  range can only be reported as a whole multiple of `2**-1074`. Accelerate said
+  two units, OpenBLAS said one — opposite sides of the `1/eps` ceiling for a
+  matrix whose exact condition is knowable and sits below it.
+* **`dpotrf` on a numerically indefinite matrix.** The same bits, the same
+  `eigvalsh` verdict, and one LAPACK factorises while the other refuses.
+* **FMA contraction.** OpenBLAS picks its dgemm microkernel from the CPU at
+  runtime. At condition 3.6e15 one fused multiply-add moved an exact-Decimal
+  logdet by 0.66 nats, against an assertion pinning it to `2e-15`.
+* **A scale-blind absolute tolerance**, which is not a platform fact at all:
+  `atol=2e-17` over fixtures that deliberately scale the factors by 16x. It
+  had simply never been exercised, because on Accelerate the two sides agreed
+  exactly.
+
+**The rule, in the order to try it.** (a) Construct the stress deterministically
+— hex floats, exact integers, `Fraction`/`Decimal`, an explicit ULP nudge — so
+it holds everywhere. (b) Failing that, assert the PROPERTY the fixture needs
+with a band whose FORM is derived, and say which part is derived and which is
+measured; do not dress the second as the first. (c) Failing that, make the
+platform-dependent PREMISE conditional and recorded while keeping the CONTRACT
+assertions unconditional and ahead of it. (d) Failing that, skip loudly — `THIS
+IS NOT A PASS`, naming the measurement — rather than passing quietly.
+
+**And do not widen a tolerance to get to green.** Measured, twice, in this
+repair: a two-sided band around an exact value ADMITS `[1.0, exact + band]`
+where `<= 1.0` refused, and two eigensolve-bias mutants that died before
+survived it; and a fixture change that fixed a platform failure silently
+released a ceiling mutant the old one killed. Both were caught only because
+each repair was required to carry a mutation table that a second reader re-ran.
+If a repair cannot show what it still kills, it is not finished.
+
+**Reproducing CI locally.** A `linux/amd64` container resolves the same numpy,
+scipy, jax and scipy-openblas as the runner, but QEMU's CPU is unrecognised so
+OpenBLAS falls back to a non-FMA kernel. **Set `OPENBLAS_CORETYPE=ZEN`** and it
+reproduces the runner bit for bit — 14 of 16 failures without it, 16 of 16 with
+it. The runner is an AMD EPYC 7763 with `avx avx2 fma sse4_2` and **no**
+AVX-512; `suite.yml` logs the CPU and the BLAS every run, because when a cell
+moves that is the first question. Mind that **zsh does not word-split unquoted
+variables**, so a `-e VAR=x` held in a shell variable reaches `docker` as one
+argument and is silently ignored — that alone produced a confident and wrong
+"the coretype makes no difference".
+
 ## A zsh glob can turn "it ran and found nothing" into "it never ran"
 
 `ls LICENSE* COPYING* 2>/dev/null || echo "(none)"` prints `(none)` **whenever
