@@ -591,7 +591,30 @@ def test_addition_roundoff_certificate_boundary_grid(
     if position == "above":
         assert bound > ceiling
     elif position == "at":
-        assert bound == pytest.approx(ceiling, rel=1.0e-15, abs=0.0)
+        # The band is a small multiple of `eps * cond_2(lam)`, which is the
+        # forward error a backward-stable computation is entitled to at this
+        # fixture and reads 1.4901e-08 relative here. It held `rel=1.0e-15`
+        # until 2026-09-03 -- fifteen million times tighter than the
+        # arithmetic allows -- and survived by luck rather than by right:
+        # measured, this same cell reads +4.44e-16 relative on
+        # macOS/Accelerate and in a linux/amd64 container, and +3.73e-09 on a
+        # GitHub ubuntu runner, where it failed while the very same commit
+        # passed it in the other job of the same workflow. The FORM is
+        # derived; the constant 4.0 is measured, and clears the largest
+        # deviation seen -- which is the neighbouring `above` cell's own
+        # +1.86e-08, not the runner's -- with 3.2x headroom.
+        #
+        # AND THE GRID'S OWN SPACING IS THAT SAME NUMBER, which is worth
+        # knowing before trusting the three cells as three points. `above` and
+        # `at` differ by two units of `rho_gap_in_eps`, i.e. 2*eps in rho,
+        # which is 2*eps/(1-rho) = 1.5e-08 relative -- one `eps * cond`. So
+        # they are NOT resolvably distinct and never were; `below`, seven
+        # orders away at rel = -1.0, is the cell the T-delta/T/T+delta story
+        # actually holds for. What every cell still pins unconditionally is
+        # the side of the ceiling the bound falls on and the verdict that
+        # follows from it, and those are the lines below.
+        tolerance = 4.0 * float(np.finfo(float).eps * np.linalg.cond(lam))
+        assert bound == pytest.approx(ceiling, rel=tolerance, abs=0.0)
         assert bound > ceiling
     else:
         assert bound < ceiling
