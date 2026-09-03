@@ -332,7 +332,7 @@ offset_joint := SUM_i offset_i - 1/2 rho^2                                  (3.9
 于是对每个 `x`：`offset_joint - 1/2||R_keep x - z_keep||^2 = SUM_i log L_i(x)`。这正是 `sqrtinfo.py:193` 的
 `offset = first.offset + second.offset - 0.5*jnp.sum(corner**2)`，`N > 2` 由归纳得到，因为结果是同类型的项。
 
-**我本次的验证**（脚本 `/private/tmp/.../scratchpad/final/verify.py`，`/Users/zzhang/projects/e-RHINO/.venv/bin/python`，`jax_enable_x64(True)`，对真实 `bayesmith.evidence.sqrtinfo`）。并集 `("a","b","c")`、shapes `((2,),(),(3,))`、`n_U=6`；三个项分别在 `("a","b")`、`("b","c")`、`("a","c")` 上，行数随机（含 `r_i < n_i` 与 `r_i > n_i`）：
+**我本次的验证**（脚本 `/private/tmp/.../scratchpad/final/verify.py`，`/Users/zzhang/projects/rheplicant/.venv/bin/python`，`jax_enable_x64(True)`，对真实 `bayesmith.evidence.sqrtinfo`）。并集 `("a","b","c")`、shapes `((2,),(),(3,))`、`n_U=6`；三个项分别在 `("a","b")`、`("b","c")`、`("a","c")` 上，行数随机（含 `r_i < n_i` 与 `r_i > n_i`）：
 
 ```
 combine 与嵌入项之和的 gap              = 0.000e+00

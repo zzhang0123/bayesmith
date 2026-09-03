@@ -58,12 +58,12 @@ rheplicant 里第一处真正需要 0.4 表面(`observed_mask`)的地方,所以�
 
 | # | 变异 | 在哪个仓 | 指名红 | 判决 |
 |---|---|---|---|---|
-| X1 | 掩码保留 flags 的极性(不取反) | e-RHINO | `test_the_mask_is_the_negation_of_the_flags` | KILLED |
-| X2 | 声明的 scale 保留 `inf` | e-RHINO | `test_the_declared_scale_is_finite_where_the_flags_are` | KILLED |
-| X3 | 每张图都给一个满掩码 | e-RHINO | `test_an_unflagged_noise_model_declares_no_mask_at_all`(共 6 红) | KILLED |
+| X1 | 掩码保留 flags 的极性(不取反) | rheplicant | `test_the_mask_is_the_negation_of_the_flags` | KILLED |
+| X2 | 声明的 scale 保留 `inf` | rheplicant | `test_the_declared_scale_is_finite_where_the_flags_are` | KILLED |
+| X3 | 每张图都给一个满掩码 | rheplicant | `test_an_unflagged_noise_model_declares_no_mask_at_all`(共 6 红) | KILLED |
 | X4 | **远端**把节点的 mask 丢掉(`graph/trace.py`) | **bayesmith** | `test_the_mask_is_the_negation_of_the_flags` | KILLED |
 
-X4 是又一条真跨仓击杀:改 bayesmith 的 `observe(mask=)`,e-RHINO 红。
+X4 是又一条真跨仓击杀:改 bayesmith 的 `observe(mask=)`,rheplicant 红。
 
 ## 五、本批次最贵的一课:一个守卫连续两次被读成噪声,而它一直是对的
 
@@ -100,7 +100,7 @@ flakiness,是**守卫如实报告仓库内容变了**。
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | e-RHINO **10062 passed / 522 skipped** exit 0(354.7 s);`test_docs_claims`、`test_refusal_census`、`test_readme_counts` 全绿 |
+| (i) | 该批测试全绿 | rheplicant **10062 passed / 522 skipped** exit 0(354.7 s);`test_docs_claims`、`test_refusal_census`、`test_readme_counts` 全绿 |
 | (ii) | 接缝变异红 | **4 条全杀**,含一条真跨仓(X4) |
 | (iii) | 旧实现删除、计数守卫刷新 | `_refuse_flagged_noise` 删除;退役测试 1 条;拒绝普查 14→13、241→240;README 10603 → **10605** |
 | (iv) | 文档实测数字重测 | 上述全部;`pyproject.toml` 与两份工作笔记的地板段(0.3 → 0.4)成对改 |
@@ -114,6 +114,6 @@ flakiness,是**守卫如实报告仓库内容变了**。
    `flags` 现在能过缝了(本批次)。
 2. 切它才能删掉 `_flat_view`(它是最后一个消费者)。
 3. **那九份草稿的内容仍在 `860703d` 的历史里。** 要不要重写历史把它去掉,是 owner
-   > **【已处置 2026-08-28】** owner 授权重写历史;九份草稿已从 e-RHINO 的历史中移除(`860703d~1..HEAD` 22 个提交重写为 21,`f8a73eb` 因变空被剪掉),**重写后 HEAD 的 tree 与重写前逐字节相同**,九份未跟踪的工作副本原样保留。本行提到的两个 SHA 自此不再存在。
+   > **【已处置 2026-08-28】** owner 授权重写历史;九份草稿已从 rheplicant 的历史中移除(`860703d~1..HEAD` 22 个提交重写为 21,`f8a73eb` 因变空被剪掉),**重写后 HEAD 的 tree 与重写前逐字节相同**,九份未跟踪的工作副本原样保留。本行提到的两个 SHA 自此不再存在。
 
    的决定(强推)。现状:已从索引移除、已 gitignore、文件在盘上。

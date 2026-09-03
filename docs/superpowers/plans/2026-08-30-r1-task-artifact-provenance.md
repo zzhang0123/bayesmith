@@ -952,7 +952,7 @@ cat "$r1_build_dir/wheel.exit"
 
 - [ ] **9.5 跑 rheplicant consumer gate**
 
-在 `/Users/zzhang/projects/e-RHINO` 先记录 revision、dirty status 和实际 import paths；不修改或清理 sibling 的既有改动。用它自己的环境运行：
+在 `/Users/zzhang/projects/rheplicant` 先记录 revision、dirty status 和实际 import paths；不修改或清理 sibling 的既有改动。用它自己的环境运行：
 
 ```bash
 r1_consumer_dir="$(mktemp -d /tmp/bayesmith-r1-consumer.XXXXXX)"

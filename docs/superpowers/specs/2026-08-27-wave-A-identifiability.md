@@ -114,11 +114,11 @@ rheplicant,而 rheplicant 现在**委托给这里**——它们已经变成「�
 ## 五、接缝变异:本程序第一次是**真的**跨仓
 
 此前每一组变异都在**一个**仓里跑,因为 rheplicant 侧还没有消费者。现在有了。
-**改 bayesmith,看 e-RHINO 红。**
+**改 bayesmith,看 rheplicant 红。**
 
 **7 条,全部击杀**,基线前后各一次绿(49 例)。
 
-| # | 变异(在 bayesmith) | e-RHINO 红 | 判决 |
+| # | 变异(在 bayesmith) | rheplicant 红 | 判决 |
 |---|---|---|---|
 | W1 | 秩的切点 `>` 改成 `>=` | 1 条 | KILLED |
 | W2 | 雅可比不做列归一化 | **9** 条 | KILLED |
@@ -126,10 +126,10 @@ rheplicant,而 rheplicant 现在**委托给这里**——它们已经变成「�
 | W4 | 谱不补齐到 `n_par` | 1 条 | KILLED |
 | W5 | SVD 永不索取完整左因子 | 4 条 | KILLED |
 | W6 | 去掉图侧精度拒绝 | 2 条 | KILLED |
-| W7 | 切换了却不记进 `SWITCHED`(在 e-RHINO 侧的簿记守卫上,对 bayesmith 套件跑) | 1 条 | KILLED |
+| W7 | 切换了却不记进 `SWITCHED`(在 rheplicant 侧的簿记守卫上,对 bayesmith 套件跑) | 1 条 | KILLED |
 
 **W6 值得单说**:它证明门面对 D9 那条精度拒绝的依赖是**实的**——去掉 bayesmith
-的守卫,e-RHINO 的 `test_a_model_pinned_to_float32_is_refused` 立刻红。跨仓的
+的守卫,rheplicant 的 `test_a_model_pinned_to_float32_is_refused` 立刻红。跨仓的
 「谁承重」在这一行上是可读的。
 
 附录 A 新增这七行。
@@ -138,9 +138,9 @@ rheplicant,而 rheplicant 现在**委托给这里**——它们已经变成「�
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | e-RHINO **10061 passed / 522 skipped** exit 0(359.9 s,`-n 4 --ignore=tests/gui/e2e`)加 **21 passed** exit 0(`tests/gui/e2e -n 2`);bayesmith **1291 passed / 0 skipped** exit 0(208.0 s) |
+| (i) | 该批测试全绿 | rheplicant **10061 passed / 522 skipped** exit 0(359.9 s,`-n 4 --ignore=tests/gui/e2e`)加 **21 passed** exit 0(`tests/gui/e2e -n 2`);bayesmith **1291 passed / 0 skipped** exit 0(208.0 s) |
 | (ii) | 接缝变异红 | **7 条全杀**,§五;**第一次是真跨仓** |
-| (iii) | 旧实现删除、计数守卫刷新 | rheplicant 的秩算术删除;cross-check 文件删除;e-RHINO README 计数 10599 → **10603**(由守卫报数,不自己加);bayesmith README/CLAUDE.md 1295 → **1291**;crosscheck 123 → **119** |
+| (iii) | 旧实现删除、计数守卫刷新 | rheplicant 的秩算术删除;cross-check 文件删除;rheplicant README 计数 10599 → **10603**(由守卫报数,不自己加);bayesmith README/CLAUDE.md 1295 → **1291**;crosscheck 123 → **119** |
 | (iv) | 文档实测数字重测 | 上述全部;`docs/migration/identifiability.md` §5.2 已在开工批改写 |
 
 **coverage floor 未动**(`fail_under = 89`):本批次删掉的是 rheplicant 的算术

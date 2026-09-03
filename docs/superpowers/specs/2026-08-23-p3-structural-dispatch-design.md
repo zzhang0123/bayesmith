@@ -5,7 +5,7 @@
 > 本文是设计（spec），不是实施计划。
 > 上游：`docs/superpowers/specs/2026-08-23-bayesmith-design.md` §五 的 P3。
 > 前置：P1 图核 + P2 NumPyro 桥（已合入 main，92 测试全绿）。
-> 移植源：`/Users/zzhang/projects/e-RHINO/src/rheplicant/inference/`——**只读**。
+> 移植源：`/Users/zzhang/projects/rheplicant/src/rheplicant/inference/`——**只读**。
 > **下游**：本文 §四/§五/§六/§七 的 P3b 部分由 `docs/superpowers/specs/2026-08-23-p3b-dispatch-execution-design.md` 细化，其中三处经实测更正（见下方各 `实测更正` 块）。**冲突处以 P3b spec 为准。**
 
 ## Context

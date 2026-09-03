@@ -12,7 +12,7 @@ The stale version reads exactly as authoritative as the true one.
 This file is the sibling of that rule: it turns the README's count into
 something that can fail. It is deliberately the SIMPLEST form of the guard --
 one number, pinned by equality, with the true number in the failure message so
-the fix is a copy rather than an arithmetic. The e-RHINO checkout carries the
+the fix is a copy rather than an arithmetic. The rheplicant checkout carries the
 elaborated version (``tests/test_readme_counts.py``), which also has to reason
 about modules that stand down behind an ``importorskip``; this package has
 none, so a plain collection is the whole measurement.

@@ -7,7 +7,7 @@ Test: `tests/crosscheck/test_linear.py`. Case count and runtime are not written
 here: `test_dispatch.py`'s said 6 within hours of being 7, and nothing in
 this repository reads a count out of a page. Ask pytest —
 `pytest tests/crosscheck/test_linear.py --collect-only -q`. Measured
-2026-08-25 against e-RHINO `0c49cae`.
+2026-08-25 against rheplicant `0c49cae`.
 
 This is §四 4.1's first row and the largest single module in the ledger
 (1788 lines against three files here).
@@ -186,7 +186,7 @@ returns — while its implementation called the private, measured,
 biased-low one, whose own docstring calls it *"not a bound … unsafe to
 guard on"*.
 
-The e-RHINO side then measured it further, and it is worse than a
+The rheplicant side then measured it further, and it is worse than a
 paragraph in the wrong function: **the docstring contradicted itself
 internally.** Its `Returns:` line already said *"the measured condition
 number"*, and its cost paragraph already said it spends `2 · iterations`
@@ -203,7 +203,7 @@ is **the number rheplicant's `condition` run kind hands a document author**
 divides an accuracy target into a `tol` too loose by the same factor, and
 the direction is **certification, not refusal**.
 
-**Docstring fixed upstream in e-RHINO `0c49cae` after this row reported
+**Docstring fixed upstream in rheplicant `0c49cae` after this row reported
 it; the numbers were deliberately not touched**, because §四 4.1 lists
 `condition_estimate` as a value-for-value comparison item and
 `conditioning.md`'s
@@ -212,7 +212,7 @@ pin the present behaviour. So: **docstring fixed, arithmetic unchanged,
 bias still there.**
 
 **Where the upstream text lives.** The corrected sentences are on
-e-RHINO's `main`.
+rheplicant's `main`.
 
 > **Correction, 2026-08-28 (Wave B opening, iron law 7).** This said they
 > were on `track-a-tail` and **not on `main`**, so that the two guards
@@ -227,7 +227,7 @@ e-RHINO's `main`.
 > The dependency mattered for a reason bigger than tidiness: while it
 > stood, these two guards were green because of which branch was checked
 > out, and mutating the docstring could never have surfaced that, because
-> the ref was not in the variable set. e-RHINO's `CLAUDE.md` records it as
+> the ref was not in the variable set. rheplicant's `CLAUDE.md` records it as
 > mutation testing's structural blind spot with these two as the example.
 > The lesson stands; this instance is closed.
 
@@ -235,7 +235,7 @@ The two guards here and in `plan.md` are still the only ones in
 `tests/crosscheck/` that read upstream prose at all — worth knowing
 whenever that prose is edited.
 
-Three guards here, none of which duplicates e-RHINO's own
+Three guards here, none of which duplicates rheplicant's own
 `TestTheTwoConditionNumbersDivideTheLabour` — that one holds the API
 contract upstream, these hold this page from going stale:
 `test_bayesmith_does_not_carry_condition_estimate` (red if it is ported

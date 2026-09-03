@@ -10,7 +10,7 @@
 
 **上游 spec:** `docs/superpowers/specs/2026-08-23-p3-structural-dispatch-design.md`。本计划实现其 §一、§二（检验部分）、§三、§七的 R1/R2/R3。**分派器、`InferencePlan`、Gibbs、SNIS/MH 修正全部属于 P3b，不在本计划范围内**（§九）。
 
-**移植源:** `/Users/zzhang/projects/e-RHINO/src/rheplicant/inference/{linear,gls,uncertainty,conditioning}.py`——**只读，不改动 e-RHINO 的任何文件**。
+**移植源:** `/Users/zzhang/projects/rheplicant/src/rheplicant/inference/{linear,gls,uncertainty,conditioning}.py`——**只读，不改动 rheplicant 的任何文件**。
 
 **Tech Stack:** Python ≥3.11、JAX 0.11.1、Equinox 0.13.8、NumPyro 0.21.0、NumPy 2.5.2、pytest。
 

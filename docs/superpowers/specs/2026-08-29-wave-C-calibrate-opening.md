@@ -5,7 +5,7 @@
 > 计划:§五 Wave C / 铁律 1、3、7;**新增裁决 D57**(已自裁并落地)。
 > 前一批次:`2026-08-28-wave-B-plan-opening.md`(D56 待裁决)。
 > **日期**:2026-08-29 · **本页状态:开波与切换都已做,四件套齐备。**
-> 上游提交:e-RHINO `7f28efd`。
+> 上游提交:rheplicant `7f28efd`。
 
 ## 〇、为什么先开这一波
 
@@ -110,7 +110,7 @@ Wave B 剩下的两行各有拦路:`plan`/`engines` 卡在 **D56**(待 owner),
 `test_the_gradient_method_is_unaffected` **docstring 说不该拒、断言写成会拒,
 而且通过了**。改成 Adam-only。规则:**改变答案的就拒绝,契约说忽略的就真忽略。**
 
-## 四、切换(已做,e-RHINO `7f28efd`)
+## 四、切换(已做,rheplicant `7f28efd`)
 
 两个 `fit` 的循环体转调 `bayesmith.optimize.minimize`,两段手写 `lax.scan` 删除。
 **六条拒绝留守,三条随迁。** 留守的六条理由是量出来的:5 条构造守卫无处可托

@@ -27,7 +27,7 @@ Exit code is 0 whenever the probe finished, never a verdict -- same rule as
 ``probe_11_d17_dual_run.py``: a probe that turns its measurement into a process
 status invites being read as a gate, and this is evidence for a ruling.
 
-Run:  /Users/zzhang/projects/e-RHINO/.venv/bin/python docs/probes/probe_16_g15_discharge.py
+Run:  /Users/zzhang/projects/rheplicant/.venv/bin/python docs/probes/probe_16_g15_discharge.py
 """
 
 from __future__ import annotations

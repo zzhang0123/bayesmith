@@ -98,7 +98,7 @@ fixture),**不是近远对比**。
    `SqrtInfo` 是 **D12 的留守容器**(G6 自己写着远端数组级函数**返回**这个类),
    所以近端 `SqrtInfo` **永远不会变成远端那个**,拒绝**不会到达**。
    近端确实在静默给错答案(实测 `fisher()` 返回 2.0 而真值恰为 0),
-   **已于 2026-08-29 在近端 `__check_init__` 加上拒绝**(e-RHINO `1a5a535`),
+   **已于 2026-08-29 在近端 `__check_init__` 加上拒绝**(rheplicant `1a5a535`),
    含兄弟断言。**次序第 7 步不再有这一项。**
 3. **远端 `marginal/diagnostics.py` 779/800 行**——往里加东西之前先拆。
 4. **§4.3 与 Wave D 的表面矛盾已解**,靠的是**已执行的先例**:`reduced_basis`
@@ -122,7 +122,7 @@ fixture),**不是近远对比**。
   近端实测 `fisher()` 返回 2.0 而真值恰为 0。
 * **D63** `smooth` 容差 `rel ≈ 1.8 × eps × n^1.25`,**扫 n 不写常数**。
 
-### 7.2 第 1 步:两个 shrinkage 名字(e-RHINO `b2ae646`)
+### 7.2 第 1 步:两个 shrinkage 名字(rheplicant `b2ae646`)
 
 **验收**:`shrinkage_power` 三个 bank **逐位**(`|Δ|=0.0`);`shrinkage_report`
 的 `power`/`n_values`/`detects_coherent_bias` 三键相同。

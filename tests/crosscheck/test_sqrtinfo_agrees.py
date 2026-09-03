@@ -17,7 +17,7 @@ and a `float32` comparison would agree to a tolerance that hides a real
 difference in the constant.
 
 **2026-08-30: one of the subjects switched sides, and its four cases retired
-with it (D90, migration spec §五 B11).** e-RHINO ``b87e44f`` delegated
+with it (D90, migration spec §五 B11).** rheplicant ``b87e44f`` delegated
 ``marginalise_arrays``'s Schur complement to ``bayesmith.marginal.sqrtinfo``
 -- neither side raises anywhere in it, which is why it could move whole. Its
 bitwise comparison here (``test_marginalise_arrays_agrees_bitwise``) then
@@ -108,9 +108,9 @@ def test_null_agrees_bitwise():
 
 
 # `test_marginalise_arrays_agrees_bitwise` retired here on 2026-08-30 (D90):
-# e-RHINO `b87e44f` made THEIR `marginalise_arrays` a wrapper over OUR
+# rheplicant `b87e44f` made THEIR `marginalise_arrays` a wrapper over OUR
 # kernel, so its four bitwise cases compared this package with itself and
-# could not fail. The wrapper's pass-through contract belongs to e-RHINO's
+# could not fail. The wrapper's pass-through contract belongs to rheplicant's
 # own suite (the consumer-compatibility direction the top-level design's §8
 # assigns there); the kernel's oracles stay one-sided in
 # `tests/marginal/test_sqrtinfo.py`. `test_provenance.py` asserts the

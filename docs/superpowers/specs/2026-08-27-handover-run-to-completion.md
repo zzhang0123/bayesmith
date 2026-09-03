@@ -59,13 +59,13 @@
    `2026-08-27-wave-A-s6-widened.md`、`2026-08-27-wave-A-g13-wiring.md`。
 3. 前代 spec 的 §四(模块绑定契约台账)与 §六(本程序的由来):
    `2026-08-24-rheplicant-migration.md`。
-4. 两仓工作笔记(操作规则,条条是学费):`/Users/zzhang/projects/e-RHINO/CLAUDE.md`
+4. 两仓工作笔记(操作规则,条条是学费):`/Users/zzhang/projects/rheplicant/CLAUDE.md`
    (与 AGENTS.md 逐字节一致,有测试钉着)与 `/Users/zzhang/projects/bayesmith/CLAUDE.md`。
    **两份都在 2026-08-27 补了第 (0) 条的第二半**,见 §六。
 
 ## 二、当前状态(2026-08-28 晚,实测,先复核再信)
 
-- **e-RHINO** 全套 **exit 0**(`-n 4 --ignore=tests/gui/e2e`,407 s),
+- **rheplicant** 全套 **exit 0**(`-n 4 --ignore=tests/gui/e2e`,407 s),
   e2e 第二阶段 **21 passed**(69 s)。全套 **10143 passed**。**566 skipped**(其中 `tests/evidence` 是
   x64 子会话)。README 计数 **10734**(守卫核过,数字取自它自己的失败消息);
   拒绝普查 **254**;coverage 本地 **89.39 %**、**CI 89.34 %**(串行;
@@ -73,8 +73,8 @@
   截断后的 **89.3**,不是四舍五入);bayesmith 地板 **`>=0.5`**,**现在由
   `tests/test_bayesmith_floor.py` 按能力断言**(版本号在本 checkout 里是假的)。
 - **bayesmith** 全套 **exit 0**(含 `tests/crosscheck/` **87 passed**,跨仓,
-  读的是本地 e-RHINO 的 editable 安装);README 计数 **1530**;`0.5.0` 在 PyPI。
-- **两仓已推送并按远端核实**(2026-08-28 收尾):e-RHINO **`a7bbd4f`**、
+  读的是本地 rheplicant 的 editable 安装);README 计数 **1530**;`0.5.0` 在 PyPI。
+- **两仓已推送并按远端核实**(2026-08-28 收尾):rheplicant **`a7bbd4f`**、
   bayesmith **`88f4505`**,`git ls-remote` 两仓 `ahead=0`,两棵树干净;
   本页这次改写与 `gls` 开波页在其后。
   **CI 全绿,四个 job 逐个核过**:rheplicant `Tests` run **33180929073**
@@ -84,8 +84,8 @@
   `Cross-check` ✅(`d92791b`)。**两仓第二次同时全绿**,而这一次绿在
   `linear` 求解面已切之后。
   **用 `git ls-remote` 数,不要读本地 `origin/main`。**
-  推送顺序:**e-RHINO 先,bayesmith 后**(bayesmith 的 Seam job checkout 的是
-  `e-RHINO@main`)。
+  推送顺序:**rheplicant 先,bayesmith 后**(bayesmith 的 Seam job checkout 的是
+  `rheplicant@main`)。
 - 执行页共 **52** 份(含本页),探针 **18** 个。**登记簿 D7–D63**;
   **未裁决只剩 D56**(`plan`/`engines` 是否改判为「互证」,故意留给 owner)。
   **D19、D33、D39(前两步)、D44、D46、D62、D63 均已结清。**
@@ -103,10 +103,10 @@
   **加上新的 D65**(D12 的理由被证伪,结论就 `chain` 已另有支撑,
   但它在**别的模块**上是否还站得住要 owner 定;`ornstein_uhlenbeck` 随之悬置,
   解除条件写在 D65 行内)。**D63 已由我自己推翻**,**D64** 新增。
-- **两仓 tip**(推送前):e-RHINO `ca8839c`、bayesmith 见本次推送。
+- **两仓 tip**(推送前):rheplicant `ca8839c`、bayesmith 见本次推送。
   **用 `git ls-remote` 数,不要读本地 `origin/main`。**
-  推送顺序:**e-RHINO 先,bayesmith 后**(bayesmith 的 Seam job checkout 的是
-  `e-RHINO@main`)。**注意反复踩到的一件**:连续推送会把上一次的 CI run
+  推送顺序:**rheplicant 先,bayesmith 后**(bayesmith 的 Seam job checkout 的是
+  `rheplicant@main`)。**注意反复踩到的一件**:连续推送会把上一次的 CI run
   取消掉——`rheplicant` 的 Coverage job 因此有三次没跑完。推完等它。
 
 **最近一次会话(2026-08-29)落地:Wave C 三行 + Wave D 的第 0、1、2 步。**
@@ -148,7 +148,7 @@ Normal 成为尺度上的 `1/scale` 先验(余下 2.0% 全是它)。变异集 5 
 **已完成**:P0、P2a、D16、D17、P1、P2 余项全部、0.4.0 与 **0.5.0** 发布、
 Wave A 全部五模块、G15(**两侧都完成了**)、G4/G3、D12 前置、G6 逐项登记、G5、
 G6 本体(7 里的 6)、D23、多数据集联合后验推导、架构叙事审计、
-`evidence/`→`marginal/`、D46、**e-RHINO 历史净化**、**CI 六条全处置**、
+`evidence/`→`marginal/`、D46、**rheplicant 历史净化**、**CI 六条全处置**、
 **Wave B 开波仪式**。
 
 ## 三、下一位会先撞到的几件事
@@ -195,16 +195,16 @@ G6 本体(7 里的 6)、D23、多数据集联合后验推导、架构叙事审�
 
 ### 〇、本次会话结束时的状态
 
-见 §二。要点:两仓干净、未推送(e-RHINO 领先 5,bayesmith 领先 4);
+见 §二。要点:两仓干净、未推送(rheplicant 领先 5,bayesmith 领先 4);
 `0.5.0` 在 PyPI;登记簿 **D7–D51**,未裁决只剩 **D39**。
 
 ### 一、CI —— **两仓同时全绿,已验证**
 
-推送 `d90028f`(e-RHINO)/ `d92ed9a`(bayesmith)之后:
+推送 `d90028f`(rheplicant)/ `d92ed9a`(bayesmith)之后:
 
 ```
-e-RHINO   Tests 33171191850  Suite (Python 3.12) success  +  Coverage (serial) success
-bayesmith Seam  33171200907  success        (checkout 的是 e-RHINO@main)
+rheplicant   Tests 33171191850  Suite (Python 3.12) success  +  Coverage (serial) success
+bayesmith Seam  33171200907  success        (checkout 的是 rheplicant@main)
 bayesmith Cross-check 33171200991  success
 ```
 
@@ -375,7 +375,7 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
    (`test_the_package_guard_this_enum_mirrors_is_still_that_guard`,
    `inspect.getsource(SamplingPlan._prepare)`),**替代形态已写死在登记簿里**
    ——行为等价扫描,外加「加一个模式就要加一个候选」。
-2. **B1 已闭合(2026-08-28,e-RHINO `74fac09`)——这一条不再是待办。**
+2. **B1 已闭合(2026-08-28,rheplicant `74fac09`)——这一条不再是待办。**
    保留在这里是因为它的**结论**对下一批还有用,以及**这段文字原先有一处
    需要纠正的说法**。
 
@@ -436,7 +436,7 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
 
 ### 四、Wave C —— **三行全部落地**
 
-`calibrate`(e-RHINO `2c18744`)、`npe`(`d723226`+`2ebb1ac`)、
+`calibrate`(rheplicant `2c18744`)、`npe`(`d723226`+`2ebb1ac`)、
 `reduced_basis`(`eb747fa`)。四件套齐备,接缝变异 9+8+5 全杀。
 
 **三行的形状各不相同,而分辨它们靠的是同一把尺**(D42/D31:签名碰不碰
@@ -458,12 +458,12 @@ pass 缩放不一致,要**重新设计参照**而不是放宽界。
 ### 五、Wave D —— 开波 + 第 0、1 步已落地(`2026-08-29-wave-D-opening.md`)
 
 **已做**:第 0 步三条裁决(**D39** 前两步、**D62**、~~D63~~)、第 1 步两个
-shrinkage 名字委托(e-RHINO `b2ae646`,逐位,变异 4/4)、**第 2 步 `chain`**
-(e-RHINO `bdeafd4`,变异 6/6)。
+shrinkage 名字委托(rheplicant `b2ae646`,逐位,变异 4/4)、**第 2 步 `chain`**
+(rheplicant `bdeafd4`,变异 6/6)。
 **第 3 步(`compressed` + `compress`)也已做完,而它是一个**确认批次**:
 两个模块都留守,一行都没切。** 见下。
 **第 4 步已量完(D70),代码未切**;**第 5、6 步经 D69 确认无代码可写**;
-**第 7 步 `sqrtinfo` 的干净一半已落地**(`marginalise_arrays` 委托,e-RHINO `b87e44f`,
+**第 7 步 `sqrtinfo` 的干净一半已落地**(`marginalise_arrays` 委托,rheplicant `b87e44f`,
 变异 3/3)。**下一件见「剩下的三件」。**
 
 #### 第 4 步(D70):第一次「远端没有数值缺陷」,拦路的是拒绝
@@ -485,7 +485,7 @@ shrinkage 名字委托(e-RHINO `b2ae646`,逐位,变异 4/4)、**第 2 步 `chain
 
 #### 第 4、7 步的委托已落地(2026-08-29 晚)
 
-**第 4 步切了三个名字,第四个不切**(e-RHINO `c9be241`、`54d6ffe`,变异 4/4):
+**第 4 步切了三个名字,第四个不切**(rheplicant `c9be241`、`54d6ffe`,变异 4/4):
 `coherent_mode` → 远端 `template_modes`、`held_out_z`、`_tightest_direction` 已委托;
 **`epoch_residuals` 留守,理由与其余相反**——它**一条 `raise` 都没有**,
 而远端两条都有,所以委托会**收紧一个已发布的表面**。那很可能是改进,
@@ -512,7 +512,7 @@ D61 那条「`sqrtinfo` 最后切」的顾虑**作废**(`SqrtInfo` 留守,永远
 #### 剩下的(按可做性排序)
 
 1. **`smooth` 的委托,卡在发布**(唯一还等外部条件的一件):修复已在 bayesmith
-   `main`,而 e-RHINO 的 CI 装 PyPI 的 `bayesmith>=0.5`,`v0.5.0` 里还是 `linalg.inv`。
+   `main`,而 rheplicant 的 CI 装 PyPI 的 `bayesmith>=0.5`,`v0.5.0` 里还是 `linalg.inv`。
    **解除条件写在 D64,不需要新测量**——逐位相同已量,两侧边界守卫已就位。
    发版是 owner 的动作,本委托不做。
 2. **`epoch_residuals` 的委托** —— 需要 owner 认可「收紧一个已发布表面」。
@@ -645,7 +645,7 @@ fixture 全用 0.7071。**把远端换进来,近端 91 条链测试全绿。** �
 - **P5**:18 个 run kind 逐 `_KINDS` 冒烟;每批四件套附 extractor 往返。
 - **P6**:bayesmith 的发布列车**已走完** 0.1→0.5;**rheplicant 自己的发版还欠着**
   (计划 §七:「程序结束前 rheplicant 发版清 385 提交旧账」)。
-- **P7 具名清单**:(a) e-RHINO 的 CLAUDE.md **与** AGENTS.md **成对**改(有测试逐字节
+- **P7 具名清单**:(a) rheplicant 的 CLAUDE.md **与** AGENTS.md **成对**改(有测试逐字节
   钉着);(b) README 计数 pin;(c) coverage 截断值 + `fail_under`;(d)
   `_migration-to-bayesmith.md` 整篇;(e) `rheplicant/inference/__init__.py` 的模块
   docstring(**今日三论点在终局全假**,而它是 106 名单门户);(f)
@@ -671,7 +671,7 @@ fixture 全用 0.7071。**把远端换进来,近端 91 条链测试全绿。** �
 - **R10** 的兜底:一份随 sdist 发布的 `docs/plan-codes.md`(`src/` 里还有 ~80 处
   计划代号;**不能盲清**——`tests/exact/test_condition_estimate.py:243` 断言
   `"G14" in text or "D15" in text`,而那个测试在 sdist 里)。
-- §8 的「不建议动的」**7 条是结论,不是待办**:不要改 `diagnose/`(e-RHINO 生产代码
+- §8 的「不建议动的」**7 条是结论,不是待办**:不要改 `diagnose/`(rheplicant 生产代码
   钉着它)、不要把 `optimize.py`/`amortize.py` 提升为子包、不要动 `sqrtinfo.py` 的
   位置与 `information()` 的命名、不要为「全包一致」去补齐门面(40/81 是惯例不是事故)、
   不要碰 `Graph.joint_prior: Any`。
@@ -717,7 +717,7 @@ fixture 全用 0.7071。**把远端换进来,近端 91 条链测试全绿。** �
 4. **文档实测数字重测**。
 
 每批把证据链写进本目录的 tracked 执行页(`2026-XX-XX-*.md`)。
-**不要**把计划性文件放进 e-RHINO 的 `docs/superpowers`(gitignored,八份计划死在
+**不要**把计划性文件放进 rheplicant 的 `docs/superpowers`(gitignored,八份计划死在
 那里过)。
 
 **改判据 = 新裁决项**,要走登记簿并写进记录页——即使在本次委托下也是。
@@ -727,7 +727,7 @@ fixture 全用 0.7071。**把远端换进来,近端 91 条链测试全绿。** �
 **跑测试**
 
 ```bash
-# e-RHINO(共享机器上两阶段跑,见其 CLAUDE.md)
+# rheplicant(共享机器上两阶段跑,见其 CLAUDE.md)
 .venv/bin/python -m pytest -n 4 --ignore=tests/gui/e2e > run.log 2>&1; echo "PYTEST_EXIT=$?" > run.exit
 # bayesmith
 .venv/bin/python -m pytest -n 4 > run.log 2>&1; echo "PYTEST_EXIT=$?" > run.exit
@@ -738,7 +738,7 @@ fixture 全用 0.7071。**把远端换进来,近端 91 条链测试全绿。** �
   一次(通知说 0,`run.exit` 说 1,真有三条红的);**2026-08-28 又见了两次**,
   两次都真有一条红的(都是 README 计数守卫,它该红)。**这条不是偶发。**
 - **不要再加 `-q`**:bayesmith 的 `addopts` 已有一个,叠成 `-qq` 会吃掉摘要行。
-- e-RHINO 的**部分运行不需要 `--no-cov`**(那条规则早已反转)。
+- rheplicant 的**部分运行不需要 `--no-cov`**(那条规则早已反转)。
 
 **变异集**
 
@@ -769,7 +769,7 @@ fixture 全用 0.7071。**把远端换进来,近端 91 条链测试全绿。** �
 
 **计数与文档**
 
-- e-RHINO 的 `tests/test_readme_counts.py` **按等号钉住** README 的计数,并且
+- rheplicant 的 `tests/test_readme_counts.py` **按等号钉住** README 的计数,并且
   会**先红**。让它红,然后用**它自己报的数字**改 README——不要自己加。
 - **拒绝普查的计数可以在内容变了两处时保持不变**(退役一条、新增一条)。
   `priors`/`G13` 那两批各发生过一次,而附录 B 因此**过期了一整批**没人发现。
@@ -783,12 +783,12 @@ fixture 全用 0.7071。**把远端换进来,近端 91 条链测试全绿。** �
 
 ```bash
 cd /Users/zzhang/projects/bayesmith
-/Users/zzhang/projects/e-RHINO/.venv/bin/python docs/probes/probe_11_d17_dual_run.py
-/Users/zzhang/projects/e-RHINO/.venv/bin/python docs/probes/probe_12_d16_five_axes.py
+/Users/zzhang/projects/rheplicant/.venv/bin/python docs/probes/probe_11_d17_dual_run.py
+/Users/zzhang/projects/rheplicant/.venv/bin/python docs/probes/probe_12_d16_five_axes.py
 ```
 
 ```bash
-cd /Users/zzhang/projects/e-RHINO
+cd /Users/zzhang/projects/rheplicant
 JAX_ENABLE_X64=1 .venv/bin/python -m pytest tests/seam
 ```
 

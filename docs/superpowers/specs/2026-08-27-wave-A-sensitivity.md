@@ -63,9 +63,9 @@ fixture(下游密度持住的被选 latent),那是一次语义升级,走登记�
 | S1 | shift 丢掉后验 sigma 缩放 | bayesmith | KILLED(3 红) |
 | S2 | 先验的二次拉力减半 | bayesmith | KILLED(**20** 红) |
 | S3 | 远端去掉图侧精度守卫 | bayesmith | **SURVIVED** |
-| S4 | 门面改吃 bayesmith 的默认展开点 | e-RHINO | KILLED(8 红) |
-| S5 | 跳过先验预检查 | e-RHINO | KILLED(1 红) |
-| S6 | 不把值加宽到 float64 | e-RHINO | **SURVIVED** |
+| S4 | 门面改吃 bayesmith 的默认展开点 | rheplicant | KILLED(8 红) |
+| S5 | 跳过先验预检查 | rheplicant | KILLED(1 红) |
+| S6 | 不把值加宽到 float64 | rheplicant | **SURVIVED** |
 
 ### S3:守卫有家,但**这个文件到不了它**
 
@@ -96,10 +96,10 @@ D9 给 `prior_sensitivity` 补的图侧精度守卫,在本文件的 fixture 下�
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | e-RHINO **10063 passed / 522 skipped** exit 0(353.3 s);bayesmith **1280 passed / 0 skipped** exit 0(208.3 s) |
+| (i) | 该批测试全绿 | rheplicant **10063 passed / 522 skipped** exit 0(353.3 s);bayesmith **1280 passed / 0 skipped** exit 0(208.3 s) |
 | (ii) | 接缝变异红 | 6 条,**4 杀**;2 条幸存已逐条归因(§五),其中 S6 是开放项 |
 | (iii) | 旧实现删除、计数守卫刷新 | `_newton` / 先验矩装配 / `_refuse_rank_deficient` / **`_flat_view`** 删除;cross-check `test_diagnose_sensitivity.py` 退役并记入 `SWITCHED`;bayesmith 计数 1291 → **1280** |
-| (iv) | 文档实测数字重测 | 上述;e-RHINO README 计数未动(用例总数不变:2 条改写、0 条增删) |
+| (iv) | 文档实测数字重测 | 上述;rheplicant README 计数未动(用例总数不变:2 条改写、0 条增删) |
 
 ## 七、留给下一位
 
@@ -111,5 +111,5 @@ D9 给 `prior_sensitivity` 补的图侧精度守卫,在本文件的 fixture 下�
 3. **D23** 是一条已登记但无守卫的语义差;采纳 bayesmith 的曲率判据是一次语义升级,
    需要先造出能分辨它的 fixture。
 4. 九份草稿仍在 `860703d` 的历史里,是否重写历史是 owner 的决定(需强推)。
-   > **【已处置 2026-08-28】** owner 授权重写历史;九份草稿已从 e-RHINO 的历史中移除(`860703d~1..HEAD` 22 个提交重写为 21,`f8a73eb` 因变空被剪掉),**重写后 HEAD 的 tree 与重写前逐字节相同**,九份未跟踪的工作副本原样保留。本行提到的两个 SHA 自此不再存在。
+   > **【已处置 2026-08-28】** owner 授权重写历史;九份草稿已从 rheplicant 的历史中移除(`860703d~1..HEAD` 22 个提交重写为 21,`f8a73eb` 因变空被剪掉),**重写后 HEAD 的 tree 与重写前逐字节相同**,九份未跟踪的工作副本原样保留。本行提到的两个 SHA 自此不再存在。
 

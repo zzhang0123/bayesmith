@@ -5,7 +5,7 @@
 > 计划:§二 **D23**(`prior_sensitivity` 的拒绝判据:雅可比秩 vs 曲率)。
 > 本页把那一行写的「先得造出能分辨它的 fixture」兑现,并**拍板**。
 > 前一批次:`2026-08-28-g6-consumption.md`。
-> **日期**:2026-08-28 · 本批改动在 **e-RHINO 的 tests/ 与一处 docstring**,
+> **日期**:2026-08-28 · 本批改动在 **rheplicant 的 tests/ 与一处 docstring**,
 > 两包的 `src/` 数值面**一行未动**——所以它不受发布门约束。
 
 ## 〇、为什么这一项现在做,以及做的时候框架变了
@@ -108,8 +108,8 @@ dist.Normal(<一个 Latent>, 0.5)   构造成功       <- numpyro 什么都收
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | e-RHINO **10119 passed / 553 skipped** exit 0(352.9 s)加 **21 passed**(e2e,67.2 s);本批新增 **10** 条 |
-| (ii) | 接缝变异红 | 5 条 **5 杀**,每一条都由**登记的**那条杀死;**四条跨仓**(改 bayesmith,看 e-RHINO 红),基线前后各一次绿 |
+| (i) | 该批测试全绿 | rheplicant **10119 passed / 553 skipped** exit 0(352.9 s)加 **21 passed**(e2e,67.2 s);本批新增 **10** 条 |
+| (ii) | 接缝变异红 | 5 条 **5 杀**,每一条都由**登记的**那条杀死;**四条跨仓**(改 bayesmith,看 rheplicant 红),基线前后各一次绿 |
 | (iii) | 旧实现删除、计数守卫刷新 | **无实现改动**——本批只加守卫与改一句 docstring。拒绝普查 **250 → 252**,附录 B 逐文件清单由 `_sites()` 重生成 |
 | (iv) | 文档实测数字重测 | D23 回填;README 计数;附录 B 总数与分类 |
 
@@ -121,7 +121,7 @@ dist.Normal(<一个 Latent>, 0.5)   构造成功       <- numpyro 什么都收
 |---|---|---|---|---|
 | C1 | 远端不再设曲率天花板(`healthy` 恒真) | **bayesmith** | `test_the_curvature_criterion_refuses_it_anyway` | KILLED(6) |
 | C2 | 远端改回按**观测雅可比的秩**判决 | **bayesmith** | 同上 | KILLED(5) |
-| C3 | 判别 fixture 的第二列改回 `g·(1+sep)`(精确共线) | e-RHINO | `test_the_observed_jacobian_is_full_rank_there` | KILLED(6) |
+| C3 | 判别 fixture 的第二列改回 `g·(1+sep)`(精确共线) | rheplicant | `test_the_observed_jacobian_is_full_rank_there` | KILLED(6) |
 | C4 | 天花板从 dtype 推导改成写死 float32 的值 | **bayesmith** | `test_a_well_conditioned_design_is_reported_on` | KILLED(2) |
 | C5 | 分歧时借用秩判决的措辞 | **bayesmith** | `test_the_refusal_says_the_jacobian_was_not_the_reason` | KILLED(2) |
 

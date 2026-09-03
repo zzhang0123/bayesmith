@@ -75,7 +75,7 @@ class TestB12sPremiseIsFalse:
     severity `refuse` and check id A1, the default is `off`, and
     `config/postflight/fitting.py` wires it to the package function. What
     rheplicant lacks is a RUN KIND -- which is the true half of B12's
-    sentence, and is pinned separately in e-RHINO by
+    sentence, and is pinned separately in rheplicant by
     `tests/config/test_evidence_has_no_run_kind.py`.
 
     The consequence for the plan: B12 is scoped as "build its config face",
@@ -90,7 +90,7 @@ class TestB12sPremiseIsFalse:
             "this class -- a correction ledger must not outlive its correction."
         )
 
-    # The CODE half of this pair lives in e-RHINO, at
+    # The CODE half of this pair lives in rheplicant, at
     # `tests/config/test_evidence_has_no_run_kind.py::TestB12sPremiseIsFalse`,
     # and NOT here. `rheplicant` is installed into this venv with `--no-deps`
     # (see pyproject.toml's crosscheck group), so `rheplicant.config` cannot
@@ -115,7 +115,7 @@ class TestB11sClaimHolds:
     def test_the_spec_still_makes_the_claim(self, spec_text):
         assert B11_CLAIM in spec_text
 
-    # Code half likewise in e-RHINO -- same reason as B12's above.
+    # Code half likewise in rheplicant -- same reason as B12's above.
 
 
 def test_the_spec_marks_b12_as_a_reviewer_assertion_not_a_measurement(spec_text):

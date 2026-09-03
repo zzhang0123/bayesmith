@@ -92,7 +92,7 @@
 
 1. **发布之后**:删 `uncertainty._prior_precision`,调用改成
    `include_prior=space is not None`,重测被钉的数字。
-   **同一批要重跑 e-RHINO 全套并重新量一件事**:`2026-08-27-p2-g9-full.md` §六 记着
+   **同一批要重跑 rheplicant 全套并重新量一件事**:`2026-08-27-p2-g9-full.md` §六 记着
    「G9 全量修掉的那个先验广播缺陷,门面今天够不到,因为它永远传
    `include_prior=False`」。**这条改动正是让它够得到的那条。**
 2. **D12 的前置**(读档 fixture)不受发布门约束,是现在就能做完的解锁工作。

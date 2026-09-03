@@ -96,10 +96,10 @@ radiometer   : rheplicant[0,0]=8.823785345e+05  bayesmith[0,0]=8.823785345e+05  
 
 | # | 变异 | 仓 | 判决 |
 |---|---|---|---|
-| S1 | 块按声明序而非 sorted 索取 | e-RHINO | **SURVIVED,构造上必然** |
-| S2 | `depends_on_prediction` 传 `False` | e-RHINO | **SURVIVED,构造上必然** |
-| S3 | 不再加上延期的先验曲率 | e-RHINO | KILLED(10 红) |
-| S4 | 拿掉缝前的 flags 检查 | e-RHINO | KILLED(1 红) |
+| S1 | 块按声明序而非 sorted 索取 | rheplicant | **SURVIVED,构造上必然** |
+| S2 | `depends_on_prediction` 传 `False` | rheplicant | **SURVIVED,构造上必然** |
+| S3 | 不再加上延期的先验曲率 | rheplicant | KILLED(10 红) |
+| S4 | 拿掉缝前的 flags 检查 | rheplicant | KILLED(1 红) |
 | S5 | 远端设计矩阵不再被精度加权 | **bayesmith** | KILLED(12 红) |
 
 基线前后各一次绿。**S5 是跨仓击杀。**
@@ -150,7 +150,7 @@ float32 **2.90e3**、float64 **6.71e7**);本包**没有门**。D9 把「逐 fixt
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | e-RHINO **10097 passed / 534 skipped** exit 0(359.0 s)加 **31 passed / 1 xfailed** exit 0(x64 seam,49.8 s);bayesmith **1269 passed** exit 0(205.0 s) |
+| (i) | 该批测试全绿 | rheplicant **10097 passed / 534 skipped** exit 0(359.0 s)加 **31 passed / 1 xfailed** exit 0(x64 seam,49.8 s);bayesmith **1269 passed** exit 0(205.0 s) |
 | (ii) | 接缝变异红 | 5 条 **3 杀**,两条幸存构造上必然、已逐条追到底并各补了一件事(§五) |
 | (iii) | 旧实现删除、计数守卫刷新 | 雅可比 / 加权 / `_log_sigma_curvature` / `inverse_variance` 导入删除;README 计数 10649 → **10651**;拒绝普查未动 |
 | (iv) | 文档实测数字重测 | 上述;**G15** 与 **D29** 入簿,登记簿标题到 **D7–D29** |

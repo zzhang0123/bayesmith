@@ -23,7 +23,7 @@ candidate float32 tolerance, whether it reproduces float64's verdict.
 
 Run it::
 
-    /Users/zzhang/projects/e-RHINO/.venv/bin/python docs/probes/probe_13_d9_precision_policy.py
+    /Users/zzhang/projects/rheplicant/.venv/bin/python docs/probes/probe_13_d9_precision_policy.py
 """
 
 from __future__ import annotations

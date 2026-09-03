@@ -6,7 +6,7 @@ REGISTERED ONE BY ONE" -- and a prerequisite nobody has sized. This counts it.
 Run it::
 
     cd /Users/zzhang/projects/bayesmith
-    /Users/zzhang/projects/e-RHINO/.venv/bin/python \
+    /Users/zzhang/projects/rheplicant/.venv/bin/python \
         docs/probes/probe_14_g6_enumeration.py
 
 Exit code 0 means it FINISHED, not that the list is unchanged -- the numbers

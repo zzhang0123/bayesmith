@@ -24,7 +24,7 @@
 
 ---
 
-HEAD 在审计期间前进了一步（`ffb46d5`，比卷宗里的 `e854a1f` 新一个提交），这一步恰好与本次问题直接相关；下文第 6 节会说明。以下所有数字都是我本次在 `/Users/zzhang/projects/bayesmith`（`ffb46d5`，工作树干净）与 `/Users/zzhang/projects/e-RHINO` 上跑命令得到的。**没有修改任何被跟踪的文件。**
+HEAD 在审计期间前进了一步（`ffb46d5`，比卷宗里的 `e854a1f` 新一个提交），这一步恰好与本次问题直接相关；下文第 6 节会说明。以下所有数字都是我本次在 `/Users/zzhang/projects/bayesmith`（`ffb46d5`，工作树干净）与 `/Users/zzhang/projects/rheplicant` 上跑命令得到的。**没有修改任何被跟踪的文件。**
 
 ---
 
@@ -68,7 +68,7 @@ dispatch -> bridge, errors, evidence, exact, graph
 | `exact/gibbs.py:19-24` | "`exact` never reads `dispatch` … a layering decision, not an oversight" | `exact/fisher.py:717` 就是 `from bayesmith.dispatch.classify import prior_environment`，函数作用域、**无注释**。无任何测试守卫这条规则 |
 | `README.md:32-33` | diagnose/ 拥有 "identifiability, prior sensitivity, and **linearity checking**" | `check_linearity` 在 `exact/linearity.py:641`；`README` 提到 `diagnose`/`optimize`/`amortize` 的次数各为 **0**（`grep -oic`） |
 
-`README.md:49` 写 `0.4.0`，`pyproject.toml:7` 是 `0.5.0`；`README.md:50-51` 说下游"in two places"，实测 e-RHINO 有 **9 个生产模块** import bayesmith；`README.md:55` 说"the 0.3 floor"，e-RHINO `pyproject.toml:73` 钉的是 `bayesmith>=0.4`。**测试数有守卫，版本号没有。**
+`README.md:49` 写 `0.4.0`，`pyproject.toml:7` 是 `0.5.0`；`README.md:50-51` 说下游"in two places"，实测 rheplicant 有 **9 个生产模块** import bayesmith；`README.md:55` 说"the 0.3 floor"，rheplicant `pyproject.toml:73` 钉的是 `bayesmith>=0.4`。**测试数有守卫，版本号没有。**
 
 ---
 
@@ -119,7 +119,7 @@ optimize.py:118          "evidence a caller has"
 - `exact/fisher.py:68` `FlatMatrix.block()` —— 子矩阵
 - `diagnose/priors.py` —— "a named block of latents"（一组名字）
 
-顺带一个真缺陷：`dispatch/plan.py:341-342` 声明 `method` 是 `"gcr"/"gcr+snis"/"gcr+mh"/"nuts"` 四值、"as `Classification` chose it"；`dispatch/factor.py:391` 构造 `Block(method="log-gcr")`，而 `factor_partition` 根本不经过 `Classification`。`_LABELS`（`plan.py:119-124`）4 行、`FACTOR_METHODS`（`factor.py:81`）3 行，并集 5，无一处枚举全部。今天不崩（`plan.py:594` 是 `_LABELS.get(m, m)`），但文档是错的，而 e-RHINO 的 `tests/seam/test_p1_ten_examples.py` 就是手工构造 `Block` 的调用方。
+顺带一个真缺陷：`dispatch/plan.py:341-342` 声明 `method` 是 `"gcr"/"gcr+snis"/"gcr+mh"/"nuts"` 四值、"as `Classification` chose it"；`dispatch/factor.py:391` 构造 `Block(method="log-gcr")`，而 `factor_partition` 根本不经过 `Classification`。`_LABELS`（`plan.py:119-124`）4 行、`FACTOR_METHODS`（`factor.py:81`）3 行，并集 5，无一处枚举全部。今天不崩（`plan.py:594` 是 `_LABELS.get(m, m)`），但文档是错的，而 rheplicant 的 `tests/seam/test_p1_ten_examples.py` 就是手工构造 `Block` 的调用方。
 
 ### 3.3 `operator` —— DEFECT，四义，其中一义是包自己的主题句
 
@@ -158,9 +158,9 @@ optimize.py:118          "evidence a caller has"
 
 2. **门面缺口 40/81。** 我从 `_LAZY_ATTRS` 反推归属：顶层 81 个由子包提供的名字里，**40 个在自己的子包上取不到**——`graph` 17/17、`bridge` 4/4、`dispatch` 7/9（**包括 `bayesmith.dispatch.compile`，那是头号入口**）、`evidence` 6/14（就是 `chain.py` 的六个）、`exact` 6/23。这一点很重要：**`evidence.chain` 的"孤儿"不是孤例，而是全包惯例**，所以单独给 `evidence` 补齐反而会让叙事更不一致（详见第 7 节 R7 的裁决）。
 
-3. **`diagnose/priors.py::JeffreysPrior` 是建模构件放在诊断包里（DEFECT，但不建议动）。** 它的全部消费者都在它**下面**：`graph/trace.py:297`、`graph/graph.py:49`、`:179`（错误消息里硬编码类名，因为 `joint_prior: Any`，`graph/graph.py:55`）。`diagnose/` 内部无人用它。但 e-RHINO 生产代码钉了 `bayesmith.diagnose.identifiability`（`identifiability.py:93,94`）和 `bayesmith.diagnose.local`（`uncertainty.py:449`），改这个包是真破坏。见第 8 节。
+3. **`diagnose/priors.py::JeffreysPrior` 是建模构件放在诊断包里（DEFECT，但不建议动）。** 它的全部消费者都在它**下面**：`graph/trace.py:297`、`graph/graph.py:49`、`:179`（错误消息里硬编码类名，因为 `joint_prior: Any`，`graph/graph.py:55`）。`diagnose/` 内部无人用它。但 rheplicant 生产代码钉了 `bayesmith.diagnose.identifiability`（`identifiability.py:93,94`）和 `bayesmith.diagnose.local`（`uncertainty.py:449`），改这个包是真破坏。见第 8 节。
 
-4. **`diagnose/local.py`（409 行）在任何 `__all__` 里都不存在**（`bayesmith.diagnose.__all__` 是 7 个名字，`local_block` 在 `bayesmith` 顶层也取不到），却是 e-RHINO **生产代码**的 import 目标（`src/rheplicant/inference/uncertainty.py:449`）。它承载的是一个**没有名字的概念**：graph + 一个点 → `LinearBlock`，两个构造器分居两个子包（`exact/block.py:443` 在零点取切；`diagnose/local.py:230` 在调用方给的点取切）。
+4. **`diagnose/local.py`（409 行）在任何 `__all__` 里都不存在**（`bayesmith.diagnose.__all__` 是 7 个名字，`local_block` 在 `bayesmith` 顶层也取不到），却是 rheplicant **生产代码**的 import 目标（`src/rheplicant/inference/uncertainty.py:449`）。它承载的是一个**没有名字的概念**：graph + 一个点 → `LinearBlock`，两个构造器分居两个子包（`exact/block.py:443` 在零点取切；`diagnose/local.py:230` 在调用方给的点取切）。
 
 **TASTE，不建议动**：`bridge/` 只有 360 行 2 个文件却是子包，`optimize.py` 437 行却不是——这个区分编码的是到达顺序而非类别。但一个单文件包本身也是谎言。**说清规则，不要重排目录。**
 
@@ -186,14 +186,14 @@ optimize.py:118          "evidence a caller has"
 
 **第二套引用体系更糟（DEFECT）**：`Section N.N`，11 处（`dispatch/plan.py:9,458,485,627,707`、`dispatch/execute.py:6,49,191`、`evidence/compress.py:408`、`evidence/diagnostics.py:195,271`），其中两处是 `InferencePlan.sample` 和 `.estimate` 的**第一行**。它们看起来像是引用本包自己的文档。
 
-`evidence/` 的三处全是 `Section 9.3`，指向 e-RHINO 的 `docs/superpowers/specs/2026-08-04-streaming-evidence-design.md`，那份文档 `## 9. Diagnostics that can actually fire`（第 420 行）**没有 9.3 这个标题**，检索不到。**而且今天变得更糟**：`ffb46d5` 引入的 `docs/superpowers/specs/2026-08-28-multi-dataset-joint-posterior.md:1050` 现在有一个 `### 9.3 第二个 graph 级 likelihood factor slot`——**主题完全不同**。一个在 bayesmith 里 grep "9.3" 的读者现在会得到一个自信的错误答案。
+`evidence/` 的三处全是 `Section 9.3`，指向 rheplicant 的 `docs/superpowers/specs/2026-08-04-streaming-evidence-design.md`，那份文档 `## 9. Diagnostics that can actually fire`（第 420 行）**没有 9.3 这个标题**，检索不到。**而且今天变得更糟**：`ffb46d5` 引入的 `docs/superpowers/specs/2026-08-28-multi-dataset-joint-posterior.md:1050` 现在有一个 `### 9.3 第二个 graph 级 likelihood factor slot`——**主题完全不同**。一个在 bayesmith 里 grep "9.3" 的读者现在会得到一个自信的错误答案。
 
 > **R9 已落地,2026-08-28。** 三处都改成**引用内容而不是引用编号**。
 > 追下去发现「Section 9.3」指的不是一个 `### 9.3` 标题,而是那一节**编号列表的
 > 第 3 项**(「a fixed-size (~100 byte) per-epoch residual summary: chi-square,
 > DOF, and the residual projected onto a handful of NAMED systematic
 > templates」)——所以任何 grep 都解不到它,不是因为文档改了,是因为那个编号
-> 从来就不是一个可检索的锚点。**而且那份文档在 e-RHINO 里是未跟踪的**
+> 从来就不是一个可检索的锚点。**而且那份文档在 rheplicant 里是未跟踪的**
 > (`docs/superpowers` 被 gitignore),所以 clone 这个仓库的人根本够不到它。
 > 现在那句话**被引在 `ResidualSummary` 的 docstring 里**,另外两处指向它;
 > 本仓那个主题无关的 `### 9.3` 造成的「自信的错误答案」也在同一处点名了。
@@ -256,7 +256,7 @@ abs diff   : 1.07e-14
 
 **已发布面**：`git show v0.4.0:src/bayesmith/evidence/__init__.py` 的 `__all__` 是 **17 个名字**；与顶层 `__all__`（91 名）求交是 **空集**——**全部 17 个只能从深路径到达**。这与卷宗里"14 个已在顶层、改名不触及"的说法**方向相反**，我实测的是空交集。
 
-**下游**：`grep -rn "bayesmith\.evidence"` 遍历 e-RHINO 的 `src` 与 `tests` → **0**。唯一已知消费者一次都没 import 过这个子包（它 import 的是 `graph.evaluate`×6、`exact.fisher`×4、`errors`×4、`dispatch.factor`×3、`diagnose.identifiability`×3 …，共 9 个生产模块），且钉 `bayesmith>=0.4` 无上限。
+**下游**：`grep -rn "bayesmith\.evidence"` 遍历 rheplicant 的 `src` 与 `tests` → **0**。唯一已知消费者一次都没 import 过这个子包（它 import 的是 `graph.evaluate`×6、`exact.fisher`×4、`errors`×4、`dispatch.factor`×3、`diagnose.identifiability`×3 …，共 9 个生产模块），且钉 `bayesmith>=0.4` 无上限。
 
 **窗口，向远端量的**：
 
@@ -328,7 +328,7 @@ pyproject.toml          → version = "0.5.0"
 
 # 8. 不建议动的
 
-1. **不要改 `diagnose/`。** 它有和 `evidence/` 完全同型的缺陷（名字记录的是迁移批次，不是代码类别；`JeffreysPrior` 是会改变后验的建模构件），但成本侧相反：e-RHINO **生产代码**钉了 `bayesmith.diagnose.identifiability`（`identifiability.py:93,94`）和 `bayesmith.diagnose.local`（`uncertainty.py:449`）。这个不对称正是"`evidence/` 能改而 `diagnose/` 不能"的全部理由。改它的 docstring 和 README 那条 bullet 就够了。
+1. **不要改 `diagnose/`。** 它有和 `evidence/` 完全同型的缺陷（名字记录的是迁移批次，不是代码类别；`JeffreysPrior` 是会改变后验的建模构件），但成本侧相反：rheplicant **生产代码**钉了 `bayesmith.diagnose.identifiability`（`identifiability.py:93,94`）和 `bayesmith.diagnose.local`（`uncertainty.py:449`）。这个不对称正是"`evidence/` 能改而 `diagnose/` 不能"的全部理由。改它的 docstring 和 README 那条 bullet 就够了。
 
 2. **不要把 `optimize.py`/`amortize.py` 提升为子包。** 单文件包本身是谎言，而且 `bridge/` 只有 360 行 2 个文件却是包——尺寸规则早已不成立。写下规则，不要重排树。顺带值得在 `amortize.py` 的 docstring 里加一句：它入度 0、只 import `errors`、不接受 `Graph`（`Graph` 在该文件出现一次，就在解释它为何缺席的那句里），是包的主题句**结构上无法选择**的那条推断路径。
 

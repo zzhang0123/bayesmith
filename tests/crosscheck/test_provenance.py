@@ -8,7 +8,7 @@ where it stands: a module that switches ONE function keeps its file, and the
 file-level assertion stays green while one test inside it quietly becomes a
 self-comparison.
 
-Measured, and it happened. e-RHINO ``b87e44f`` (2026-08-28) delegated
+Measured, and it happened. rheplicant ``b87e44f`` (2026-08-28) delegated
 ``rheplicant.inference.sqrtinfo.marginalise_arrays``'s Schur complement to
 ``bayesmith.marginal.sqrtinfo`` -- deliberately, with a bitwise measurement
 in the commit message -- and the bitwise cross-check here
@@ -33,7 +33,7 @@ Two exact tables, and both directions fail:
 * ``SHARED_KERNEL`` -- symbols whose far side is measured and RULED to be a
   wrapper or facade over this package, where the surviving test's docstring
   explains what route-level failure it can still catch. Asserted: they
-  still reach bayesmith. If e-RHINO un-delegates one, this fails, and that
+  still reach bayesmith. If rheplicant un-delegates one, this fails, and that
   docstring has gone stale -- re-read it and the ruling it cites before
   touching this table; the comparison it guards may have just become real
   again and deserve MORE tests, not fewer.
@@ -55,7 +55,7 @@ module-level switch -- ``test_migration_records.py``'s jurisdiction.
 Everything below reads source off the installed rheplicant checkout, so
 what is asserted is the sibling AS CHECKED OUT -- the same contract as
 every other file in this directory (see ``conftest.py``), and the same
-reason a failure after an e-RHINO pull is a finding, not noise.
+reason a failure after an rheplicant pull is a finding, not noise.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ pytestmark = pytest.mark.crosscheck
 
 #: Comparison subjects whose arithmetic must be rheplicant's own, mapped to
 #: the EXACT set of bayesmith-bound names each may reach. Measured
-#: 2026-08-30 on e-RHINO ``27e621b`` with the AST walk below.
+#: 2026-08-30 on rheplicant ``27e621b`` with the AST walk below.
 #:
 #: The ``linear`` allowances are Wave B's surviving premise made exact:
 #: when the four solve names switched (`2026-08-28-wave-B-linear.md`),
@@ -245,7 +245,7 @@ def test_a_shared_kernel_subject_still_delegates(module_name, symbol):
     )
     assert reached, (
         f"{module_name}.{symbol} no longer reaches bayesmith at all. If "
-        "e-RHINO un-delegated it, the route-comparison docstring this file's "
+        "rheplicant un-delegated it, the route-comparison docstring this file's "
         "SHARED_KERNEL comment names for it has gone stale -- re-read it and "
         "its ruling (D90 / Wave B / U5) before touching this table. The "
         "comparison it guards may have just become real again, and a real "

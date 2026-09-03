@@ -129,7 +129,7 @@ D15(a) 裁的就是后者。所以本批**不是**推翻那条决定,而是把�
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | bayesmith **1350 passed** exit 0(249.7 s);本批新增 **21** 条(1329 → 1350)。e-RHINO **未动** |
+| (i) | 该批测试全绿 | bayesmith **1350 passed** exit 0(249.7 s);本批新增 **21** 条(1329 → 1350)。rheplicant **未动** |
 | (ii) | 接缝变异红 | 6 条,**5 杀 1 必存**,两条幸存各追到底并各补一件事(§五);基线前后各一次绿 |
 | (iii) | 旧实现删除、计数守卫刷新 | **没有旧实现可删**;rheplicant 的 `condition_estimate` 随 **Wave B** 退役 |
 | (iv) | 文档实测数字重测 | CHANGELOG `Unreleased`;**D37** 入簿(登记簿到 **D7–D37**);G14 行回填;`conditioning.py` 模块 docstring 与 `docs/migration/conditioning.md` §5 重写 |

@@ -196,7 +196,7 @@
   `prior_sensitivity` 的守卫钉在一个**会自动提升**的标量上,因而形同虚设。
   证据链:`2026-08-27-wave-P2-D9.md`。
 - **D10 — NPE 迁移(`bayesmith.amortize`)。** 前提已定:**B4 已修**
-  (e-RHINO `d499171`,simulate_pairs 以 `noise.realise` 生成、`std()`
+  (rheplicant `d499171`,simulate_pairs 以 `noise.realise` 生成、`std()`
   仅判 flagged——实测核实)。剩两个子裁决:(2) 生成器忠实性——§三噪声
   映射是**密度侧**;simulate_pairs 迁移后*建议*继续用 rheplicant 的
   `NoiseModel.realise`(噪声物理本就留守),graph dist_fn 不承担生成器
@@ -233,7 +233,7 @@
   (`.eqx`+manifest,`template_projections` 有/无两形态)必须在切换**之前**用
   今日代码写出并**提交**;Wave D 若发现该 fixture 未提交,那一波不得开工。
   **【前置已满足 2026-08-27】** 两份归档加两份 manifest 已写出并**提交**在
-  e-RHINO 的 `tests/evidence/fixtures/`(生成器 `make_d12_archives.py` 与之同住,
+  rheplicant 的 `tests/evidence/fixtures/`(生成器 `make_d12_archives.py` 与之同住,
   并在非 x64 下拒绝运行);读档回归是 `tests/evidence/test_d12_read_back.py`,
   **逐字段对着写在该文件里的值**断言而不是对着一个现场构造的 term——后者只能说明
   新写手与新读手一致,而问题是**切换后的代码还读不读得懂切换前写的字节**。
@@ -300,7 +300,7 @@
   at 点。】** 探针机器**留守 rheplicant**,变的是判据不是家。四条轴分四次
   落地并**分别**量代价:聚合 1 条、锚点 2 条、at 点数 2 条、判据数 **0** 条,
   合计 5 条测试,无一是放宽判据。**轴 1 不是单调更严**——先验宽于 init 时更
-  严、窄时更松,那条反方向的实测记在页上。守卫:e-RHINO
+  严、窄时更松,那条反方向的实测记在页上。守卫:rheplicant
   `tests/inference/test_linearity_contract.py`(19 例,每条并写旧判决)。
   常数与 `Unresolved` 类型自 bayesmith 导入,不留第二份。
   证据与逐轴实测:`2026-08-27-d16-five-axes.md`。
@@ -331,7 +331,7 @@
   **【D17 已结清 2026-08-27,而本行到今天为止是过期的。】** 记录页
   `2026-08-27-d17-protocol.md`(比本行只晚一分钟提交)写着 owner 已就两族拍板:
   **第一族取 (b)**——给 `auto_blocks` 传噪声,把两条拒绝提到分区期,判据与常数
-  不变,**探针留守 rheplicant**;实现已落地(e-RHINO `a04410e`),不传 `noise=`
+  不变,**探针留守 rheplicant**;实现已落地(rheplicant `a04410e`),不传 `noise=`
   时**不声明任何 log 块**并发 `UncheckedLogRouteWarning`,判据抽成
   `loglinear.log_route_refusal(noise)` 一个谓词供两个消费者共读,并有防漂移守卫。
   修完后 **6/8**。本行「四条分歧待逐个拍板」因此**从未成立过**,是本文与记录页
@@ -491,7 +491,7 @@
      | 1e-7 | 1 / 2 | 拒绝(两个判据一致,**不是**判别用例) |
 
      中间两行就是这条语义差可达的全部:**秩判据会接受,而正在跑的判据拒绝。**
-  **守卫**:e-RHINO `tests/inference/test_d23_refusal_criterion.py`(10 例)。它**先
+  **守卫**:rheplicant `tests/inference/test_d23_refusal_criterion.py`(10 例)。它**先
   断言雅可比满秩**再断言拒绝——否则那条拒绝会是两个判据都同意的一次拒绝,这份文件就
   什么也没钉住;并配一条 `sep=1e-1` 接受的基线,和一条「拒绝信息里说了雅可比不是理由」
   (远端在两个判据分歧时报测得的谱,而不是借一个不成立的秩判决)。
@@ -698,7 +698,7 @@
   | 测试 | 是不是真依赖 | 处置 |
   |---|---|---|
   | `test_loss_sense.py::TestTheControlStillWorks::test_the_fixed_step_descent_really_does_diverge_on_the_unscaled_negation` | **是** | 改写:断言 `pytest.raises`。它钉的**主张**(定步长在未缩放的负似然上发散)照旧成立,变的只是观测渠道。它的 docstring 自己写着「Pinned so the note above is a measurement and not a memory」——那条 note 仍然需要它。 |
-  | `test_loss_sense.py::TestTheGuardCostsNothingAtRunTime::test_it_runs_once_at_entry_and_not_inside_the_scan` | **不是,是它自己的 fixture 在发散** | **已修**(e-RHINO,2026-08-29) |
+  | `test_loss_sense.py::TestTheGuardCostsNothingAtRunTime::test_it_runs_once_at_entry_and_not_inside_the_scan` | **不是,是它自己的 fixture 在发散** | **已修**(rheplicant,2026-08-29) |
 
   第二条值得单独讲,因为它是探针**顺手照出来的一个真缺陷**:它用
   `GradientCalibrator(n_steps=50)` 的**默认** `lr=1e-2`,而**该 fixture 在这个
@@ -1128,7 +1128,7 @@
   所以垫片走 `sys.modules` 别名,别名清单**由新包派生**而非手抄。四种 import 形式
   逐一钉住,外加「是同一个对象而不是副本」「旧路径警告、新路径不警告」两条。
   **成本实测**:仓库内 106 处 / 29 文件,子包外的运行时 import **只有 2 行**,
-  下游 e-RHINO **0 次 import**。变异 S2/S6 击杀。
+  下游 rheplicant **0 次 import**。变异 S2/S6 击杀。
   证据链:`2026-08-28-architecture-narrative.md` §6。
 - **D48 — G15 的解除是几行?以及先验准入归谁(做 G15 的 rheplicant 一半时新增)。**
   **【自裁于委托之下,2026-08-28:解除是四处,准入留守 rheplicant。】**
@@ -1443,7 +1443,7 @@
   **发生了什么,按顺序:**
 
   1. 我做了 `calibrate` 的开波(铁律 1 普查、铁律 7 契约阅读),**但没查 §四 把这个
-     模块列在哪一栏**,然后切了、提交了、推了(e-RHINO `7f28efd`)。
+     模块列在哪一栏**,然后切了、提交了、推了(rheplicant `7f28efd`)。
   2. 准备写 `SWITCHED` 时才发现 **§4.3 写着「不迁移」**。
   3. **我回滚了,并把回滚推上了 `main`**(`159cd5e`),同时写了一条「待 owner 追认」
      的登记。
@@ -1709,7 +1709,7 @@
   于是这次修复是**被校验的**而不是被断言的;marker 已删,该文件转为普通回归守卫。
 
   **但近端 `smooth` 仍然留守,而理由变了,是铁律 5:**
-  e-RHINO 的 CI 装的是 **PyPI 上的 `bayesmith>=0.5`**,而 **`v0.5.0` 里
+  rheplicant 的 CI 装的是 **PyPI 上的 `bayesmith>=0.5`**,而 **`v0.5.0` 里
   `chain.py` 仍是 `linalg.inv` 那一版**(`git show v0.5.0:...` 实测命中 1 次)。
   所以今天委托 `smooth` 会**在本地 editable checkout 上全绿、在 CI 上变红**。
 
@@ -1719,7 +1719,7 @@
   > **本地 editable checkout 不是 CI 装的东西**,本地全绿证明不了这一点。
 
   **D64 的解除条件(可执行)**:*bayesmith 发出一个包含该修复的版本,
-  且 e-RHINO 的 `bayesmith>=` 下界抬到那个版本之后*,近端 `smooth` 即可委托,
+  且 rheplicant 的 `bayesmith>=` 下界抬到那个版本之后*,近端 `smooth` 即可委托,
   **不需要新的测量**——逐位相同已量,边界守卫两侧都已就位。
 
 - **D65 — D12 的**理由**是错的(equinox 的 `__check_init__` 从最派生类开始跑);
@@ -2006,7 +2006,7 @@
   **委托这一格之前要先把这两条改成对独立预言机。**
 
   **§落地(同日):三个名字已委托,`epoch_residuals` 未委托。**
-  e-RHINO `c9be241` + `54d6ffe`,变异 **4/4**,每条都由指定的那一条测试杀。
+  rheplicant `c9be241` + `54d6ffe`,变异 **4/4**,每条都由指定的那一条测试杀。
 
   * **先决已补**:`tests/evidence/test_held_out_oracle.py` 是**另一条推导**——
     对每个 epoch 从**其余 N−1 项直接装配**留一后验(稠密 numpy,`O(N^2)`,
@@ -2255,7 +2255,7 @@ config 侧引用)。
   证据链:`2026-08-27-p2-g10-g12.md` §四。
 - **G13 图级联合先验**:`JeffreysPrior(over=…)` 的图侧声明与
   `to_numpyro` factor site 读取。Wave A 的 priors/numpyro_bridge 之门。
-  **【实现已落地 0.4.0;e-RHINO 侧接线已落地 2026-08-27】** `to_graph` 不再拒绝
+  **【实现已落地 0.4.0;rheplicant 侧接线已落地 2026-08-27】** `to_graph` 不再拒绝
   `joint_prior`,而是把被覆盖的 latent 声明成 `ImproperUniform` 并调
   `bayesmith.joint_prior(...)`。接线批次同时量出**两条语义差**并登记为 **D24**
   (行序)与 **D25**(float32 下的新拒绝)。证据链:
@@ -2288,7 +2288,7 @@ config 侧引用)。
   缺口是量出来的:`mu = a x^b` 上 `unchecked_operator` 给 `a log x`(零点切线),
   `b=2` 处的是 `a x² log x`,除 x=1 外每行都不同。
   **解除条件的另一半仍未兑现**,而它被铁律 5 挡着——`priors=True` 只在 `Unreleased`
-  里。发布之后改那一行、重测数字,**并重跑 e-RHINO 全套**:G9 全量修掉的先验广播
+  里。发布之后改那一行、重测数字,**并重跑 rheplicant 全套**:G9 全量修掉的先验广播
   缺陷今天够不到门面(它永远传 `include_prior=False`),而这条改动正是让它够得到的。
   证据链:`2026-08-27-g15-local-block-priors.md`。
 
@@ -2348,7 +2348,7 @@ config 侧引用)。
   **两个并行 workflow**(接缝 CI 于 **P1 建立**,住 bayesmith 侧
   crosscheck.yml 旁),两者并跑直到最后一个 cross-check 文件退役;
   cross-check 文件与其模块同批删除。
-- **接缝 CI 机械规格**:`actions/checkout` e-RHINO@main(打印 commit)→
+- **接缝 CI 机械规格**:`actions/checkout` rheplicant@main(打印 commit)→
   `pip install --no-deps -e` + bayesmith `-e .` + **全部 importorskip
   依赖(h5py、rhino-cal-jax by URL)** → `tests/inference --junit-xml` →
   XML 读数;**通过地板 = 上次绿跑的 `tests - skipped` 记录值**,按理由的
@@ -2377,7 +2377,7 @@ config 侧引用)。
 - **P5**:18 kind 逐 `_KINDS` 冒烟;每批四件套附 extractor 往返。
   `optimize` 随 D11;`condition` 随 D15。
 - **P6**:0.2.0(P0)→ 0.3.0(P2 完)→ rheplicant floor 与发版(D13)。
-- **P7 具名清单**:(a) e-RHINO CLAUDE.md **与** AGENTS.md 成对改(两会话
+- **P7 具名清单**:(a) rheplicant CLAUDE.md **与** AGENTS.md 成对改(两会话
   段、bayesmith-floor 段、完整环境段);(b) README 计数 pin;(c) 覆盖率
   截断值+`fail_under`(每批核对);(d) `_migration-to-bayesmith.md` 整篇
   (门面与机房);(e) `rheplicant/inference/__init__.py` 模块 docstring
@@ -2407,7 +2407,7 @@ config 侧引用)。
 
 | 阶段 | 会话数(估) | 先决 |
 |---|---|---|
-| **P0(有序清单)**:(1) bayesmith 提交推送(清单见附录 C)→ (2) `git tag v0.2.0 && push`,publish.yml 走完,**确认 0.2.0 上索引** → (3) e-RHINO 提交推送(floor 此刻才合规上 main)→ (4) `git ls-remote` 双仓核实 → 本文定稿提交 | 1 | 评审完 |
+| **P0(有序清单)**:(1) bayesmith 提交推送(清单见附录 C)→ (2) `git tag v0.2.0 && push`,publish.yml 走完,**确认 0.2.0 上索引** → (3) rheplicant 提交推送(floor 此刻才合规上 main)→ (4) `git ls-remote` 双仓核实 → 本文定稿提交 | 1 | 评审完 |
 | **P2a(先于 P1)**:G9 最小面 + G11 | 1–2 | ~~D18~~ 已拍 (a) |
 | P1 适配器 + 十例 + 文案清单 + 接缝 CI 建立 | 2–3 | P2a、~~D19~~ 已拍 |
 | P2 余项:G1/G2/G7/G9 全量/G10/G12/G13/G14 | 7–11 | 各 D 项 |
@@ -2422,7 +2422,7 @@ config 侧引用)。
 
 - 旧 spec §六 推翻条件行已加注(随 P0 提交)。
 - 每 D 项拍板后回填;每波证据链写进本目录 tracked 执行页
-  (`2026-XX-XX-wave-X.md`;e-RHINO 的 docs/superpowers 是 gitignored,
+  (`2026-XX-XX-wave-X.md`;rheplicant 的 docs/superpowers 是 gitignored,
   八份计划死在那里过——执行页只住本目录)。
 
 ---
@@ -2434,22 +2434,22 @@ config 侧引用)。
 > 不是跑过的记录——每波扩充本清单时,新增行同样先登记后实跑。
 
 1. **first_fit**:bayesmith `dispatch/factor.py`
-   `if all(compatible(name, member) ...)` → `if True:`;指名红:e-RHINO
+   `if all(compatible(name, member) ...)` → `if True:`;指名红:rheplicant
    `test_auto_partition.py::TestTheMultilinearSplit::test_the_coupled_factor_gets_a_block_of_its_own`
    与 `::test_the_derived_partition_recovers_the_truth`;观测退出码 1。
 2. **log 位移**:bayesmith `exact/loglinear.py`
    `y = jnp.log(observed) + fractional**2 / 2.0` → 去位移;指名红:
-   e-RHINO `test_loglinear.py::TestTheNoiseTransform::test_the_leading_order_mean_shift_is_added_back`;
+   rheplicant `test_loglinear.py::TestTheNoiseTransform::test_the_leading_order_mean_shift_is_added_back`;
    观测退出码 1。
 3. **G11 载荷**(P1 批次新增,**已实跑,KILLED**):bayesmith `errors.py`
    `AffinityRefused.__init__` 的 `self.failed = tuple(failed)` → `self.failed = ()`;
-   指名红:e-RHINO
+   指名红:rheplicant
    `tests/inference/test_graph_bridge.py::TestTranslateBringsRefusalsBackInThisPackagesClasses::test_the_translated_refusal_carries_the_probe_numbers`;
    观测退出码 **1**,且该条是**唯一**的红。这一行正是 P2a 记录页 §四 预告的那条
    ——当时无跨仓消费者,`translate` 尚不存在,故只登记不实跑;今日两者都在了。
 4. **复数 join**(P1 批次新增,**已实跑,KILLED**):bayesmith `exact/block.py`
    `real_parts` 的 join,`parts[n][0] + 1j * parts[n][1]` → `+ 0j *`;指名红:
-   e-RHINO `tests/seam/test_p1_ten_examples.py::TestExample2ComplexAlm` 的**三条**
+   rheplicant `tests/seam/test_p1_ten_examples.py::TestExample2ComplexAlm` 的**三条**
    (稠密均值、虚部被数据约束、GCR 矩);观测退出码 **1**(x64 会话),
    float32 会话退出码 0——因为复数面只在 `tests/seam/` 被跨仓消费,这本身就是
    「哪一侧承重」的一次读数。
@@ -2457,9 +2457,9 @@ config 侧引用)。
 ### Wave A / `identifiability`(2026-08-27,**第一组真正的跨仓变异**,7/7 击杀)
 
 此前每组变异都在一个仓内跑,因为 rheplicant 侧没有消费者。这七条是**改 bayesmith、
-看 e-RHINO 红**,详情与逐条红名单见 `2026-08-27-wave-A-identifiability.md` §五。
+看 rheplicant 红**,详情与逐条红名单见 `2026-08-27-wave-A-identifiability.md` §五。
 
-| # | 变异(bayesmith) | e-RHINO 红 |
+| # | 变异(bayesmith) | rheplicant 红 |
 |---|---|---|
 | W1 | `diagnose/identifiability.py` 秩切点 `>` → `>=` | 1 |
 | W2 | 同上,雅可比不做列归一化 | 9 |
@@ -2475,9 +2475,9 @@ config 侧引用)。
 
 | # | 变异 | 仓 | 指名红 |
 |---|---|---|---|
-| X1 | 掩码保留 flags 的极性(不取反) | e-RHINO | `test_the_mask_is_the_negation_of_the_flags` |
-| X2 | 声明的 scale 保留 `inf` | e-RHINO | `test_the_declared_scale_is_finite_where_the_flags_are` |
-| X3 | 每张图都给一个满掩码 | e-RHINO | `test_an_unflagged_noise_model_declares_no_mask_at_all`(6 红) |
+| X1 | 掩码保留 flags 的极性(不取反) | rheplicant | `test_the_mask_is_the_negation_of_the_flags` |
+| X2 | 声明的 scale 保留 `inf` | rheplicant | `test_the_declared_scale_is_finite_where_the_flags_are` |
+| X3 | 每张图都给一个满掩码 | rheplicant | `test_an_unflagged_noise_model_declares_no_mask_at_all`(6 红) |
 | X4 | `graph/trace.py` 把节点的 mask 丢掉 | **bayesmith** | `test_the_mask_is_the_negation_of_the_flags` |
 
 ### Wave A / `sensitivity`(2026-08-27,6 条 4 杀 2 存)
@@ -2491,9 +2491,9 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 | S1 | shift 丢掉后验 sigma 缩放 | bayesmith | KILLED(3 红) |
 | S2 | 先验的二次拉力减半 | bayesmith | KILLED(20 红) |
 | S3 | 远端去掉图侧精度守卫 | bayesmith | SURVIVED(已归因) |
-| S4 | 门面改吃 bayesmith 的默认展开点 | e-RHINO | KILLED(8 红) |
-| S5 | 跳过先验预检查 | e-RHINO | KILLED(1 红) |
-| S6 | 不把值加宽到 float64 | e-RHINO | SURVIVED → 见下,已结清 |
+| S4 | 门面改吃 bayesmith 的默认展开点 | rheplicant | KILLED(8 红) |
+| S5 | 跳过先验预检查 | rheplicant | KILLED(1 红) |
+| S6 | 不把值加宽到 float64 | rheplicant | SURVIVED → 见下,已结清 |
 
 ### Wave A / S6 结清(2026-08-27,4/4 击杀)
 
@@ -2502,9 +2502,9 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 
 | # | 变异 | 仓 | 指名红 |
 |---|---|---|---|
-| M1 | `_widened` → 恒等(S6 原条) | e-RHINO | `test_the_verdict_comes_back_in_double`、`test_a_weak_float64_init_does_not_carry_a_float32_model`;**旧 64 条一条不红** |
-| M2 | 只 cast 真 float32,放过弱 float64 | e-RHINO | `test_a_weak_float64_init_does_not_carry_a_float32_model`(唯一红) |
-| M3 | 给新 fixture 加上 x64 | e-RHINO | `test_the_fixture_really_is_declared_in_single_precision`(兄弟断言) |
+| M1 | `_widened` → 恒等(S6 原条) | rheplicant | `test_the_verdict_comes_back_in_double`、`test_a_weak_float64_init_does_not_carry_a_float32_model`;**旧 64 条一条不红** |
+| M2 | 只 cast 真 float32,放过弱 float64 | rheplicant | `test_a_weak_float64_init_does_not_carry_a_float32_model`(唯一红) |
+| M3 | 给新 fixture 加上 x64 | rheplicant | `test_the_fixture_really_is_declared_in_single_precision`(兄弟断言) |
 | M4 | M1 + 远端 `refuse_single_precision` 一并去掉 | 两仓 | `test_the_verdict_comes_back_in_double`,红在**数值一致**断言而非 dtype 断言 |
 
 ### Wave A / G13 接线(2026-08-27,5/5 击杀,**第一轮 3/5**)
@@ -2515,10 +2515,10 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 
 | # | 变异 | 仓 | 第一轮 | 修好后 |
 |---|---|---|---|---|
-| N1 | 声明根本不进图 | e-RHINO | KILLED(11) | KILLED(13) |
-| N2 | 所有 latent 一律声明成 flat | e-RHINO | **SURVIVED**(守卫用了一个没有 joint prior 的空间,两种读法都说「未覆盖」) | KILLED(1) |
-| N3 | 翻译时丢掉 `rank_rtol` | e-RHINO | KILLED(1) | KILLED(1) |
-| N4 | 块**反序**过缝 | e-RHINO | **SURVIVED**(`over` 是一元组,而一元组是自己的反序) | KILLED(2) |
+| N1 | 声明根本不进图 | rheplicant | KILLED(11) | KILLED(13) |
+| N2 | 所有 latent 一律声明成 flat | rheplicant | **SURVIVED**(守卫用了一个没有 joint prior 的空间,两种读法都说「未覆盖」) | KILLED(1) |
+| N3 | 翻译时丢掉 `rank_rtol` | rheplicant | KILLED(1) | KILLED(1) |
+| N4 | 块**反序**过缝 | rheplicant | **SURVIVED**(`over` 是一元组,而一元组是自己的反序) | KILLED(2) |
 | N5 | 远端 `graph/trace.py` 不再记录声明 | **bayesmith** | KILLED(11) | KILLED(13) |
 
 ### Wave A / `priors`(2026-08-27,6 条 5 杀,唯一幸存**必须**幸存)
@@ -2528,11 +2528,11 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 
 | # | 变异 | 仓 | 判决 |
 |---|---|---|---|
-| P1 | 不做 D24 置换 | e-RHINO | KILLED(2) |
-| P2 | 置换按名字而非按 span | e-RHINO | KILLED(1,只有向量 latent 那条) |
-| P3 | 合成数据 0 → 1e4 | e-RHINO | **SURVIVED,且必须如此**——一条测试正断言它够不到答案 |
+| P1 | 不做 D24 置换 | rheplicant | KILLED(2) |
+| P2 | 置换按名字而非按 span | rheplicant | KILLED(1,只有向量 latent 那条) |
+| P3 | 合成数据 0 → 1e4 | rheplicant | **SURVIVED,且必须如此**——一条测试正断言它够不到答案 |
 | P4 | 远端丢掉方差自己那一项 | **bayesmith** | KILLED(11) |
-| P5 | 去掉 D25 的构造期拒绝 | e-RHINO | KILLED(1) |
+| P5 | 去掉 D25 的构造期拒绝 | rheplicant | KILLED(1) |
 | P6 | 远端不再应用秩地板 | **bayesmith** | KILLED(1) |
 
 ### Wave A / D27 碰撞拒绝(2026-08-27,3/3 击杀)
@@ -2541,9 +2541,9 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 
 | # | 变异 | 仓 | 指名红 |
 |---|---|---|---|
-| Q1 | 拒绝不触发 | e-RHINO | `test_the_collision_is_refused_by_name` |
-| Q2 | 只看名字,不看 sigma 是否被抽样 | e-RHINO | `test_a_fixed_sigma_beside_that_latent_is_left_alone` |
-| Q3 | 只看 sigma 被抽样,不看有没有碰撞 | e-RHINO | `test_sampled_noise_std`(**既有测试**) |
+| Q1 | 拒绝不触发 | rheplicant | `test_the_collision_is_refused_by_name` |
+| Q2 | 只看名字,不看 sigma 是否被抽样 | rheplicant | `test_a_fixed_sigma_beside_that_latent_is_left_alone` |
+| Q3 | 只看 sigma 被抽样,不看有没有碰撞 | rheplicant | `test_sampled_noise_std`(**既有测试**) |
 
 ### Wave A / `numpyro_bridge` 委托(2026-08-27,6/6 击杀,**第一轮 5/6**)
 
@@ -2551,11 +2551,11 @@ S3 是「这个文件到不了那条远端守卫」(模块 1 的同一条 W6 是
 
 | # | 变异 | 仓 | 第一轮 | 修好后 |
 |---|---|---|---|---|
-| R1 | 忽略调用方选的节点名 | e-RHINO | KILLED(3) | KILLED(3) |
-| R2 | 碰撞拒绝回到钉默认名 | e-RHINO | KILLED(2) | KILLED(2) |
-| R3 | 丢掉声明的 scale,占位 sigma 变成真的 | e-RHINO | KILLED(4) | KILLED(4) |
-| R4 | scale latent 的名字不再被保留 | e-RHINO | KILLED(1) | KILLED(1) |
-| R5 | `observed=None` 不再翻译(`{}` → `None`) | e-RHINO | **SURVIVED** | KILLED(1) |
+| R1 | 忽略调用方选的节点名 | rheplicant | KILLED(3) | KILLED(3) |
+| R2 | 碰撞拒绝回到钉默认名 | rheplicant | KILLED(2) | KILLED(2) |
+| R3 | 丢掉声明的 scale,占位 sigma 变成真的 | rheplicant | KILLED(4) | KILLED(4) |
+| R4 | scale latent 的名字不再被保留 | rheplicant | KILLED(1) | KILLED(1) |
+| R5 | `observed=None` 不再翻译(`{}` → `None`) | rheplicant | **SURVIVED** | KILLED(1) |
 | R6 | 远端不再 honour 观测节点的 mask | **bayesmith** | KILLED(1) | KILLED(1) |
 
 **R5 是一个真洞**:两个包对那个参数的读法**方向相反**,而图是拿一张零占位建的,
@@ -2572,12 +2572,12 @@ D31 的合法性是量出来的)。
 
 | # | 变异 | 仓 | 判决 | 指名红 |
 |---|---|---|---|---|
-| U1 | 远端的 `ValueError` 不再翻译成本包的类 | e-RHINO | KILLED(5) | `test_the_refusal_wears_this_packages_class_and_keeps_the_original` 等五条 |
-| U2 | `_REMOTE_KIND` 忘掉 `posterior_covariance` 也是协方差 | e-RHINO | KILLED(1) | `test_a_posterior_covariance_is_refused_by_the_same_rule` |
-| U3 | 过缝矩阵用协方差自己的布局而非 params 的 | e-RHINO | KILLED(1) | `test_the_matching_covariance_propagates`(**既有测试**,按铁律 2「指认既有等价物」记账) |
-| U4 | `propagate_covariance` 不再拒绝精度 | e-RHINO | KILLED(1) | `test_a_precision_is_refused_rather_than_propagated` |
+| U1 | 远端的 `ValueError` 不再翻译成本包的类 | rheplicant | KILLED(5) | `test_the_refusal_wears_this_packages_class_and_keeps_the_original` 等五条 |
+| U2 | `_REMOTE_KIND` 忘掉 `posterior_covariance` 也是协方差 | rheplicant | KILLED(1) | `test_a_posterior_covariance_is_refused_by_the_same_rule` |
+| U3 | 过缝矩阵用协方差自己的布局而非 params 的 | rheplicant | KILLED(1) | `test_the_matching_covariance_propagates`(**既有测试**,按铁律 2「指认既有等价物」记账) |
+| U4 | `propagate_covariance` 不再拒绝精度 | rheplicant | KILLED(1) | `test_a_precision_is_refused_rather_than_propagated` |
 | U5 | 远端在**加 jitter 之前**量条件数 | **bayesmith** | KILLED(1) | `test_jitter_is_measured_after_it_is_applied` |
-| U6 | 信息图忽略调用方的噪声模型 | e-RHINO | KILLED(4) | **bayesmith** `test_noise_logdet.py` 的常数 σ 一条 + 三个 f 的 radiometer |
+| U6 | 信息图忽略调用方的噪声模型 | rheplicant | KILLED(4) | **bayesmith** `test_noise_logdet.py` 的常数 σ 一条 + 三个 f 的 radiometer |
 | U7 | 远端的 delta 方法按精度加权 | **bayesmith** | KILLED(6) | 含 `test_the_synthetic_sigma_and_data_do_not_move_the_report` |
 
 ### P2 余项 / **G2 `fit`**(2026-08-27,6/6 击杀,**本仓内**)
@@ -2693,7 +2693,7 @@ D31 的合法性是量出来的)。
 > `test_refusal_census._sites()` 重生成;这个总数也应当照做,而不是手抄。**
 >
 > **这张表不由人手维护,也不该由人手维护。** 它由
-> e-RHINO `tests/inference/test_refusal_census.py` 逐文件计数并**钉住**,
+> rheplicant `tests/inference/test_refusal_census.py` 逐文件计数并**钉住**,
 > 所以新增或删除一个被钉的拒绝会先让那个守卫红,并**报出要写进这里的数字**。
 > 本附录与那个守卫是**同一次测量的两份呈现**,必须同批更新——计划反复付学费
 > 的形状正是「一个事实两份拼写,其中一份悄悄过期」。
@@ -2714,7 +2714,7 @@ D31 的合法性是量出来的)。
 > **今日已知的两条例外**,也就是清单里唯一已经跨过缝的部分:
 > `AffinityRefused` → `LinearityRefused`(载荷同数,不重算)与
 > 其余 `BayesmithError` → `SeamRefusal`(`ParameterSpaceError` 子类,点名 site)。
-> 两条都在 e-RHINO `tests/inference/test_graph_bridge.py` 里被钉住,并各有一个
+> 两条都在 rheplicant `tests/inference/test_graph_bridge.py` 里被钉住,并各有一个
 > 已实跑的接缝变异(附录 A 第 3、4 行)。
 
 ### 逐文件清单(2026-08-27 实测)
@@ -3157,10 +3157,10 @@ D31 的合法性是量出来的)。
   - **`AGENTS.md`:【owner 已拍板 2026-08-26:删除,不入库。】** 它当时
     与 CLAUDE.md 逐字节一致,而 CLAUDE.md 正文写着「刻意无第二份」——
     文件因存在而使那句话为假。删除让声明重新为真,且不欠一个没人写的
-    一致性测试。bayesmith 侧不设 `AGENTS.md`;e-RHINO 侧两份继续由
+    一致性测试。bayesmith 侧不设 `AGENTS.md`;rheplicant 侧两份继续由
     `tests/test_docs_claims.py` 钉着。两仓规矩不同是**有意**的,各自的
     理由写在各自的 CLAUDE.md 里。
-- **e-RHINO**:全部已跟踪修改 + 新文件
+- **rheplicant**:全部已跟踪修改 + 新文件
   {`src/rheplicant/inference/partition.py`,
   `src/rheplicant/inference/loglinear.py`,
   `tests/inference/test_auto_partition.py`,

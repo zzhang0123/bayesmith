@@ -120,9 +120,9 @@ S6 本身也不是一个裁决点:两个方向不是取舍,是一次测量的两
 
 | # | 变异 | 仓 | 指名红 | 判决 |
 |---|---|---|---|---|
-| M1 | `_widened` → 恒等(**就是 S6 那条**) | e-RHINO | `test_the_verdict_comes_back_in_double`、`test_a_weak_float64_init_does_not_carry_a_float32_model` | KILLED(2 红) |
-| M2 | 只 cast 真 float32,放过弱 float64 | e-RHINO | `test_a_weak_float64_init_does_not_carry_a_float32_model` | KILLED(**1** 红) |
-| M3 | 给新 fixture 加上 x64(=拿掉那个条件) | e-RHINO | `test_the_fixture_really_is_declared_in_single_precision` | KILLED(1 红) |
+| M1 | `_widened` → 恒等(**就是 S6 那条**) | rheplicant | `test_the_verdict_comes_back_in_double`、`test_a_weak_float64_init_does_not_carry_a_float32_model` | KILLED(2 红) |
+| M2 | 只 cast 真 float32,放过弱 float64 | rheplicant | `test_a_weak_float64_init_does_not_carry_a_float32_model` | KILLED(**1** 红) |
+| M3 | 给新 fixture 加上 x64(=拿掉那个条件) | rheplicant | `test_the_fixture_really_is_declared_in_single_precision` | KILLED(1 红) |
 | M4 | M1 **再加**远端 `refuse_single_precision` 一并去掉 | 两仓 | `test_the_verdict_comes_back_in_double` | KILLED(1 红) |
 
 基线前后各一次绿(exit 0,0 红)。
@@ -140,7 +140,7 @@ S6 本身也不是一个裁决点:两个方向不是取舍,是一次测量的两
 不是 dtype 断言上。也就是说:当远端守卫不在时,承重的是**数值一致**那一条,dtype
 断言够不到。这条差别只有 M4 看得见。
 
-**没有一条纯跨仓变异(改 bayesmith、看 e-RHINO 红),这是有理由的**:本批次没有引入
+**没有一条纯跨仓变异(改 bayesmith、看 rheplicant 红),这是有理由的**:本批次没有引入
 对任何新远端表面的依赖,它行使的是一条**已有**的远端拒绝,而在门面正常工作时那条
 拒绝**根本不触发**——同上一批 S3 的形状。M4 是能拿到的最接近的读数,做法是把两侧
 一起变异。
@@ -149,14 +149,14 @@ S6 本身也不是一个裁决点:两个方向不是取舍,是一次测量的两
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | e-RHINO **10066 passed / 522 skipped** exit 0(347.3 s,`-n 4 --ignore=tests/gui/e2e`;junit 报 tests=10588、failures=0、errors=0)加 **21 passed** exit 0(`tests/gui/e2e -n 2`,66.0 s);bayesmith **1280 passed / 0 skipped** exit 0(208.0 s,junit tests=1280、failures=0、errors=0)——本批只动 e-RHINO,但 `tests/crosscheck/` 从 editable 装的兄弟仓读,所以两侧都跑 |
+| (i) | 该批测试全绿 | rheplicant **10066 passed / 522 skipped** exit 0(347.3 s,`-n 4 --ignore=tests/gui/e2e`;junit 报 tests=10588、failures=0、errors=0)加 **21 passed** exit 0(`tests/gui/e2e -n 2`,66.0 s);bayesmith **1280 passed / 0 skipped** exit 0(208.0 s,junit tests=1280、failures=0、errors=0)——本批只动 rheplicant,但 `tests/crosscheck/` 从 editable 装的兄弟仓读,所以两侧都跑 |
 | (ii) | 接缝变异红 | **4 条全杀**,§七 |
 | (iii) | 旧实现删除、计数守卫刷新 | **本批无删除**(`_widened` 留守,它是承重的);README 计数 10605 → **10608**(+3,由守卫报数);coverage floor 未动 |
 | (iv) | 文档实测数字重测 | README 计数;两处 `_widened` docstring;交接页 §三.7 的一条**过期项**顺手核实(见 §九) |
 
 ## 九、顺手核实掉的一条过期交接项
 
-交接页 §三 第 7 条写着「五行协议现在有第 (0) 条……**e-RHINO 的 CLAUDE.md/AGENTS.md
+交接页 §三 第 7 条写着「五行协议现在有第 (0) 条……**rheplicant 的 CLAUDE.md/AGENTS.md
 还没写**」。**实测为假**:`2fe13a0 docs: commit the batch before you mutate it` 已经
 成对写进两份,`cmp` 逐字节一致,两份各含一次该段。交接页那一条在本页写完时一并
 删掉。
@@ -174,5 +174,5 @@ S6 本身也不是一个裁决点:两个方向不是取舍,是一次测量的两
    没跑过 `nuts()`。
 3. **D23** 仍是已登记、未裁决、无守卫。
 4. 九份草稿仍在 `860703d` 的历史里,是否重写历史需强推,是 owner 的决定。
-   > **【已处置 2026-08-28】** owner 授权重写历史;九份草稿已从 e-RHINO 的历史中移除(`860703d~1..HEAD` 22 个提交重写为 21,`f8a73eb` 因变空被剪掉),**重写后 HEAD 的 tree 与重写前逐字节相同**,九份未跟踪的工作副本原样保留。本行提到的两个 SHA 自此不再存在。
+   > **【已处置 2026-08-28】** owner 授权重写历史;九份草稿已从 rheplicant 的历史中移除(`860703d~1..HEAD` 22 个提交重写为 21,`f8a73eb` 因变空被剪掉),**重写后 HEAD 的 tree 与重写前逐字节相同**,九份未跟踪的工作副本原样保留。本行提到的两个 SHA 自此不再存在。
 

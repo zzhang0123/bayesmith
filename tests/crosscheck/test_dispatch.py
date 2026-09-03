@@ -20,7 +20,7 @@ this row's main result. B1 was a property of the BLOCK TYPE, not of the exit:
   needs a second place that could drop the log-determinant, and there is
   not one.
 
-**B1 closed 2026-08-28** in e-RHINO's ``74fac09``, which this row's second
+**B1 closed 2026-08-28** in rheplicant's ``74fac09``, which this row's second
 bullet had been measuring since 2026-08-25 without anyone acting on it. The
 gradient block now lands at **5.0041**, on the unbiased side. Two things
 survive the fix and are why the bullets above keep their past tense rather
@@ -448,7 +448,7 @@ def test_a_gradient_block_now_lands_on_the_unbiased_side_too():
     BLOCK TYPE and not to the exit, which is a sharper statement than the
     spec's and is the finding this row contributed.
 
-    **e-RHINO's ``74fac09`` closed it**:
+    **rheplicant's ``74fac09`` closed it**:
     ``Conditioning.neg_log_likelihood`` is now ``0.5 * chi2 +
     log_determinant`` and BOTH potential builders take it -- the
     single-argument one the optimiser gets and the lifted one NUTS gets.
@@ -543,7 +543,7 @@ def test_rheplicants_plan_now_attributes_b1_to_the_block_type():
     alone.
 
     This row measured that B1 attaches to which ENGINE ran rather than to
-    which exit was called, and e-RHINO's ``7f03af1`` rewrote
+    which exit was called, and rheplicant's ``7f03af1`` rewrote
     ``inference/plan.py``'s module docstring around that, carrying the two
     numbers and crediting this file for them.
 
@@ -554,12 +554,12 @@ def test_rheplicants_plan_now_attributes_b1_to_the_block_type():
 
     **The branch dependency is CLOSED as of 2026-08-28**, and how it read
     before is worth keeping. This guard used to say: *the paragraph is on
-    e-RHINO's ``track-a-tail`` branch and NOT on its ``main``, measured
+    rheplicant's ``track-a-tail`` branch and NOT on its ``main``, measured
     2026-08-25, so this guard reads whatever the editable install has
     checked out*. That was the honest statement of a real hazard -- the
     guard was green because of which branch happened to be checked out, and
     no amount of mutating the docstring text could have surfaced it, because
-    the ref was never in the variable set. e-RHINO's ``CLAUDE.md`` records
+    the ref was never in the variable set. rheplicant's ``CLAUDE.md`` records
     it as mutation testing's one structural blind spot, with this guard and
     its sibling in ``test_linear.py`` as the worked example.
 
@@ -568,7 +568,7 @@ def test_rheplicants_plan_now_attributes_b1_to_the_block_type():
     ``git show origin/main:...``): ``7f03af1`` is an ancestor of
     ``origin/main`` and the sentence is in the remote's own
     ``plan.py``. ``track-a-tail`` no longer exists. So a Seam CI run, which
-    checks out ``e-RHINO@main``, reads this text -- and a red here now means
+    checks out ``rheplicant@main``, reads this text -- and a red here now means
     the docstring changed, which is the only cause left and is a real one.
 
     **The lesson stands even though the instance closed**: a guard whose
@@ -583,7 +583,7 @@ def test_rheplicants_plan_now_attributes_b1_to_the_block_type():
     assert "It is the BLOCK TYPE that decides, not the exit" in text, (
         "rheplicant's plan.py does not attribute B1 to the block type. The "
         "branch dependency this message used to name is closed: `7f03af1` "
-        "is an ancestor of e-RHINO's `origin/main` and the sentence is in "
+        "is an ancestor of rheplicant's `origin/main` and the sentence is in "
         "the remote's own plan.py, measured 2026-08-28. So the docstring "
         "changed, and docs/migration/plan.md section 5(a) is what needs "
         "updating."

@@ -252,7 +252,7 @@ def test_the_gate_on_section_six_is_open_and_every_module_has_a_page():
 
     §六 step 1 still governs what may move: nothing in
     ``src/rheplicant/inference/`` except the two exceptions already in
-    e-RHINO's Track A Batch 1.
+    rheplicant's Track A Batch 1.
     """
     # The DIRECTORY, not `PAGED_TODAY`. Measured: with the gate reading the
     # recorded set, deleting `numpyro_bridge.md` left this green and only

@@ -167,7 +167,7 @@ way round it」。**跨两个包拆,是同一个缺陷高一层的版本。**
 
 ```bash
 cd /Users/zzhang/projects/bayesmith
-/Users/zzhang/projects/e-RHINO/.venv/bin/python docs/probes/probe_14_g6_enumeration.py
+/Users/zzhang/projects/rheplicant/.venv/bin/python docs/probes/probe_14_g6_enumeration.py
 ```
 
 退出码 0 表示**数完了**,不表示清单没变——数字在它打印的表里,与 D17 的协议同一

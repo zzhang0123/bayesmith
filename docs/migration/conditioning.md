@@ -91,6 +91,6 @@ Both halves are live tests, not prose:
   this, that test goes red and should be deleted together with the
   paragraph it guards.
 
-This is a **Track A item for e-RHINO, not this migration** — recorded here
+This is a **Track A item for rheplicant, not this migration** — recorded here
 because it is the first time the harness's reason for existing paid out: a
 manual comparison holds only on the day it is written.

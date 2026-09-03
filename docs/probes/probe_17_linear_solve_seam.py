@@ -58,7 +58,7 @@ Exit code is 0 whenever the probe finished, never a verdict -- same rule as
 turns its measurement into a process status invites being read as a gate, and
 this is evidence for a ruling.
 
-Run:  /Users/zzhang/projects/e-RHINO/.venv/bin/python docs/probes/probe_17_linear_solve_seam.py
+Run:  /Users/zzhang/projects/rheplicant/.venv/bin/python docs/probes/probe_17_linear_solve_seam.py
 """
 
 from __future__ import annotations

@@ -192,11 +192,11 @@ Metropolis 比值里约掉),所以同一个 key 上的两条链应当逐比特�
 
 | # | 变异 | 仓 | 指名红 | 判决 |
 |---|---|---|---|---|
-| P1 | 不做 D24 置换,行序按 `over` | e-RHINO | `test_a_vector_latent_permutes_by_ITS_SPAN...`、`test_information_rows_are_in_sorted_order...` | KILLED(2) |
-| P2 | 置换按**名字**而不是按 span | e-RHINO | `test_a_vector_latent_permutes_by_ITS_SPAN...` | KILLED(**1**) |
-| P3 | 合成数据从 0 换成 1e4 | e-RHINO | — | **SURVIVED,见下** |
+| P1 | 不做 D24 置换,行序按 `over` | rheplicant | `test_a_vector_latent_permutes_by_ITS_SPAN...`、`test_information_rows_are_in_sorted_order...` | KILLED(2) |
+| P2 | 置换按**名字**而不是按 span | rheplicant | `test_a_vector_latent_permutes_by_ITS_SPAN...` | KILLED(**1**) |
+| P3 | 合成数据从 0 换成 1e4 | rheplicant | — | **SURVIVED,见下** |
 | P4 | 远端丢掉方差自己那一项(`(1 + 2f²)`) | **bayesmith** | 平常数九点全红等 | KILLED(11) |
-| P5 | 去掉 D25 的构造期拒绝 | e-RHINO | `test_a_declared_joint_prior_is_refused_at_construction` | KILLED(1) |
+| P5 | 去掉 D25 的构造期拒绝 | rheplicant | `test_a_declared_joint_prior_is_refused_at_construction` | KILLED(1) |
 | P6 | 远端不再应用秩地板 | **bayesmith** | `test_the_eigh_route_floors_the_singular_block_to_effectively_zero` | KILLED(1) |
 
 基线前后各一次绿。**P4 与 P6 是跨仓击杀。**
@@ -221,7 +221,7 @@ Metropolis 比值里约掉),所以同一个 key 上的两条链应当逐比特�
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | e-RHINO **10082 passed / 534 skipped** exit 0(350.1 s)加 **31 passed / 1 xfailed** exit 0(x64 seam,51.7 s)加 **21 passed** exit 0(e2e,62.3 s);bayesmith **1269 passed / 0 skipped** exit 0(212.0 s,1280 − 11 条随 cross-check 退役) |
+| (i) | 该批测试全绿 | rheplicant **10082 passed / 534 skipped** exit 0(350.1 s)加 **31 passed / 1 xfailed** exit 0(x64 seam,51.7 s)加 **21 passed** exit 0(e2e,62.3 s);bayesmith **1269 passed / 0 skipped** exit 0(212.0 s,1280 − 11 条随 cross-check 退役) |
 | (ii) | 接缝变异红 | 6 条 **5 杀**,唯一幸存已证明为必须幸存(§八) |
 | (iii) | 旧实现删除、计数守卫刷新 | Fisher 装配与 `eigvalsh` 地板删除;cross-check 文件删除并记入 `SWITCHED`;README 计数 10627 → **10636** |
 | (iv) | 文档实测数字重测 | 上述全部;两条登记项 D24/D25 的裁决回填 |
@@ -239,5 +239,5 @@ Metropolis 比值里约掉),所以同一个 key 上的两条链应当逐比特�
    那条测试要同批改写。
 4. **D23** 仍是已登记、未裁决、无守卫。
 5. 九份草稿仍在 `860703d` 的历史里,是否重写历史需强推,是 owner 的决定。
-   > **【已处置 2026-08-28】** owner 授权重写历史;九份草稿已从 e-RHINO 的历史中移除(`860703d~1..HEAD` 22 个提交重写为 21,`f8a73eb` 因变空被剪掉),**重写后 HEAD 的 tree 与重写前逐字节相同**,九份未跟踪的工作副本原样保留。本行提到的两个 SHA 自此不再存在。
+   > **【已处置 2026-08-28】** owner 授权重写历史;九份草稿已从 rheplicant 的历史中移除(`860703d~1..HEAD` 22 个提交重写为 21,`f8a73eb` 因变空被剪掉),**重写后 HEAD 的 tree 与重写前逐字节相同**,九份未跟踪的工作副本原样保留。本行提到的两个 SHA 自此不再存在。
 

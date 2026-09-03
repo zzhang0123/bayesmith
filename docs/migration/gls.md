@@ -124,7 +124,7 @@ first, or that comparison will fix the GLS-type target as the reference.
 > it does not exist*. That argument never depended on B1 and does not expire
 > with it.
 >
-> B1 then landed in e-RHINO's `74fac09`:
+> B1 then landed in rheplicant's `74fac09`:
 > `Conditioning.neg_log_likelihood` is `0.5 * chi2 + log_determinant`, given
 > to **both** potential builders. The gradient block moved from **6.2483** to
 > **5.0041** against an unbiased closed form of 5.1046. What this page says

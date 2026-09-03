@@ -7,7 +7,7 @@ deprecated alias since 0.5.0, retiring at 1.0). Test:
 10 before D90 retired `marginalise_arrays`'s four. Page written 2026-08-25
 from that test's assertions, re-run on that date; the cross-check itself
 predates this page. **Updated 2026-08-30 for D90** (migration spec §五
-B11): the Schur-complement kernel is single-implementation since e-RHINO
+B11): the Schur-complement kernel is single-implementation since rheplicant
 `b87e44f`, and `tests/crosscheck/test_provenance.py` now pins which side
 each remaining subject is on.
 
@@ -27,7 +27,7 @@ tolerance that hides a real difference in the constant.
 - `null`: two latents of different shapes, `((2,), ())`.
 - `marginalise_arrays`: ~~a 9×5 factor swept over `n_block ∈ {0, 1, 2, 5}`~~
   — retired 2026-08-30 (D90): their side is a wrapper over our kernel since
-  e-RHINO `b87e44f`, so these four cases compared this package with itself.
+  rheplicant `b87e44f`, so these four cases compared this package with itself.
 - `marginalise`: the checked path, with the prior scale swept over
   `{0.7, 1.0, 3.0}` — since D90 a SHELL comparison (their permutation,
   offset threading and pivot reading against ours, over the one shared

@@ -252,7 +252,7 @@ block 2  {sigma, nu}  NUTS (numpyro)      no exact structure found
 
 ## 六、包的形态
 
-全新仓库 `/Users/zzhang/projects/bayesmith/`，`git init` 起步，与 MCPost、e-RHINO 都是独立仓库、独立发布节奏。MCPost 在本项目中**只读**（附录二记录的缺陷另案处理），e-RHINO 在移植 P3/P5/P6 时**只读源码**。
+全新仓库 `/Users/zzhang/projects/bayesmith/`，`git init` 起步，与 MCPost、rheplicant 都是独立仓库、独立发布节奏。MCPost 在本项目中**只读**（附录二记录的缺陷另案处理），rheplicant 在移植 P3/P5/P6 时**只读源码**。
 
 ```
 bayesmith/                 ← 仓库根

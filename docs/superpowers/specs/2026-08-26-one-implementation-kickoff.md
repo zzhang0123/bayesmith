@@ -21,7 +21,7 @@ bayesmith,rheplicant.inference 收缩为门面(声明层 + 噪声物理 + 适配
 2. 前代 spec 的 §四(各模块绑定契约的台账)与 §六(本程序的由来):
    `/Users/zzhang/projects/bayesmith/docs/superpowers/specs/2026-08-24-rheplicant-migration.md`
 3. 两仓的工作笔记(操作规则,条条是学费):
-   `/Users/zzhang/projects/e-RHINO/CLAUDE.md`(与 AGENTS.md 逐字节一致,
+   `/Users/zzhang/projects/rheplicant/CLAUDE.md`(与 AGENTS.md 逐字节一致,
    有测试钉着)与 `/Users/zzhang/projects/bayesmith/CLAUDE.md`。
 
 ## 当前状态(2026-08-26 会话结束时,先核实再信)
@@ -29,19 +29,19 @@ bayesmith,rheplicant.inference 收缩为门面(声明层 + 噪声物理 + 适配
 - **两个工作树都有大量未提交改动,程序的触发前提本身尚未落盘。**
   P0 因此是第一批工作,且顺序固定(铁律 5):bayesmith 提交推送 →
   `git tag v0.2.0 && git push origin v0.2.0`(publish.yml 门 tag==版本、
-  测构建轮)→ **确认 0.2.0 上 PyPI** → 这之后才提交推送 e-RHINO
+  测构建轮)→ **确认 0.2.0 上 PyPI** → 这之后才提交推送 rheplicant
   (`bayesmith>=0.2` 的 floor 此刻才合规上 main)→ `git ls-remote`
   双仓核实(家规:测远端,不测本地记录)。提交范围严格按计划附录 C;
-  e-RHINO 根目录的八份未跟踪评审/交接草稿**不动**,bayesmith 的未跟踪
+  rheplicant 根目录的八份未跟踪评审/交接草稿**不动**,bayesmith 的未跟踪
   `AGENTS.md`(与其 CLAUDE.md 的「刻意无第二份」声明矛盾)去留问 owner。
-- 环境:e-RHINO venv 里 bayesmith 是 editable(`uv pip install --python
+- 环境:rheplicant venv 里 bayesmith 是 editable(`uv pip install --python
   .venv/bin/python --no-deps -e ../bayesmith`);bayesmith venv 里
-  rheplicant 同样 editable。两套测试:e-RHINO 用
+  rheplicant 同样 editable。两套测试:rheplicant 用
   `.venv/bin/python -m pytest -n 4 --ignore=tests/gui/e2e`(共享机器上
   两阶段跑,见其 CLAUDE.md),bayesmith 用 `.venv/bin/python -m pytest
   -n 4`。**退出码写到自己的文件再读,只有 1 是测试失败**;计数从
   `--junit-xml` 取。
-- 基线(开工先复测):e-RHINO 9962 passed / 502 skipped;bayesmith
+- 基线(开工先复测):rheplicant 9962 passed / 502 skipped;bayesmith
   1205 passed;两边 ruff 干净;bayesmith 版本号已是 0.2.0。
 
 ## 裁决纪律(最重要的一条规矩)
@@ -68,7 +68,7 @@ bayesmith,rheplicant.inference 收缩为门面(声明层 + 噪声物理 + 适配
   接缝变异红——按 §六 五行协议、旧实现删除且计数守卫刷新、文档数字重测)。
 - 首个会话做完 **P0**;有余力则在 D18 拍板后开 **P2a**(G9 最小面 + G11)。
 - 每批证据链写进计划同目录的 tracked 执行页(`2026-XX-XX-wave-X.md`);
-  **不要**把任何计划性文件放进 e-RHINO 的 docs/superpowers(gitignored,
+  **不要**把任何计划性文件放进 rheplicant 的 docs/superpowers(gitignored,
   有八份计划死在那里的前科)。
 - 需要并行时记住:子代理一律被拒绝 EnterWorktree,编排者自建 worktree +
   `git -C <绝对路径>` 可行;`cd` 不跨回合存活。

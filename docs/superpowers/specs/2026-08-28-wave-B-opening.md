@@ -54,18 +54,18 @@ Wave B 的 `linear` 批次自己发现**,因为一条上一批新增的依赖,�
 
 ### 2.2 `plan.md` §5(a) 与两条守卫:分支依赖,而它是那个「结构性盲点」的样本
 
-它写着 e-RHINO 的 docstring 更正在 `track-a-tail` 上、**未合并未推送**,所以
+它写着 rheplicant 的 docstring 更正在 `track-a-tail` 上、**未合并未推送**,所以
 checkout `main` 拿不到,并说**守卫可能因为「不是任何人的缺陷」而变红**。
 
 **按远端实测**(先 `git ls-remote` 取尖端,再
 `merge-base --is-ancestor 7f03af1 origin/main` 与
 `git show origin/main:src/rheplicant/inference/plan.py`):`7f03af1` **是**
 `origin/main` 的祖先,句子就在远端自己的文件里,`track-a-tail` 已不存在。
-Seam CI checkout 的正是 `e-RHINO@main`,所以它读得到。
+Seam CI checkout 的正是 `rheplicant@main`,所以它读得到。
 
 **这一条不是文书工作。** 依赖成立的那段时间里,那两条守卫是绿的,而绿的原因
 是**可编辑安装恰好 checkout 在哪个分支上**;对 docstring 文本做任何变异都不可能
-把它照出来,因为**那个 ref 从来不在变量集里**。e-RHINO 的 `CLAUDE.md` 把它记作
+把它照出来,因为**那个 ref 从来不在变量集里**。rheplicant 的 `CLAUDE.md` 把它记作
 变异测试**唯一的结构性盲点**,而这两条守卫就是它的样本。
 
 **实例已闭,教训未变。** 三处记录同批更正(两份契约页、两条守卫自己的

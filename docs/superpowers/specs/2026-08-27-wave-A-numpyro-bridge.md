@@ -138,7 +138,7 @@ factor 的**独立对照**——用发出来的 factor 去检查发出来的 fac
 ## 八、变异集:6 条,**第一轮 5/6**,幸存的那条是真洞
 
 见附录 A 的表。**R5** 就是 §六 那条;修好后重跑 6/6。**R6 是跨仓击杀**
-(改 bayesmith 的 `_masked`,e-RHINO 的 `test_flags_masked_likelihood` 红)。
+(改 bayesmith 的 `_masked`,rheplicant 的 `test_flags_masked_likelihood` 红)。
 
 两轮之间**先提交了修补再重跑**——第 (0) 条的第二半,今天已经踩过一次。
 
@@ -146,7 +146,7 @@ factor 的**独立对照**——用发出来的 factor 去检查发出来的 fac
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | e-RHINO **10093 passed / 534 skipped** exit 0(359.8 s)加 **31 passed / 1 xfailed** exit 0(x64 seam,50.4 s)加 **21 passed** exit 0(e2e,63.5 s);bayesmith **1269 passed** exit 0(222.8 s)。**加 R5 两条守卫后重测:e-RHINO 10095 passed / 534 skipped exit 0** |
+| (i) | 该批测试全绿 | rheplicant **10093 passed / 534 skipped** exit 0(359.8 s)加 **31 passed / 1 xfailed** exit 0(x64 seam,50.4 s)加 **21 passed** exit 0(e2e,63.5 s);bayesmith **1269 passed** exit 0(222.8 s)。**加 R5 两条守卫后重测:rheplicant 10095 passed / 534 skipped exit 0** |
 | (ii) | 接缝变异红 | 6 条,**第一轮 5 杀**,幸存者是真洞,补守卫后 **6/6** |
 | (iii) | 旧实现删除、计数守卫刷新 | model body 的站点/似然/factor 删除;拒绝普查 13 → **16**(该文件)、241 → **244**;`ParameterSpaceError` 175 → **178**;README 计数 10638 → **10649** |
 | (iv) | 文档实测数字重测 | 上述;D26/D27 回填、**D28 新增**;附录 A 补 Q1–Q3 与 R1–R6;附录 B 的 `test_graph_bridge.py` 清单重生成、表头总数 241 → 244 |

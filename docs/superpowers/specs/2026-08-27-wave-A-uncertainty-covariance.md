@@ -165,12 +165,12 @@ float64:  unnamed  max rel diff = 0.000e+00  bitwise=True
 
 | # | 变异 | 仓 | 判决 | 指名红 |
 |---|---|---|---|---|
-| U1 | 远端的 `ValueError` 不再翻译成本包的类 | e-RHINO | KILLED(5) | `test_the_refusal_wears_this_packages_class_and_keeps_the_original` 等 |
-| U2 | `_REMOTE_KIND` 忘掉 `posterior_covariance` 也是协方差 | e-RHINO | KILLED(1) | `test_a_posterior_covariance_is_refused_by_the_same_rule` |
-| U3 | 过缝的矩阵用**协方差自己的**布局而不是 params 的 | e-RHINO | KILLED(1) | `test_the_matching_covariance_propagates`(**既有测试**) |
-| U4 | `propagate_covariance` 不再拒绝精度 | e-RHINO | KILLED(1) | `test_a_precision_is_refused_rather_than_propagated` |
+| U1 | 远端的 `ValueError` 不再翻译成本包的类 | rheplicant | KILLED(5) | `test_the_refusal_wears_this_packages_class_and_keeps_the_original` 等 |
+| U2 | `_REMOTE_KIND` 忘掉 `posterior_covariance` 也是协方差 | rheplicant | KILLED(1) | `test_a_posterior_covariance_is_refused_by_the_same_rule` |
+| U3 | 过缝的矩阵用**协方差自己的**布局而不是 params 的 | rheplicant | KILLED(1) | `test_the_matching_covariance_propagates`(**既有测试**) |
+| U4 | `propagate_covariance` 不再拒绝精度 | rheplicant | KILLED(1) | `test_a_precision_is_refused_rather_than_propagated` |
 | U5 | 远端在**加 jitter 之前**量条件数 | **bayesmith** | KILLED(1) | `test_jitter_is_measured_after_it_is_applied` |
-| U6 | 信息图忽略调用方的噪声模型 | e-RHINO | KILLED(4) | **bayesmith 的 cross-check 四条**(§六) |
+| U6 | 信息图忽略调用方的噪声模型 | rheplicant | KILLED(4) | **bayesmith 的 cross-check 四条**(§六) |
 | U7 | 远端的 delta 方法按精度加权 | **bayesmith** | KILLED(6) | 含 `test_the_synthetic_sigma_and_data_do_not_move_the_report` |
 
 **U3 是被一条既有测试杀掉的**,不是被本批新写的。追下去是对的:该变异让过缝矩阵声明
@@ -195,21 +195,21 @@ float64:  unnamed  max rel diff = 0.000e+00  bitwise=True
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | e-RHINO **10109 passed / 534 skipped** exit 0(341.2 s)加 **21 passed** exit 0(e2e,`-n 2`);两个 x64 会话由各自的驱动带过(全套内);bayesmith **1269 passed** exit 0(203.1 s) |
+| (i) | 该批测试全绿 | rheplicant **10109 passed / 534 skipped** exit 0(341.2 s)加 **21 passed** exit 0(e2e,`-n 2`);两个 x64 会话由各自的驱动带过(全套内);bayesmith **1269 passed** exit 0(203.1 s) |
 | (ii) | 接缝变异红 | 7 条 **7 杀**,两条跨仓,基线前后各一次绿(§七) |
 | (iii) | 旧实现删除、计数守卫刷新 | `jnp.linalg.inv`、`jax.jacfwd`+`einsum` 两处删除;拒绝普查 244 → **250**,`StateValidationError` 58 → **64**,`test_uncertainty.py` 8 → **14**;README 计数 10651 → **10663** |
 | (iv) | 文档实测数字重测 | 上述;**D30**、**D31** 入簿(登记簿到 **D7–D31**),**D29 回填「已落地」**;附录 A 补 U1–U7;附录 B 表头 244 → 250、`test_uncertainty.py` 清单由 `_sites()` 重生成 |
 
 ## 十、本页动了什么
 
-- **e-RHINO 源码**:`parameter_covariance` 与 `propagate_covariance` 成为门面;
+- **rheplicant 源码**:`parameter_covariance` 与 `propagate_covariance` 成为门面;
   新增 `_REMOTE_KIND` 与 `_remote_flat`;`propagate_covariance` 新增一条缝前拒绝。
-- **e-RHINO 测试**:三条按分诊第二列改写(各带一条 dtype 兄弟断言),十条新守卫,
+- **rheplicant 测试**:三条按分诊第二列改写(各带一条 dtype 兄弟断言),十条新守卫,
   两个 fixture 的函数体提出来供直接调用(一份拼写、两个调用方),普查 pin 三处刷新。
 - **bayesmith**:cross-check 两处类 docstring 改写(§六);**顺手修掉本仓唯一一条
   ruff 错误**——它随 `0c5ca10` 进来,而 CLAUDE.md 与交接页 §二 都还写着
   「`ruff check src/ tests/` 干净」,所以那句话已经假了一天。两仓现在都是
-  `All checks passed`(e-RHINO 侧 13 条与本批无关,见 §十一)。
+  `All checks passed`(rheplicant 侧 13 条与本批无关,见 §十一)。
 - **登记簿**:D29 回填、D30/D31 新增。
 
 ## 十一、留给下一位
@@ -222,17 +222,17 @@ float64:  unnamed  max rel diff = 0.000e+00  bitwise=True
    远端有了**带先验的非线性局部块**并发布之后,删掉该函数、调用改成
    `include_prior=space is not None`,**只有那一行会变**。
 3. **D23 仍是唯一一条已登记、未裁决、无守卫的语义差。**
-4. **e-RHINO 的 `ruff check src/ tests/` 有 13 条**,全部与本程序无关
+4. **rheplicant 的 `ruff check src/ tests/` 有 13 条**,全部与本程序无关
    (`I001` 导入排序 **9** 条、`F401` 未用导入 3 条、`E501` 1 条,散在
    `identifiability.py`/`sensitivity.py`/`gui/`/几个测试)。**没有 CI 在跑它**,
    所以它不会自己红;bayesmith 侧相反,那边一直干净而本批把它修回干净。
-   要不要把 e-RHINO 也扫干净是一条独立的决定,不属于本程序。
+   要不要把 rheplicant 也扫干净是一条独立的决定,不属于本程序。
 5. **一次新的「结果分不清『是 X』与『查询没发生』」**(计划 §七 第 1 条那一族,
    本会话又见一次,记下来因为形状是新的)。e2e 那一趟被写成一条复合命令,前半
    `cd` 去了 bayesmith,**`cd` 在同一条复合命令内是存活的**,于是 pytest 在
    bayesmith 里找 `tests/gui/e2e`,收集到零条。`PYTEST_EXIT=5`,日志里两行
    `bringing up nodes...` 和**零个点**。若当时只看「没有 FAILED」,那就是一次
-   假绿。已在 e-RHINO 里重跑:**21 passed exit 0**。
+   假绿。已在 rheplicant 里重跑:**21 passed exit 0**。
    > 教训的具体形状:两仓工作笔记写的是「`cd` 不跨回合存活,git 命令都用 `-C`」。
    > 反过来的一半同样咬人——**`cd` 在一条命令之内太存活了**,而它把一次跑测试
    > 送进了另一个仓,退出码说了实话(5,不是 0 也不是 1)。

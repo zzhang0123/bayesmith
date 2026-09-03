@@ -12,7 +12,7 @@ comparison quietly starts comparing two models.
 
 Run it::
 
-    /Users/zzhang/projects/e-RHINO/.venv/bin/python docs/probes/probe_12_d16_five_axes.py
+    /Users/zzhang/projects/rheplicant/.venv/bin/python docs/probes/probe_12_d16_five_axes.py
 """
 
 from __future__ import annotations

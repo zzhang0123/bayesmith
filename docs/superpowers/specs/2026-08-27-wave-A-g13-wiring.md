@@ -118,10 +118,10 @@ identifiability/sensitivity 用的「门面内部开 x64」在这里用不了—
 
 | # | 变异 | 仓 | 第一轮 | 修好后 |
 |---|---|---|---|---|
-| N1 | 声明根本不进图 | e-RHINO | KILLED(11 红) | KILLED(13 红) |
-| N2 | 所有 latent 一律声明成 flat(`joint.covers(name)` → `joint is not None`) | e-RHINO | **SURVIVED** | KILLED(1 红) |
-| N3 | 翻译时丢掉 `rank_rtol` | e-RHINO | KILLED(1 红) | KILLED(1 红) |
-| N4 | 块**反序**过缝 | e-RHINO | **SURVIVED** | KILLED(2 红) |
+| N1 | 声明根本不进图 | rheplicant | KILLED(11 红) | KILLED(13 红) |
+| N2 | 所有 latent 一律声明成 flat(`joint.covers(name)` → `joint is not None`) | rheplicant | **SURVIVED** | KILLED(1 红) |
+| N3 | 翻译时丢掉 `rank_rtol` | rheplicant | KILLED(1 红) | KILLED(1 红) |
+| N4 | 块**反序**过缝 | rheplicant | **SURVIVED** | KILLED(2 红) |
 | N5 | 远端 `graph/trace.py` 不再记录声明 | **bayesmith** | KILLED(11 红) | KILLED(13 红) |
 
 基线前后各一次绿。**N5 是一条真跨仓击杀。**
@@ -154,7 +154,7 @@ identifiability/sensitivity 用的「门面内部开 x64」在这里用不了—
 **每一次跑变异集之前,HEAD 都必须已经是你想要回的东西**。而且输出里没有任何东西说
 得出这件事——一个被回退的修补和一个不起作用的修补长得一模一样。
 
-已写进两仓工作笔记(e-RHINO 的 `CLAUDE.md`/`AGENTS.md` 成对改,`cmp` 逐字节一致;
+已写进两仓工作笔记(rheplicant 的 `CLAUDE.md`/`AGENTS.md` 成对改,`cmp` 逐字节一致;
 bayesmith 的 `CLAUDE.md`)。附带一条:变异脚本恢复的路径不要宽于变异点本身——这一份
 为了撤销只在 `src/` 里的变异而恢复了整个 `tests/`。
 
@@ -162,7 +162,7 @@ bayesmith 的 `CLAUDE.md`)。附带一条:变异脚本恢复的路径不要宽�
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | e-RHINO **10070 passed / 534 skipped** exit 0(329.2 s)加 **21 passed** exit 0(e2e)加 **31 passed / 1 xfailed** exit 0(`JAX_ENABLE_X64=1 pytest tests/seam`,58.9 s);bayesmith **1280 passed / 0 skipped** exit 0(215.4 s)。**修补后重跑:e-RHINO 10073 passed / 534 skipped exit 0(349.3 s)** |
+| (i) | 该批测试全绿 | rheplicant **10070 passed / 534 skipped** exit 0(329.2 s)加 **21 passed** exit 0(e2e)加 **31 passed / 1 xfailed** exit 0(`JAX_ENABLE_X64=1 pytest tests/seam`,58.9 s);bayesmith **1280 passed / 0 skipped** exit 0(215.4 s)。**修补后重跑:rheplicant 10073 passed / 534 skipped exit 0(349.3 s)** |
 | (ii) | 接缝变异红 | **5 条全杀**(第一轮 3/5,两条幸存均为真洞,已修),§六 |
 | (iii) | 旧实现删除、计数守卫刷新 | `_refuse_a_joint_prior` 删除;退役测试 1 条;拒绝普查 13 → **13**(内容变两处,附录 B 重生成并改正一批的过期);README 计数 10608 → 10624 → **10627**(修补加了 3 条) |
 | (iv) | 文档实测数字重测 | 上述;计划 §四 G13 行标记落地;登记簿标题 D7–D19 → **D7–D25**;附录 A 补 N1–N5;两仓工作笔记补第 (0) 条的第二半 |

@@ -63,7 +63,7 @@ a page may not go missing.
 
 **What that does and does not authorise.** §六 step 1 still governs:
 nothing in `src/rheplicant/inference/` moves except the two exceptions
-already in e-RHINO's Track A Batch 1 (B1's `plan.py` docstring and B4's
+already in rheplicant's Track A Batch 1 (B1's `plan.py` docstring and B4's
 one-line fix), plus docstring pointers to bayesmith. Read §六's five steps
 before starting, and note step 3's possible dividend — the two pytest
 sessions may be able to merge once the evidence layer is out.

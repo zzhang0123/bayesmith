@@ -102,7 +102,7 @@ the estimate exit as well as the sampling one, which is why the property is
 better stated of the block type.
 
 **And that is what got it fixed.** This row measured the gradient number on
-2026-08-25 and it sat unacted-on for three days; e-RHINO's `74fac09` closed
+2026-08-25 and it sat unacted-on for three days; rheplicant's `74fac09` closed
 it by making `Conditioning.neg_log_likelihood` carry `sum log sigma` and
 giving it to **both** potential builders — the single-argument one the
 optimiser takes and the lifted one NUTS takes, since fixing one alone
@@ -122,7 +122,7 @@ rejected because GLS is a point estimator and is not a posterior, so
 `plan.sample` has no coherent reading of `false`, and "one word, two
 meanings at two exits" is the defect B1 *is*.
 
-**Carried upstream — and as of 2026-08-28 it is on `main`.** e-RHINO's
+**Carried upstream — and as of 2026-08-28 it is on `main`.** rheplicant's
 `7f03af1` rewrote `inference/plan.py`'s module docstring around this, with
 both numbers and an attribution back to this test — its own words:
 *"reading it as a property of one exit is what left the estimate path
@@ -130,24 +130,24 @@ unexamined."*
 
 > **Correction, 2026-08-28 (Wave B opening, iron law 7).** This row said
 > that commit was on `track-a-tail`, **unmerged and unpushed**, so that a
-> checkout of e-RHINO's `main` did not carry it, and that the guard could
+> checkout of rheplicant's `main` did not carry it, and that the guard could
 > therefore go red for a reason that was nobody's defect. **Measured
 > against the remote** — `git ls-remote` for the tip, then
 > `merge-base --is-ancestor 7f03af1 origin/main` and
 > `git show origin/main:src/rheplicant/inference/plan.py` — `7f03af1` is an
 > ancestor of `origin/main`, the sentence is in the remote's own file, and
-> `track-a-tail` no longer exists. Seam CI checks out `e-RHINO@main`, so it
+> `track-a-tail` no longer exists. Seam CI checks out `rheplicant@main`, so it
 > reads this text.
 >
 > **What that closes is not a cosmetic note.** While the dependency stood,
 > the two guards were green because of which branch the editable install
 > happened to be on, and mutating the docstring could never have shown it —
-> the ref was not in the variable set. e-RHINO's `CLAUDE.md` records this as
+> the ref was not in the variable set. rheplicant's `CLAUDE.md` records this as
 > mutation testing's one structural blind spot, with these two guards as
 > the worked example. The lesson stands; the instance is closed.
 
 **Where the upstream text lives, and what does not depend on it.** The
-corrected sentences are on e-RHINO's `main`. The two guards that assert
+corrected sentences are on rheplicant's `main`. The two guards that assert
 them — here and in `linear.md` — are still the only ones in
 `tests/crosscheck/` that read upstream prose at all, which is worth knowing
 whenever that prose is edited.

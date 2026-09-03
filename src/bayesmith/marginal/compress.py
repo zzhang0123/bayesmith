@@ -412,7 +412,7 @@ class ResidualSummary(NamedTuple):
     handful of NAMED systematic templates", so that "a common mode then shows
     as a nonzero MEAN at sqrt(N) significance with correct scatter". That
     sentence is quoted rather than cited: it lived in a numbered list item of
-    an e-RHINO design note which is untracked there, so no reader of this
+    an rheplicant design note which is untracked there, so no reader of this
     repository could reach it, and the "Section 9.3" this docstring used to
     say resolved to nothing -- while THIS repository has since grown an
     unrelated `### 9.3`, so grepping the number returns a confident wrong

@@ -27,7 +27,7 @@ Exit code is 0 whenever the probe finished, never a verdict -- same rule as
 green rather than to read it.
 
     cd /Users/zzhang/projects/bayesmith
-    /Users/zzhang/projects/e-RHINO/.venv/bin/python docs/probes/probe_15_d23_two_criteria.py
+    /Users/zzhang/projects/rheplicant/.venv/bin/python docs/probes/probe_15_d23_two_criteria.py
 """
 
 from __future__ import annotations

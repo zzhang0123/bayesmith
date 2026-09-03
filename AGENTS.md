@@ -115,9 +115,9 @@ either way.
 ## The test subject moves when the sibling checkout does
 
 The cross-checks under `tests/crosscheck/` import `rheplicant` from an
-**editable install**, so they test whatever e-RHINO currently has checked out.
+**editable install**, so they test whatever rheplicant currently has checked out.
 Switching branches over there silently changes what passes here. Re-run this
-suite after any e-RHINO checkout change, and before pushing either repo.
+suite after any rheplicant checkout change, and before pushing either repo.
 
 The importable module of the second editable install is **`rhino_cal_jax`**,
 not `rhino_cal`; checking the wrong name reads exactly like "never installed".

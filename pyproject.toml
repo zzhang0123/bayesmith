@@ -48,12 +48,12 @@ dev = [
 ]
 # The cross-check harness, and the only place rheplicant is ever named. It is a
 # LOCAL PATH dependency, it is not in the wheel, and it is not in `dev` -- so a
-# clone that has no e-RHINO checkout installs and tests normally, with the
+# clone that has no rheplicant checkout installs and tests normally, with the
 # cross-checks skipping and saying why.
 #
 # Install it WITHOUT its dependencies:
 #
-#     uv pip install --python .venv/bin/python --no-deps -e ../e-RHINO
+#     uv pip install --python .venv/bin/python --no-deps -e ../rheplicant
 #
 # Measured, and the reason `--no-deps` is not a shortcut: rheplicant's declared
 # dependencies include limTOD, which drags roughly seventy-eight transitive

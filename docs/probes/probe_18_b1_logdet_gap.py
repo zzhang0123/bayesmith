@@ -37,7 +37,7 @@ comparison fixes the GLS-type target as the reference.
 
 Exit code is 0 whenever the probe finished, never a verdict.
 
-Run:  /Users/zzhang/projects/e-RHINO/.venv/bin/python docs/probes/probe_18_b1_logdet_gap.py
+Run:  /Users/zzhang/projects/rheplicant/.venv/bin/python docs/probes/probe_18_b1_logdet_gap.py
 """
 import jax, jax.numpy as jnp, numpy as np
 from scipy.optimize import minimize_scalar

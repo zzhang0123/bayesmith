@@ -82,7 +82,7 @@ bayesmith 的默认。三条理由与完整论证在计划 §二 的 D21 行;契
 
 ## 四、分诊表(种子)
 
-Wave A 触及的 e-RHINO 测试文件与用例数(`--collect-only` 实测):
+Wave A 触及的 rheplicant 测试文件与用例数(`--collect-only` 实测):
 
 | 文件 | 用例 | 属 |
 |---|---|---|
@@ -108,7 +108,7 @@ Wave A 触及的 e-RHINO 测试文件与用例数(`--collect-only` 实测):
 
 | | 项 | 结果 |
 |---|---|---|
-| (i) | 该批测试全绿 | bayesmith **1295 passed / 0 skipped** exit 0;e-RHINO 未动 |
+| (i) | 该批测试全绿 | bayesmith **1295 passed / 0 skipped** exit 0;rheplicant 未动 |
 | (ii) | 接缝变异红 | **本批不适用**:没有新代码。D21 的守卫随第一个模块切换落地(见 §六) |
 | (iii) | 旧实现删除、计数守卫刷新 | 无删除 |
 | (iv) | 文档实测数字重测 | `docs/migration/identifiability.md` §5.2 改写;计划 §二 新增 D21 |
@@ -132,6 +132,6 @@ Wave A 触及的 e-RHINO 测试文件与用例数(`--collect-only` 实测):
 4. 分诊 `test_identifiability.py` 的 45 条;cross-check 文件同批删除,其中参照
    非 rheplicant 的 oracle 断言**逐条改籍**进 bayesmith(铁律 2)。
 5. **这是本程序第一次动 rheplicant 的 main**,所以也是第一次真正用到铁律 5 的
-   发布门:0.4.0 必须已在索引上,e-RHINO 的 bayesmith 地板同批升到 `>=0.4`。
-6. **接缝变异这一批起是真的跨仓变异**(改 bayesmith、看 e-RHINO 红),不再是
+   发布门:0.4.0 必须已在索引上,rheplicant 的 bayesmith 地板同批升到 `>=0.4`。
+6. **接缝变异这一批起是真的跨仓变异**(改 bayesmith、看 rheplicant 红),不再是
    库内的替代品。附录 A 要新增行。
