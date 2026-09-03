@@ -184,7 +184,7 @@
 - Create: `src/bayesmith/evaluation/heldout.py`
 - Create: `tests/evaluation/test_heldout.py`
 
-- [ ] **4.1 红灯**：mask 掉 2 点的直线：PIT 全在带内 PASS，`elpd_heldout` 与 probe 的 −1.019 对上（`abs_tol=1e-2`，同 key）；`curved_line(0.6)` FAIL 且 elpd −24.047；mask 全 True → INAPPLICABLE；correlated 观测 → UNVERIFIABLE（承 `predictive_noise_unsupported`）；Bonferroni 因子等于 held-out 点数（用 m=1 与 m=2 两个 fixture 钉住方向）。预期 FAIL。
+- [ ] **4.1 红灯**：mask 掉 2 点的直线：PIT 全在带内 PASS，`elpd_heldout` 与 probe 的 −1.019 对上（`abs_tol=1e-2`，同 key）；`curved_line(0.6)` FAIL 且 elpd −24.047；mask 全 True → INAPPLICABLE；correlated 观测 → UNVERIFIABLE（承 `predictive_noise_unsupported`）〔执行写回，§红线 9〕本行原设想的「带 mask 的 correlated 观测节点」不是一个存在的图：`observe` 在 trace 期就拒绝给 correlated 节点加 mask（“a CirculantPrecision has no per-sample sigma, so there is nothing for a mask to select”）。这一格改由「一个带 mask 的 diagonal 节点 + 一个不带 mask 的 correlated 节点」达到：`observation_parts` 两个节点都走，correlated 的那个把整张图带出覆盖域，verdict 与本行原意一致（UNVERIFIABLE / ABSTAIN，`predictive_noise_unsupported`）。见 `tests/evaluation/test_heldout.py::test_a_correlated_observation_is_unverifiable`。〕；Bonferroni 因子等于 held-out 点数（用 m=1 与 m=2 两个 fixture 钉住方向）。预期 FAIL。〔执行补充〕另加一个双观测节点的 fixture（第二个节点 (2, 3) 形状、自带 mask），让 m 必须跨节点相加、flat 位置必须按 C 序展开；`_held_out` 只走第一个节点的变异在单节点 fixture 下无法被杀死。〕
 - [ ] **4.2 实现**：只读 `PredictiveResult.replicated_draws` 的 loc/scale（经 `observation_parts` 在 latent draws 上重算，不重抽）与 `observed_mask`。
 - [ ] **4.3 绿灯**：`.venv/bin/python -m pytest tests/evaluation/test_heldout.py` PASS；ruff 干净。
 - [ ] **4.4 提交**：commit `"feat: score held-out observations declared by the graph's mask"`。

@@ -41,6 +41,7 @@ from bayesmith.artifacts.refusal import Refusal
 from bayesmith.artifacts.reports import Applicability, Conclusion, EvaluationReport
 from bayesmith.artifacts.results import (
     AnalyticPosterior,
+    DrawsPosterior,
     LogDensityAvailability,
     PredictiveResult,
     WeightedDrawsPosterior,
@@ -69,6 +70,20 @@ CURVED = 2.5 * X + 0.6 * X**2 + NOISE
 #: only thing that depends on where it lands, and it measures the margin.
 _TIGHT_VALUE = 7.72
 
+#: The SECOND observed node's grid, deliberately (2, 3) rather than a vector.
+#: Two things ride on its shape: `m` has to be summed ACROSS nodes rather than
+#: read off the first one, and the module's claim that a matrix-shaped node
+#: takes the vector's code path because positions are FLAT has to be something
+#: a test holds rather than something the docstring asserts.
+GRID_E = jnp.reshape(jnp.linspace(0.5, 3.0, 6), (2, 3))
+NOISE_E = SIGMA * jax.random.normal(jax.random.key(1), GRID_E.shape)
+MATRIX = 2.5 * GRID_E + NOISE_E
+
+#: Its mask, withholding the (0, 2) and (1, 1) entries -- flat positions 2 and
+#: 4 in C order, and 3 and 4 in Fortran order, so the two orders are
+#: distinguishable by the positions the report names.
+MASK_E = [[True, True, False], [True, False, True]]
+
 BUDGET = ComputeBudget(draws=2000, warmup=1000, chains=1)
 
 
@@ -85,6 +100,43 @@ def line(xs, data, mask=None):
             mu,
             obs=jnp.asarray(data),
             mask=None if mask is None else jnp.asarray(mask),
+        )
+
+    return trace(model)
+
+
+def line_and_a_matrix_shaped_node():
+    """One latent, TWO observed nodes, each withholding some of its own points.
+
+    Every other fixture in this file masks exactly one observed node, which
+    leaves two things in `held_out_report` unpinned: whether `_held_out` walks
+    all the observed nodes or stops at the first one, and whether the
+    Bonferroni `m` and the elpd are summed across nodes or taken from one.
+    Both are invisible while there is only ever one node to get right.
+
+    The second node is matrix-shaped for the second reason above; `w` is shared
+    so the graph stays a single-latent conjugate problem on the exact route.
+    """
+
+    def model():
+        grid = const("X", X)
+        w = sample("w", lambda: dist.Normal(0.0, PRIOR_STD))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, grid, linear_in=("w",))
+        observe(
+            "d",
+            lambda m: dist.Normal(m, SIGMA),
+            mu,
+            obs=STRAIGHT,
+            mask=jnp.asarray([True] * 6 + [False] * 2),
+        )
+        grid_e = const("Xe", GRID_E)
+        nu = det("nu", lambda w_, x_: w_ * x_, w, grid_e, linear_in=("w",))
+        observe(
+            "e",
+            lambda m: dist.Normal(m, SIGMA),
+            nu,
+            obs=MATRIX,
+            mask=jnp.asarray(MASK_E),
         )
 
     return trace(model)
@@ -149,11 +201,17 @@ def source_ref(posterior):
 
 
 def predictive_of(graph, posterior, *, latent_sites=("w",), seed=4):
+    """The subject, over every observed node the GRAPH declares.
+
+    Reading the sites off the graph rather than writing ``("d",)`` here is what
+    lets the two-node fixture below exist at all; for every single-node fixture
+    it is the same tuple it always was, so nothing that was measured moves.
+    """
     task = PredictiveTask(
         meta=new_task_meta(label="heldout"),
         source_posterior_ref=source_ref(posterior),
-        conditioned_sites=("d",),
-        replicated_sites=("d",),
+        conditioned_sites=graph.observed,
+        replicated_sites=graph.observed,
         latent_sites=latent_sites,
     )
     planned = compile_task(graph, task, model_ref=model_ref())
@@ -198,6 +256,7 @@ def scored(kind):
             np.concatenate([np.asarray(STRAIGHT[:6]), [_TIGHT_VALUE]]),
             [True] * 6 + [False],
         ),
+        "two_nodes": line_and_a_matrix_shaped_node,
         "tight_two": lambda: line(
             X,
             np.concatenate(
@@ -374,11 +433,97 @@ def test_the_tight_fixtures_margin_is_measured_not_assumed():
     retires.  This records the distance in both directions so a future reader
     can see whether the previous test has room -- and turns red if a change to
     the seam moves the PIT toward either edge rather than only when it crosses.
+
+    **The measurement, so that `2e-3` is not read as derived.**  It is not: the
+    FORM of this test is derived (the previous test needs the PIT strictly
+    inside `[ALPHA/4, ALPHA/2]`, so the quantity to record is its distance to
+    each edge), and the CONSTANT is chosen, at roughly a third of what was
+    measured.  Measured here, macOS/Accelerate and linux-amd64/OpenBLAS-ZEN
+    printing the same digits::
+
+        PIT             0.018669340414803656
+        - ALPHA / 4     0.0061693404148036556
+        ALPHA / 2 -     0.0063306595851963451
+
+    So the guard has about 3x headroom on both sides.  It is written as a floor
+    on the margin rather than as a two-sided band around the measured PIT
+    because a band would ADMIT the region `<=` refuses -- this repository has
+    twice shipped a widened band that silently released a mutant its
+    predecessor killed.
     """
     one, *_ = scored("tight_one")
     pit = points(one)[("d", 6)][0]
     assert pit - ALPHA / 4 > 2e-3, pit
     assert ALPHA / 2 - pit > 2e-3, pit
+
+
+# ----------------------------------------------------- more than one node
+
+
+def test_a_second_masked_node_is_scored_and_counted_with_the_first():
+    """Two observed nodes withhold points; `m` is 4, not either node's 2.
+
+    Every other fixture here masks exactly ONE observed node, and while that is
+    true an implementation that walked only the first observed node with a
+    non-empty mask would be indistinguishable from the right one -- the point
+    findings, the Bonferroni `m` and the summed elpd would all agree with
+    themselves.  This fixture is what separates them: `d` withholds 2 of 8 and
+    `e` withholds 2 of 6, so a first-node-only walk reports 2 points, a band of
+    `ALPHA / 4` and an elpd of -0.925 instead of 4, `ALPHA / 8` and -2.126.
+    """
+    report, *_ = scored("two_nodes")
+
+    measured = points(report)
+    assert sorted(measured) == [("d", 6), ("d", 7), ("e", 2), ("e", 4)]
+
+    tail = ALPHA / (2 * 4)
+    for finding in report.findings:
+        if finding.code == "held_out_point":
+            assert finding.expected == (tail, 1.0 - tail)
+
+    assert elpd(report) == pytest.approx(
+        sum(lpd for _pit, lpd in measured.values()), rel=1e-12
+    )
+    assert elpd(report) == pytest.approx(-2.126227, abs=1e-2)
+    from_d_alone = sum(
+        lpd for (node, _index), (_pit, lpd) in measured.items() if node == "d"
+    )
+    assert from_d_alone == pytest.approx(-0.924644, abs=1e-2)
+
+    for finding in report.findings:
+        if finding.code == "held_out_elpd":
+            assert finding.observed[1] == 4  # the summed point count
+
+
+def test_a_matrix_shaped_node_is_scored_at_the_flat_positions_of_its_mask():
+    """The module docstring's claim about flat indices, held by a test.
+
+    `_held_out` flattens the mask, so a (2, 3) observed node is scored by the
+    same code that scores a vector and the report names positions 2 and 4.
+    Both halves are checked: that those ARE the C-order positions of the two
+    False entries (in Fortran order they would be 3 and 4), and that the PIT
+    filed at flat 2 is the one belonging to element (0, 2) -- computed here
+    through `observation_parts` directly rather than through this module, and
+    distinct enough from its neighbour that the mapping is not vacuous.
+    """
+    report, graph, _predictive, posterior = scored("two_nodes")
+    mask = np.asarray(graph.node("e").observed_mask)
+    assert mask.shape == (2, 3)
+    assert list(np.flatnonzero(~mask.reshape(-1))) == [2, 4]
+
+    draws = {a.name: jnp.asarray(a.value) for a in posterior.representation.draws}
+
+    def cdf(values):
+        data, loc, scale = observation_parts(graph, evaluate(graph, values))
+        return dist.Normal(loc["e"], scale["e"]).cdf(data["e"])
+
+    stacked = np.asarray(jax.vmap(cdf)(draws), dtype=np.float64)
+    assert stacked.shape[1:] == (2, 3)
+
+    measured = points(report)
+    assert measured[("e", 2)][0] == pytest.approx(stacked[:, 0, 2].mean(), abs=1e-12)
+    assert measured[("e", 4)][0] == pytest.approx(stacked[:, 1, 1].mean(), abs=1e-12)
+    assert abs(stacked[:, 0, 2].mean() - stacked[:, 1, 1].mean()) > 0.1
 
 
 # ------------------------------------------------------------------- weights
@@ -494,6 +639,39 @@ def test_another_runs_posterior_is_refused_as_a_caller_error():
     other = posterior_of(line(X, STRAIGHT, [True] * 6 + [False] * 2), seed=11)
     with pytest.raises(TypeError, match="source_posterior_ref names"):
         held_out_report(graph, predictive, source_posterior=other)
+
+
+def test_a_source_posterior_of_a_different_length_is_refused_not_broadcast():
+    """The `weights.shape[0] != draws` guard, and what it stops.
+
+    Not a hypothetical.  The failure it catches is a source posterior holding
+    ONE draw against a subject holding 2000: NumPy broadcasts `(1, 1)` against
+    `(2000, k)` without complaint, so with the guard removed this call returns
+    a report -- a PIT and an elpd computed by weighting 2000 draws with one
+    weight, which is a number no reader could tell from a posterior average.
+    The guard is the difference between a refusal and a plausible wrong answer,
+    which is why it is checked rather than assumed to be unreachable.
+    """
+    _report, graph, predictive, posterior = scored("straight")
+    assert isinstance(posterior.representation, DrawsPosterior)
+    truncated = dataclasses.replace(
+        posterior,
+        representation=DrawsPosterior(
+            draws=tuple(
+                dataclasses.replace(array, value=np.asarray(array.value)[:1])
+                for array in posterior.representation.draws
+            ),
+            chain_shape=None,
+            method=posterior.representation.method,
+        ),
+        pointwise_log_likelihood=dataclasses.replace(
+            posterior.pointwise_log_likelihood,
+            value=np.asarray(posterior.pointwise_log_likelihood.value)[:1],
+        ),
+    )
+
+    with pytest.raises(TypeError, match="a weight per draw"):
+        held_out_report(graph, predictive, source_posterior=truncated)
 
 
 def test_the_report_points_at_what_it_read():
