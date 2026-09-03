@@ -122,12 +122,13 @@ ArviZ seam lives in `bayesmith.bridge.arviz`.
 
 ## Status
 
-**0.7.0.** What other packages can depend on by name is whatever
+**0.7.1.** What other packages can depend on by name is whatever
 `pypi.org/simple/bayesmith/` lists, and that index is the place to ask rather
 than this line: 0.6.0, 0.6.1, 0.6.2 and 0.7.0 were each tagged and never
 reached it, every one failing its own built-wheel test (see `CHANGELOG.md`;
-0.7.0's failure is a Linux-only cluster in the numerical-gate suite), so the
-index has carried 0.5.0 as its newest release since 2026-08-28. rheplicant
+0.7.0's failure was a Linux-only cluster in the numerical-gate suite, which is
+also why `suite.yml` now runs the suite on Linux before any tag exists), so
+from 2026-08-28 the index's newest release was 0.5.0. rheplicant
 uses bayesmith across its production inference layer: its auto-partition and
 log-space seams import `dispatch.factor.first_fit` and `exact.loglinear`; its
 adapter presents a pipeline as a `Graph`, reads `AffinityRefused`'s payload and

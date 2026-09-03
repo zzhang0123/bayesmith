@@ -2,6 +2,71 @@
 
 ## Unreleased
 
+## 0.7.1 -- 2026-09-03
+
+The release 0.7.0 could not be, and the first one whose suite has been green on
+the platform it is built on BEFORE the tag existed.
+
+**What went wrong is worth stating plainly, because it cost four version
+numbers.** Until 2026-09-02 this package's own test suite had only ever run on
+one macOS arm64 laptop, and the only place it met Linux was the publish job --
+which runs after the tag is pushed, and a PyPI version number is spent once
+used. On the runner, `v0.7.0` produced 16 failures and 2091 errors from a wheel
+that passes 5375/5375 on that laptop.
+
+None of the sixteen was a typo. Each was a fixture that had written down what
+one machine's arithmetic happened to produce and called it a property. macOS
+numpy uses Accelerate, Linux wheels use scipy-openblas, every version otherwise
+identical, and they differ on: whether C-order and F-order products of the same
+factors have the same bits (Accelerate separates them by one ULP, OpenBLAS
+separates nothing in 96 swept shapes); how a singular value at the bottom of
+the subnormal range is reported (two units of `2**-1074` against one, opposite
+sides of the `1/eps` ceiling); whether `dpotrf` factorises a numerically
+indefinite matrix (same bits, same `eigvalsh` verdict, one LAPACK yields and
+the other refuses); and whether a dgemm microkernel fuses a multiply-add (at
+condition 3.6e15 that moves an exact-Decimal log-determinant by 0.66 nats).
+
+### Added
+
+**`.github/workflows/suite.yml`** runs the suite on Linux on every push to
+main, on pull requests, and nightly -- in two jobs, the working tree with the
+dev group and the built wheel, the second mirroring `publish.yml` step for
+step. It reads its counts from JUnit and refuses a run that collected almost
+nothing, and it logs the resolved numpy, scipy, jax, BLAS and **CPU**, because
+when a roundoff cell moves those are the first questions. This is the mechanism
+that makes a release tag a confirmation rather than a discovery.
+
+**Four diagnostic facts the log-determinant ladder already computed now reach
+its details dict**: `reduced_arithmetic_valid`, `sigma_formation_valid`,
+`sigma_formation_reason` and `measured_rho`. These are additive -- no verdict
+logic changes -- and they exist so that tests can assert the certificate's own
+decision instead of a LAPACK-dependent proxy for it.
+
+### Fixed
+
+**Ten numerical fixtures no longer pin one platform's arithmetic.** In order
+of preference the repairs construct the stress deterministically (an
+axis-aligned redundancy so a coupling fixture's singularity is paid in the
+exponent rather than the last bits; a correlation of `1 - 2**-44` so a
+factorisation disagreement is bounded rather than accidental), or take the
+premise from exact arithmetic (`Fraction`/`Decimal` spectra, a closed-form
+spectral radius), or make a platform-dependent premise conditional and recorded
+while the contract assertions stay unconditional and ahead of it. One was not a
+platform fact at all: an `atol=2e-17` over fixtures that deliberately scale
+their factors by 16x, which had never been exercised because on Accelerate the
+two sides agreed exactly. Nor was the tenth, which asked a computed bound to
+equal a ceiling to `rel=1e-15` where `eps * cond` is 1.49e-08 -- fifteen
+million times tighter than the arithmetic allows, passing by luck until two
+jobs of one workflow disagreed about it.
+
+**Six of the ten come out with MORE kill power than they had**, measured
+rather than claimed: the condition-policy cell recovers a ceiling mutant and
+gains two more the old fixture could not catch, the coupling fixture gains one,
+and the Vandermonde test's reported `gradient_norm` is now checked bitwise
+against a recomputation at the returned point -- which revives four misreport
+mutants that nothing in the suite had been catching. Where a repair costs a
+guard, the cost is named in the file beside it.
+
 ## 0.7.0 -- tagged 2026-09-02, never published
 
 **Tagged and never published, like the three before it, and for a new
