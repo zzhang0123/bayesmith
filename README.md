@@ -116,9 +116,14 @@ pointwise log-likelihood come from one loc/scale read, so an observed-data
 replay is never mistaken for a posterior predictive. A source posterior drawn
 under different data, graph or model is refused as `posterior_data_mismatch`;
 a correlated or non-Gaussian observed node is refused as
-`predictive_noise_unsupported`. `EvidenceTask` and `SimulationTask` still
-return the typed `capability_unavailable_r1` refusal. An optional, export-only
-ArviZ seam lives in `bayesmith.bridge.arviz`.
+`predictive_noise_unsupported`. An optional, export-only ArviZ seam lives in
+`bayesmith.bridge.arviz`.
+
+`SimulationTask` executes too, since R3 opened the evaluation layer: prior,
+fixed and posterior-sourced parameter sources all run through the same forward
+primitives the predictive seam uses, so there is one forward model rather than
+a simulator beside it. `EvidenceTask` is the one of the five still refused, and
+it returns the typed `capability_unavailable_r1`.
 
 ## Status
 
@@ -143,7 +148,7 @@ still move -- 0.3.0 made `reason` required on `NotGaussian` and
 `NotLogLinear`, and 0.4.0 tightens two precision refusals, each breaking for
 a caller who was relying on the wrong answer.
 
-Implemented and tested, 5375 tests: the graph core with plates and joint
+Implemented and tested, 5402 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every
 route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR
