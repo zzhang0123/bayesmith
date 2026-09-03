@@ -149,15 +149,24 @@ def test_the_artifact_protocol_is_a_leaf_and_dispatch_is_what_reaches_it():
     ``artifacts`` imports no other unit of this package: it is data about what
     was asked, planned, produced and judged, and a protocol that reached back
     into the graph layer would put a Graph inside an artifact by the shortest
-    available route. ``dispatch`` is what bridges the two, so the edge exists
-    there and only there -- if a second unit grows one, this assertion is
-    where the decision to allow it gets made.
+    available route. ``dispatch`` was for one release the only unit that
+    bridged the two, and this assertion said so -- and named itself as the
+    place where a second unit's edge would have to be argued for.
+
+    **R3 grew the second, and the argument is that the edge runs the right
+    way.** ``evaluation`` reads results and writes ``EvaluationReport``, both
+    of which are artifact types, so it cannot do its job without this import;
+    R3 §0.1 fixes the direction as ``evaluation -> artifacts`` and
+    ``test_nothing_below_the_evaluation_layer_reads_it`` holds the other side
+    of it. What the leaf property forbids is the reverse, and that is what
+    the first two assertions here check; the list is a census of who depends
+    on the leaf, kept exact so a THIRD unit is argued for rather than added.
     """
     edges = _graph()
     assert edges["artifacts"] == set()
     assert "artifacts" in edges["dispatch"]
     reaching = sorted(unit for unit in edges if "artifacts" in edges[unit])
-    assert reaching == ["dispatch"], reaching
+    assert reaching == ["dispatch", "evaluation"], reaching
 
 
 def test_importing_the_artifact_protocol_pulls_in_no_numerical_stack():

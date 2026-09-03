@@ -216,6 +216,27 @@ COSTS_DECLARATIONS = {
 }
 
 
+# R3 Task 3.  Both gates are CLOSED (`>=`), so their frozen witnesses are the
+# threshold cell itself (tighten: the admitted face) and the step below it
+# (loosen: the refused face) -- see `boundary_checks.py`.
+CHECKS_DECLARATIONS = {
+    "CHECKS:tail_mass_within_rate:declared-false-positive-rate": _both(
+        "decision_predicate",
+        "tail_mass >= ALPHA / 2.0",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
+    "CHECKS:draws_resolve_the_band:p-value-draw-floor": _both(
+        "decision_predicate",
+        "draws >= DRAW_FLOOR",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
+}
+
+
 EAGER_TARGETS = {
     "EAGER:LadderConfig:integer-threshold-domain": (
         "compare",
@@ -892,6 +913,7 @@ def _resolve_specs(
 
 DIAGNOSE_GRAPH_MUTATION_SPECS = _resolve_specs(DIAGNOSE_GRAPH_DECLARATIONS)
 COSTS_MUTATION_SPECS = _resolve_specs(COSTS_DECLARATIONS)
+CHECKS_MUTATION_SPECS = _resolve_specs(CHECKS_DECLARATIONS)
 PILOT_MUTATION_SPECS = _resolve_specs(PILOT_DECLARATIONS)
 COLLAPSE_MUTATION_SPECS = _resolve_specs(COLLAPSE_DECLARATIONS)
 EAGER_MUTATION_SPECS = _resolve_specs(EAGER_DECLARATIONS)
@@ -900,6 +922,8 @@ PLAN_MUTATION_SPECS = _resolve_specs(PLAN_DECLARATIONS)
 
 
 __all__ = [
+    "CHECKS_DECLARATIONS",
+    "CHECKS_MUTATION_SPECS",
     "COLLAPSE_DECLARATIONS",
     "COLLAPSE_MUTATION_SPECS",
     "COSTS_DECLARATIONS",

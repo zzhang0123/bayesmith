@@ -126,6 +126,7 @@ GRAPH = "src/bayesmith/graph/reduction.py"
 COSTS = "src/bayesmith/dispatch/costs.py"
 COLLAPSE = "src/bayesmith/dispatch/collapse.py"
 PILOT = "src/bayesmith/dispatch/pilot.py"
+CHECKS = "src/bayesmith/evaluation/checks.py"
 
 
 def _seed_group(
@@ -548,6 +549,19 @@ _SEEDS = (
         CandidateFamily.DECISION_PREDICATE,
         "PILOT:ratio_exceeds_declared_multiple:declared-multiple",
     ),
+    # R3 Task 3: the evaluation layer's first two thresholds.
+    *_seed_group(
+        CHECKS,
+        "tail_mass_within_rate",
+        CandidateFamily.DECISION_PREDICATE,
+        "CHECKS:tail_mass_within_rate:declared-false-positive-rate",
+    ),
+    *_seed_group(
+        CHECKS,
+        "draws_resolve_the_band",
+        CandidateFamily.DECISION_PREDICATE,
+        "CHECKS:draws_resolve_the_band:p-value-draw-floor",
+    ),
 )
 
 
@@ -942,6 +956,18 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
         (
             "src/bayesmith/dispatch/pilot.py::<module>.ratio_exceeds_declared_multiple::decision_predicate::c2fe1a2786d6b1cf::0",
             "ratio > DECLARED_MULTIPLE",
+        ),
+    ),
+    "CHECKS:tail_mass_within_rate:declared-false-positive-rate": (
+        (
+            "src/bayesmith/evaluation/checks.py::<module>.tail_mass_within_rate::decision_predicate::d2588ff81b262ab1::0",
+            "tail_mass >= ALPHA / 2.0",
+        ),
+    ),
+    "CHECKS:draws_resolve_the_band:p-value-draw-floor": (
+        (
+            "src/bayesmith/evaluation/checks.py::<module>.draws_resolve_the_band::decision_predicate::1b8786c9fa6a0ea4::0",
+            "draws >= DRAW_FLOOR",
         ),
     ),
     "LADDER:determinant-lemma:payload": (
@@ -1867,6 +1893,20 @@ _DECLARED_SOURCE_ANCHORS: dict[str, tuple[SourceAnchor, ...]] = {
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
+    "CHECKS:tail_mass_within_rate:declared-false-positive-rate": (
+        SourceAnchor(
+            "src/bayesmith/evaluation/checks.py",
+            "<module>.tail_mass_within_rate",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
+    "CHECKS:draws_resolve_the_band:p-value-draw-floor": (
+        SourceAnchor(
+            "src/bayesmith/evaluation/checks.py",
+            "<module>.draws_resolve_the_band",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
     "LADDER:determinant-lemma:payload": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
@@ -2541,6 +2581,12 @@ _DECLARED_SOURCE_CLASSIFICATIONS: dict[str, tuple[CandidateClassification, ...]]
         CandidateClassification.NUMERICAL_GATE,
     ),
     "PILOT:ratio_exceeds_declared_multiple:declared-multiple": (
+        CandidateClassification.NUMERICAL_GATE,
+    ),
+    "CHECKS:tail_mass_within_rate:declared-false-positive-rate": (
+        CandidateClassification.NUMERICAL_GATE,
+    ),
+    "CHECKS:draws_resolve_the_band:p-value-draw-floor": (
         CandidateClassification.NUMERICAL_GATE,
     ),
     "LADDER:determinant-lemma:payload": (CandidateClassification.NUMERICAL_GATE,),
@@ -5042,6 +5088,34 @@ GATE_METADATA: dict[str, GateMetadata] = {
         extreme="0, 1, nan, +/-inf",
         fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
     ),
+    "CHECKS:tail_mass_within_rate:declared-false-positive-rate": _metadata(
+        quantity="a predictive check's discrepancy p-value, as the tail mass min(p, 1 - p) it puts in the nearer tail of [0, 1].",
+        threshold="closed lower boundary tail_mass >= ALPHA / 2 = 0.025; borrowed D104 -- statistics' conventional two-sided 0.05, declared in advance as R3 SS9.3 requires, and not derived from any measurement in this repository.",
+        provenance=ThresholdProvenance.BORROWED,
+        admitted_outcome="the cell is filed as within band; a report whose every cell is admitted concludes PASS",
+        refused_outcome="the cell is filed outside the band and the whole report concludes FAIL for its subject",
+        oracle="independent complementary float comparison of a separately computed min(p, 1 - p) against half the declared rate.",
+        axis_name="Boundary cells for a discrepancy p-value's tail mass; inside the band when tail_mass >= 0.025.",
+        low="0.0125 (half the declared tail: a p-value of 0.0125 or 0.9875)",
+        endpoints=("0.025 and nextafter(0.025, +inf)", "nextafter(0.025, -inf)"),
+        high="0.5 (a p-value of exactly one half, the largest a tail mass can be)",
+        extreme="-inf, and the negative tail mass an unnormalised weighted sum produces",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
+    "CHECKS:draws_resolve_the_band:p-value-draw-floor": _metadata(
+        quantity="the number of draws a predictive check computes its p-value from; below the floor the p-value's 1/N resolution is coarser than the tail the declared rate reserves.",
+        threshold="closed lower boundary draws >= ceil(1 / (ALPHA / 2)) = 40; derived D105 -- the formula is what is registered, so the value follows D104 rather than being copied beside it.",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="the check proceeds and its verdict is a measurement rather than a coin",
+        refused_outcome="the report is APPLICABLE and ABSTAIN with finding draws_below_resolution, never the PASS a coarse p-value would always produce",
+        oracle="independent complementary integer comparison against a separately computed ceil(1 / (ALPHA / 2)).",
+        axis_name="Boundary cells for a predictive check's draw count; resolvable when draws >= 40.",
+        low="8 (the draw count the existing suite's ComputeBudget carries)",
+        endpoints=("40 and 41", "39"),
+        high="2000 (the draw count the R3 predictive fixtures use)",
+        extreme="0, a result carrying no draws at all",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
     "PILOT:ratio_exceeds_declared_multiple:declared-multiple": _metadata(
         quantity="the quadratic-over-linear canonical-correlation ratio against the declared multiple 7.0.",
         threshold="open lower boundary ratio > 7.0; derived D101, bracketed by the 6.08x estimator spread and the 8.36x worst funnel draw.",
@@ -6983,7 +7057,7 @@ def validate_registry(
         raise RegistryValidationError("\n".join(errors))
 
 
-if len(GATE_REGISTRY) != 107:
+if len(GATE_REGISTRY) != 109:
     raise RegistryValidationError(
-        f"semantic registry expected 107 reviewed entries, found {len(GATE_REGISTRY)}"
+        f"semantic registry expected 109 reviewed entries, found {len(GATE_REGISTRY)}"
     )
