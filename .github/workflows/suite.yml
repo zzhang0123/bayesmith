@@ -185,6 +185,19 @@ jobs:
           uv pip install build
           uv run python -m build
 
+      # The wheel job gets this too, and it took a measurement to learn why.
+      # On 2026-09-03 one run had the source job fail a boundary cell that the
+      # wheel job passed -- same commit, same OpenBLAS, bit-identical numpy
+      # inputs. GitHub allocates a FRESH VM PER JOB and the ubuntu-latest pool
+      # is heterogeneous, so the two jobs need not share a CPU; OpenBLAS
+      # dispatches its LAPACK kernels on that CPU. Only the source job logged
+      # one, so the difference could be argued and not checked.
+      - name: Say what the numerical stack is
+        run: |
+          echo "cpu      : $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
+          echo "simd     : $(grep -m1 ^flags /proc/cpuinfo | tr ' ' '\n' \
+            | grep -E '^(avx|avx2|avx512[a-z]*|fma|sse4_2)$' | sort -u | tr '\n' ' ')"
+
       - name: Test the built wheel
         env:
           EVENT_NAME: ${{ github.event_name }}
