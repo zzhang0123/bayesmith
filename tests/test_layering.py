@@ -127,18 +127,29 @@ def test_the_function_scope_borrow_this_rule_tolerates_is_still_exactly_one():
     assert borrows == ["fisher.py"], borrows
 
 
-def test_graph_is_the_foundation_and_dispatch_is_the_top():
+def test_graph_is_the_foundation_and_evaluation_is_the_top():
     """The narrative in the top-level docstring, measured.
 
-    ``graph`` is depended on by the most units; ``dispatch`` by none. If that
-    ever inverts, the package's own description of itself has stopped being
-    true.
+    ``graph`` is depended on by the most units; the top of the ladder by none.
+
+    **The top moved in R3, and the move is the point.** This assertion used to
+    read ``in_degree["dispatch"] == 0``, which was true while ``dispatch`` was
+    the last rung. R3 §0.1 puts ``evaluation`` above it -- the checks read a
+    finished Result through ``dispatch.predictive`` and ``dispatch.task``, and
+    §7.2's chain is ``model/graph -> analysis/compiler -> execution adapters ->
+    evaluation -> workflow``. So the roof is ``evaluation`` now, and the one
+    arrow into ``dispatch`` is the one the design draws. Naming the units
+    ABOVE dispatch rather than counting them is what keeps this honest: a
+    second, unplanned unit reaching down would show up as a name here rather
+    than as a number that someone bumps.
     """
     edges = _graph()
     in_degree = {
         unit: sum(1 for other in edges if unit in edges[other]) for unit in edges
     }
-    assert in_degree["dispatch"] == 0, "something now depends on dispatch"
+    assert in_degree["evaluation"] == 0, "something now depends on evaluation"
+    above_dispatch = sorted(unit for unit in edges if "dispatch" in edges[unit])
+    assert above_dispatch == ["evaluation"], above_dispatch
     assert in_degree["graph"] >= 4, in_degree
     assert edges["graph"] <= {"errors", "distributions"}, edges["graph"]
 
@@ -158,9 +169,10 @@ def test_the_artifact_protocol_is_a_leaf_and_dispatch_is_what_reaches_it():
     of which are artifact types, so it cannot do its job without this import;
     R3 §0.1 fixes the direction as ``evaluation -> artifacts`` and
     ``test_nothing_below_the_evaluation_layer_reads_it`` holds the other side
-    of it. What the leaf property forbids is the reverse, and that is what
-    the first two assertions here check; the list is a census of who depends
-    on the leaf, kept exact so a THIRD unit is argued for rather than added.
+    of it. The direction that stays forbidden is the reverse one, and
+    ``edges["artifacts"] == set()`` below is what holds it; the list after it
+    is a census of who depends on the leaf, spelled out rather than counted so
+    that a THIRD unit growing an edge fails with a name in it.
     """
     edges = _graph()
     assert edges["artifacts"] == set()

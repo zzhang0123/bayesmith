@@ -38,8 +38,14 @@ from __future__ import annotations
 
 __all__ = [
     "ALPHA",
+    "DEFAULT_DISCREPANCIES",
+    "DRAW_FLOOR",
     "REPLICATE_FLOOR",
     "SbcRanks",
+    "discrepancy_identity",
+    "held_out_report",
+    "posterior_predictive_check",
+    "prior_predictive_check",
     "sbc_ranks",
     "sbc_report",
     "simulation_based_calibration",
@@ -65,13 +71,20 @@ __all__ = [
 ALPHA = 0.05
 
 
-# The predictive checks (R3 Task 3).  Imported at the FOOT of this module, not
-# the head, and the order is load-bearing rather than untidy: `checks` reads
-# `ALPHA` from here, so the constant has to be bound before that module runs.
-# Python has already put this package in `sys.modules` by then, so the cycle
-# resolves -- but only in this direction.  Appended as its own block, and
-# `__all__` extended rather than rewritten, so the other R3 modules can land
-# their own blocks beside it without three tasks editing one line.
+# Every re-export sits BELOW ``ALPHA``, and the position is load-bearing for
+# three of the five modules rather than a matter of tidiness: ``checks``,
+# ``heldout`` and ``sbc`` each read ``ALPHA`` from this package at module
+# scope, so the constant has to be bound before their import runs.  Python has
+# already put this package in ``sys.modules`` by then, so the cycle resolves --
+# but only in this direction.  ``loo`` and ``diagnostics`` do not read
+# ``ALPHA`` and were written with their imports at the head of the file; the
+# foot is the one position that is correct for BOTH groups, which is why they
+# were moved here at the merge rather than left where each branch put them.
+#
+# ArviZ stays optional through this file: ``loo`` imports it inside the
+# function that needs it, so re-exporting ``loo_report`` eagerly here does not
+# pull it in.  ``test_importing_the_evaluation_layer_pulls_in_no_arviz`` checks
+# that in a subprocess rather than trusting this paragraph.
 from bayesmith.evaluation.checks import (
     DEFAULT_DISCREPANCIES,
     DRAW_FLOOR,
@@ -79,18 +92,8 @@ from bayesmith.evaluation.checks import (
     posterior_predictive_check,
     prior_predictive_check,
 )
-
-__all__ += [
-    "DRAW_FLOOR",
-    "DEFAULT_DISCREPANCIES",
-    "discrepancy_identity",
-    "posterior_predictive_check",
-    "prior_predictive_check",
-]
-# Re-exported at the BOTTOM, after ALPHA: ``sbc`` reads ALPHA from this module,
-# so an import placed with the others would ask for a name this file has not
-# defined yet.
-from .sbc import (
+from bayesmith.evaluation.heldout import held_out_report
+from bayesmith.evaluation.sbc import (
     REPLICATE_FLOOR,
     SbcRanks,
     sbc_ranks,
