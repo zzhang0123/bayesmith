@@ -44,6 +44,7 @@ __all__ = [
     "SbcRanks",
     "discrepancy_identity",
     "held_out_report",
+    "loo_report",
     "posterior_predictive_check",
     "prior_predictive_check",
     "sbc_ranks",
@@ -93,6 +94,7 @@ from bayesmith.evaluation.checks import (
     prior_predictive_check,
 )
 from bayesmith.evaluation.heldout import held_out_report
+from bayesmith.evaluation.loo import loo_report
 from bayesmith.evaluation.sbc import (
     REPLICATE_FLOOR,
     SbcRanks,
