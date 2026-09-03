@@ -284,6 +284,14 @@ _LAZY_SUBMODULES = (
     # the filesystem, so a subpackage that exists and is unlisted is red from
     # the moment its directory appears.
     "artifacts",
+    # The evaluation layer (R3 §0.1). Registered here in the SAME commit that
+    # creates the subpackage, for the reason the paragraph above gives and
+    # which was re-measured while writing this line: with the directory on
+    # disk and the name absent, `test_every_submodule_is_reachable_after_a_
+    # bare_import` is red immediately. Deferring the registration to the
+    # commit that gives the layer its first real function would leave the
+    # suite red for every commit in between.
+    "evaluation",
 )
 
 

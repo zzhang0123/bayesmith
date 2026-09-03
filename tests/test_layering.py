@@ -185,3 +185,64 @@ def test_importing_the_artifact_protocol_pulls_in_no_numerical_stack():
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "[]"
 
+
+
+def test_nothing_below_the_evaluation_layer_reads_it():
+    """R3 §0.1's direction, in the form a module-scope check can hold.
+
+    The evaluation layer reads ``dispatch``, ``graph``, ``artifacts`` and the
+    ArviZ bridge, and none of them reads it back. That is not a preference: an
+    evaluation that ``dispatch`` could import would let the execution layer
+    judge its own output, which is exactly what §2.4 ("Evaluation only
+    evaluates Results; it does not modify the posterior and does not choose a
+    new algorithm on the execution layer's behalf") exists to forbid. The
+    other direction of the same rule is that the reports are DERIVED objects,
+    so an artifact that could reach them would put a verdict inside the thing
+    the verdict is about.
+
+    The three named units are the ones the layer is built on top of, i.e. the
+    ones with something to gain from a shortcut. ``exact``, ``marginal`` and
+    the rest are covered by the acyclicity test above, which is what makes a
+    back-edge a cycle rather than merely a wrong-way arrow.
+    """
+    edges = _graph()
+    assert "evaluation" in edges, (
+        "the evaluation subpackage is missing from the tree; this rule is "
+        "about a layer that exists"
+    )
+    for unit in ("artifacts", "graph", "dispatch"):
+        assert "evaluation" not in edges[unit], (
+            f"{unit} imports evaluation at module scope: the layer that is "
+            "judged now reaches the layer that judges it"
+        )
+
+
+def test_importing_the_evaluation_layer_pulls_in_no_arviz():
+    """§0.9 keeps ArviZ OPTIONAL, and an optional dependency is only optional
+    while nothing imports it on the way in.
+
+    ``loo.py`` is the one module that will call ``arviz.loo``, and the whole
+    of §7.3's "degrade gracefully" contract is that a clone without arviz
+    installed gets an UNVERIFIABLE report rather than an ImportError. That
+    contract is decided by WHERE the import sits: inside the function that
+    needs it, never at module scope, and never re-exported through this
+    package's ``__init__``.
+
+    In a subprocess for the same reason as the artifact-protocol check above:
+    by the time this test runs, arviz is already in this process's
+    ``sys.modules`` because ``tests/bridge`` imported it, so an in-process
+    assertion would be a statement about the test runner.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import bayesmith.evaluation as e, sys; "
+        "assert e.__doc__; "
+        "print(sorted({'arviz'} & set(sys.modules)))"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"
