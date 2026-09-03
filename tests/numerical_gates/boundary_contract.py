@@ -170,6 +170,14 @@ _add(
     ("PILOT:ratio_exceeds_declared_multiple:declared-multiple",),
     ("ratio_exceeds_declared_multiple",),
 )
+_add(
+    ("SBC:replicates_meet_floor:replicate-floor",),
+    ("replicates_meet_floor",),
+)
+_add(
+    ("SBC:ranks_are_uniform:bonferroni-level",),
+    ("ranks_are_uniform",),
+)
 
 _add(
     ("LADDER:sigma:payload-symmetry",),

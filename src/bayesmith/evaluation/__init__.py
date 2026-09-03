@@ -36,7 +36,14 @@ it installed gets an UNVERIFIABLE report rather than an ImportError (§7.3).
 
 from __future__ import annotations
 
-__all__ = ["ALPHA"]
+__all__ = [
+    "ALPHA",
+    "REPLICATE_FLOOR",
+    "SbcRanks",
+    "sbc_ranks",
+    "sbc_report",
+    "simulation_based_calibration",
+]
 
 #: D104. The two-sided false-positive rate EVERY random check in this layer
 #: declares in advance, as §9.3 requires.
@@ -56,3 +63,14 @@ __all__ = ["ALPHA"]
 #: m held-out points is ``ALPHA / (2 * m)``, and for K latent coordinates in
 #: SBC it is ``ALPHA / K``.
 ALPHA = 0.05
+
+# Re-exported at the BOTTOM, after ALPHA: ``sbc`` reads ALPHA from this module,
+# so an import placed with the others would ask for a name this file has not
+# defined yet.
+from .sbc import (
+    REPLICATE_FLOOR,
+    SbcRanks,
+    sbc_ranks,
+    sbc_report,
+    simulation_based_calibration,
+)

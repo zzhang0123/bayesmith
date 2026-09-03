@@ -184,6 +184,24 @@ PILOT_DECLARATIONS = {
 }
 
 
+SBC_DECLARATIONS = {
+    "SBC:replicates_meet_floor:replicate-floor": _both(
+        "decision_predicate",
+        "usable >= floor",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
+    "SBC:ranks_are_uniform:bonferroni-level": _both(
+        "decision_predicate",
+        "p_value >= level",
+        MutationStrategy.SHIFT_COMPARISON,
+        true_side=GateSide.ADMITTED,
+        threshold_side=ComparisonThresholdSide.RIGHT,
+    ),
+}
+
+
 COSTS_DECLARATIONS = {
     "COSTS:share_is_dominant:dominance-share": _both(
         "decision_predicate",
@@ -893,6 +911,7 @@ def _resolve_specs(
 DIAGNOSE_GRAPH_MUTATION_SPECS = _resolve_specs(DIAGNOSE_GRAPH_DECLARATIONS)
 COSTS_MUTATION_SPECS = _resolve_specs(COSTS_DECLARATIONS)
 PILOT_MUTATION_SPECS = _resolve_specs(PILOT_DECLARATIONS)
+SBC_MUTATION_SPECS = _resolve_specs(SBC_DECLARATIONS)
 COLLAPSE_MUTATION_SPECS = _resolve_specs(COLLAPSE_DECLARATIONS)
 EAGER_MUTATION_SPECS = _resolve_specs(EAGER_DECLARATIONS)
 LADDER_MUTATION_SPECS = _resolve_specs(LADDER_DECLARATIONS)
@@ -917,5 +936,7 @@ __all__ = [
     "PLAN_DECLARATIONS",
     "PLAN_MUTATION_SPECS",
     "PLAN_TARGETS",
+    "SBC_DECLARATIONS",
+    "SBC_MUTATION_SPECS",
     "TargetDeclaration",
 ]

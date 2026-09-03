@@ -25,6 +25,7 @@ SOURCE_PATHS = (
     "src/bayesmith/dispatch/costs.py",
     "src/bayesmith/dispatch/collapse.py",
     "src/bayesmith/dispatch/pilot.py",
+    "src/bayesmith/evaluation/sbc.py",
 )
 
 
