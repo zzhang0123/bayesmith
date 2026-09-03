@@ -61,6 +61,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import numpyro
 
@@ -115,10 +116,12 @@ from bayesmith.artifacts.results import (
     PosteriorResult,
     PredictiveResult,
     Result,
+    SimulationResult,
     WeightedDrawsPosterior,
 )
 from bayesmith.artifacts.tasks import (
     Estimand,
+    ParameterSourceKind,
     Task,
     TaskKind,
     task_fingerprint,
@@ -135,7 +138,9 @@ from bayesmith.dispatch.plan import Block, InferencePlan, kappa_upper
 from bayesmith.dispatch.plan import compile as compile_plan
 from bayesmith.dispatch.predictive import (
     _dims,
+    forward_draws,
     pointwise_log_likelihood,
+    prior_draws,
     replicated_draws,
 )
 from bayesmith.errors import NotGaussian, NotLogLinear
@@ -173,12 +178,22 @@ PRODUCER = ProducerRef(package="bayesmith", version=__version__)
 #: honouring it silently, which is what a field nobody reads amounts to.
 SUPPORTED_BACKENDS: frozenset[str] = frozenset({"auto"})
 
-#: The three of §0 ruling 1's five questions this release answers. The other
-#: two (evidence and simulation) are refused with
+#: The four of §0 ruling 1's five questions this release answers. The fifth
+#: (evidence) is refused with
 #: :data:`~bayesmith.artifacts.refusal.CAPABILITY_UNAVAILABLE_R1`, which is a
 #: verdict a caller can branch on rather than a NotImplementedError.
+#:
+#: Simulation joined in R3 (§0.7). It had to: SBC needs `(theta, y)` pairs
+#: from the prior and the prior predictive check needs datasets from it, and
+#: writing either one outside this seam would have put a second forward model
+#: beside the one R2 built.
 SUPPORTED_TASK_KINDS: frozenset[TaskKind] = frozenset(
-    {TaskKind.POSTERIOR, TaskKind.POINT_ESTIMATE, TaskKind.PREDICTIVE}
+    {
+        TaskKind.POSTERIOR,
+        TaskKind.POINT_ESTIMATE,
+        TaskKind.PREDICTIVE,
+        TaskKind.SIMULATION,
+    }
 )
 
 #: The MAP seams, named so a task can choose one. ``"newton"`` is
@@ -726,13 +741,13 @@ def _map_method(task: Task) -> Any:
 def _known_options(task: Task, kind: TaskKind) -> frozenset[str]:
     if kind is TaskKind.POSTERIOR:
         return _POSTERIOR_OPTIONS
-    if kind is TaskKind.PREDICTIVE:
+    if kind in (TaskKind.PREDICTIVE, TaskKind.SIMULATION):
         return frozenset()
     return _MAP_OPTIONS if task.estimand is Estimand.MAP else _POSTERIOR_MEAN_OPTIONS
 
 
 def _given_options(task: Task, kind: TaskKind) -> tuple[tuple[str, Any], ...]:
-    if kind in (TaskKind.POSTERIOR, TaskKind.PREDICTIVE):
+    if kind in (TaskKind.POSTERIOR, TaskKind.PREDICTIVE, TaskKind.SIMULATION):
         return task.backend_options
     return task.optimizer_options
 
@@ -1169,7 +1184,13 @@ def _plan_record(
         backend=task.backend,
         premises=_premises(runtime, task, kind),
         budget=task.budget,
-        quality_gate=task.quality_gate,
+        # Four tasks carry a gate and simulation carries none -- §0.4's
+        # deliberate omission, not an oversight: a simulation produced what
+        # the model says, and whether that is a good model is what the other
+        # four ask. Spelled as a branch rather than as a `getattr` default so
+        # that a SIXTH task kind arriving without the field is a loud
+        # AttributeError here rather than a silently ungated plan.
+        quality_gate=None if kind is TaskKind.SIMULATION else task.quality_gate,
         fallback_policy=policy,
     )
 
@@ -1878,6 +1899,87 @@ def _grouping(graph: Graph) -> str | None:
     return next(iter(plates)) if len(plates) == 1 else None
 
 
+def _posterior_source_refusal(
+    task: Task,
+    kind: TaskKind,
+    expected: FingerprintBundle,
+    source_posterior: PosteriorResult,
+) -> Refusal | None:
+    """The §0.6 premise BOTH forward tasks rest on: this posterior is of this
+    model, this graph and this conditioning data.
+
+    Shared by :func:`_run_predictive` and :func:`_run_simulation` rather than
+    copied into the second, because the two ask the same question and a second
+    copy of a premise is how two answers to one question get written. Nothing
+    about the predictive path's behaviour moves: the same three slots in the
+    same order, and ``kind.value`` reads "predictive" there exactly as the
+    literal it replaced did.
+    """
+    source = source_posterior.meta.fingerprints
+    mismatched = tuple(
+        slot.value
+        for slot, left, right in (
+            (FingerprintKind.DATA, source.data, expected.data),
+            (
+                FingerprintKind.GRAPH_STRUCTURE,
+                source.graph_structure,
+                expected.graph_structure,
+            ),
+            (FingerprintKind.MODEL_SOURCE, source.model_source, expected.model_source),
+        )
+        if left != right
+    )
+    if not mismatched:
+        return None
+    return _refusal(
+        task,
+        artifact_type=ArtifactKind.RESULT,
+        fingerprints=expected,
+        failed_premise="posterior_data_mismatch",
+        grounds=(
+            Finding(
+                code="posterior_data_mismatch",
+                message="the source posterior was drawn from a different "
+                f"model, graph or conditioning data than this {kind.value} task "
+                "names, so its draws cannot be pushed forward against this "
+                "graph",
+                observed=mismatched,
+                expected=("data", "graph_structure", "model_source"),
+            ),
+        ),
+        scope=_scope(ScopeKind.DATA, "source_posterior"),
+        summary=f"source posterior fingerprints disagree on {list(mismatched)}",
+    )
+
+
+def _noise_refusal(
+    task: Task, expected: FingerprintBundle, exc: NotGaussian, seam: str
+) -> Refusal:
+    """§0.4's coverage domain, adapted once for both forward tasks.
+
+    ``observation_parts`` is a diagonal walk, so a correlated or non-Gaussian
+    observed node raises out of the primitives rather than being quietly
+    approximated. The code comes from the exception's structured ``reason``
+    field, never from its prose.
+    """
+    return _refusal(
+        task,
+        artifact_type=ArtifactKind.RESULT,
+        fingerprints=expected,
+        failed_premise="predictive_noise_unsupported",
+        grounds=(
+            Finding(
+                code=f"not_gaussian.{exc.reason}",
+                message=str(exc),
+                observed=exc.found,
+                expected="diagonal_normal",
+            ),
+        ),
+        scope=(node_scope(exc.node) if exc.node else _scope(ScopeKind.MODEL, seam)),
+        summary="predictive generation needs a diagonal-Gaussian observation",
+    )
+
+
 def _run_predictive(
     planned: PlannedTask,
     key: jax.Array | None,
@@ -1919,40 +2021,11 @@ def _run_predictive(
         )
 
     expected = planned.record.meta.fingerprints
-    source = source_posterior.meta.fingerprints
-    mismatched = tuple(
-        kind.value
-        for kind, left, right in (
-            (FingerprintKind.DATA, source.data, expected.data),
-            (
-                FingerprintKind.GRAPH_STRUCTURE,
-                source.graph_structure,
-                expected.graph_structure,
-            ),
-            (FingerprintKind.MODEL_SOURCE, source.model_source, expected.model_source),
-        )
-        if left != right
+    mismatch = _posterior_source_refusal(
+        task, TaskKind.PREDICTIVE, expected, source_posterior
     )
-    if mismatched:
-        return _refusal(
-            task,
-            artifact_type=ArtifactKind.RESULT,
-            fingerprints=expected,
-            failed_premise="posterior_data_mismatch",
-            grounds=(
-                Finding(
-                    code="posterior_data_mismatch",
-                    message="the source posterior was drawn from a different "
-                    "model, graph or conditioning data than this predictive task "
-                    "names, so its draws cannot be pushed forward against this "
-                    "graph",
-                    observed=mismatched,
-                    expected=("data", "graph_structure", "model_source"),
-                ),
-            ),
-            scope=_scope(ScopeKind.DATA, "source_posterior"),
-            summary=f"source posterior fingerprints disagree on {list(mismatched)}",
-        )
+    if mismatch is not None:
+        return mismatch
 
     representation = source_posterior.representation
     if not isinstance(representation, (DrawsPosterior, WeightedDrawsPosterior)):
@@ -1978,26 +2051,7 @@ def _run_predictive(
         replicated = replicated_draws(graph, latent_values, key)
         pointwise = pointwise_log_likelihood(graph, latent_values)
     except NotGaussian as exc:
-        return _refusal(
-            task,
-            artifact_type=ArtifactKind.RESULT,
-            fingerprints=expected,
-            failed_premise="predictive_noise_unsupported",
-            grounds=(
-                Finding(
-                    code=f"not_gaussian.{exc.reason}",
-                    message=str(exc),
-                    observed=exc.found,
-                    expected="diagonal_normal",
-                ),
-            ),
-            scope=(
-                node_scope(exc.node)
-                if exc.node
-                else _scope(ScopeKind.MODEL, "predictive")
-            ),
-            summary="predictive generation needs a diagonal-Gaussian observation",
-        )
+        return _noise_refusal(task, expected, exc, "predictive")
     elapsed = time.perf_counter() - clock
     finished = utc_timestamp()
 
@@ -2047,6 +2101,196 @@ def _run_predictive(
     )
 
 
+def _check_simulation_sites(graph: Graph, task: Task) -> None:
+    """The task's site names, checked against the graph before anything runs.
+
+    A typo in ``observed_sites`` would otherwise come back as an empty result
+    that validates, and a caller reading ``observation_draws`` would find the
+    node they asked for simply absent rather than misspelled.
+    """
+    for field, declared in (
+        ("latent_sites", graph.latents),
+        ("observed_sites", graph.observed),
+    ):
+        unknown = tuple(
+            name for name in getattr(task, field) if name not in declared
+        )
+        if unknown:
+            raise TypeError(
+                f"{field} names {list(unknown)}, which this graph does not "
+                f"declare; its are {list(declared)}"
+            )
+
+
+def _run_simulation(
+    planned: PlannedTask,
+    key: jax.Array | None,
+    source_posterior: PosteriorResult | None,
+) -> Result | Refusal:
+    """Generate forward from one of the three parameter sources (§0.7).
+
+    The three arms differ only in where the parameters come from, and they
+    reach the observations through the SAME two primitives R2 built:
+    ``PRIOR`` walks the graph with :func:`~bayesmith.dispatch.predictive.prior_draws`
+    (observed nodes included, so it is the prior predictive), ``FIXED`` pushes
+    one setting through :func:`~bayesmith.dispatch.predictive.forward_draws`,
+    and ``POSTERIOR_RESULT`` pushes a source posterior's draws through
+    :func:`~bayesmith.dispatch.predictive.replicated_draws` -- the same call
+    with the same key that :func:`_run_predictive` makes, which is why the two
+    tasks answer with the same bits and why a test says so at ``rtol=0``.
+
+    **``latent_draws`` holds latents that were DRAWN.** A fixed source draws
+    none: its parameters have no draw axis to share with the observations, so
+    they travel in ``parameters`` instead, and naming one in ``latent_sites``
+    yields nothing rather than a repeated column pretending to be a sample.
+    """
+    task = planned.task
+    if key is None:
+        raise TypeError(
+            "a simulation run needs a PRNG key: execute_task(planned, "
+            "key=jax.random.key(0)). Minting one here would make the run "
+            "irreproducible while looking exactly like one that was seeded."
+        )
+    graph = planned.runtime_plan.graph
+    _check_simulation_sites(graph, task)
+    source = task.parameter_source
+    expected = planned.record.meta.fingerprints
+
+    chained = False
+    details: tuple[tuple[str, Any], ...] = (
+        ("parameter_source", source.kind.value),
+        ("requested_backend", task.backend),
+    )
+    latents: dict[str, Any] = {}
+
+    if source.kind is ParameterSourceKind.POSTERIOR_RESULT:
+        if source_posterior is None:
+            raise TypeError(
+                "a simulation task drawing from a posterior result names the "
+                "artifact it draws from, and this release has no artifact "
+                "store to load one from; pass it as source_posterior=..."
+            )
+        _check(source_posterior, PosteriorResult, "execute_task's source_posterior")
+        reference = source.posterior_ref
+        if (
+            source_posterior.meta.artifact_id != reference.artifact_id
+            or source_posterior.meta.revision != reference.revision
+        ):
+            raise TypeError(
+                "the supplied source posterior is not the version the task's "
+                "parameter source names; pass the posterior that reference "
+                "points at rather than another one"
+            )
+        mismatch = _posterior_source_refusal(
+            task, TaskKind.SIMULATION, expected, source_posterior
+        )
+        if mismatch is not None:
+            return mismatch
+        representation = source_posterior.representation
+        if not isinstance(representation, (DrawsPosterior, WeightedDrawsPosterior)):
+            raise TypeError(
+                "a simulation task reading a posterior needs one that holds "
+                f"draws; this one is a {type(representation).__name__}"
+            )
+        latents = {array.name: array.value for array in representation.draws}
+        count = len(representation.draws[0].value) if representation.draws else 0
+        chained = source_posterior.run.backend.name == "numpyro"
+        details = (*details, ("source_method", representation.method))
+    else:
+        count = task.budget.draws
+        if count is None:
+            raise TypeError(
+                "a simulation task's draw count is its budget.draws, and this "
+                "task's budget names none. This module decides no number, and "
+                "unlike a sampler's draw count there is no runtime signature "
+                "here that owns a default to be read off -- so a value chosen "
+                "here would be one nobody asked for, recorded as though they "
+                "had."
+            )
+
+    started = utc_timestamp()
+    clock = time.perf_counter()
+    try:
+        if source.kind is ParameterSourceKind.PRIOR:
+            env = prior_draws(graph, key, count)
+            latents = {name: env[name] for name in graph.latents}
+            observations = {name: env[name] for name in graph.observed}
+        elif source.kind is ParameterSourceKind.FIXED:
+            observations = forward_draws(
+                graph,
+                {array.name: jnp.asarray(array.value) for array in source.values},
+                key,
+                count,
+            )
+        else:
+            observations = replicated_draws(graph, latents, key)
+    except NotGaussian as exc:
+        return _noise_refusal(task, expected, exc, "simulation")
+    elapsed = time.perf_counter() - clock
+    finished = utc_timestamp()
+
+    reported = [name for name in task.latent_sites if name in latents]
+    latent_named = tuple(
+        _named(graph, name, latents[name], draw=True) for name in reported
+    )
+    observation_named = tuple(
+        _named(graph, name, observations[name], draw=True)
+        for name in task.observed_sites
+    )
+    if not latent_named and not observation_named:
+        # Reachable, and the artifact's own validation would say something
+        # true but unhelpful here ("holding neither is a result with no
+        # content") because `_dtype` runs first and fails on an empty list.
+        # The combination that gets here is a FIXED source naming only
+        # latent_sites, which is a request for draws of the values the caller
+        # just fixed.
+        raise TypeError(
+            f"this simulation would hold no draws: a {source.kind.value} "
+            f"parameter source draws {sorted(latents)}, and the task named "
+            f"latent_sites={list(task.latent_sites)} and "
+            f"observed_sites={list(task.observed_sites)}. A fixed source "
+            "draws no latents -- the values it fixes travel in `parameters` "
+            "-- so a fixed simulation names at least one observed site."
+        )
+
+    run = _run_record(
+        planned,
+        key=key,
+        # The live arrays, not the NamedArrays' numpy copies: `_devices` reads
+        # `.devices()` off each value and falls back to "what was available"
+        # when nothing answers, which is the very distinction that record
+        # exists to make.
+        values=[latents[name] for name in reported]
+        + [observations[name] for name in task.observed_sites],
+        budget=ComputeBudget(draws=count),
+        termination=TerminationRecord(
+            reason=TerminationReason.COMPLETED,
+            message="forward draws generated from the "
+            f"{source.kind.value} parameter source",
+        ),
+        timing=_timing(started, finished, elapsed),
+        approximation=ApproximationRecord(
+            representation_class=ApproximationClass.MONTE_CARLO,
+            target_fidelity=TargetFidelity.EXACT,
+            details=details,
+        ),
+        warnings=(),
+        chained=chained,
+    )
+    return SimulationResult(
+        meta=_result_meta(
+            planned, run, f"forward draws from the {source.kind.value} source"
+        ),
+        run=run,
+        parameter_source=source,
+        parameters=source.values,
+        latent_draws=latent_named,
+        observation_draws=observation_named,
+        prediction_design=task.prediction_design,
+        report_refs=(),
+    )
+
+
 def execute_task(
     planned: PlannedTask,
     *,
@@ -2062,18 +2306,22 @@ def execute_task(
 
     Args:
         planned: what :func:`compile_task` produced.
-        key: the PRNG key a posterior or predictive run draws from. Required
-            there, and unused by a point estimate -- which splits nothing, so
-            its run record carries no seed rather than one it never consumed.
+        key: the PRNG key a posterior, predictive or simulation run draws
+            from. Required there, and unused by a point estimate -- which
+            splits nothing, so its run record carries no seed rather than one
+            it never consumed.
         source_posterior: the :class:`~bayesmith.artifacts.results.PosteriorResult`
-            a predictive task pushes forward. Required for a predictive task,
-            where its id/revision and its data/graph/model fingerprints are
-            checked against the task's before anything is generated.
+            a predictive task pushes forward. Required for a predictive task
+            and for a simulation task whose parameter source is a posterior
+            result; in both, its id/revision and its data/graph/model
+            fingerprints are checked against the task's before anything is
+            generated.
 
     Returns:
         A :class:`~bayesmith.artifacts.results.PosteriorResult`,
-        :class:`~bayesmith.artifacts.results.PointEstimateResult` or
-        :class:`~bayesmith.artifacts.results.PredictiveResult`, or a
+        :class:`~bayesmith.artifacts.results.PointEstimateResult`,
+        :class:`~bayesmith.artifacts.results.PredictiveResult` or
+        :class:`~bayesmith.artifacts.results.SimulationResult`, or a
         :class:`~bayesmith.artifacts.refusal.Refusal` where the method turned
         out not to apply. A genuine execution failure --
         :class:`~bayesmith.errors.ConvergenceError` above all -- is raised, not
@@ -2090,6 +2338,8 @@ def execute_task(
         return _run_map(planned)
     if kind is TaskKind.PREDICTIVE:
         return _run_predictive(planned, key, source_posterior)
+    if kind is TaskKind.SIMULATION:
+        return _run_simulation(planned, key, source_posterior)
     # compile_task never produces one of these; a PlannedTask assembled by
     # hand gets the same verdict rather than an execution that half-works.
     return _capability_refusal(

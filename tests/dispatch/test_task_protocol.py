@@ -38,7 +38,7 @@ import numpyro.distributions as dist
 import pytest
 
 from bayesmith import const, det, observe, plate, sample, trace
-from bayesmith.artifacts.base import ArtifactRef, ComputeBudget
+from bayesmith.artifacts.base import ArtifactRef, ComputeBudget, NamedArray
 from bayesmith.artifacts.identity import (
     ArtifactKind,
     FingerprintKind,
@@ -60,6 +60,7 @@ from bayesmith.artifacts.tasks import (
     PosteriorTask,
     PredictiveTask,
     SimulationTask,
+    TaskKind,
     new_task_meta,
 )
 from bayesmith.diagnose.coupling import Refused
@@ -408,25 +409,26 @@ def test_a_planned_task_is_identified_by_its_records_and_not_by_the_runtime():
     assert dataclasses.replace(planned, runtime_plan=other.runtime_plan) == planned
 
 
-@pytest.mark.parametrize(
-    "build",
-    [
-        pytest.param(lambda: EvidenceTask(meta=new_task_meta(label="Z")), id="evidence"),
-        pytest.param(
-            lambda: SimulationTask(
-                meta=new_task_meta(label="forward"),
-                parameter_source=ParameterSource.prior(),
-                latent_sites=("w",),
-            ),
-            id="simulation",
-        ),
-    ],
-)
-def test_the_two_tasks_r1_cannot_answer_are_refused_as_a_capability(build):
-    """§0 ruling 1 keeps five tasks in the protocol and this release answers
-    three of them. The other two are refused with the premise the plan names,
-    not with a ``NotImplementedError`` a caller cannot branch on."""
-    task = build()
+def test_the_one_task_this_release_cannot_answer_is_refused_as_a_capability():
+    """§0 ruling 1 keeps five tasks in the protocol; R3 answers the fourth.
+
+    This test used to be parametrized over evidence AND simulation. R3 §0.7
+    makes ``SimulationTask`` execute, so the simulation arm was removed and
+    replaced by :func:`test_a_simulation_task_compiles_into_a_planned_task`
+    below and by the execution tests in ``test_task_execution.py`` -- a
+    deliberate test change, and the coverage it gives up here it gains there.
+
+    What it still catches is more than the one refusal, because the set of
+    unanswered kinds is now DERIVED rather than listed: adding a kind to
+    ``SUPPORTED_TASK_KINDS`` without a story, or dropping one, turns the first
+    assertion red. The old parametrized form could not have said that -- it
+    named the two it already knew about, which is the shape of guard that let
+    three submodules go missing from ``_LAZY_SUBMODULES`` at once.
+    """
+    unanswered = set(TaskKind) - task_module.SUPPORTED_TASK_KINDS
+    assert unanswered == {TaskKind.EVIDENCE}, sorted(k.value for k in unanswered)
+
+    task = EvidenceTask(meta=new_task_meta(label="Z"))
     refusal = compile_task(straight_line(), task, model_ref=model_ref())
     assert isinstance(refusal, Refusal)
     assert refusal.failed_premise == CAPABILITY_UNAVAILABLE_R1
@@ -434,6 +436,51 @@ def test_the_two_tasks_r1_cannot_answer_are_refused_as_a_capability(build):
     assert refusal.grounds and refusal.remedies
     assert refusal.scope.kind is ScopeKind.TASK
     assert refusal.meta.artifact_type is ArtifactKind.PLAN
+    # The refusal names what IS answered, read off the table rather than
+    # restated -- so this stays true when the fifth kind lands in R4.
+    assert refusal.grounds[0].expected == tuple(
+        sorted(kind.value for kind in task_module.SUPPORTED_TASK_KINDS)
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(ParameterSource.prior(), id="prior"),
+        pytest.param(
+            ParameterSource.fixed(
+                (NamedArray(name="w", value=np.asarray(2.5), dims=()),)
+            ),
+            id="fixed",
+        ),
+        pytest.param(
+            ParameterSource.from_posterior_result(result_ref()),
+            id="posterior_result",
+        ),
+    ],
+)
+def test_a_simulation_task_compiles_into_a_planned_task(source):
+    """R3 answers simulation, and all three parameter sources compile.
+
+    Compilation is where the source arm is NOT yet consulted -- the plan is of
+    the graph, and which parameters get pushed through it is an execution-time
+    question -- so all three reaching a ``PlannedTask`` is the claim. The
+    posterior-source case in particular must compile against a reference it
+    cannot resolve here: there is no artifact store, and refusing at compile
+    time would make a plan depend on data it is not given.
+    """
+    task = SimulationTask(
+        meta=new_task_meta(label="forward"),
+        parameter_source=source,
+        latent_sites=("w",),
+        observed_sites=("d",),
+        budget=ComputeBudget(draws=8),
+    )
+    planned = compile_task(straight_line(), task, model_ref=model_ref())
+    assert isinstance(planned, PlannedTask)
+    assert planned.record.quality_gate is None, (
+        "a simulation makes no statistical claim, so it carries no gate (§0.4)"
+    )
 
 
 def test_a_predictive_task_compiles_into_a_planned_task():

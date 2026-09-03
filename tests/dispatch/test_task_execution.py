@@ -36,6 +36,7 @@ from bayesmith.artifacts.base import (
     ArtifactKind,
     ArtifactRef,
     ComputeBudget,
+    NamedArray,
     TargetFidelity,
     TerminationReason,
 )
@@ -46,14 +47,17 @@ from bayesmith.artifacts.results import (
     PointEstimateResult,
     PosteriorResult,
     PredictiveResult,
+    SimulationResult,
     WeightedDrawsPosterior,
 )
 from bayesmith.artifacts.tasks import (
     Estimand,
     EvidenceTask,
+    ParameterSource,
     PointEstimateTask,
     PosteriorTask,
     PredictiveTask,
+    SimulationTask,
     new_task_meta,
 )
 from bayesmith.diagnose.map import map_estimate
@@ -63,6 +67,7 @@ from bayesmith.dispatch.task import (
     execute_task,
     plan_ref,
 )
+from bayesmith.graph.evaluate import evaluate
 from bayesmith.optimize import fit
 from tests.dispatch.test_task_protocol import model_ref
 from tests.exact.models import (
@@ -647,3 +652,257 @@ def test_a_predictive_task_refuses_a_correlated_observation():
     assert result.failed_premise == "predictive_noise_unsupported"
     assert result.grounds and result.remedies
 
+
+
+# ------------------------------------------------------------ simulation seam
+
+
+def _simulation_task(source, **overrides):
+    fields = {
+        "meta": new_task_meta(label="forward"),
+        "parameter_source": source,
+        "latent_sites": ("w",),
+        "observed_sites": ("d",),
+        "budget": ComputeBudget(draws=64),
+    }
+    fields.update(overrides)
+    return SimulationTask(**fields)
+
+
+def _drawn(result) -> dict:
+    return {array.name: array for array in result.latent_draws} | {
+        array.name: array for array in result.observation_draws
+    }
+
+
+def test_a_prior_simulation_task_executes_into_a_simulation_result():
+    """R3 §0.7: the fifth task kind is answered, and the projection is
+    mechanical.
+
+    ``latent_draws`` and ``observation_draws`` share the draw axis -- the
+    artifact refuses them otherwise -- so a consumer that pairs the i-th
+    parameter with the i-th dataset is reading a guarantee rather than a
+    convention. That pairing is the whole of what SBC needs from this result.
+    """
+    graph = straight_line()
+    task = _simulation_task(ParameterSource.prior())
+    planned = planned_for(graph, task)
+    result = execute_task(planned, key=jax.random.key(5))
+
+    assert isinstance(result, SimulationResult)
+    assert result.parameter_source == ParameterSource.prior()
+    arrays = _drawn(result)
+    assert set(arrays) == {"w", "d"}
+    assert arrays["w"].value.shape == (64,)
+    assert arrays["d"].value.shape == (64, 8)
+    assert arrays["d"].dims == ("draw", "d_dim0")
+    assert result.run.budget.draws == 64
+    assert result.run.approximation.representation_class is (
+        ApproximationClass.MONTE_CARLO
+    )
+    assert result.run.approximation.target_fidelity is TargetFidelity.EXACT
+    assert result.run.termination.reason is TerminationReason.COMPLETED
+    assert result.run.seed is not None
+    assert result.meta.parent_refs == (plan_ref(planned.record),)
+    assert result.run.plan_ref == plan_ref(planned.record)
+    assert dict(result.run.approximation.details)["parameter_source"] == "prior"
+    assert result.parameters == (), "the prior fixes nothing to record"
+    assert result.run.backend.name == "bayesmith", "no numpyro kernel ran"
+
+
+
+def test_a_prior_simulation_draws_the_observations_it_did_not_condition_on():
+    """The observed node is DRAWN, not carried: a prior simulation that handed
+    back the conditioning data as its ``observation_draws`` would be a
+    convincing-looking bank with no information in it, and SBC built on it
+    would report perfect calibration for any sampler at all."""
+    graph = straight_line()
+    result = execute_task(
+        planned_for(graph, _simulation_task(ParameterSource.prior())),
+        key=jax.random.key(5),
+    )
+    observed = np.asarray(graph.node("d").observed)
+    assert not bool(np.any(_drawn(result)["d"].value == observed))
+
+
+def test_a_plated_prior_simulation_carries_the_plate_axis():
+    """§0.7's plate expansion, seen through the task rather than the primitive:
+    the ``obs`` plate names the second axis and there are six of it, not one
+    value repeated."""
+    from tests.exact.models import plated_latent
+
+    graph = plated_latent()
+    task = _simulation_task(
+        ParameterSource.prior(),
+        latent_sites=("z",),
+        observed_sites=("d",),
+        budget=ComputeBudget(draws=16),
+    )
+    result = execute_task(planned_for(graph, task), key=jax.random.key(7))
+
+    arrays = _drawn(result)
+    assert arrays["z"].value.shape == (16, 6)
+    assert arrays["z"].dims == ("draw", "obs")
+    assert len(np.unique(arrays["z"].value[0])) == 6
+
+
+def test_a_fixed_simulation_centres_on_the_locs_evaluate_computes():
+    """The FIXED arm carries the parameter setting it was given in
+    ``parameters`` and draws observations around it.
+
+    The band is the estimator's (``sigma / sqrt(n)``, five of them), not a
+    measured tolerance; sigma is ``straight_line``'s own 0.5. Measured
+    occupancy at this seed: worst 1.684 sigma of the five.
+    """
+    graph = straight_line()
+    fixed = ParameterSource.fixed(
+        (NamedArray(name="w", value=np.asarray(2.5), dims=()),)
+    )
+    task = _simulation_task(fixed, budget=ComputeBudget(draws=2000))
+    result = execute_task(planned_for(graph, task), key=jax.random.key(8))
+
+    assert isinstance(result, SimulationResult)
+    assert [array.name for array in result.parameters] == ["w"]
+    arrays = _drawn(result)
+    assert set(arrays) == {"d"}, "a fixed parameter is not a drawn latent"
+    loc = np.asarray(evaluate(graph, {"w": jnp.asarray(2.5)})["mu"])
+    mean = arrays["d"].value.mean(axis=0)
+    assert np.all(np.abs(mean - loc) <= 5.0 * 0.5 / np.sqrt(2000))
+
+
+def test_a_posterior_source_simulation_is_the_predictive_replication_bit_for_bit():
+    """§0.7's sharpest requirement, and the reason it is worth a test of its
+    own.
+
+    A ``SimulationTask`` reading ``POSTERIOR_RESULT`` and a ``PredictiveTask``
+    reading the same posterior are asking the same question through two
+    schemas. If they answered with two different sets of numbers -- because
+    one split the key once more, or reached for its own forward model -- then
+    "the posterior predictive" would mean two things in one package, and no
+    test comparing either to a reference could tell you which one was wrong.
+
+    ``rtol=0``: close is not the claim.
+    """
+    graph = straight_line()
+    posterior = execute_task(
+        planned_for(graph, posterior_task()), key=jax.random.key(2)
+    )
+    source_ref = _source_ref(posterior)
+    key = jax.random.key(3)
+
+    predictive = execute_task(
+        planned_for(graph, _predictive_task(posterior)),
+        key=key,
+        source_posterior=posterior,
+    )
+    simulation = execute_task(
+        planned_for(
+            graph,
+            _simulation_task(ParameterSource.from_posterior_result(source_ref)),
+        ),
+        key=key,
+        source_posterior=posterior,
+    )
+
+    assert isinstance(simulation, SimulationResult)
+    replicated = {array.name: array.value for array in predictive.replicated_draws}
+    same(replicated["d"], _drawn(simulation)["d"].value)
+    # ... and the latents it was pushed forward from are the same draws too.
+    same(drawn(posterior)["w"], _drawn(simulation)["w"].value)
+    # n came from the SOURCE, not from the task's budget (which says 64 here).
+    # §0.7 says budget.draws records n, and for this arm n is however many
+    # draws the posterior has -- a run record states what was spent, and
+    # honouring the task's number instead would state a count nothing produced.
+    assert simulation.run.budget.draws == BUDGET.draws == 8
+    assert simulation.parameter_source.posterior_ref == source_ref
+    assert simulation.run.backend.name == predictive.run.backend.name
+
+
+def test_a_posterior_source_simulation_refuses_a_posterior_of_other_data():
+    """The same premise the predictive arm checks, checked here too: a
+    posterior drawn from different data pushed forward against this graph is a
+    typed refusal, not a bank of plausible-looking numbers."""
+    posterior = execute_task(
+        planned_for(straight_line(), posterior_task()), key=jax.random.key(2)
+    )
+    other = straight_line(weight=3.0)  # same structure, different data
+    task = _simulation_task(
+        ParameterSource.from_posterior_result(_source_ref(posterior))
+    )
+    result = execute_task(
+        planned_for(other, task), key=jax.random.key(3), source_posterior=posterior
+    )
+
+    assert isinstance(result, Refusal)
+    assert result.failed_premise == "posterior_data_mismatch"
+    assert result.grounds and result.remedies
+
+
+def test_a_simulation_task_with_no_draw_count_is_a_type_error():
+    """``budget.draws`` is where n lives (§0.7), and this module's docstring
+    says nothing here decides a number.
+
+    Inventing a default draw count would be a numerical decision taken inside
+    an adapter that is meant to take none -- and unlike a sampler's draw
+    count, there is no runtime seam here whose signature owns the default to
+    be read off. So the field is required and the error names it.
+    """
+    task = _simulation_task(ParameterSource.prior(), budget=ComputeBudget())
+    with pytest.raises(TypeError, match="budget"):
+        execute_task(planned_for(straight_line(), task), key=jax.random.key(5))
+
+
+def test_a_simulation_task_refuses_a_correlated_observation():
+    """§0.4's coverage domain, reaching the fifth task: the fixed and
+    posterior arms share ``replicated_draws``' diagonal walk, so they refuse
+    where it refuses."""
+    graph = _correlated_graph()
+    fixed = ParameterSource.fixed(
+        (NamedArray(name="w", value=np.asarray(2.0), dims=()),)
+    )
+    task = _simulation_task(fixed, budget=ComputeBudget(draws=4))
+    result = execute_task(planned_for(graph, task), key=jax.random.key(3))
+
+    assert isinstance(result, Refusal)
+    assert result.failed_premise == "predictive_noise_unsupported"
+    assert result.grounds and result.remedies
+
+
+def test_a_fixed_simulation_that_names_only_latents_says_what_is_empty():
+    """A fixed source draws no latents, so a task naming only ``latent_sites``
+    is asking for draws of the values it just fixed.
+
+    Worth its own message because the artifact's validation would speak second
+    and say something true but unhelpful -- the run record's dtype is computed
+    from the produced arrays and there are none, so the failure would arrive as
+    a numpy ``result_type`` complaint about an empty argument list.
+    """
+    fixed = ParameterSource.fixed(
+        (NamedArray(name="w", value=np.asarray(2.5), dims=()),)
+    )
+    task = _simulation_task(fixed, observed_sites=(), budget=ComputeBudget(draws=4))
+    with pytest.raises(TypeError, match="no draws"):
+        execute_task(planned_for(straight_line(), task), key=jax.random.key(8))
+
+
+def test_a_simulation_result_this_module_produced_round_trips():
+    """``tests/artifacts`` round-trips SimulationResults it built by hand;
+    this round-trips one the EXECUTOR built.
+
+    The two are not the same claim. A hand-built fixture chooses its own
+    dims, its own details tuple and its own dtypes, so it can round-trip
+    happily while the real projection puts something the codec refuses --
+    a jax array where numpy was expected, a detail value that is not
+    canonical -- into the same schema. An SBC harness stores these banks, so
+    the one that matters is the one this module writes.
+    """
+    from bayesmith.artifacts._codec import canonical_dumps, canonical_loads
+
+    result = execute_task(
+        planned_for(
+            straight_line(),
+            _simulation_task(ParameterSource.prior(), budget=ComputeBudget(draws=8)),
+        ),
+        key=jax.random.key(5),
+    )
+    assert canonical_loads(canonical_dumps(result), expected=SimulationResult) == result
