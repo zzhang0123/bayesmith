@@ -485,10 +485,13 @@ rheplicant 无对应 run kind，只有 Python API。连同 B3 的修正，在这
    > **【本步骤已被 2026-08-26 的 owner 裁决整条取代，原文保留而非删除。实测
    > 2026-09-03，e-RHINO `27e621b`。】**「一行不动」的有效期止于当日的「未迁移
    > 的全部迁移」：Wave A–D 与 D10/D11 授权了成批切换，今天
-   > `src/rheplicant/inference/` 的 **28 个 `.py` 文件里有 12 个** import bayesmith
-   > （`calibrate`、`chain`、`diagnostics`、`gls`、`identifiability`、`linear`、
-   > `loglinear`、`npe`、`partition`、`reduced_basis`、`sensitivity`、
-   > `sqrtinfo`）。那条执行计划的家是 `2026-08-26-one-implementation.md`。
+   > `src/rheplicant/inference/` 的 **28 个 `.py` 文件里有 16 个** import
+   > bayesmith：**顶层 12 个**（`calibrate`、`chain`、`diagnostics`、`gls`、
+   > `identifiability`、`linear`、`loglinear`、`npe`、`partition`、
+   > `reduced_basis`、`sensitivity`、`sqrtinfo`），另有 **4 个把 import 推迟到
+   > 函数体内**（`graph_bridge`、`numpyro_bridge`、`priors`、`uncertainty`）。
+   > 分开数是必要的：只报顶层会得出 12，而漏掉的 `graph_bridge` 正是 §六 步骤 3
+   > 所依赖的那个 adapter。那条执行计划的家是 `2026-08-26-one-implementation.md`。
    >
    > **本步骤点名的两项例外都已兑现，答案写在这里而不是留在别处：**
    > B4 的一行修复已落地（e-RHINO `d499171`，2026-08-24：`npe.py:165` 改用
