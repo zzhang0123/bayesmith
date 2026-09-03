@@ -36,7 +36,12 @@ it installed gets an UNVERIFIABLE report rather than an ImportError (§7.3).
 
 from __future__ import annotations
 
-__all__ = ["ALPHA"]
+from bayesmith.evaluation.diagnostics import (
+    identifiability_report,
+    prior_sensitivity_report,
+)
+
+__all__ = ["ALPHA", "identifiability_report", "prior_sensitivity_report"]
 
 #: D104. The two-sided false-positive rate EVERY random check in this layer
 #: declares in advance, as §9.3 requires.

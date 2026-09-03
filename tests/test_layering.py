@@ -127,18 +127,24 @@ def test_the_function_scope_borrow_this_rule_tolerates_is_still_exactly_one():
     assert borrows == ["fisher.py"], borrows
 
 
-def test_graph_is_the_foundation_and_dispatch_is_the_top():
+def test_graph_is_the_foundation_and_evaluation_is_the_top():
     """The narrative in the top-level docstring, measured.
 
-    ``graph`` is depended on by the most units; ``dispatch`` by none. If that
-    ever inverts, the package's own description of itself has stopped being
-    true.
+    ``graph`` is depended on by the most units. ``dispatch`` was depended on
+    by none until R3 §0.1 put ``evaluation`` ABOVE it -- §7.2's chain is
+    ``model/graph -> analysis/compiler -> execution adapters -> evaluation``,
+    so the one arrow into ``dispatch`` is the one that layer draws, and
+    ``evaluation`` is now the unit nothing depends on. Named rather than
+    counted: "at most one" would let the next borrow in silently, and which
+    unit reaches ``dispatch`` is the whole content of the rule.
     """
     edges = _graph()
     in_degree = {
         unit: sum(1 for other in edges if unit in edges[other]) for unit in edges
     }
-    assert in_degree["dispatch"] == 0, "something now depends on dispatch"
+    reaching = sorted(unit for unit in edges if "dispatch" in edges[unit])
+    assert reaching == ["evaluation"], reaching
+    assert in_degree["evaluation"] == 0, "something now depends on evaluation"
     assert in_degree["graph"] >= 4, in_degree
     assert edges["graph"] <= {"errors", "distributions"}, edges["graph"]
 
@@ -149,15 +155,17 @@ def test_the_artifact_protocol_is_a_leaf_and_dispatch_is_what_reaches_it():
     ``artifacts`` imports no other unit of this package: it is data about what
     was asked, planned, produced and judged, and a protocol that reached back
     into the graph layer would put a Graph inside an artifact by the shortest
-    available route. ``dispatch`` is what bridges the two, so the edge exists
-    there and only there -- if a second unit grows one, this assertion is
-    where the decision to allow it gets made.
+    available route. Two units bridge to it and the reason differs: ``dispatch``
+    WRITES results and plans, and R3's ``evaluation`` writes the
+    :class:`~bayesmith.artifacts.reports.EvaluationReport` that judges one
+    (§0.1). If a THIRD unit grows an edge, this assertion is where the decision
+    to allow it gets made.
     """
     edges = _graph()
     assert edges["artifacts"] == set()
     assert "artifacts" in edges["dispatch"]
     reaching = sorted(unit for unit in edges if "artifacts" in edges[unit])
-    assert reaching == ["dispatch"], reaching
+    assert reaching == ["dispatch", "evaluation"], reaching
 
 
 def test_importing_the_artifact_protocol_pulls_in_no_numerical_stack():
