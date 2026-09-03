@@ -603,7 +603,28 @@ class TestAWeightedSampleIsMoreThanThisExportCanCarry:
         ]
 
     def test_the_finding_carries_the_pair_the_verdict_was_read_from(self):
-        """G8: recomputable from the report, no sampler log involved."""
+        """G8: recomputable from the report, no sampler log involved.
+
+        The three ``recorded_*`` pairs are the run's OWN diagnostics, copied
+        into a report that declined to compute new ones, so each is checked
+        against the representation it was copied from rather than against a
+        number written here. That is what makes them guards: a report field
+        that says something the sample's own record does not say is exactly
+        the defect this branch exists to prevent, and an untested copy can
+        drift to any value -- including one that reads healthy for a sample
+        the run itself marked unreliable.
+
+        Reading the representation is not a style preference here, it is the
+        only version that survives a second machine. This fixture's ``khat``
+        is 0.5209304017354495 on macOS/Accelerate and 0.5209322414779554 on
+        linux/amd64 scipy-openblas under ``OPENBLAS_CORETYPE=ZEN`` -- a
+        relative difference of 3.5e-6, which is 3.5x ``pytest.approx``'s
+        default relative tolerance of 1e-6. So the same assertion written
+        against either machine's LITERAL would be red on the other. Written
+        against the representation, both sides are one in-process float and
+        the platform moves them together; ``ess`` happens to agree bitwise on
+        both, and is checked the same way for the same reason.
+        """
         graph, posterior = weighted_posterior()
 
         report = loo_report(posterior, graph=graph)
@@ -618,6 +639,35 @@ class TestAWeightedSampleIsMoreThanThisExportCanCarry:
         assert described["representation"] == "WeightedDrawsPosterior"
         assert described["method"] == "gcr+snis"
         assert described["draws"] == 64
+        recorded = posterior.representation
+        assert described["recorded_unreliable"] is recorded.unreliable
+        assert described["recorded_khat"] == pytest.approx(recorded.khat)
+        assert described["recorded_ess"] == pytest.approx(recorded.ess)
+
+    def test_the_draw_count_is_read_off_the_weights_rather_than_assumed(self):
+        """One fixture cannot tell a reader from a constant equal to it.
+
+        The pin above says ``draws == 64`` and 64 is the fixture's own draw
+        count, so it holds just as well for ``draws = 64`` written into
+        ``loo.py``; measured, that mutant survives the whole file. Asserting
+        against the fixture's array does not separate them either -- the array
+        is 64 long, so both sides move to the same constant. A SECOND draw
+        count is what separates them, and the final line is what keeps it a
+        second one: set the two budgets equal and this says so rather than
+        quietly going back to proving nothing.
+        """
+        short_graph = radiometer()
+        short = posterior_of(short_graph, key=jax.random.key(2), draws=32, warmup=8)
+        full_graph, full = weighted_posterior()
+
+        seen = []
+        for graph, posterior in ((short_graph, short), (full_graph, full)):
+            report = loo_report(posterior, graph=graph)
+            (described,) = [f for f in report.findings if f.code == "weighted_sample"]
+            reported = dict(described.observed)["draws"]
+            assert reported == int(posterior.representation.log_weights.value.shape[0])
+            seen.append(reported)
+        assert seen[0] != seen[1]
 
     def test_the_answer_does_not_depend_on_whether_arviz_is_installed(
         self, monkeypatch
