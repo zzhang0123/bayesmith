@@ -112,6 +112,72 @@ def _exact_two_by_two_fraction_logdet(matrix: np.ndarray) -> float:
         return float(decimal_determinant.ln())
 
 
+_UNSCALED_SVD_NOT_FOOLED = (
+    "THIS IS NOT A PASS. The masking the calling test is named for did not "
+    "happen on this build: an unscaled np.linalg.cond read {reading!r}, at or "
+    "above the 1/eps ceiling 4503599627370496.0, so a gate that skipped the "
+    "exact power-of-two rescale would have refused this matrix anyway and the "
+    "refusal asserted above is no longer evidence about the rescale. The true "
+    "condition is 4503599627370495.2500000000000001249..., below the ceiling: "
+    "the smaller eigenvalue is 1.9999999999999999 units of 2**-1074 and an SVD "
+    "can only answer in whole units. Measured 2026-09-03, numpy 2.5.2 both "
+    "sides: Apple Accelerate answers 2 units and reads 4503599627370495.5; "
+    "scipy-openblas 0.3.34 answers 1 unit and reads 9007199254740991.0. "
+    "Neither reading is resolved -- on the exactly rescaled matrix, which has "
+    "the same spectrum, the same two libraries read 1.0503813809299122e+16 and "
+    "8492068896701030.0 against that true 4503599627370495.25, so sigma_min "
+    "carries O(1) relative error at this condition and Accelerate's agreement "
+    "is the subnormal grid pinning the answer, not the solver resolving it. "
+    "Rebuilding the fixture cannot rescue this: being fooled needs the "
+    "REPORTED sigma_min above sigma_max*eps while the true one is below it, "
+    "i.e. an error of the right sign and under half a denormal unit, which no "
+    "solver delivers where its own error on sigma_min is O(1)."
+)
+
+
+def _exact_two_by_two_symmetric_spectrum(
+    matrix: np.ndarray,
+) -> tuple[Decimal, Decimal]:
+    """Condition number and smallest eigenvalue of a symmetric 2x2, exactly.
+
+    The two subnormal-scale fixtures below cannot ask LAPACK this question.
+    Their smaller eigenvalue is 1.9999999999999999 units of 2**-1074, so any
+    SVD must answer 1 unit or 2, and which one it answers is the installed
+    library's business: measured 2026-09-03 on one numpy 2.5.2, Apple
+    Accelerate answers 2 units -> cond 4503599627370495.5, scipy-openblas
+    0.3.34 answers 1 -> cond 9007199254740991.0, and those straddle the 1/eps
+    ceiling. Both callers asserted the Accelerate digits as a premise until
+    that date and went red on Linux for a matrix nothing about which changed.
+
+    The eigenvalues are ``((a+d) +/- sqrt((a-d)**2 + 4*b**2))/2``, the entries
+    are exactly representable, and Fractions plus 100 decimal digits settle
+    both bit-identically on either platform (verified on both, to every digit).
+    Decimals are returned rather than floats on purpose. The true condition
+    here is 4503599627370495.2500000000000001249..., and ``float()`` of it is
+    4503599627370495.5 -- one ULP below the ceiling a caller compares it
+    against, and byte-for-byte the Accelerate LAPACK reading this helper exists
+    to stop trusting. It gets there only on that tail: bare ...495.25 is an
+    exact binary64 tie and rounds the other way, to ...495.0. A Decimal
+    comparison has neither the knife edge nor the confusing digits.
+    """
+    upper_left, upper_right, lower_left, lower_right = (
+        Fraction.from_float(float(value)) for value in matrix.flat
+    )
+    assert upper_right == lower_left
+    trace = upper_left + lower_right
+    discriminant = (upper_left - lower_right) ** 2 + 4 * upper_right**2
+    with localcontext() as context:
+        context.prec = 100
+        trace_exact = Decimal(trace.numerator) / Decimal(trace.denominator)
+        gap = (
+            Decimal(discriminant.numerator) / Decimal(discriminant.denominator)
+        ).sqrt()
+        smallest_eigenvalue = (trace_exact - gap) / 2
+        largest_eigenvalue = (trace_exact + gap) / 2
+        assert smallest_eigenvalue > 0
+        return largest_eigenvalue / smallest_eigenvalue, smallest_eigenvalue
+
+
 def _independent_power_traces(
     lam: np.ndarray, perturbation: np.ndarray, order: int
 ) -> tuple[float, ...]:
@@ -1843,8 +1909,16 @@ def test_dense_level_zero_refuses_condition_hidden_by_subnormal_scale():
     problem = LogDetProblem(lam, np.zeros_like(lam))
     ceiling = 1.0 / np.finfo(float).eps
     exact = _exact_two_by_two_fraction_logdet(lam)
+    exact_condition, smallest_eigenvalue = _exact_two_by_two_symmetric_spectrum(lam)
 
-    assert np.linalg.cond(lam) < ceiling
+    # The premise as exact arithmetic over the fixture's own entries instead of
+    # as one machine's digits. The true condition, 4503599627370495.25..., is a
+    # hair BELOW the ceiling 4503599627370496.0, so a check that resolved this
+    # matrix would admit it; the smaller eigenvalue is subnormal, which is what
+    # the test is named for and what nothing here asserted before. Both lines
+    # read identically on Accelerate and scipy-openblas 0.3.34 (2026-09-03).
+    assert exact_condition < ceiling
+    assert smallest_eigenvalue < np.finfo(float).smallest_normal
     assert abs(lambda_logdet(lam) - exact) > 0.1
 
     verdict = check_logdet_premises(problem)[0]
@@ -1852,6 +1926,18 @@ def test_dense_level_zero_refuses_condition_hidden_by_subnormal_scale():
     assert verdict.satisfied is False
     with pytest.raises(ResamplingRefused):
         dispatch_logdet(problem)
+
+    # The masking comes last, because it is the only platform-dependent line
+    # left and the contract above has to run on every build. An unscaled SVD
+    # has to be FOOLED here for that refusal to be evidence about the rescale,
+    # and whether it is turns on one denormal ULP of the installed LAPACK, so
+    # a build where it is not fooled says so instead of passing. Nothing is
+    # lost by not asserting it: a fixture that stopped being this matrix is
+    # caught by the two exact lines above, on every platform, which is more
+    # than np.linalg.cond can promise here.
+    naive_condition = float(np.linalg.cond(lam))
+    if not naive_condition < ceiling:
+        pytest.skip(_UNSCALED_SVD_NOT_FOOLED.format(reading=naive_condition))
 
 
 def test_dense_level_four_refuses_condition_hidden_by_subnormal_scale():
@@ -1865,8 +1951,15 @@ def test_dense_level_four_refuses_condition_hidden_by_subnormal_scale():
     problem = LogDetProblem(lam, sigma - lam)
     ceiling = 1.0 / np.finfo(float).eps
     exact = _exact_two_by_two_fraction_logdet(sigma)
+    exact_condition, smallest_eigenvalue = _exact_two_by_two_symmetric_spectrum(sigma)
 
-    assert np.linalg.cond(sigma) < ceiling
+    # Same matrix, same repair as the level-zero fixture above: the premise is
+    # the exact spectrum of these entries, not what one LAPACK reports about
+    # them. True condition 4503599627370495.25... < ceiling 4503599627370496.0,
+    # smaller eigenvalue subnormal, and the 0.287682-nat error this test is
+    # named for is bit-identical on both platforms (measured 2026-09-03).
+    assert exact_condition < ceiling
+    assert smallest_eigenvalue < np.finfo(float).smallest_normal
     assert abs(dense_cholesky_logdet(sigma) - exact) > 0.1
 
     verdict = check_logdet_premises(problem)[4]
@@ -1874,6 +1967,13 @@ def test_dense_level_four_refuses_condition_hidden_by_subnormal_scale():
     assert verdict.satisfied is False
     with pytest.raises(ResamplingRefused):
         dispatch_logdet(problem)
+
+    # The masking comes last, for the reason recorded in the level-zero fixture
+    # above: the contract has to run on every build, and whether an unscaled
+    # SVD is fooled here is the installed LAPACK's answer to one denormal ULP.
+    naive_condition = float(np.linalg.cond(sigma))
+    if not naive_condition < ceiling:
+        pytest.skip(_UNSCALED_SVD_NOT_FOOLED.format(reading=naive_condition))
 
 
 def test_factor_free_dense_level_five_rejects_an_unresolved_matrix():
