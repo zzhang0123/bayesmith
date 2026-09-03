@@ -56,7 +56,10 @@ def boundary_executions() -> dict[str, BoundaryExecution]:
 def test_every_two_sided_gate_has_exactly_one_executable_boundary_suite() -> None:
     required = {entry.gate_id for entry in _TWO_SIDED}
 
-    assert len(required) == 93
+    # 95 after the R3 merge: 91 two-sided on main, +2 from r3/t3-checks
+    # (D104, D105) and +2 from r3/t6-sbc.  Both branches wrote 93 because
+    # both measured against the same base.
+    assert len(required) == 95
     assert len(BOUNDARY_SUITES) == len(required)
     assert set(BOUNDARY_SUITES) == required
 
@@ -313,7 +316,11 @@ def test_every_reserved_mutation_witness_resolves_to_a_concrete_callable() -> No
         for name in (entry.tighten_witness, entry.loosen_witness)
     }
 
-    assert len(required) == 186
+    # Two witnesses per two-sided gate, so this is 2 * 95 and not an
+    # independent count -- if it ever stops being twice the number in
+    # test_every_two_sided_gate_has_exactly_one_executable_boundary_suite,
+    # a gate has lost a witness rather than this line being stale.
+    assert len(required) == 190
     assert set(WITNESS_CASES) == required
     for name, reference in WITNESS_CASES.items():
         assert reference.name == name
