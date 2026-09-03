@@ -143,14 +143,24 @@ def line_and_a_matrix_shaped_node():
 
 
 def line_beside_a_correlated_node(data, mask):
-    """The §0.4 coverage boundary, in the only shape that can carry a mask.
+    """The §0.4 coverage boundary, in the shape a fixture can actually reach.
 
-    Measured first, and it changed the fixture: ``observe`` REFUSES a mask on a
-    correlated node outright ("a CirculantPrecision has no per-sample sigma, so
-    there is nothing for a mask to select"), so "a masked correlated
-    observation" is not a graph that exists.  What does exist, and is what a
-    real model looks like when it goes out of the diagonal domain, is a graph
-    with two observed nodes -- one masked and diagonal, one correlated.
+    An earlier version of this docstring said ``observe`` REFUSES a mask on a
+    correlated node, so "a masked correlated observation" is not a graph that
+    exists.  That was wrong, and the correction is kept here because the false
+    claim is what the fixture's shape was justified by.  Measured: ``trace()``
+    builds that graph and the mask stays on the node.  The refusal comes later,
+    at FIT time -- ``StructureError`` from :func:`bayesmith.exact.precision.masked`
+    (``precision.py:402``), because ``per_sample_sigma`` has no answer for a
+    ``CirculantPrecision`` ("a CirculantPrecision has no per-sample sigma, so
+    there is nothing for a mask to select").  The same graph without the mask
+    fits and returns a ``PosteriorResult``.
+
+    So this fixture has two nodes because the one-node graph has no POSTERIOR
+    to build a predictive from -- a fact about what a fixture can construct,
+    not about which graphs exist.  What it builds instead is what a real model
+    looks like when it leaves the diagonal domain: two observed nodes, one
+    masked and diagonal, one correlated.
     ``observation_parts`` walks BOTH, so the correlated one takes the whole
     graph out of the coverage domain, which is the honest answer: the premise
     "this graph's observations are diagonal Gaussian" is false, and a partial
