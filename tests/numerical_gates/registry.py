@@ -127,6 +127,7 @@ COSTS = "src/bayesmith/dispatch/costs.py"
 COLLAPSE = "src/bayesmith/dispatch/collapse.py"
 PILOT = "src/bayesmith/dispatch/pilot.py"
 CHECKS = "src/bayesmith/evaluation/checks.py"
+SBC = "src/bayesmith/evaluation/sbc.py"
 
 
 def _seed_group(
@@ -562,6 +563,18 @@ _SEEDS = (
         CandidateFamily.DECISION_PREDICATE,
         "CHECKS:draws_resolve_the_band:p-value-draw-floor",
     ),
+    *_seed_group(
+        SBC,
+        "replicates_meet_floor",
+        CandidateFamily.DECISION_PREDICATE,
+        "SBC:replicates_meet_floor:replicate-floor",
+    ),
+    *_seed_group(
+        SBC,
+        "ranks_are_uniform",
+        CandidateFamily.DECISION_PREDICATE,
+        "SBC:ranks_are_uniform:bonferroni-level",
+    ),
 )
 
 
@@ -968,6 +981,18 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
         (
             "src/bayesmith/evaluation/checks.py::<module>.draws_resolve_the_band::decision_predicate::1b8786c9fa6a0ea4::0",
             "draws >= DRAW_FLOOR",
+        ),
+    ),
+    "SBC:replicates_meet_floor:replicate-floor": (
+        (
+            "src/bayesmith/evaluation/sbc.py::<module>.replicates_meet_floor::decision_predicate::9852252d23fcd58e::0",
+            "usable >= floor",
+        ),
+    ),
+    "SBC:ranks_are_uniform:bonferroni-level": (
+        (
+            "src/bayesmith/evaluation/sbc.py::<module>.ranks_are_uniform::decision_predicate::f06f6cedc1d043c1::0",
+            "p_value >= level",
         ),
     ),
     "LADDER:determinant-lemma:payload": (
@@ -1907,6 +1932,20 @@ _DECLARED_SOURCE_ANCHORS: dict[str, tuple[SourceAnchor, ...]] = {
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
+    "SBC:replicates_meet_floor:replicate-floor": (
+        SourceAnchor(
+            "src/bayesmith/evaluation/sbc.py",
+            "<module>.replicates_meet_floor",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
+    "SBC:ranks_are_uniform:bonferroni-level": (
+        SourceAnchor(
+            "src/bayesmith/evaluation/sbc.py",
+            "<module>.ranks_are_uniform",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
     "LADDER:determinant-lemma:payload": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
@@ -2587,6 +2626,12 @@ _DECLARED_SOURCE_CLASSIFICATIONS: dict[str, tuple[CandidateClassification, ...]]
         CandidateClassification.NUMERICAL_GATE,
     ),
     "CHECKS:draws_resolve_the_band:p-value-draw-floor": (
+        CandidateClassification.NUMERICAL_GATE,
+    ),
+    "SBC:replicates_meet_floor:replicate-floor": (
+        CandidateClassification.NUMERICAL_GATE,
+    ),
+    "SBC:ranks_are_uniform:bonferroni-level": (
         CandidateClassification.NUMERICAL_GATE,
     ),
     "LADDER:determinant-lemma:payload": (CandidateClassification.NUMERICAL_GATE,),
@@ -5130,6 +5175,34 @@ GATE_METADATA: dict[str, GateMetadata] = {
         extreme="0, nan, +/-inf",
         fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
     ),
+    "SBC:replicates_meet_floor:replicate-floor": _metadata(
+        quantity="the number of replicates that produced a rank, against the count at which a doubled posterior width stops going unnoticed.",
+        threshold="closed lower boundary usable >= 100; derived D106, the smallest replicate count at which a 2x-too-wide and a 2x-too-narrow posterior were both rejected at every one of ten measured seeds (worst KS p 0.0054 at 100 replicates, against 0.1384 at 50).",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="the rank sample is large enough to decide, so each coordinate's uniformity test becomes the report's conclusion",
+        refused_outcome="the report abstains carrying replicates_below_floor, rather than passing a calibration check measured to have no power at that count",
+        oracle="direct integer comparison of an independently counted usable-replicate total against 100.",
+        axis_name="Boundary cells for the usable replicate count; the rank sample decides once it reaches 100.",
+        low="4 replicates, the size of a plumbing run",
+        endpoints=("100 admits", "99 refuses"),
+        high="1000 replicates",
+        extreme="0 usable replicates, the count a run whose every replicate refused reports",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
+    "SBC:ranks_are_uniform:bonferroni-level": _metadata(
+        quantity="one latent coordinate's rank-uniformity p-value, against the Bonferroni level it shares with the other coordinates tested beside it.",
+        threshold="closed lower boundary p_value >= level, where level is the declared two-sided false-positive rate 0.05 divided by the number of coordinates; the division is arithmetic and the rate is D104, so this site adds no number of its own.",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="this coordinate's ranks are uniform at the corrected level, and it cannot by itself fail the calibration report",
+        refused_outcome="this coordinate's ranks are not uniform, and one such coordinate is enough to make the whole calibration report conclude FAIL",
+        oracle="direct float comparison of an independently computed Kolmogorov-Smirnov p-value against an independently computed rate-over-coordinates quotient.",
+        axis_name="Boundary cells for a coordinate's uniformity p-value against its corrected level; uniform once the p-value reaches the level.",
+        low="0.0, the smallest p-value a rank sample can report",
+        endpoints=("the level itself admits", "one ULP below the level refuses"),
+        high="1.0, the largest p-value a rank sample can report",
+        extreme="nan, +/-inf, and a level of 0.025 for two coordinates instead of one",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
 }
 
 
@@ -7057,7 +7130,10 @@ def validate_registry(
         raise RegistryValidationError("\n".join(errors))
 
 
-if len(GATE_REGISTRY) != 109:
+# 107 on main; r3/t3-checks added D104 and D105, r3/t6-sbc added the two SBC
+# gates, and both branches wrote 109 because each measured itself against the
+# same base.  111 is the merged tree's own count, re-derived rather than summed.
+if len(GATE_REGISTRY) != 111:
     raise RegistryValidationError(
-        f"semantic registry expected 109 reviewed entries, found {len(GATE_REGISTRY)}"
+        f"semantic registry expected 111 reviewed entries, found {len(GATE_REGISTRY)}"
     )

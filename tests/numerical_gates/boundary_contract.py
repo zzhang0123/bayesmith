@@ -178,6 +178,14 @@ _add(
     ("CHECKS:draws_resolve_the_band:p-value-draw-floor",),
     ("draws_resolve_the_band",),
 )
+_add(
+    ("SBC:replicates_meet_floor:replicate-floor",),
+    ("replicates_meet_floor",),
+)
+_add(
+    ("SBC:ranks_are_uniform:bonferroni-level",),
+    ("ranks_are_uniform",),
+)
 
 _add(
     ("LADDER:sigma:payload-symmetry",),

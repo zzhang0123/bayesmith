@@ -31,6 +31,7 @@ SOURCE_PATHS = (
     # mutation, which is the arrangement this whole directory exists to make
     # impossible.
     "src/bayesmith/evaluation/checks.py",
+    "src/bayesmith/evaluation/sbc.py",
 )
 
 

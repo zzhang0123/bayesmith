@@ -67,8 +67,13 @@ def test_raw_ast_baseline_is_explicit() -> None:
         for family in CandidateFamily
     }
 
-    assert family_counts[CandidateFamily.RAISE] == 183
-    assert family_counts[CandidateFamily.COMPARE] == 317
+    # Re-derived on the merged tree, not summed from the two branches that
+    # conflicted here.  r3/t3-checks measured 183/317 and r3/t6-sbc 176/327
+    # against the same 171/305 base; adding both deltas is a guess that a
+    # duplicate or shadowed candidate would silently confirm.  Measured after
+    # the merge with `scan_repository(REPOSITORY_ROOT)`: 188 and 339.
+    assert family_counts[CandidateFamily.RAISE] == 188
+    assert family_counts[CandidateFamily.COMPARE] == 339
 
 
 def test_every_raw_candidate_has_exactly_one_code_classification() -> None:
@@ -1792,9 +1797,13 @@ def test_metadata_has_executable_gate_specific_semantics() -> None:
             f"{entry.refused_outcome} | {entry.oracle}"
         )
         assert not any(phrase in rendered for phrase in forbidden), entry.gate_id
-    assert len({entry.admitted_outcome for entry in GATE_REGISTRY}) == 109
-    assert len({entry.refused_outcome for entry in GATE_REGISTRY}) == 109
-    assert len({entry.oracle for entry in GATE_REGISTRY}) == 109
+    # 111 after the R3 merge: 107 on main, +2 from r3/t3-checks (D104, D105)
+    # and +2 from r3/t6-sbc.  Both branches wrote 109 against the same base.
+    # What this asserts is unchanged -- one distinct wording per entry, so the
+    # count must equal len(GATE_REGISTRY), which the guard in registry.py pins.
+    assert len({entry.admitted_outcome for entry in GATE_REGISTRY}) == 111
+    assert len({entry.refused_outcome for entry in GATE_REGISTRY}) == 111
+    assert len({entry.oracle for entry in GATE_REGISTRY}) == 111
     intermediate = {entry.gate_id: entry for entry in GATE_REGISTRY}[
         "PLAN:frozen:intermediate-runtime-range"
     ]

@@ -9147,6 +9147,401 @@ EXPECTED_SOURCE_MANIFEST = (
         CandidateClassification.ORDINARY_VALIDATION,
         'count',
     ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.replicates_meet_floor::compare::9852252d23fcd58e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "usable >= floor",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.replicates_meet_floor::decision_predicate::9852252d23fcd58e::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "usable >= floor",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.ranks_are_uniform::compare::f06f6cedc1d043c1::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "p_value >= level",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.ranks_are_uniform::decision_predicate::f06f6cedc1d043c1::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "p_value >= level",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.continuous_rank::compare::eee37a33a6d49140::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.asarray(draws) < truth",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>._flat_coordinates::decision_predicate::3a667fef860d5562::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not shape",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>._posterior_draws::decision_predicate::1a644a4724be202b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "isinstance(representation, WeightedDrawsPosterior)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>._posterior_draws::decision_predicate::a7001844f21f3a26::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "isinstance(representation, DrawsPosterior)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>._prior_simulation::decision_predicate::c378fd2c361fa836::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "isinstance(planned, Refusal)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>._route_replicate::decision_predicate::c378fd2c361fa836::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "isinstance(planned, Refusal)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>._covers::decision_predicate::74aefc25ab587b76::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "all((name in draws for name in truths))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>._covers::compare::03ce95082b1fbeaa::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "name in draws",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>._sampler_draws::decision_predicate::74c6f594f427beec::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not _covers(draws, truths)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::392a55c78b8f7c6a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not isinstance(graph, Graph)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::raise::5a80650721d17b7e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        'raise TypeError(f"sbc_ranks\' graph is a Graph; got {graph!r}")',
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::e47603f7169d6941::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "int(replicates)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::e43f239d569b7ca4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "count < 1",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::e43f239d569b7ca4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "count < 1",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::raise::94fb12b2c0c84b88::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'sbc_ranks needs at least one replicate; got {replicates!r}')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::2d7fb8070a31211e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::264eb6e15996fc0d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is None and build is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::boolean_atom::2d7fb8070a31211e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::6e3f65721e6865ec::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "build is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::boolean_atom::6e3f65721e6865ec::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "build is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::raise::afdcc1e570b425b8::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        'raise TypeError("sbc_ranks needs either build=... (compile and execute a PosteriorTask per replicate) or sampler=... (§0.11\'s sampler(datum, key, n) arm); it was given neither")',
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::08e7019019ee170f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::c02281d660518757::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None and subject_ref is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::boolean_atom::08e7019019ee170f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::a92c673f614c6b02::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "subject_ref is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::boolean_atom::a92c673f614c6b02::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "subject_ref is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::raise::10568c11d3a832d2::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise TypeError('the sampler arm produces no PosteriorResult, so the report has nothing to point at unless the caller says what the sampler represents: pass subject_ref=...')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::08e7019019ee170f::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::ddc5f0c06ac084a4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None and sampler_draws < 1",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::boolean_atom::08e7019019ee170f::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::8a1b6727d657329f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler_draws < 1",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::boolean_atom::8a1b6727d657329f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler_draws < 1",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::raise::8026e8057083f988::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'the sampler arm needs the draw count to ask its sampler for: sampler_draws={sampler_draws!r}. A rank over zero draws is 0.0 for every replicate, which is a perfectly non-uniform sample and would read as a catastrophically miscalibrated route')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::a9ed691c1081804e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "_prior_simulation(graph, key=simulation_key, replicates=count, model_ref=model_ref)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::3a436bc5e386b936::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "isinstance(simulation, Refusal)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::652a5eb0b013994f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "{array.name: np.asarray(array.value) for array in simulation.observation_draws}",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::08e7019019ee170f::2",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::08e7019019ee170f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::23c64037f02d85ea::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "'sampler' if sampler is not None else ''",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::08e7019019ee170f::3",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::08e7019019ee170f::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::dd20daf061cd4b3e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "{name: value[index] for name, value in data.items()}",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::e764714f46f43f64::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "jax.random.fold_in(replicate_key, index)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::08e7019019ee170f::4",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::08e7019019ee170f::2",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sampler is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::c8cf1625050873d5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "_route_replicate(build, datum, replicate_seed, model_ref=model_ref, budget=budget if budget is not None else ComputeBudget(), nuts_on_collapse=nuts_on_collapse)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::70854f79efc4ea14::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "budget is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::70854f79efc4ea14::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "budget is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::c9bdfdd417349fed::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "isinstance(result, Refusal)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::bdd62819c8d5c4a4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "result.run.termination.reason not in _FINISHED",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::bdd62819c8d5c4a4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "result.run.termination.reason not in _FINISHED",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::c4280c6c1a0d78ff::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "drawn is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::896b7ddea77f0b74::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "drawn is not None and (not _covers(drawn[0], truths))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::boolean_atom::c4280c6c1a0d78ff::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "drawn is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::boolean_atom::f51d308c2f3b49b8::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not _covers(drawn[0], truths)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::c4280c6c1a0d78ff::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "drawn is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::c4280c6c1a0d78ff::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "drawn is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::de0a7b71b53f9dd3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "representative is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::de0a7b71b53f9dd3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "representative is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::9cb20463e7937b17::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not route",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::9a34a6011144dbdc::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "result.representation.method",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::aacbf98fce03f0b3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "drawn is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::aacbf98fce03f0b3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "drawn is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::compare::de0a7b71b53f9dd3::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "representative is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::de0a7b71b53f9dd3::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "representative is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::decision_predicate::e461740ed508c604::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "route or 'unnamed'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::boolean_atom::0ad03be71bcc7ccd::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "route",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_ranks::boolean_atom::30455a2b7b6ec71d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "'unnamed'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>._uniformity_findings::decision_predicate::02429b45018a91c2::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not values",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>._uniformity_findings::decision_predicate::85e435ccb1e2a323::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not ranks_are_uniform(p_value, level)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_report::compare::4e07cca5bd6717e5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ranks.unusable > 0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_report::decision_predicate::4e07cca5bd6717e5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ranks.unusable > 0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_report::decision_predicate::5294d80237e0db68::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not replicates_meet_floor(ranks.usable, floor)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.sbc_report::decision_predicate::b41b50021ab6f33f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "calibrated",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/sbc.py::<module>.simulation_based_calibration::decision_predicate::8a1c7ee030b09f02::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "isinstance(ranks, Refusal)",
+    ),
 )
 
 EXPECTED_CANDIDATE_IDS = tuple(entry.candidate_id for entry in EXPECTED_SOURCE_MANIFEST)
