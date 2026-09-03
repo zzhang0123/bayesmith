@@ -29,6 +29,7 @@ from bayesmith import const, det, observe, sample, trace
 from bayesmith.artifacts.base import (
     ArtifactRef,
     ComputeBudget,
+    NamedArray,
     TerminationReason,
     TerminationRecord,
 )
@@ -40,8 +41,9 @@ from bayesmith.artifacts.identity import (
 )
 from bayesmith.artifacts.refusal import Refusal
 from bayesmith.artifacts.reports import Applicability, Conclusion
-from bayesmith.artifacts.tasks import EvidenceTask, new_task_meta
-from bayesmith.dispatch.task import compile_task
+from bayesmith.artifacts.results import WeightedDrawsPosterior
+from bayesmith.artifacts.tasks import EvidenceTask, PosteriorTask, new_task_meta
+from bayesmith.dispatch.task import compile_task, execute_task
 from bayesmith.evaluation import ALPHA
 from bayesmith.evaluation import sbc as sbc_module
 from bayesmith.evaluation.sbc import (
@@ -56,6 +58,7 @@ from bayesmith.evaluation.sbc import (
     simulation_based_calibration,
 )
 from tests.dispatch.test_task_protocol import model_ref
+from tests.exact.models import plated_latent
 
 X = jnp.linspace(1.0, 4.0, 8)
 SIGMA = 0.5
@@ -804,22 +807,33 @@ def test_the_sampled_route_is_calibrated_through_the_same_harness():
     Bonferroni level -- so a comparison between the two routes is a comparison
     rather than two differently-scored experiments.
 
-    **The assertion is not the report's own verdict, and that is deliberate.**
-    Passing at ALPHA is a random acceptance with a declared 5% false-positive
-    rate; on a fixed seed that would normally be harmless, except that a NUTS
+    **The verdict IS asserted, behind a conditional premise -- AGENTS.md's
+    rule (c).** G4 asks a known-calibrated fixture to be reported PASS on the
+    sampled route, so this cell says so in as many words. But passing at ALPHA
+    is a random acceptance with a declared 5% false-positive rate, and a NUTS
     trajectory is chaotic -- one ULP of difference in a gradient sends the
     chain somewhere else -- so a machine with a different BLAS redraws this
     p-value from its null and reds a cell nobody touched, one time in twenty.
     That is precisely the fixture this repository has burned release tags on.
 
-    So the cell asserts the PROPERTY at a level of its own. The FORM is
-    derived: the KS null makes P(p < L) = L for a correct route, so the
-    platform-flake rate is exactly L. The CONSTANT 1e-3 is FITTED, and
-    bracketed on both sides by measurements rather than chosen for roundness:
-    it sits 650x below this fixture's own p (0.6509) and still refuses both
-    miscalibrated cells in this file -- the 2x-stretched exact route at 6e-4
-    and the sign-symmetric bilinear at 5e-19. The accounting assertions below
-    are exact and carry no such caveat.
+    So the ordering below is the one rule (c) prescribes. The CONTRACT
+    assertions -- the accounting, the coordinate, the replicate count, and a
+    band refusing gross miscalibration -- are unconditional and come first.
+    Only then is the PREMISE tested: if this platform's p landed below the
+    level, the cell SKIPS with ``THIS IS NOT A PASS`` and the measurement, and
+    if it did not, ``conclusion is PASS`` is asserted outright. That assertion
+    is not implied by the skip guard, which reads the FINDING while the
+    assertion reads the report's own conclusion: a ``sbc_report`` that
+    assembled FAIL or ABSTAIN out of uniform ranks passes the guard and reds
+    on the assertion.
+
+    The band's FORM is derived: the KS null makes P(p < L) = L for a correct
+    route, so the rate at which the guard fires on a correct route is exactly
+    L. The CONSTANT 1e-3 is FITTED, and bracketed on both sides by
+    measurements rather than chosen for roundness: it sits 650x below this
+    fixture's own p (0.6509) and still refuses both miscalibrated cells in this
+    file -- the 2x-stretched exact route at 6e-4 and the sign-symmetric
+    bilinear at 5e-19.
 
     Costs about 35 s.
     """
@@ -840,6 +854,23 @@ def test_the_sampled_route_is_calibrated_through_the_same_harness():
     assert uniformity.observed[0] == "w"
     assert uniformity.observed[3] == REPLICATE_FLOOR
     assert uniformity.observed[2] > 1e-3, uniformity.message
+
+    # The PREMISE, and the only conditional line in the cell: everything above
+    # ran unconditionally and holds on every platform.
+    if not ranks_are_uniform(uniformity.observed[2], uniformity.expected):
+        pytest.skip(
+            "THIS IS NOT A PASS. G4 wants a known-calibrated fixture reported "
+            f"PASS on the sampled route; this run measured KS "
+            f"p={uniformity.observed[2]:.4g} against a level of "
+            f"{uniformity.expected:.4g}, so the report says FAIL and this cell "
+            "has no G4 evidence to give. Measured 0.3979 / 0.6509 / 0.6509 on "
+            "seeds 0 / 1 / 2 of the laptop the fixture was written on, so a p "
+            "below the level here is either the 5% the level declares or a "
+            "NUTS trajectory this platform walks differently -- re-run, and "
+            "read the CPU and BLAS lines suite.yml logs, before touching the "
+            "harness."
+        )
+    assert report.conclusion is Conclusion.PASS
 
 
 @pytest.mark.full
@@ -913,3 +944,326 @@ def test_a_replicate_missing_one_latent_is_counted_rather_than_ranked():
     )
     assert report.conclusion is Conclusion.ABSTAIN
     assert finding(report, "replicates_not_completed").observed == (0, 0, 6)
+
+
+# ------------------------------ the weighted branch: R2 §0.5 on the result path
+
+RAD_N = 10
+RAD_X = jnp.linspace(1.0, 5.0, RAD_N)
+#: ``tests.exact.models.radiometer``'s own numbers, restated here because that
+#: fixture takes only keyword arguments and the route arm needs the model at
+#: CALLER-supplied data, once per replicate.
+RAD_KAPPA = 0.05
+RAD_FLOOR = 1e-3
+RAD_WEIGHT = 3.0
+
+
+def radiometer_with(data):
+    """``sigma_i = kappa |mu_i| + floor`` -- the plan's weighted fixture (§0.12).
+
+    Classified ``gcr+snis``, so its posterior is a
+    :class:`~bayesmith.artifacts.results.WeightedDrawsPosterior` and the rank
+    it feeds is the weighted one R2 §0.5 froze. Everything else in this file
+    routes to an equally weighted sample, which is why that ruling had no
+    executable coverage on the result path until these two cells.
+    """
+
+    def model():
+        xs = const("X", RAD_X)
+        w = sample("w", lambda: dist.Normal(0.0, 10.0))
+        mu = det("mu", lambda w_, x_: w_ * x_, w, xs, linear_in=("w",))
+        observe(
+            "d",
+            lambda m: dist.Normal(m, RAD_KAPPA * jnp.abs(m) + RAD_FLOOR),
+            mu,
+            depends_on_prediction=True,
+            obs=data,
+        )
+
+    return trace(model)
+
+
+RADIOMETER = radiometer_with(
+    RAD_WEIGHT * RAD_X
+    + (RAD_KAPPA * jnp.abs(RAD_WEIGHT * RAD_X) + RAD_FLOOR)
+    * jax.random.normal(jax.random.key(6), (RAD_N,))
+)
+
+#: Chosen rather than measured, and chosen FAR from uniform on purpose:
+#: ``e^0 : e^-1 : e^-2 : e^-3`` normalises to 0.6439 / 0.2369 / 0.0871 /
+#: 0.0321, so a harness that quietly used ``1/4`` for each is wrong by 2.6x on
+#: the first draw and 7.8x on the last. A real SNIS run on this repository's
+#: own weighted fixture is far flatter than that -- measured on ``radiometer``
+#: at 64 draws, ESS 63.96 of 64, log-weight spread 0.026 -- so the real route
+#: has almost no power against "uniform weights", and pinning the ARITHMETIC
+#: needs numbers that were picked. The real route is exercised in the cell
+#: below this one, for the thing IT can decide.
+KNOWN_LOG_WEIGHTS = (0.0, -1.0, -2.0, -3.0)
+KNOWN_DRAWS = (0.0, 1.0, 2.0, 3.0)
+
+
+def an_exact_posterior_result():
+    """One real ``PosteriorResult``, to carry a hand-chosen representation.
+
+    Real rather than assembled field by field: the envelope -- meta, run
+    record, fingerprints, ``latent_names`` -- is one an actual dispatch
+    produced and one ``PosteriorResult.__post_init__`` accepted, so only the
+    numbers under test are hand-written.
+
+    The budget is ``len(KNOWN_DRAWS)`` and not this file's ``EXACT_BUDGET``
+    because a result carries a per-draw ``pointwise_log_likelihood``, and
+    ``PosteriorResult`` refuses a representation whose draw count disagrees
+    with it. Making the envelope the right SIZE is the honest way past that;
+    deleting the pointwise array to make room would be editing the real
+    artifact to fit the test.
+    """
+    planned = compile_task(
+        LINE,
+        PosteriorTask(
+            meta=new_task_meta(label="sbc weighted branch"),
+            budget=ComputeBudget(draws=len(KNOWN_DRAWS), warmup=1),
+        ),
+        model_ref=model_ref(),
+    )
+    assert not isinstance(planned, Refusal)
+    result = execute_task(planned, key=jax.random.key(0))
+    assert not isinstance(result, Refusal)
+    return result
+
+
+def with_known_weights(result):
+    """``result`` carrying a weighted representation whose weights are known."""
+    return dataclasses.replace(
+        result,
+        representation=WeightedDrawsPosterior(
+            draws=(
+                NamedArray(
+                    name="w",
+                    value=np.asarray(KNOWN_DRAWS, dtype=float),
+                    dims=("draw",),
+                ),
+            ),
+            log_weights=NamedArray(
+                name="log_weights",
+                value=np.asarray(KNOWN_LOG_WEIGHTS, dtype=float),
+                dims=("draw",),
+            ),
+            ess=None,
+            khat=None,
+            unreliable=False,
+            method="gcr+snis",
+        ),
+    )
+
+
+def test_the_weighted_branch_normalises_the_posterior_s_own_log_weights():
+    """R2 §0.5 where the weights actually come from: the result, not the caller.
+
+    ``continuous_rank`` is already tested against hand-supplied weights. This
+    is the other half -- that ``_posterior_draws`` hands it the posterior's own
+    ``log_weights``, shifted by their maximum and normalised to sum to one, and
+    neither resamples them away nor replaces them with ``1/n``.
+
+    Three ways of getting it wrong, each refused by its own line: the exact
+    softmax refuses uniform weights, the sum refuses UNnormalised ones, and the
+    rank ties both to the number SBC actually consumes. The expected weights
+    are recomputed here from ``KNOWN_LOG_WEIGHTS`` rather than transcribed, so
+    the cell states the FORMULA rather than a machine's arithmetic; the one
+    transcribed number, ``0.96794``, is the rank that formula comes to, and it
+    is pinned to five decimals so a reader can see the answer without running
+    the file.
+    """
+    result = with_known_weights(an_exact_posterior_result())
+    answer = sbc_module._posterior_draws(result)
+    assert answer is not None
+    draws, weights = answer
+
+    shifted = np.exp(np.asarray(KNOWN_LOG_WEIGHTS) - max(KNOWN_LOG_WEIGHTS))
+    expected = shifted / shifted.sum()
+    assert weights == pytest.approx(expected)
+    assert float(np.sum(weights)) == pytest.approx(1.0)
+    # e^0 : e^-1 is 2.718 : 1, and no uniform weighting has that ratio.
+    assert weights[0] == pytest.approx(math.e * weights[1])
+    assert draws["w"] == pytest.approx(np.asarray(KNOWN_DRAWS))
+    # Draws 0, 1 and 2 lie below 2.5; draw 3 does not.
+    assert continuous_rank(draws["w"], weights, 2.5) == pytest.approx(
+        float(expected[:3].sum())
+    )
+    assert continuous_rank(draws["w"], weights, 2.5) == pytest.approx(0.96794, abs=1e-5)
+
+
+def test_the_weighted_route_ranks_with_the_weights_it_was_given():
+    """``radiometer`` (gcr+snis) through the real replicate loop: seed 3, N = 8.
+
+    The plan's own weighted fixture on the ROUTE arm, so the branch above is
+    reached the way production reaches it -- a compiled, executed
+    ``PosteriorTask`` whose posterior arrives weighted -- rather than through a
+    representation a test wrote.
+
+    **What is asserted here is structural, and deliberately not numeric.**
+    SNIS's khat on this fixture sits near its own reliability threshold:
+    measured on this checkout at seed 3, replicates 0..7 returned khat -0.87,
+    -0.64, 0.79, 0.45, -0.67, 0.53, 0.83 and 0.44, and the three above the
+    threshold stopped ``tolerance_unmet`` and were counted as unconverged
+    rather than ranked. A khat is a tail fit over float32 log-weights; pinning
+    which side of the threshold each replicate lands on would be pinning one
+    machine's arithmetic, which is the fixture failure this repository has
+    spent four release tags on. So the cell pins the route NAME, the closed
+    accounting, and the interval a weighted rank must live in.
+
+    That interval is the assertion with teeth. A rank is a SUM of weights, so
+    it leaves ``[0, 1]`` the moment the weights are not normalised: measured on
+    this fixture at 64 draws, the shifted weights sum to 61.66 before
+    normalisation.
+    """
+    ranks = sbc_ranks(
+        RADIOMETER,
+        key=jax.random.key(3),
+        replicates=8,
+        model_ref=model_ref(),
+        build=lambda datum: radiometer_with(datum["d"]),
+        budget=ComputeBudget(draws=100, warmup=1),
+    )
+    assert not isinstance(ranks, Refusal)
+    assert ranks.route == "gcr+snis"
+    assert ranks.coordinates == ("w",)
+    assert ranks.requested == 8
+    assert ranks.usable + ranks.unusable == ranks.requested
+    assert ranks.usable >= 1, "no weighted replicate was ranked at all"
+    values = ranks.ranks[0]
+    assert len(values) == ranks.usable
+    assert all(0.0 <= value <= 1.0 for value in values), values
+
+
+# --------------------------- a vector latent is K questions, at a level of α/K
+
+PLATE_SIZE = 6
+PLATE_SIGMA = 0.4
+PLATE_TAU = 1.5
+#: Stated rather than defaulted: ``plated_conjugate_sampler`` below is the
+#: closed-form posterior for THESE numbers, so the graph and the sampler cannot
+#: drift apart without the call site saying so.
+PLATED = plated_latent(n=PLATE_SIZE, sigma=PLATE_SIGMA, tau=PLATE_TAU)
+
+
+def plated_conjugate_sampler(width: float = 1.0):
+    """``z_i | d_i`` in closed form, for the plate ``z_i ~ N(0, tau)``,
+    ``d_i ~ N(z_i, sigma)``: mean ``d_i tau^2 / (tau^2 + sigma^2)`` and scale
+    ``sqrt(tau^2 sigma^2 / (tau^2 + sigma^2))``, one independent coordinate per
+    plate position."""
+    total = PLATE_TAU**2 + PLATE_SIGMA**2
+    shrink = PLATE_TAU**2 / total
+    scale = width * math.sqrt(PLATE_TAU**2 * PLATE_SIGMA**2 / total)
+
+    def sampler(datum, key, n):
+        d = jnp.asarray(datum["d"])
+        drawn = shrink * d + scale * jax.random.normal(key, (n,) + d.shape)
+        return {"z": np.asarray(drawn)}
+
+    return sampler
+
+
+def test_a_vector_latent_is_ranked_coordinate_by_coordinate():
+    """seed 1, N = REPLICATE_FLOOR, 400 draws: ``z[0]`` .. ``z[5]`` at α/6.
+
+    ``_flat_coordinates``' whole reason for existing, and until this cell
+    nothing ran it on a shape: a K-vector latent is K separate calibration
+    questions, so it yields K coordinate names and a Bonferroni level of
+    ``ALPHA / K`` rather than one pooled test at ``ALPHA``. Measured here:
+    six names and a level of 0.008333.
+
+    Deterministic by construction rather than by luck -- the sampler is the
+    exact conjugate posterior, so its ranks are uniform whatever the seed
+    happens to be. Seed 1's per-coordinate p values were measured at 0.7672,
+    0.8765, 0.3078, 0.4049, 0.6004 and 0.3382, the worst of them 37x above the
+    corrected level; the 2x-wide twin of this sampler measures 0.00123 down to
+    1.16e-05 and fails, which is what makes the PASS above a statement.
+    """
+    report = simulation_based_calibration(
+        PLATED,
+        key=jax.random.key(1),
+        replicates=REPLICATE_FLOOR,
+        model_ref=model_ref(),
+        sampler=plated_conjugate_sampler(1.0),
+        sampler_draws=400,
+        subject_ref=a_ref(),
+    )
+    uniformity = [
+        item for item in report.findings if item.code == "sbc_rank_uniformity"
+    ]
+    assert tuple(item.observed[0] for item in uniformity) == tuple(
+        f"z[{index}]" for index in range(PLATE_SIZE)
+    )
+    assert len(uniformity) == PLATE_SIZE
+    assert all(
+        item.expected == pytest.approx(ALPHA / PLATE_SIZE) for item in uniformity
+    )
+    assert all(item.observed[3] == REPLICATE_FLOOR for item in uniformity)
+    assert report.applicability is Applicability.APPLICABLE
+    assert report.conclusion is Conclusion.PASS, [
+        item.message for item in uniformity
+    ]
+
+
+def test_a_vector_latent_at_twice_its_width_fails_every_coordinate():
+    """The same six questions, asked of a posterior twice as wide.
+
+    Same seed, same replicate count, same draw count: the only difference is
+    the factor of two. Every coordinate falls below α/6 -- measured 0.00123,
+    0.000367, 0.00378, 1.16e-05, 0.000193 and 2.43e-05 at seed 0 -- so the
+    cell above is a PASS the harness could have refused.
+    """
+    report = simulation_based_calibration(
+        PLATED,
+        key=jax.random.key(0),
+        replicates=REPLICATE_FLOOR,
+        model_ref=model_ref(),
+        sampler=plated_conjugate_sampler(2.0),
+        sampler_draws=400,
+        subject_ref=a_ref(),
+    )
+    assert report.conclusion is Conclusion.FAIL
+    uniformity = [
+        item for item in report.findings if item.code == "sbc_rank_uniformity"
+    ]
+    assert len(uniformity) == PLATE_SIZE
+    assert all(item.observed[2] < ALPHA / PLATE_SIZE for item in uniformity)
+
+
+# -------------------------------------------------- what a PASS does NOT say
+
+
+def prior_ignoring_sampler(datum, key, n):
+    """A "posterior" that never looks at ``datum``: draws from the prior."""
+    return {"w": np.asarray(PRIOR_STD * jax.random.normal(key, (n,)))}
+
+
+def test_a_posterior_that_ignores_the_data_is_still_calibrated():
+    """The harness's blind spot, pinned rather than left to a docstring.
+
+    Ranks of a prior draw among prior draws are uniform by construction, so a
+    route that discards the observation entirely scores APPLICABLE x PASS.
+    Measured at seed 0, N = REPLICATE_FLOOR, 400 draws: D = 0.0500, p = 0.9532;
+    also PASS at seeds 1, 3 and 4 (p = 0.7265, 0.6004, 0.1842), with seed 2's
+    0.0474 the false positive ALPHA declares.
+
+    This cell is a PIN, not a guard: the behaviour is CORRECT and must not be
+    "fixed". It exists because ``sbc.py``'s module docstring now says this in
+    prose, and prose in this repository goes stale on days nobody edits it. The
+    assertion is the conclusion plus a margin -- ``p > 0.5`` -- rather than the
+    p-value itself, so a platform that reorders one floating-point sum does not
+    red a cell about a statistical fact.
+    """
+    report = simulation_based_calibration(
+        LINE,
+        key=jax.random.key(0),
+        replicates=REPLICATE_FLOOR,
+        model_ref=model_ref(),
+        sampler=prior_ignoring_sampler,
+        sampler_draws=400,
+        subject_ref=a_ref(),
+    )
+    assert report.applicability is Applicability.APPLICABLE
+    assert report.conclusion is Conclusion.PASS
+    uniformity = finding(report, "sbc_rank_uniformity")
+    assert uniformity.observed[2] > 0.5, uniformity.message

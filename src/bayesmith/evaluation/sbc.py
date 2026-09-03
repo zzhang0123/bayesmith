@@ -8,6 +8,33 @@ must be uniform, because a correct posterior places the truth uniformly by
 construction.  A route that is systematically too wide puts the truth in the
 middle too often; one that is too narrow pushes it into the tails.
 
+**What a PASS here does NOT say: that the route read the data.**  A "posterior"
+that ignores ``y`` and hands back prior draws is uniform in rank BY
+CONSTRUCTION -- the position of a prior draw among prior draws is uniform -- so
+it scores APPLICABLE x PASS from this harness.  Measured on this checkout with
+a sampler that discards its ``datum`` and returns ``2.0 * normal(key, (n,))``,
+N = 100 replicates on the straight-line fixture: KS p = 0.9532, 0.7265, 0.6004
+and 0.1842 at seeds 0, 1, 3 and 4 -- PASS at every one -- with seed 2's 0.0474
+the false positive ``ALPHA = 0.05`` declares in advance.  SBC asks whether a
+route's stated uncertainty is consistent with its stated prior; a route that is
+trivially self-consistent answers yes.  Something that reads the observation --
+a posterior predictive check, a held-out score -- has to be reported alongside
+it before anyone says a route works.  This is the discipline the R3 plan's
+§0.3 already imposes on PPC ("do not tell a PASS as 'the model is correct'"),
+and it is owed here for the same reason.  The cell that pins it is
+``test_a_posterior_that_ignores_the_data_is_still_calibrated``.
+
+A second limit of the same shape, and a property of the FIXTURE rather than of
+this harness: where the likelihood dominates the prior, a posterior computed
+under the WRONG prior still passes.  Measured on the same fixture at N = 100, a
+conjugate sampler told the prior is ``N(0, 0.5)`` while the model declares
+``N(0, 2)`` gives p = 0.1166 / 0.4411 / 0.4049 at seeds 0 / 1 / 2 -- PASS at
+all three -- and is only caught once the sampler's prior is wrong by a further
+factor of five (``N(0, 0.1)``: p = 2.5e-15 / 2.6e-16 / 6.8e-24).  What SBC has
+power against is set by the fixture as much as by the replicate count, and
+D106 is a floor measured against a 2x WIDTH error, not a promise about every
+error.
+
 **Three rulings from the R3 plan's §0.6 are implemented here literally, and
 none of them is re-decided in this module.**
 
