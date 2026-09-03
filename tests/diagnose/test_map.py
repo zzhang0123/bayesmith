@@ -225,7 +225,51 @@ def test_vandermonde_mode_is_judged_by_stationarity_not_newton_step_jitter():
 
     assert isinstance(found, MapEstimate)
     mode = np.asarray(found["coefficients"])
-    assert np.max(np.abs(mode - oracle)) < 5e-8
+
+    # `mode` and `oracle` are two float64 solutions of the SAME 13x13 normal
+    # equations, so the gap between them is set by that system's conditioning
+    # and by nothing this seam controls. The chain, measured except where it
+    # says derived: cond_2(design) = 2491804794.6754827, and forming A.T @ A
+    # squares it -- 6.209091e+18 derived, past 1/eps = 4.503600e+15, i.e.
+    # numerically singular on its own. The prior's 1/1.5**2 ridge caps
+    # lambda_min at 0.4444444326032544, which is what brings
+    # cond_2(precision) back to 109089884440.88826. So a backward-stable
+    # float64 solve pins either point only to cond * eps * ||x||_inf =
+    # 4.1425125494005045e-06, with ||oracle||_inf = 0.1710169377250264.
+    #
+    # The 5e-8 that stood here was one laptop's rounding sold as a property,
+    # and it was not even this seam's rounding: re-solved in exact rational
+    # arithmetic (`fractions.Fraction`) from the same float64 `precision` and
+    # `information`, `oracle` is ITSELF 2.2617970316107794e-08 from the true
+    # solution on macOS/Accelerate -- the reference had already spent more
+    # than the whole budget it was being used to police.
+    #
+    # Measured max|mode - oracle|, against the 4.14e-06 the derivation
+    # allows: 2.20828851836552e-08 on macOS/Accelerate (188x margin),
+    # 3.226749584195332e-08 from the linux/amd64 container's default OpenBLAS
+    # kernel (128x), and 5.808913667096349e-08 on the GitHub ubuntu runner
+    # (71x) -- the value that tripped the pin, and reproducible here to the
+    # last digit by running that container with OPENBLAS_CORETYPE=ZEN. The
+    # runner is an AMD EPYC 7763 with `avx avx2 fma sse4_2` and no avx-512,
+    # so the spread is OpenBLAS choosing a different dgemm microkernel, not
+    # an ISA gap and not an accuracy gap.
+    #
+    # The band is derived from the fixture and then pinned WHOLE. Pinning
+    # `cond` alone would not do: cond(precision) is data-independent, so
+    # raising `coefficient_scale` inflates ||oracle||_inf and the band with
+    # it while a cond-only pin keeps passing -- measured, scale 0.2/2/20
+    # gives 4.142513e-06/4.081815e-05/4.075745e-04 with the cond pin True on
+    # all three. Pinning the product closes that. Both factors come from
+    # `design` and the NumPy oracle, never from `mode`, so a broken seam
+    # cannot widen its own allowance.
+    precision = design.T @ design / 0.05**2 + np.eye(oracle.size) / 1.5**2
+    solve_tolerance = (
+        np.linalg.cond(precision)
+        * np.finfo(np.float64).eps
+        * np.max(np.abs(oracle))
+    )
+    assert solve_tolerance == pytest.approx(4.14251e-06, rel=1e-3)
+    assert np.max(np.abs(mode - oracle)) < solve_tolerance
 
     residual = data - design @ mode
     expected_objective = 0.5 * np.sum(
@@ -235,7 +279,88 @@ def test_vandermonde_mode_is_judged_by_stationarity_not_newton_step_jitter():
         np.abs(design.T @ (design @ mode - data) / 0.05**2 + mode / 1.5**2)
     )
     assert found.objective == pytest.approx(expected_objective, abs=2e-10)
-    assert found.gradient_norm == pytest.approx(expected_gradient, rel=0.5)
+
+    # The stationarity claim this test is named for, split into the three
+    # separate things `rel=0.5` was conflating.
+    #
+    # A gradient at this scale is not a number, it is a noise floor:
+    # A.T(Aw - d)/sigma^2 + w/s^2 loses about eps * max_i sum_k |A_ik w_k| in
+    # the prediction, then multiplies that by max_j sum_i |A_ij| / sigma^2
+    # over dot products of length 13. The measurement that settles it: at the
+    # EXACT rational minimiser of this objective the computed gradient is
+    # still 6.452316421694942e-08 on macOS. Zero is unreachable, so the RATIO
+    # of two values under that floor is noise over noise -- measured 0.3991
+    # on macOS, 0.4950 under the runner's own kernel (one percent of the old
+    # budget left) and 0.8432, a plain FAIL, under the container's default
+    # kernel -- where the DISTANCE assert passes at 3.226749584195332e-08, so
+    # nothing shielded it and HEAD simply fails at the ratio with no defect
+    # present. CI never saw it because CI does not run that kernel: on the
+    # runner's own the ratio is 0.4950 and it was the distance assert, at
+    # 5.808913667096349e-08, that reported. So the ordering of these two lines
+    # never protected either of them.
+    #
+    # (1) and (2) are stationarity: the seam's own report, and an independent
+    # NumPy gradient at the point it returned, both under the derived floor
+    # eps * (13 + 1) * S * colsum / sigma^2. Measured across the three
+    # kernels 9.32790310972548e-06 (macOS), 9.327907e-06 (ZEN) and
+    # 9.327897e-06 (the container default, the one that differs most), a
+    # relative spread of 1.1e-06. Pinned for the same reason the distance
+    # band is: it is built from `design` and `oracle`, so a fixture edit
+    # would otherwise inflate it silently -- measured, coefficient_scale
+    # 0.2/2/20 gives 9.327903e-06/3.865204e-05/3.731173e-04.
+    #
+    # (3) is a different property, and the only one the old line could
+    # actually test: that the reported field IS the inf-norm of that
+    # gradient. Measured, a seam reporting 0.0, half, or ten times the true
+    # norm passes both floors above and is caught only here. It needs no
+    # tolerance, because it is not a cross-implementation comparison the way
+    # `expected_gradient` is -- it is the same `jax.grad(-log_joint)` at the
+    # same returned point, so it is BITWISE equal, and measured so on
+    # macOS/Accelerate and in the container under both OpenBLAS kernels. A
+    # band would have to be honest about costing the SUM of two evaluation
+    # errors (2 * 13 * eps * S * colsum / sigma^2 = 1.7e-05), which is looser
+    # than the floor and so could never fire; that is why the old assertion
+    # is replaced here rather than merely re-tolerated.
+    gradient_floor = (
+        np.finfo(np.float64).eps
+        * (oracle.size + 1)
+        * np.max(np.abs(design) @ np.abs(oracle))
+        * np.max(np.abs(design).sum(axis=0))
+        / 0.05**2
+    )
+    assert gradient_floor == pytest.approx(9.3279e-06, rel=1e-3)
+    assert found.gradient_norm < gradient_floor
+    assert expected_gradient < gradient_floor
+
+    # The reduction stays INSIDE the x64 block with the gradient: measured,
+    # hoisting the `jnp.max` out of it returns a float32 truncation
+    # (1.0315038601049764e-08 against the true 1.0315038350382222e-08) and
+    # turns the bitwise assert into a spurious failure.
+    from bayesmith import log_joint
+
+    with jax.enable_x64(True):
+        recomputed = float(
+            jnp.max(
+                jnp.abs(
+                    jax.grad(lambda w: -log_joint(graph, {"coefficients": w}))(
+                        jnp.asarray(found["coefficients"])
+                    )
+                )
+            )
+        )
+    assert found.gradient_norm == recomputed
+
+    # Not decoration, and not a work-budget report. Measured by instrumenting
+    # the real `_newton` on this fixture: it returns (steps, flag) = (100,
+    # False), so it exhausts its budget without the relative-step cut ever
+    # firing, which is the premise the test is named for. It is a proxy and
+    # not a proof -- `_newton` also returns 100 with the flag True when
+    # sensitivity.py's in-loop `if moved < NEWTON_TOL` fires on the last
+    # iteration, and `map_estimate` discards the flag -- but it is the only
+    # witness the seam exposes. The proof is a monkeypatch: make `_newton`
+    # return NaN unless its step flag is set and this graph comes back
+    # Refused, so a seam that judged convergence by Newton-step size fails
+    # the isinstance above whatever the bands are set to.
     assert found.steps == 100
 
 
