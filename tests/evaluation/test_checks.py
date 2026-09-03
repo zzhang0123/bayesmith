@@ -22,7 +22,7 @@ in this repository once wrote down what one machine's arithmetic produced and
 called it a property, and four release tags were spent on it.  Every pin below
 was re-run under ``linux/amd64`` with ``OPENBLAS_CORETYPE=ZEN`` -- Accelerate
 against scipy-openblas, which is the difference that burned the four tags --
-and all 47 tests in this file passed unchanged on both.  A pin that had moved
+and all 50 tests in this file passed unchanged on both.  A pin that had moved
 would have been rewritten as a property before it was committed, not widened.
 """
 
@@ -226,6 +226,52 @@ def excess_kurtosis(y, loc):
     del loc
     centred = y - np.mean(y, axis=-1, keepdims=True)
     return np.mean(centred**4, axis=-1) / np.mean(centred**2, axis=-1) ** 2 - 3.0
+
+
+def always_nan(y, loc):
+    """A legal discrepancy that has no value: NaN for every draw.
+
+    A probe rather than a plausible statistic, and it does not pretend
+    otherwise; what earns it a place is the failure mode on the other side of
+    the finite guard, which is the quiet one.  ``nan >= nan`` is ``False``, so
+    an unguarded weighted count returns ``p = 0.0`` -- a saturated FAIL
+    spelled exactly like ``curved_line(0.6)``'s, same code, same message
+    shape, and nothing in the report to tell the two apart.
+
+    Module scope, so it has an importable identity like any other
+    discrepancy: the check has to reach the finite guard rather than stop
+    earlier at :func:`discrepancy_identity`.
+    """
+    del loc
+    return np.full(y.shape[0], np.nan)
+
+
+def standardised_spread(y, loc):
+    """Each draw's spread, placed on the ensemble's own scale.
+
+    Finite on the replicated draws and NON-finite on the observed argument,
+    which is why the finite guard has to read both and not just the first.
+    The asymmetry is structural rather than arranged: the observed argument is
+    ONE data vector broadcast to every draw, so anything that reads across the
+    draw axis meets an ensemble of identical rows there and divides by its
+    zero range.
+
+    ``max - min`` and not the usual ``(x - mean) / std``, and the difference
+    decides whether this fixture works at all.  DERIVED: identical rows give
+    identical row statistics, so ``max`` and ``min`` are the same float, their
+    difference is exactly ``0.0``, and ``0.0 / 0.0`` is NaN wherever IEEE-754
+    holds -- no machine gets a vote.  MEASURED, on the development laptop:
+    that repeated value is ``2.1917603``, and ``np.std`` of 2000 copies of it
+    is ``4.7683716e-07`` rather than zero, because their mean lands one ULP
+    away at ``2.1917608``.  So the standard form would evaluate here to a
+    perfectly finite ``-1.0`` and this test would assert nothing -- and which
+    way that ULP falls is one machine's arithmetic, which is the thing that
+    cost this repository four release tags.  The range form does not ask.
+    """
+    del loc
+    per_draw = np.std(y, axis=-1)
+    with np.errstate(invalid="ignore"):
+        return (per_draw - per_draw.min()) / (per_draw.max() - per_draw.min())
 
 
 def p_values(report):
@@ -676,6 +722,48 @@ def test_a_prior_a_million_times_too_wide_fails_on_both_sides():
     assert scores["mean"] == pytest.approx(0.5120, abs=1e-9)
 
 
+def test_one_out_of_band_cell_out_of_one_fails_the_whole_report():
+    """The verdict is "no cell outside", and an off-by-one in it is publishable.
+
+    Every other fixture in this file lands on zero out-of-band cells or on
+    three -- ``straight_line`` 0, the million-times-wide prior 2,
+    ``curved_line(0.6)`` 3 -- so a report whose SINGLE failing statistic is
+    the only thing wrong is an arm nothing here had ever produced.  It is the
+    one a ``passed = outside <= 1`` would publish as a PASS while every pinned
+    p-value in the file stayed exactly where it is.
+
+    Both halves are the same one-discrepancy report over two priors, so the
+    only thing that differs is that cell's own verdict; and the verdict is
+    re-derived through the production predicate rather than restated, so a
+    band edge that moved would move both sides of this test together.
+    """
+    graph = line_with_prior(1e6)
+    report = prior_predictive_check(
+        graph,
+        prior_simulation(graph, jax.random.key(9), 4000),
+        discrepancies=(checks_module.sd,),
+    )
+    assert report.applicability is Applicability.APPLICABLE
+    assert report.conclusion is Conclusion.FAIL
+    (outside,) = report.findings
+    assert outside.code == "discrepancy_outside_band"
+    assert not tail_mass_within_rate(outside.observed[3])
+    assert "1 outside the declared band" in report.meta.summary
+
+    calibrated = straight_line()
+    passing = prior_predictive_check(
+        calibrated,
+        prior_simulation(calibrated, jax.random.key(9), 4000),
+        discrepancies=(checks_module.sd,),
+    )
+    assert passing.applicability is Applicability.APPLICABLE
+    assert passing.conclusion is Conclusion.PASS
+    (within,) = passing.findings
+    assert within.code == "discrepancy_within_band"
+    assert tail_mass_within_rate(within.observed[3])
+    assert "0 outside the declared band" in passing.meta.summary
+
+
 def test_a_simulation_from_a_posterior_is_inapplicable_not_failed():
     """G3: the source is a different question, so the check says so.
 
@@ -752,6 +840,91 @@ def test_a_correlated_observation_is_unverifiable_not_an_exception():
     (finding,) = report.findings
     assert finding.code == "predictive_noise_unsupported"
     assert finding.expected == "diagonal_normal"
+
+
+def test_a_non_finite_discrepancy_is_unverifiable_rather_than_a_saturated_fail(
+    measured,
+):
+    """The third UNVERIFIABLE arm, and the only one whose failure mode is silent.
+
+    Reached through the posterior path because the branch is shared -- it sits
+    in ``_predictive_check``, which both checks call -- and because doing it
+    on an already-drawn pair costs nothing.
+
+    Unguarded, this is not an exception and not a NaN in the report: ``nan >=
+    nan`` is ``False``, so the weighted count returns ``p = 0.0`` and the cell
+    is published as a saturated FAIL, spelled exactly like ``curved_line(0.6)``
+    and carrying the same codes.  A reader could not tell the two apart.  So
+    the second half is the part worth having: a finite cell computed BEFORE the
+    non-finite one does not survive into the report either.  A half-measured
+    verdict with one real p-value in it is the version of this that would be
+    believed.
+    """
+    posterior, predictive = measured["straight_line"]
+    identity = f"{always_nan.__module__}.always_nan"
+
+    report = posterior_predictive_check(
+        straight_line(),
+        predictive,
+        source_posterior=posterior,
+        discrepancies=(always_nan,),
+    )
+    assert report.applicability is Applicability.UNVERIFIABLE
+    assert report.conclusion is Conclusion.ABSTAIN
+    (finding,) = report.findings
+    assert finding.code == "discrepancy_not_finite"
+    assert finding.observed == ("d", identity)
+    assert finding.expected == "finite"
+    assert identity in report.meta.summary
+
+    mixed = posterior_predictive_check(
+        straight_line(),
+        predictive,
+        source_posterior=posterior,
+        discrepancies=(checks_module.sd, always_nan),
+    )
+    assert mixed.applicability is Applicability.UNVERIFIABLE
+    assert mixed.conclusion is Conclusion.ABSTAIN
+    assert [item.code for item in mixed.findings] == ["discrepancy_not_finite"]
+
+
+def test_the_finite_guard_reads_the_observed_argument_as_well(measured):
+    """Both halves of the guard, because only one of them had a fixture.
+
+    ``always_nan`` is non-finite on both arguments, so it fires the guard
+    whichever half is consulted -- measured: with the ``t_observed`` clause
+    deleted the whole file still passed.  A statistic can perfectly well be
+    finite on 2000 replicated datasets and undefined on the observed one, and
+    that is the case a one-clause guard turns into ``p = 0.0``.
+
+    The oracle is computed here from the fixture's own arrays rather than
+    inferred from the report, so what the test asserts is the asymmetry
+    itself: finite on the replicated argument, non-finite on the observed one,
+    and the report abstaining anyway.
+    """
+    posterior, predictive = measured["straight_line"]
+    graph = straight_line()
+    replicated = np.asarray(predictive.replicated_draws[0].value)
+    observed = np.broadcast_to(
+        np.asarray(graph.node("d").observed), replicated.shape
+    )
+    assert np.all(np.isfinite(standardised_spread(replicated, None)))
+    assert not np.any(np.isfinite(standardised_spread(observed, None)))
+
+    report = posterior_predictive_check(
+        graph,
+        predictive,
+        source_posterior=posterior,
+        discrepancies=(standardised_spread,),
+    )
+    assert report.applicability is Applicability.UNVERIFIABLE
+    assert report.conclusion is Conclusion.ABSTAIN
+    (finding,) = report.findings
+    assert finding.code == "discrepancy_not_finite"
+    assert finding.observed == (
+        "d",
+        f"{standardised_spread.__module__}.standardised_spread",
+    )
 
 
 # --------------------------------------------------------------- the mask
