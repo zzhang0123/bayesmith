@@ -299,12 +299,26 @@ def _layout_products(left: np.ndarray, right: np.ndarray):
     Whether a given BLAS actually does that is a property of the INSTALLED
     LIBRARY, not something a fixture may assert.
 
-    Measured 2026-09-02 with numpy 2.5.2 on both sides. Apple's Accelerate
-    separates these factors by one ULP -- and separates the right operand's
-    layout only, ``C@C`` and ``F@C`` being equal. scipy-openblas 0.3.34 returns
-    all four layout products bitwise equal, and separated none of thirty
-    randomly generated shapes either, so the fallback loop that function walks
-    is unreachable there.
+    Measured 2026-09-02 with numpy 2.5.2 on both sides, re-measured 2026-09-03
+    under the coretype that matches CI. Apple's Accelerate separates these
+    factors by one ULP -- and separates the right operand's layout only,
+    ``C@C`` and ``F@C`` being equal; the one cell of nine that differs is
+    ``[2, 1]``, ``-0x1.18cd2e1781814p-11`` against ``-0x1.18cd2e1781815p-11``.
+    scipy-openblas 0.3.34.0.0 returns all four layout products bitwise equal,
+    so the fallback loop that function walks is unreachable there.
+
+    This docstring is where that premise is measured; the fixtures in this
+    module consume :data:`LAYOUTS_SEPARATE` and point here rather than restate
+    it. The search for any separating pair on that library came back empty --
+    0 of 96, sizes 2, 3, 4, 5, 8, 16, 17, 32, 64, 100, 128, 200 by seeds 0..7,
+    ``np.random.default_rng(seed * 1000 + n)`` with ``standard_normal``, under
+    ``OPENBLAS_CORETYPE=ZEN``. These factors themselves come back bitwise equal
+    under ZEN, Haswell, NEHALEM and an unset coretype alike, which rules out
+    the runtime kernel choice; ZEN is the setting that reproduces the CI
+    runner's dgemm bit for bit, so the GitHub runner takes this branch too. The
+    same sweep on Accelerate separates 27 of 96 -- written down only to say it
+    is nowhere near zero. Only counts that reproduce from the construction
+    spelled out above belong here; the anchor is the ``[2, 1]`` cell.
 
     This used to be an assertion, and the assertion was inside the fixture that
     builds every boundary case, so on OpenBLAS it took 2091 tests down at setup
@@ -406,24 +420,33 @@ _RELATION_COMPANIONS: dict[
 }
 
 if not LAYOUTS_SEPARATE:
-    # The row above says the canonical comparison must MISS before the loop
-    # that atom lives in is reached. That is a statement about a BLAS which
-    # separates C- and F-order products: the atom supplies the F-order one, the
-    # canonical comparison fails, and the loop runs. Where the BLAS does not
-    # separate them the two products ARE one value, the canonical comparison
-    # succeeds in baseline and mutant alike, and the loop is unreachable -- so
-    # there is no sibling CHANGE to declare, and `validate_atom_relation`
-    # rejects a declared dependency that does not differ from its baseline.
-    # Removing the row is therefore the accurate declaration here, not a
-    # relaxation of one. Measured 2026-09-02, numpy 2.5.2 on both sides: Apple
-    # Accelerate separates these factors by one ULP, scipy-openblas 0.3.34
-    # separates neither them nor any of thirty randomly generated shapes.
-    del _RELATION_COMPANIONS[
+    # Deleting the `np.array_equal(reconstructed, value)` row from the table
+    # above was the mistake, and it came of misreading which cell that row
+    # governs. It is keyed on the LOOP atom's syntax, so it applies only in the
+    # loop atom's own fixture -- and that fixture nudges one entry of the value
+    # by an ULP, so the canonical comparison misses there on every platform.
+    # Measured 2026-09-03 in the linux/amd64 container with
+    # OPENBLAS_CORETYPE=ZEN, scipy-openblas 0.3.34.0.0: both atoms read False in
+    # that cell, the same pair Accelerate reads. With the row deleted that real
+    # sibling change is undeclared, and the cell raises before it is graded.
+    #
+    # What a non-separating BLAS does remove is the OTHER atom's ADMITTED cell.
+    # `validate_atom_relation` (boundary_core.py:574) rejects a target outcome
+    # equal to its own baseline, so that cell must drive
+    # `np.array_equal(canonical, value)` False; the function then admits only if
+    # some other layout product still matches the value, and where all four
+    # products are one array that cannot happen. So the cell exists here as the
+    # refusal it forces, and it drags the loop atom to False with it. That
+    # companion is declared rather than discovered -- `_atom_side` and
+    # `_reconstruction_atom` carry the two halves that follow, and `_atom_side`
+    # names what the re-siding gives up. Whether the layouts separate at all is
+    # `_layout_products`'s docstring to say; it is not restated here.
+    _RELATION_COMPANIONS[
         (
             "EAGER:factor-reconstruction:layout-exactness",
-            "np.array_equal(reconstructed, value)",
+            "np.array_equal(canonical, value)",
         )
-    ]
+    ] = (("np.array_equal(reconstructed, value)", False),)
 
 
 
@@ -1244,7 +1267,48 @@ def _atom_side(entry: object, syntax: str, refuse: Runner | None) -> GateSide:
     if gate_id == "EAGER:array-normalization:shape-and-finiteness" and syntax == "ndim is not None":
         return GateSide.ADMITTED
     if gate_id == "EAGER:factor-reconstruction:layout-exactness" and "canonical" in syntax:
-        return GateSide.ADMITTED
+        # Admitted only where the BLAS separates the layouts, because only there
+        # does a value exist that the canonical comparison misses while the
+        # cross-layout loop still matches. Where all four products are one
+        # array, flipping this atom is a miss on all four, so the cell can only
+        # be evidenced by the refusal it forces -- see `_layout_products`.
+        #
+        # THE GAP THIS LEAVES, NAMED AS A CLASS. Both ATOM cells then read
+        # expected=REFUSED, and on a layout-invariant BLAS nothing can then
+        # distinguish any mutant that keeps the loop STRUCTURALLY PRESENT and
+        # its predicate EXECUTED while changing which products it forms or what
+        # it does with a match. Three measured instances, container with
+        # OPENBLAS_CORETYPE=ZEN against a control that reads RED 1 of 9:
+        # discarding the match (`if np.array_equal(...): pass` for
+        # `return True, reconstructed`); iterating `(left_c, right_c)` three
+        # times instead of the three F-order pairs; and building `left_f`,
+        # `right_f` with `np.ascontiguousarray` instead of `np.asfortranarray`.
+        # All three read exactly as unmutated there. All three are killed on
+        # Accelerate -- each gives `3 failed, 50 passed` in
+        # tests/numerical_gates/test_boundary_eager_provider.py. The third is
+        # the most realistic regression this function has: it deletes the whole
+        # reason `_matching_factor_reconstruction` exists.
+        #
+        # What does NOT survive: DELETE the loop and both platforms fail at
+        # import (KeyError on the vanished atom id); keep it but make it dead
+        # with an early `return False, canonical` and the companion
+        # declarations above turn both atom cells red on both platforms.
+        #
+        # The gap is also the least available thing to close: no separating
+        # factor pair exists to construct on that BLAS,
+        # `validate_atom_relation` forbids this atom keeping its baseline, and
+        # the isolation-ambiguity escape would delete the cell on Accelerate
+        # too.
+        #
+        # WHERE THE SURVIVING CLASS IS STILL CAUGHT, precisely. Both
+        # `test_boundary_cases.py` and `test_boundary_eager_provider.py` carry
+        # `pytestmark = pytest.mark.full`, and `.github/workflows/suite.yml` is
+        # ubuntu-latest in both jobs -- so it is caught only in a macOS FULL
+        # layer run, which is a developer's nightly and not the pre-commit
+        # `-m "not full"` habit. THAT IS NOT A PASS on Linux; it is a hole of
+        # known shape, and a macOS job is what would close it.
+        #
+        return GateSide.ADMITTED if LAYOUTS_SEPARATE else GateSide.REFUSED
     if gate_id == "EAGER:trace:tail-domain-and-order" and "whole_trace_log_tail_bound" in syntax:
         return GateSide.ADMITTED
     return GateSide.REFUSED
@@ -3480,10 +3544,19 @@ def _reconstruction_atom(point: ThresholdPoint, syntax: str) -> RawObservation:
     left = _RECONSTRUCTION_LEFT
     right = _RECONSTRUCTION_RIGHT
     factors = eager.LowRankFactors(left, right)
-    canonical, alternate, _separated = _layout_products(factors.left, factors.right)
+    canonical, alternate, separated = _layout_products(factors.left, factors.right)
     value = alternate.copy()
     canonical_atom = "canonical" in syntax
-    if not canonical_atom:
+    # The canonical atom is isolated by handing the function a value only the
+    # cross-layout loop can match, and such a value exists only where the BLAS
+    # separates the layouts. `_layout_products` is where that premise is
+    # measured and stated; this line consumes its answer instead of repeating
+    # it. Where the layouts do not separate, `alternate` IS `canonical`, so
+    # leaving the value alone reads this atom True -- its own baseline, which
+    # `validate_atom_relation` rejects. The one-ULP nudge the loop atom already
+    # uses is then the only way left to flip it, and it refuses; `_atom_side`
+    # declares that side and names what the change costs.
+    if not canonical_atom or not separated:
         value[0, 0] = np.nextafter(value[0, 0], math.inf)
     _capture(
         input_key="authoritative_entry",
@@ -3494,7 +3567,7 @@ def _reconstruction_atom(point: ThresholdPoint, syntax: str) -> RawObservation:
         axis_input_key="authoritative_entry",
     )
     matches, returned = eager._matching_factor_reconstruction(value, factors)
-    if canonical_atom:
+    if canonical_atom and separated:
         return _checked(
             method=method,
             oracle=oracle,
