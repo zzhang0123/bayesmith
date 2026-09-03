@@ -39,18 +39,47 @@ def _unit_of(path: pathlib.Path) -> str:
     return rel.parts[0] if len(rel.parts) > 1 else rel.stem
 
 
+def _absolute_module(path: pathlib.Path, node: ast.ImportFrom) -> str:
+    """The dotted name a possibly-relative ``from ... import`` actually names.
+
+    ``from ..dispatch.task import PRODUCER`` in ``evaluation/sbc.py`` and
+    ``from bayesmith.dispatch.task import PRODUCER`` in ``evaluation/heldout.py``
+    are the same edge, and until 2026-09-04 this file counted only the second.
+    Measured then, while merging R3: eight module-scope cross-unit imports were
+    invisible to the graph, one of them the ``evaluation -> dispatch`` arrow
+    that two of these tests exist to police. Nothing was wrong with the
+    assertions; the graph they read was short of the edges.
+
+    That is the failure mode this whole file is about, turned on itself -- a
+    guard that cannot fail is worse than no guard, and this one could be walked
+    past by a style choice, silently, with the suite green.
+    """
+    package = ("bayesmith",) + path.relative_to(SRC).parts[:-1]
+    if not node.level:
+        return node.module or ""
+    kept = len(package) - (node.level - 1)
+    if kept < 1:
+        return ""
+    tail = tuple((node.module or "").split(".")) if node.module else ()
+    return ".".join(package[:kept] + tail)
+
+
 def _module_scope_imports(path: pathlib.Path) -> set[str]:
     """Which bayesmith units this file imports AT MODULE SCOPE.
 
     Walks only the top-level body, so an import nested in a function or an
-    ``if TYPE_CHECKING`` block is deliberately not counted.
+    ``if TYPE_CHECKING`` block is deliberately not counted. Relative imports
+    are resolved against the file's own package first -- see
+    :func:`_absolute_module` for why that is not a detail.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     found: set[str] = set()
     for node in tree.body:
         targets: list[str] = []
-        if isinstance(node, ast.ImportFrom) and node.module:
-            targets.append(node.module)
+        if isinstance(node, ast.ImportFrom):
+            resolved = _absolute_module(path, node)
+            if resolved:
+                targets.append(resolved)
         elif isinstance(node, ast.Import):
             targets.extend(alias.name for alias in node.names)
         for name in targets:
@@ -70,6 +99,39 @@ def _graph() -> dict[str, set[str]]:
             if target != unit and target in edges:
                 edges[unit].add(target)
     return edges
+
+
+def test_a_relative_import_is_the_same_edge_as_the_absolute_one():
+    """The scanner every other assertion in this file reads through.
+
+    Measured 2026-09-04, while merging R3 Wave A, on the tree as it then was:
+    ``evaluation/sbc.py``'s ``from ..dispatch.task import PRODUCER`` contributed
+    NOTHING to ``_graph()``, while ``evaluation/heldout.py``'s
+    ``from bayesmith.dispatch.task import PRODUCER`` -- the same edge, the same
+    line of the same layer -- contributed the arrow. Eight module-scope
+    cross-unit imports were invisible, and one of them was the
+    ``evaluation -> dispatch`` arrow that two tests below exist to police.
+
+    Nothing in this file was wrong; the graph it read was short of the edges.
+    That is the shape it warns about elsewhere, turned on itself: a guard that
+    can be walked past by a style choice, silently, with the suite green. The
+    branch that wrote the relative import never learned it had to update a
+    layering assertion, and the branch that wrote the absolute one did.
+    """
+    sbc = SRC / "evaluation" / "sbc.py"
+    absolute = ast.parse("from bayesmith.dispatch.task import PRODUCER").body[0]
+    relative = ast.parse("from ..dispatch.task import PRODUCER").body[0]
+    assert _absolute_module(sbc, absolute) == "bayesmith.dispatch.task"
+    assert _absolute_module(sbc, relative) == "bayesmith.dispatch.task"
+
+    # One dot stays inside the unit, so it is correctly NOT an edge: the
+    # graph is between units, and `_graph` drops `target != unit` itself.
+    sibling = ast.parse("from .checks import DRAW_FLOOR").body[0]
+    assert _absolute_module(sbc, sibling) == "bayesmith.evaluation.checks"
+
+    # And the file on disk, not just the parser: this is the assertion that
+    # goes red if the resolution is ever removed again.
+    assert "dispatch" in _module_scope_imports(sbc)
 
 
 def test_the_module_scope_import_graph_is_acyclic():
