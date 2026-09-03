@@ -2,6 +2,79 @@
 
 ## Unreleased
 
+## 0.7.2 -- 2026-09-03
+
+R3's first two tasks, plus the documents and the lint gate that the 0.7.1
+batch left behind. Everything here is additive: no existing signature, default
+or numerical result changes, which is why it takes the patch slot.
+
+### Added
+
+**`SimulationTask` executes.** Four of the five tasks now run and `EvidenceTask`
+is the one still refused. All three parameter sources work -- `PRIOR` walks the
+graph from its priors, `FIXED` pushes one setting through it, and
+`POSTERIOR_RESULT` reuses a finished posterior's draws -- and they run through
+the forward primitives the predictive seam already had rather than a simulator
+built beside them. That sharing is checked rather than asserted: the fixed arm
+IS the replicate arm at a parameter that happens not to vary, and the two are
+compared at `rtol=0`.
+
+`bayesmith.dispatch.predictive` gains `prior_draws` and `forward_draws` for
+that. One detail is worth naming because it is a trap:
+`apply_probabilistic` deliberately returns an UNMAPPED distribution for a
+plated node whose parents are not plated, which is correct for `log_prob` and
+wrong for `.sample` -- it would write one shared value at every plate index and
+look entirely plausible doing it. `prior_draws` expands with
+`graph.plate_size`, and decides which case it is from the distribution's own
+`batch_shape` rather than re-deriving whether the mapping happened.
+
+**`bayesmith.evaluation`**, the layer the top-level design puts between
+execution and a workflow. It exports one name so far, `ALPHA = 0.05`, the
+single declared false-positive rate every R3 check will read. What it carries
+today is the boundary: it reads finished Results and produces reports about
+them, and it never modifies a result, chooses an algorithm, or re-judges a
+verdict that has a home in `bayesmith.diagnose`. `tests/test_layering.py`
+holds the dependency direction in a subprocess.
+
+`docs/probes/probe_28_model_checking_seams.py` measures the seams R3 builds on
+-- PPC p-values on correct and misspecified models, what `arviz.loo` needs of
+the R2 export, SBC on the exact and NUTS routes and the replicate count a 2x
+width error needs, the reference NPE's calibration, held-out elpd through
+`observe(mask=...)`, prior predictive scale checks, and the two graph
+diagnostics' x64 requirement. `tests/evaluation/test_probe28_pins.py` re-runs
+the probe's own functions so those numbers cannot decay unnoticed; it was
+measured on both platforms before any tolerance in it was chosen.
+
+### Fixed
+
+**A warm `ruff check` cache reported on a run it did not make.** The command
+printed `All checks passed!` in the development checkout while the identical
+command from the same binary, in a fresh worktree of the same commit, found an
+`I001` that had been in `tests/dispatch/test_predictive_seam.py` since R2. The
+difference was `.ruff_cache/`, which is gitignored and so exists only where
+ruff has run before. The import block is sorted, and CLAUDE.md's linting
+section now says to pass `--no-cache` -- the third documented instance in this
+repository of a check that cannot distinguish "clean" from "the check did not
+really run".
+
+### Changed
+
+**`docs/artifacts.md` and `docs/ownership.md` describe what R2 shipped.** The
+protocol page said R1 answers two of the five tasks and that the analytic and
+amortized posterior shapes were reserved; three are answered, and the amortized
+shape has been an encoded artifact reference since R2. `ArtifactKind.ESTIMATOR`
+was missing from the invalidation matrix entirely, so the table had three
+columns for a four-member enum. The ownership inventory claims to be exhaustive
+and was missing `bayesmith.bridge.arviz`; a coverage check over the shipped
+modules now returns zero uncovered, measured before and after.
+
+**The migration spec's resolved questions carry their answers.** Its own rule
+is that a decision has one home and its answer belongs on the line that asked
+it -- a rule written because that had already failed once. Section 六's
+remaining steps, and several rows marked "not started", now record what was
+measured in the sibling checkout instead of leaving the question open for the
+next reader to rule on again.
+
 ## 0.7.1 -- 2026-09-03
 
 The release 0.7.0 could not be, and the first one whose suite has been green on

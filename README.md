@@ -127,7 +127,7 @@ it returns the typed `capability_unavailable_r1`.
 
 ## Status
 
-**0.7.1.** What other packages can depend on by name is whatever
+**0.7.2.** What other packages can depend on by name is whatever
 `pypi.org/simple/bayesmith/` lists, and that index is the place to ask rather
 than this line: 0.6.0, 0.6.1, 0.6.2 and 0.7.0 were each tagged and never
 reached it, every one failing its own built-wheel test (see `CHANGELOG.md`;
