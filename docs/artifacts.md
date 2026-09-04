@@ -22,6 +22,13 @@ and it added one member to `ArtifactKind`. Its plan is
 accepted rather than merely planned is
 [the R2 close-out](superpowers/specs/2026-08-31-r2-close-out.md).
 
+R3 moved two more, and neither is a schema change: it made `SimulationTask`
+executable, and it began writing `EvaluationReport`s under seven new
+`report_kind` codes -- which cost no migration, because R1 froze that field as
+a code string rather than as an enum. The layer that writes them is
+[`docs/evaluation.md`](evaluation.md); its plan is
+[the R3 plan](superpowers/plans/2026-09-02-r3-model-checking.md).
+
 ---
 
 ## Five in, five out
@@ -43,15 +50,26 @@ predictive task conditions on data, names the posterior it came from, and
 distinguishes replicated sites from carried-forward latents; a simulation has
 none of those.
 
-Three of the five are executed and two are not. `SUPPORTED_TASK_KINDS` in
-`bayesmith.dispatch.task` is `{POSTERIOR, POINT_ESTIMATE, PREDICTIVE}` -- R1
-answered the first two and R2 added the third. `EvidenceTask` and
-`SimulationTask` remain frozen schema and nothing else: the runtime bridge
-refuses them in `_refuse_before_compiling`, before a plan is paid for, with the
-code `capability_unavailable_r1` and a `Finding` whose `expected` field is that
-same supported set. A caller therefore reads which questions are answered off
-the refusal it just received, not off this page, which is the only version of
-that list that cannot go stale.
+Four of the five are executed and one is not. `SUPPORTED_TASK_KINDS` in
+`bayesmith.dispatch.task` is `{POSTERIOR, POINT_ESTIMATE, PREDICTIVE,
+SIMULATION}` -- R1 answered the first two, R2 added the third and R3 the
+fourth. `EvidenceTask` alone remains frozen schema and nothing else: the
+runtime bridge refuses it in `_refuse_before_compiling`, before a plan is paid
+for, with the code `capability_unavailable_r1` and a `Finding` whose `expected`
+field is that same supported set. A caller therefore reads which questions are
+answered off the refusal it just received, not off this page, which is the only
+version of that list that cannot go stale.
+
+R3's `SimulationTask` runs from all three `ParameterSource` kinds, and all
+three reach the observations through primitives R2 already built rather than
+through a simulator written beside them. `PRIOR` walks the graph with
+`prior_draws`, observed nodes included, which is exactly the prior predictive;
+`FIXED` pushes one setting through `forward_draws`; `POSTERIOR_RESULT` pushes a
+source posterior's draws through the same `replicated_draws` call, with the
+same key, that a predictive run makes -- so the two tasks answer with the same
+bits, and
+`test_a_posterior_source_simulation_is_the_predictive_replication_bit_for_bit`
+says so at `rtol=0`. One forward model, reached by three routes.
 
 ### Posterior representations
 
@@ -75,10 +93,15 @@ what keeps this page's opening claim true: JAX and equinox are imported on the
 dispatch side of the bridge, and the artifacts layer still sees no array of
 theirs.
 
-Two things that does not yet mean. No execution route emits an amortized
-posterior -- `execute_task` never constructs a `FittedConditionalPosterior`, and
-the calibration that would let one be believed is R3's. And `AnalyticPosterior`
-is still reserved in the original sense: nothing under `src/` constructs one.
+Two things that does not yet mean. **No execution route emits an amortized
+posterior** -- `execute_task` never constructs a `FittedConditionalPosterior`,
+and R3 did not change that. What R3 did add is the calibration number, which is
+a different thing: the local `NeuralPosterior` has now been through the SBC
+harness's sampler arm and scored `PASS` at KS D = 0.0683, p = 0.1159, with 90%
+interval coverage 0.890 over 300 replicates
+([the record](superpowers/specs/2026-09-04-amortized-calibration.md)). A
+measurement is not a route. And `AnalyticPosterior` is still reserved in the
+original sense: nothing under `src/` constructs one.
 
 ---
 
@@ -225,6 +248,45 @@ non-empty tuple of `Remedy`. The field is called `grounds` and never
 is already the name of a number here. The adapters read structured fields of
 the existing verdicts (`NotGaussian.reason`, `NotLogLinear.reason`, the MAP
 verdict class variable) -- they never parse an exception string.
+
+---
+
+## `report_kind`: the codes in circulation
+
+An `EvaluationReport` names what kind of report it is with a **code string**,
+not an enum. That is an R1 ruling, and it is what let R3 add seven kinds
+without a schema version: a release that starts asking a new question costs no
+migration and no stored artifact becomes unreadable.
+
+What a code does *not* buy is silent tolerance. A gate declares the kinds it
+aggregates, and a report of any other kind is refused by name rather than
+filed -- see below.
+
+Eight codes are written in this release. One is R2's, filed by the execution
+layer beside a sampled posterior; the other seven are R3's, written by
+`bayesmith.evaluation`:
+
+| `report_kind` | Written by | Release |
+|---|---|---|
+| `chain_diagnostics` | `dispatch.task`, while it makes the posterior | R2 |
+| `posterior_predictive_check` | `evaluation.checks` | R3 |
+| `prior_predictive_check` | `evaluation.checks` | R3 |
+| `held_out_prediction` | `evaluation.heldout` | R3 |
+| `loo_psis` | `evaluation.loo` | R3 |
+| `sbc` | `evaluation.sbc` | R3 |
+| `identifiability` | `evaluation.diagnostics` | R3 |
+| `prior_sensitivity` | `evaluation.diagnostics` | R3 |
+
+Five of the eight are importable constants; three are spelled at their call
+sites, and nothing routes on a spelling -- the gate looks a report's slot up by
+the report's OWN `report_kind`, and a code it does not declare raises by name
+rather than being dropped into a slot that would then read as unattempted.
+
+What each code decides, on which of the two axes, and what each `PASS` does
+**not** mean, is [`docs/evaluation.md`](evaluation.md). The `evaluation`
+fingerprint slot above is what retires these reports: it covers report kind,
+threshold, grouping, repeats, applicability policy and gate identity, so a
+changed threshold invalidates the report without touching the Result it judged.
 
 ---
 
