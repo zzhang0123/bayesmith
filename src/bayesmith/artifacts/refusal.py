@@ -80,6 +80,16 @@ CAPABILITY_UNAVAILABLE_R1: str = "capability_unavailable_r1"
 #:
 #: Not every member appears in both directions: a capability gap is never a
 #: premise a plan RELIES on, it is the reason no plan exists.
+#:
+#: Three members were added in R4 after the set was measured against the
+#: source rather than against a fixture. ``named_latents_declared``,
+#: ``posterior_data_mismatch`` and ``predictive_noise_unsupported`` were all
+#: written as ``failed_premise=`` in ``src/`` while absent from here, and the
+#: two tests that check the relation both assert ``<= PREMISES`` over whatever
+#: premises a particular fixture reached -- so a premise no fixture reaches
+#: was outside both directions at once. The walk that found them is
+#: ``tests/dispatch/test_task_protocol.py::
+#: test_the_premise_vocabulary_holds_every_premise_the_source_can_name``.
 PREMISES: frozenset[str] = frozenset(
     {
         CAPABILITY_UNAVAILABLE_R1,
@@ -95,6 +105,11 @@ PREMISES: frozenset[str] = frozenset(
         "whole_graph_exact_solve",
         "local_mode_certified",
         "graph_has_latents",
+        "named_latents_declared",
+        # what a task reusing another artifact's result needs of that artifact
+        "posterior_data_mismatch",
+        # the coverage domain of the predictive seam (R2 §0.4)
+        "predictive_noise_unsupported",
     }
 )
 

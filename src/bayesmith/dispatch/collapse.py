@@ -27,8 +27,16 @@ The arithmetic was verified end to end before this module existed:
 
 against a dense slogdet oracle gives 1.8e-14 on the value and 2.6e-08 on the
 gradient, and traces cleanly under jit and hessian. The
--sum(log pivots[:n_block]) folded into the offset by marginalise_arrays IS
-0.5 * logdet(F_bb).
+-sum(log pivots[:n_block]) folded into the offset by marginalise_arrays is
+-0.5 * logdet(F_bb) -- measured -2.1914870216494005 against -2.1914870216494.
+
+That sentence read `IS 0.5 * logdet(F_bb)` until R4, with the sign the wrong
+way round. The code was right and only the prose was wrong, which is the worse
+of the two: this is the sentence an evidence assembler copies, and the copy
+would have been off by logdet(F_bb) with every quantity in it finite and
+plausible. A docstring cannot be pinned, so the convention now has a test --
+`test_the_block_determinant_enters_with_a_minus_one_half`, which asserts it
+through the determinant lemma using only public API.
 """
 
 from __future__ import annotations
@@ -127,12 +135,28 @@ def marginal_log_density(
         spans[name] = (column, column + _size(block.shape[name]))
         column += _size(block.shape[name])
 
+    # Only the observed nodes the block actually REACHES may enter the marginal
+    # term. `observed_descendants` says so in its own docstring -- "absorbing it
+    # would count its density twice" -- and `collapse_graph` obeys it for the
+    # absorb half, but this loop walked every node in `block.data` until R4. An
+    # observation outside the block was therefore counted twice: once here and
+    # once as the explicit likelihood that survives in the reduced graph.
+    # Measured at fb1c21f, the surplus was exactly log p(e|tau).
+    #
+    # The row cursor still walks the FULL sorted(block.data), because
+    # dense_operator lays its rows out that way; what is filtered is which of
+    # those row groups gets compressed. Filtering the walk instead would slice
+    # the design at the wrong offsets.
+    absorbed = frozenset(observed_descendants(graph, exact_names))
     design = dense_operator(block)  # (n_data, n_block), rows sorted(observed)
     terms: list[SqrtInfo] = []
     row = 0
     for observed in sorted(block.data):
         data = jnp.ravel(block.data[observed])
         width = data.shape[0]
+        if observed not in absorbed:
+            row += width
+            continue
         block_columns = design[row : row + width]
         by_name = {
             name: block_columns[:, spans[name][0] : spans[name][1]]
@@ -149,10 +173,6 @@ def marginal_log_density(
         )
         row += width
 
-    joint = terms[0]
-    for term in terms[1:]:
-        joint = SqrtInfo.combine(joint, term)
-
     prior = nuisance_prior(
         block.names,
         shapes,
@@ -161,7 +181,18 @@ def marginal_log_density(
         (),
         {},
     )
-    joint = SqrtInfo.combine(joint, prior)
+    # Folded in the order the data terms were, then the prior last, so a block
+    # whose observations are all descendants -- every fixture before R4 -- gets
+    # bitwise the same offset it did. A block the data does not reach at all
+    # leaves `terms` empty and the integral is over the prior alone; the pivot
+    # guard below still decides whether that integral converges.
+    if terms:
+        joint = terms[0]
+        for term in terms[1:]:
+            joint = SqrtInfo.combine(joint, term)
+        joint = SqrtInfo.combine(joint, prior)
+    else:
+        joint = prior
 
     _factor, _target, offset, pivots = marginalise_arrays(
         joint.factor, joint.target, joint.offset, column

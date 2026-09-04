@@ -64,6 +64,29 @@ def _absolute_module(path: pathlib.Path, node: ast.ImportFrom) -> str:
     return ".".join(package[:kept] + tail)
 
 
+def _import_from_targets(path: pathlib.Path, node: ast.ImportFrom) -> list[str]:
+    """Every dotted name a ``from ... import`` actually reaches.
+
+    Usually one: ``from bayesmith.dispatch.task import PRODUCER`` names
+    ``bayesmith.dispatch.task``. But when the module resolves to the PACKAGE
+    itself -- ``from bayesmith import dispatch``, or ``from .. import
+    dispatch`` written inside a subpackage -- the unit being imported is the
+    imported NAME, not the module, and reading only the module scores the
+    arrow as nothing.
+
+    Measured on 2026-09-04: both of those spellings resolved to the bare
+    string ``bayesmith``, which the caller's ``len(parts) > 1`` filter then
+    dropped, so an ``evaluation -> dispatch`` import written either way was
+    invisible to every assertion in this file.
+    """
+    resolved = _absolute_module(path, node)
+    if not resolved:
+        return []
+    if resolved == "bayesmith":
+        return [f"bayesmith.{alias.name}" for alias in node.names]
+    return [resolved]
+
+
 def _module_scope_imports(path: pathlib.Path) -> set[str]:
     """Which bayesmith units this file imports AT MODULE SCOPE.
 
@@ -77,9 +100,7 @@ def _module_scope_imports(path: pathlib.Path) -> set[str]:
     for node in tree.body:
         targets: list[str] = []
         if isinstance(node, ast.ImportFrom):
-            resolved = _absolute_module(path, node)
-            if resolved:
-                targets.append(resolved)
+            targets.extend(_import_from_targets(path, node))
         elif isinstance(node, ast.Import):
             targets.extend(alias.name for alias in node.names)
         for name in targets:
@@ -377,3 +398,61 @@ def test_importing_the_evaluation_layer_pulls_in_no_arviz():
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "[]"
+
+
+def test_a_package_level_import_of_a_unit_is_an_edge_like_any_other():
+    """``from bayesmith import dispatch`` is the same arrow as
+    ``from bayesmith.dispatch import task``, and until R4 this file scored the
+    first as nothing at all.
+
+    :func:`_absolute_module` resolves both ``from bayesmith import dispatch``
+    and ``from .. import dispatch`` to the bare string ``bayesmith``, which
+    :func:`_module_scope_imports` then dropped at its ``len(parts) > 1``
+    filter. So the two spellings created NO edge and tripped nothing --
+    measured on 2026-09-04, with every layering assertion in this file green.
+
+    That is the same defect the docstring of :func:`_absolute_module` records
+    being repaired for relative imports one release earlier, and it is the
+    reason a guard gets a test of its own rather than a reading: the subject
+    here is "nobody may import upwards", and what walks past such a guard is
+    the same import written a second way.
+    """
+    written = {
+        "from bayesmith import dispatch": "dispatch",
+        "from bayesmith import dispatch as _d": "dispatch",
+        "from .. import dispatch": "dispatch",
+        "from bayesmith.dispatch import task": "dispatch",
+        "import bayesmith.dispatch": "dispatch",
+    }
+    for source, unit in written.items():
+        tree = ast.parse(source)
+        node = tree.body[0]
+        # Evaluated as if written in evaluation/sbc.py, so the relative form
+        # has a package to resolve against.
+        path = SRC / "evaluation" / "sbc.py"
+        found: set[str] = set()
+        targets: list[str] = []
+        if isinstance(node, ast.ImportFrom):
+            targets.extend(_import_from_targets(path, node))
+        else:
+            assert isinstance(node, ast.Import)
+            targets.extend(alias.name for alias in node.names)
+        for name in targets:
+            parts = name.split(".")
+            if parts[0] == "bayesmith" and len(parts) > 1:
+                found.add(parts[1])
+        assert found == {unit}, f"{source!r} produced {found}, not {{{unit!r}}}"
+
+
+def test_no_unit_reaches_a_unit_above_it_however_the_import_is_spelled():
+    """The consequence of the test above, asserted on the real tree.
+
+    Kept separate so that a regression in the edge builder and a regression in
+    the layering itself do not report as one failure.
+    """
+    edges = _graph()
+    assert "evaluation" not in edges["artifacts"]
+    assert "evaluation" not in edges["dispatch"]
+    assert "evaluation" not in edges["graph"]
+    assert "dispatch" not in edges["artifacts"]
+    assert "dispatch" not in edges["graph"]

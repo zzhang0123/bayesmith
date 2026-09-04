@@ -72,8 +72,15 @@ def test_raw_ast_baseline_is_explicit() -> None:
     # against the same 171/305 base; adding both deltas is a guess that a
     # duplicate or shadowed candidate would silently confirm.  Measured after
     # the merge with `scan_repository(REPOSITORY_ROOT)`: 188 and 339.
+    # R4 Task 1 moved COMPARE 339 -> 340 and left RAISE where it was. The one
+    # new comparison is `observed not in absorbed` in
+    # dispatch/collapse.py::marginal_log_density -- the membership test that
+    # stops an observation outside the exact block being compressed into the
+    # marginal term as well as left in the reduced graph. Re-derived here with
+    # `scan_repository(REPOSITORY_ROOT)` on this tree, not by adding one to the
+    # previous figure.
     assert family_counts[CandidateFamily.RAISE] == 188
-    assert family_counts[CandidateFamily.COMPARE] == 339
+    assert family_counts[CandidateFamily.COMPARE] == 340
 
 
 def test_every_raw_candidate_has_exactly_one_code_classification() -> None:

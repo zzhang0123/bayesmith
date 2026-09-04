@@ -568,6 +568,21 @@ _REMEDIES: dict[str, tuple[Remedy, ...]] = {
             "that result.",
         ),
     ),
+    # In PREMISES and listed by `_premises` on every plan with an exact block,
+    # but with no row here until R4 -- so a refusal naming it would have raised
+    # KeyError at the `_REMEDIES[failed_premise]` subscript below instead of
+    # producing the typed verdict §1.4 invariant 9 requires. A missing row is
+    # not a missing message; it is a fault where a Refusal was promised.
+    "affine_prediction": (
+        Remedy(
+            action="make_the_prediction_affine_in_the_exact_block",
+            message="An exact route integrates a block only where the "
+            "prediction is affine in it. Declare the block's contribution "
+            "through a linear map -- `linear_in=` on the deterministic node "
+            "that consumes it -- or drop the block from the exact partition "
+            "and let it be sampled.",
+        ),
+    ),
     "predictive_noise_unsupported": (
         Remedy(
             action="use_a_diagonal_gaussian_observation",

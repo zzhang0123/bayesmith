@@ -668,3 +668,65 @@ def test_the_adapters_never_reach_for_a_regular_expression():
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
     }
     assert "split" not in attributes and "rsplit" not in attributes
+
+
+def test_the_premise_vocabulary_holds_every_premise_the_source_can_name():
+    """The two directions the tests above check only where a fixture reaches.
+
+    ``test_every_premise_a_record_lists_is_in_the_one_vocabulary`` and
+    ``test_every_adapted_premise_is_in_the_one_vocabulary`` both assert
+    ``<= PREMISES`` over premises a particular fixture happened to produce, so
+    a premise no fixture reaches is outside both. Measured on 2026-09-04, three
+    were: ``named_latents_declared``, ``posterior_data_mismatch`` and
+    ``predictive_noise_unsupported`` are written as ``failed_premise=`` in
+    ``src/`` and are not members. ``named_latents_declared`` is additionally
+    listed by :func:`_premises` on every point-estimate plan that names
+    latents, so it reaches a stored ``PlanRecord`` as well.
+
+    Walked with ``ast`` over the whole of ``src/bayesmith`` rather than listed
+    here, because a hand-typed list is the second copy that goes stale -- which
+    is the defect this vocabulary exists to prevent, applied to itself.
+    """
+    import bayesmith
+
+    source_root = pathlib.Path(bayesmith.__file__).resolve().parent
+    written: dict[str, str] = {}
+    for path in sorted(source_root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.keyword) or node.arg != "failed_premise":
+                continue
+            if isinstance(node.value, ast.Constant) and isinstance(
+                node.value.value, str
+            ):
+                written[node.value.value] = str(path.relative_to(source_root))
+
+    assert written, "the walk found no failed_premise= literal, so it did not run"
+    missing = {code: where for code, where in written.items() if code not in PREMISES}
+    assert not missing, (
+        f"premises written in src/ but absent from PREMISES: {missing}. A "
+        "refusal naming one of these is outside the vocabulary a consumer "
+        "branches on."
+    )
+
+
+def test_every_premise_in_the_vocabulary_can_actually_be_refused():
+    """The inverse hole, and it is the one that raises rather than misleads.
+
+    :func:`~bayesmith.dispatch.task._refuse` looks up ``_REMEDIES[failed_premise]``
+    with a bare subscript, so a premise with no remedy row raises ``KeyError``
+    at the moment a Refusal was supposed to be produced -- a fault instead of
+    the typed verdict §1.4 invariant 9 requires. Measured on 2026-09-04:
+    ``affine_prediction`` is a member, is listed by :func:`_premises` on every
+    plan with an exact block, and had no row.
+
+    Asserted as the CONSEQUENCE -- the lookup succeeding -- rather than as a
+    key-set comparison, because the subscript is the thing that breaks.
+    """
+    from bayesmith.dispatch.task import _REMEDIES
+
+    for premise in sorted(PREMISES):
+        remedies = _REMEDIES[premise]
+        assert remedies, f"{premise} has an empty remedy tuple"
+        for remedy in remedies:
+            assert remedy.action and remedy.message

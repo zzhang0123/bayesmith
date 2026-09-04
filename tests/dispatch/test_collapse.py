@@ -19,7 +19,11 @@ import pytest
 
 from bayesmith import compile as compile_graph
 from bayesmith import const, det, observe, sample, trace
-from bayesmith.dispatch.collapse import collapse_graph, marginal_log_density
+from bayesmith.dispatch.collapse import (
+    collapse_graph,
+    marginal_log_density,
+    observed_descendants,
+)
 from bayesmith.dispatch.execute import _depends_on_prediction
 from bayesmith.errors import GraphError
 from bayesmith.graph.evaluate import log_joint
@@ -195,3 +199,163 @@ def test_depends_on_prediction_is_a_capability_table_not_a_string_compare():
     assert not _depends_on_prediction("log-gcr")
     assert _depends_on_prediction("gcr+snis")
     assert _depends_on_prediction("gcr+mh")
+
+
+def _two_observation_graph(*, n_d=6, n_e=3, sigma_d=0.5, sigma_e=0.8, seed=3):
+    """A graph whose second observation is NOT downstream of the exact block.
+
+    ``d`` is a descendant of the exact latent ``w``; ``e`` depends only on the
+    sampled latent ``tau``.  Every fixture in this file before R4 had exactly
+    one observed node, so the distinction between "the observed nodes" and
+    "the observed nodes the exact block reaches" was never exercised.
+    """
+    basis = jnp.linspace(-1.0, 1.0, n_d) + 0.3
+    d_obs = 1.2 * (basis * 0.9) + sigma_d * jax.random.normal(
+        jax.random.key(seed), (n_d,)
+    )
+    e_obs = jnp.asarray([0.4, -0.2, 1.1])[:n_e]
+
+    def model():
+        w = sample("w", lambda: dist.Normal(0.35, 1.7))
+        tau = sample("tau", lambda: dist.Normal(-0.2, 1.1))
+        b = const("basis", basis)
+        mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+        observe("d", lambda m: dist.Normal(m, sigma_d).to_event(1), mu, obs=d_obs)
+        nu = det("nu", lambda t_: t_ * jnp.ones(n_e), tau)
+        observe("e", lambda m: dist.Normal(m, sigma_e).to_event(1), nu, obs=e_obs)
+
+    return trace(model), basis, d_obs, e_obs
+
+
+def test_an_observation_outside_the_exact_block_is_counted_once():
+    """The defect this fixture exists for, and the reason it is a defect.
+
+    :func:`observed_descendants` already says, in its own docstring, that only
+    the observed nodes the removed block reaches may have their likelihood
+    moved into the marginal term, "absorbing it would count its density twice".
+    It is right, and :func:`collapse_graph` uses it -- for the ABSORB half.
+    The term itself was built by :func:`marginal_log_density`, which compressed
+    ``for observed in sorted(block.data)``: every observed node the block
+    operator carries, reachable or not.
+
+    So an observation outside the block was counted twice -- once inside the
+    marginal term and once as the explicit likelihood that survives in the
+    reduced graph.  Measured on 2026-09-04 at ``fb1c21f``, the surplus was
+    ``-2.9155099456713867`` against a dense oracle, which is ``log p(e|tau)``
+    to better than 1e-9.  A likelihood counted twice is a posterior narrowed by
+    sqrt(2), reported with no warning; the collapse arm is opt-in, and its only
+    guard was ``plan.exact.method != "gcr"``.
+
+    The oracle is dense numpy from the model's own parameters -- it shares no
+    QR, no pivots and no offset arithmetic with the implementation.
+    """
+    with jax.enable_x64(True):
+        graph, basis, d_obs, e_obs = _two_observation_graph()
+        assert observed_descendants(graph, ("w",)) == ("d",)
+
+        at = {"tau": jnp.asarray(0.7)}
+        reduced = collapse_graph(graph, ("w",), ("tau",))
+        found = float(log_joint(reduced, at))
+
+        b = np.asarray(basis, dtype=float)
+        d = np.asarray(d_obs, dtype=float)
+        covariance = (1.7**2) * np.outer(b, b) + 0.5**2 * np.eye(b.size)
+        residual = d - b * 0.35
+        _, logdet = np.linalg.slogdet(covariance)
+        log_p_d = -0.5 * (
+            residual @ np.linalg.solve(covariance, residual)
+            + logdet
+            + b.size * np.log(2.0 * np.pi)
+        )
+        tau = 0.7
+        e = np.asarray(e_obs, dtype=float)
+        log_p_e = float(
+            np.sum(
+                -0.5 * ((e - tau) / 0.8) ** 2
+                - np.log(0.8)
+                - 0.5 * np.log(2.0 * np.pi)
+            )
+        )
+        log_p_tau = float(
+            -0.5 * ((tau + 0.2) / 1.1) ** 2 - np.log(1.1) - 0.5 * np.log(2.0 * np.pi)
+        )
+
+        assert found == pytest.approx(log_p_d + log_p_e + log_p_tau, abs=1e-9)
+
+
+def test_the_marginal_term_carries_only_the_blocks_own_observations():
+    """The same defect one level down, so a repair in the wrong place fails.
+
+    The test above compares a total; this one asserts what the TERM is, which
+    is where the double count lives.  A repair that removed ``e`` from the
+    reduced graph instead of from the term would satisfy the total and still
+    have a marginal log-density that is not one.
+    """
+    with jax.enable_x64(True):
+        graph, basis, d_obs, _ = _two_observation_graph()
+        at = {"tau": jnp.asarray(0.7)}
+        found = float(marginal_log_density(graph, ("w",), at))
+
+        b = np.asarray(basis, dtype=float)
+        d = np.asarray(d_obs, dtype=float)
+        covariance = (1.7**2) * np.outer(b, b) + 0.5**2 * np.eye(b.size)
+        residual = d - b * 0.35
+        _, logdet = np.linalg.slogdet(covariance)
+        oracle = -0.5 * (
+            residual @ np.linalg.solve(covariance, residual)
+            + logdet
+            + b.size * np.log(2.0 * np.pi)
+        )
+        assert found == pytest.approx(float(oracle), abs=1e-9)
+
+
+def test_the_block_determinant_enters_with_a_minus_one_half():
+    """The module docstring says the opposite sign, and the code is right.
+
+    ``collapse.py``'s docstring stated that the ``-sum(log pivots[:n_block])``
+    folded in by ``marginalise_arrays`` IS ``0.5 * logdet(F_bb)``.  Measured,
+    that quantity is ``-0.5 * logdet(F_bb)``: ``-2.1914870216494005`` against
+    ``-2.1914870216494``.  The prose was corrected in R4; a corrected docstring
+    cannot be pinned, so the convention is asserted here, because this is the
+    sentence an evidence assembler copies.
+
+    Asserted through the determinant lemma rather than by reaching for the
+    pivots, so the test uses only what a consumer can call:
+
+        logdet(A S A^T + N) = logdet(N) + logdet(S) + logdet(A^T N^-1 A + S^-1)
+
+    Flip the sign on the last term and this fails by ``logdet(F_bb)`` -- 4.38
+    nats on this fixture -- while every quantity in it stays finite and
+    plausible, which is the failure mode the whole file is about.
+    """
+    with jax.enable_x64(True):
+        graph, basis, d_obs, _ = _two_observation_graph()
+        at = {"tau": jnp.asarray(0.7)}
+        found = float(marginal_log_density(graph, ("w",), at))
+
+        b = np.asarray(basis, dtype=float)
+        d = np.asarray(d_obs, dtype=float)
+        prior_variance = 1.7**2
+        noise = 0.5**2
+        residual = d - b * 0.35
+        covariance = prior_variance * np.outer(b, b) + noise * np.eye(b.size)
+
+        fisher = float(b @ b / noise + 1.0 / prior_variance)
+        logdet_noise = b.size * np.log(noise)
+        logdet_prior = np.log(prior_variance)
+        logdet_fisher = np.log(fisher)
+
+        assembled = -0.5 * (
+            residual @ np.linalg.solve(covariance, residual)
+            + logdet_noise
+            + logdet_prior
+            + logdet_fisher
+            + b.size * np.log(2.0 * np.pi)
+        )
+        assert found == pytest.approx(float(assembled), abs=1e-9)
+
+        wrong_sign = assembled + logdet_fisher
+        assert abs(float(wrong_sign) - found) > 1.0, (
+            "the wrong sign must be far from the right answer, or this test "
+            "would pass under both conventions"
+        )
