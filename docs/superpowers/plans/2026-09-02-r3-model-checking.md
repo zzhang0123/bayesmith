@@ -1,6 +1,8 @@
 # R3 执行计划：model checking 与 calibration
 
-> **文档状态：`plan-active`** · 尚未执行完的计划，仍指导后续工作。索引见 docs/README.md。
+> **文档状态：`record`** · 已落地批次/审计/测量的历史记录，写作当天为真，非当前权威。索引见 docs/README.md。
+
+> **本计划已执行完毕。** 验收见 [R3 close-out](../specs/2026-09-04-r3-close-out.md)（2026-09-04，基线 `3d4ec78`）：G1–G8 与 source / lint / wheel / consumer 四条共享 gate 全部有实测证据，结论 **R3 closed**。执行期与本计划不符的两处，按 §红线 9 写回在下面各自的原行上（§红线 2、§完成定义 3）；D106 由 50 抬到 100 的记录在 §0.6 所指的 Task 6.1 里，probe 是 `docs/probes/probe_30_sbc_replicate_floor.py`。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. **本计划只写到计划为止，任何 task 都要等 owner 过目后再在单独的执行 session 里开跑。**
 
@@ -285,7 +287,7 @@
 ## 红线（每个 task 提交前自查，violate 即回滚该 task）
 
 1. **不改 R1/R2 已冻结 schema。** `EvaluationReport` 的 `report_kind` 是 code，新种类不是 schema 变更；五进五出、四种 posterior representation、`Refusal.grounds`、指纹七槽、失效矩阵一律不动。
-2. **不改旧 API 数值。** `compile` / `sample` / `estimate` / `Posterior` / `fit` / `map_estimate` 与 R2 的 `_run_posterior` / `_run_predictive` 逐字节不变；Task 2 只在 `dispatch/task.py` 加 `_run_simulation` 一条分支。
+2. **不改旧 API 数值。** `compile` / `sample` / `estimate` / `Posterior` / `fit` / `map_estimate` 与 R2 的 `_run_posterior` / `_run_predictive` 逐字节不变；Task 2 只在 `dispatch/task.py` 加 `_run_simulation` 一条分支。〔执行写回，§红线 9（2026-09-04，close-out 期）：**「逐字节不变」这一半没有守住，「不改数值」这一半守住了，两者都是实测。** AST 抽函数逐字节比对 `03bc103` 与 `3d4ec78`：`_run_posterior` 与 `predictive.replicated_draws` **UNCHANGED (byte for byte)**，`_run_predictive` **CHANGED**——它把两段内联 refusal 抽成 `_posterior_source_refusal` 与 `_noise_refusal` 与 `_run_simulation` 共用，正是本计划 Architecture 的不变量 1（「不另写平行的 simulator」「一个决定一个家」）顶着这条逐字节条款。抽出来的内容对 predictive 路径**逐字符相同**：在 HEAD 上真跑两条 refusal，`posterior_data_mismatch` 的 message 与 `03bc103` 的字面量相等（`kind.value` 对 `TaskKind.PREDICTIVE` 就是 `'predictive'`），observed/expected/scope/`meta.summary` 全部对上；`predictive_noise_unsupported` 同。所以这条红线保护的**目的**未破，**手段**破了，记在这里而不是留给下一个读者去 diff。证据与命令见 close-out 的「Criterion 7」。〕
 3. **evaluation 不改 Result、不选算法、不重判。** 任何 verdict 只从 Result / diagnose 报告的字段算；`SiteDiagnostic`、`IdentifiabilityReport`、`PriorSensitivityReport` 的阈值住在原处。
 4. **依赖单向。** `artifacts`、`graph`、`dispatch` 不 import `evaluation`；`evaluation` 不 import NumPyro 内部对象；`test_layering.py` 钉住。
 5. **随机验收纪律（§9.3）。** 每条随机测试写死 seed、N、α；红了不换 seed，改的是实现或 fixture 并写下理由；误报率不合适 blocking CI 的降为 full 层。
@@ -338,7 +340,7 @@
 
 1. G1–G8 八个 gate 全部有本次实测证据，source / lint / wheel / consumer 四共享 gate 全绿；
 2. `SimulationTask` 三种 source 真执行，POSTERIOR_RESULT 的观测抽样与 R2 predictive 逐位一致；
-3. 七种报告各有 PASS、FAIL 与 ABSTAIN / UNVERIFIABLE 的至少一条测试路径，verdict 可从 finding 复算；
+3. 七种报告各有 PASS、FAIL 与 ABSTAIN / UNVERIFIABLE 的至少一条测试路径，verdict 可从 finding 复算；〔执行写回，§红线 9（2026-09-04，close-out 期）：**这一条按字面读不可满足，原因是本计划自己的 §0.2。** 对 `src/bayesmith/evaluation/*.py` 做 AST 扫描（`Conclusion.*` 属性访问）实测：`checks` / `heldout` / `diagnostics` / `sbc` 四个模块都能到 `PASS` / `FAIL` / `ABSTAIN`，而 **`loo.py` 只有 `['ABSTAIN', 'PASS']`，没有 FAIL 臂**——这是 §0.2 冻结的裁决（「arviz 报 warning → ABSTAIN（估计不可靠，不是模型坏）」）的直接后果，不是漏写：一个 `loo_psis` 的 FAIL 会把模型判决扣在估计器的诊断上。另外 `sbc.py` 只到 `APPLICABLE`，它的「答不了」按 §0.2 一律是 APPLICABLE × ABSTAIN，不另开一根轴。本条因此按「裁决允许的每个臂都有测试路径」读，这样读成立；裁决是输入，改的是这一行的读法而不是裁决。证据见 close-out 的「Criterion 3」。〕
 4. 随机验收全部固定 seed 与预算，期望误报数已算出并写在 close-out；
 5. D104–D106 登记完毕，两侧格子与 tighten / loosen 变异都红过；
 6. 本地 reference NPE 有 harness 给出的校准数，候选记录页结论只取两种之一；
