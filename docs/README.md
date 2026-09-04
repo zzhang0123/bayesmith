@@ -31,6 +31,7 @@
 | `docs/correlated-noise-proposal.md` | `record` | Declaring a correlated noise on a graph node |
 | `docs/evaluation.md` | `module-spec` | Model checking: eight report kinds, two axes, and what a PASS does not mean |
 | `docs/evidence-layer-readiness.md` | `record` | What B11 will find here |
+| `docs/evidence.md` | `module-spec` | The evidence layer: one structure class, five terms, and what a PASS does not mean |
 | `docs/factor-partition-examples.md` | `module-spec` | From a model to an auto-partitioned sampler: two worked examples |
 | `docs/ownership.md` | `decision-home` | Implementation ownership |
 | `docs/superpowers/plans/2026-08-23-p1-graph-core-p2-numpyro-bridge.md` | `record` | bayesmith P1 图核 + P2 NumPyro 桥 — 实施计划 |
@@ -109,3 +110,4 @@
 | `docs/superpowers/specs/2026-08-31-r2-close-out.md` | `record` | R2 close-out — 完整 posterior 与 predictive seam |
 | `docs/superpowers/specs/2026-09-04-amortized-calibration.md` | `record` | Amortized calibration: the reference NPE's number, and the candidate protocol |
 | `docs/superpowers/specs/2026-09-04-r3-close-out.md` | `record` | R3 close-out — the model-checking layer |
+| `docs/superpowers/specs/2026-09-04-r4-close-out.md` | `record` | R4 close-out — the evidence foundation |

@@ -58,8 +58,15 @@ def test_every_two_sided_gate_has_exactly_one_executable_boundary_suite() -> Non
 
     # 95 after the R3 merge: 91 two-sided on main, +2 from r3/t3-checks
     # (D104, D105) and +2 from r3/t6-sbc.  Both branches wrote 93 because
-    # both measured against the same base.
-    assert len(required) == 95
+    # both measured against the same base.  R4 adds the prior audit's two
+    # (D109, D110), so 97, re-derived on this tree.
+    #
+    # This is the FOURTH place the same figure appears -- here,
+    # test_boundary_provider_contract.py, and twice in registry.py -- and the
+    # other two are in the fast layer while this one is not, so a batch that
+    # updates only what the fast layer reds leaves this red for a nightly to
+    # find. Measured on R4: exactly that happened.
+    assert len(required) == 97
     assert len(BOUNDARY_SUITES) == len(required)
     assert set(BOUNDARY_SUITES) == required
 
@@ -316,11 +323,12 @@ def test_every_reserved_mutation_witness_resolves_to_a_concrete_callable() -> No
         for name in (entry.tighten_witness, entry.loosen_witness)
     }
 
-    # Two witnesses per two-sided gate, so this is 2 * 95 and not an
+    # Two witnesses per two-sided gate, so this is 2 * 97 and not an
     # independent count -- if it ever stops being twice the number in
     # test_every_two_sided_gate_has_exactly_one_executable_boundary_suite,
-    # a gate has lost a witness rather than this line being stale.
-    assert len(required) == 190
+    # a gate has lost a witness rather than this line being stale. Written as
+    # the product for exactly that reason, so the two move together.
+    assert len(required) == 2 * 97
     assert set(WITNESS_CASES) == required
     for name, reference in WITNESS_CASES.items():
         assert reference.name == name

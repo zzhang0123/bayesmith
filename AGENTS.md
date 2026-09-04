@@ -32,8 +32,12 @@ top-level design), `module-spec`, `decision-home`, `plan-active`, `record`,
 `superseded`. `tests/test_document_status.py` checks the pages and the index
 against each other in both directions, so a new document with no status, or an
 index row pointing at nothing, fails rather than joining the pile. Before
-citing a page, read its status line: fifty-seven of the seventy-three are
+citing a page, read its status line: **sixty-four of the eighty-two** are
 `record`, true of the day they were written and authoritative over nothing.
+(Fifty-seven of seventy-three when this paragraph was written, which is the
+point: the ratio is stable and the counts are not, so re-measure rather than
+quote. The census is `docs/*.md` less `README.md` and the three exempt
+directories, and `tools/sync_doc_index.py` walks the same set.)
 
 ## Running the tests
 
@@ -56,6 +60,12 @@ Full layer (nightly — everything, including the `full` grids):
 A meta-test in `tests/numerical_gates/test_boundary_layering.py` fails if any
 registered gate loses its one fast-layer cell, so "fast" cannot silently
 collapse to "no numerical-gate coverage".
+
+**The fast layer is 3249 tests as of R4 (2026-09-04), not the 2826 a comment in
+`suite.yml` still names.** That comment is prose, and prose is a claim no run
+checks -- the same defect `tests/test_readme_count.py` exists to prevent one
+file over. Take the number from a `--junit-xml`, and if you need it in a
+comment, re-measure it there.
 
 Test artifacts go in one directory per run — three products from one
 invocation, all in the same directory (add `-m "not full"` for the fast
