@@ -38,16 +38,30 @@ one budget, both module constants: ``POSTERIOR_SEED = 1`` fits every fixture's
 posterior and ``GATE_SEED = 101`` drives the predictive replay and the prior
 simulation inside :func:`~bayesmith.evaluation.gate.check_posterior`.  Nothing
 is re-drawn and no assertion below compares a p-value against a band, so the
-tolerated false-positive count of this file is **zero** -- but two of the cells
-these fixtures produce sit close enough to their own band to be worth writing
-down, because a fixture that is one platform's arithmetic away from flipping is
-what burned four release tags here:
+tolerated false-positive count of this file is **zero** -- but some of the
+cells these fixtures produce sit at or over their own band, and that is worth
+writing down, because a fixture that is one platform's arithmetic away from
+flipping is what burned four release tags here:
 
 * the calibrated fixture's ``prior_predictive_check`` on ``residual_sd`` has a
   tail mass of **0.0355** against a band edge of ``ALPHA / 2 = 0.025``, and
   that is not seed luck: swept over gate seeds 101/202/303/404/505 it reads
-  0.0355 / 0.0340 / 0.0340 / 0.0335 / 0.0385.  The masked fixture's is closer
-  still -- 0.0270 / 0.0260 / 0.1045 / 0.0285 / 0.0285.
+  0.0355 / 0.0340 / 0.0340 / 0.0335 / 0.0385.
+* the masked fixture's same cell is not merely CLOSE to that edge -- **at one
+  of those five seeds it is already over it.**  Swept the same way it reads
+  0.0270 / 0.0260 / **0.0250** / 0.0285 / 0.0285, and the third of those is
+  ``0.02499999999999999`` against ``0.025``: a margin of
+  ``-1.0408340855860843e-17``, which makes that optional report APPLICABLE x
+  FAIL at gate seed 303 on macOS/Accelerate TODAY.  So a Linux run that FAILS
+  this cell is **not a regression** and not a platform difference worth
+  chasing: it is a sub-ULP coin flip that has already landed on both sides
+  here.  Nothing asserts on it and nothing should start to -- the file runs at
+  ``GATE_SEED = 101`` only, where the same cell reads 0.0270, and the fixture
+  is left exactly as it is rather than nudged away from an edge it does not
+  decide anything from.  (An earlier draft of this list gave 0.1045 as the
+  seed-303 value.  That number is real, but it is a different cell -- the
+  CALIBRATED fixture's ``prior_predictive_check`` on ``largest`` at that seed
+  -- and quoting it here hid the one sub-ULP margin in the file.)
 * everything the PASS VERDICTS below actually rest on is far from its edge:
   the required ``posterior_predictive_check``'s worst cell is 0.3205
   (calibrated) and 0.4175 (masked), twelve and sixteen times the edge, and
@@ -115,6 +129,7 @@ from bayesmith.dispatch.task import (
     compile_task,
     execute_task,
 )
+from bayesmith.evaluation import ALPHA
 from bayesmith.evaluation import check_posterior as reexported_check_posterior
 from bayesmith.evaluation.checks import DRAW_FLOOR
 from bayesmith.evaluation.gate import (
@@ -123,6 +138,7 @@ from bayesmith.evaluation.gate import (
     MODEL_CHECKING,
     POSTERIOR_PREDICTIVE_CHECK,
     PRIOR_PREDICTIVE_CHECK,
+    _file,
     check_posterior,
     model_checking_slots,
 )
@@ -155,6 +171,19 @@ PRIOR_STD = 2.0
 #: band is Bonferroni-corrected by the NUMBER of held-out points, so a single
 #: point cannot tell a correction from its absence.
 MASK = jnp.array([True, True, True, False, True, True, False, True])
+
+#: Where ``TestItDecidesNothing`` places an adversarial cell, as MULTIPLES of
+#: the one band edge every check in this layer uses.
+#:
+#: Not a tolerance and not compared against anything -- the ladder exists
+#: because a gate that re-decided a verdict would have to re-decide it against
+#: SOME number, and the only number available to copy is the edge these
+#: reports were already judged against.  So the ladder brackets that edge:
+#: nothing, half of it, just under, exactly on it, just over, and then out to
+#: twenty times it, which is past where the real fixtures' own cells sit.  A
+#: rewrite rule tuned to any neighbourhood of the edge fires on at least one
+#: rung, and the assertions on every rung are identity, not arithmetic.
+EDGE_MULTIPLES = (0.0, 0.5, 0.9, 1.0, 1.1, 2.0, 20.0)
 
 
 def line_at(curvature=0.0, *, mask=None, n=8, weight=2.5, seed=0):
@@ -417,6 +446,52 @@ def chained():
             fingerprints=posterior.run.fingerprints,
         )
     return posterior, graph, report
+
+
+@pytest.fixture(scope="module")
+def errored(calibrated):
+    """The calibrated run with its REQUIRED ``identifiability`` made to raise.
+
+    Exists so §0.6's ERROR row has a witness that goes through
+    :func:`~bayesmith.evaluation.gate.model_checking_slots` and
+    ``aggregate_gate`` together.  ``TestACheckThatRaises`` pins the status, but
+    it calls ``check_posterior`` alone, so ``_recompute``'s ERROR branch --
+    part of the hand-written truth table G8 rests on -- had nothing to be
+    compared against.
+    """
+    from bayesmith.evaluation import gate as gate_module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("the rank probe fell over")
+
+    original = gate_module.identifiability_report
+    gate_module.identifiability_report = explode
+    try:
+        return run(lambda: calibrated.graph, posterior=calibrated.posterior)
+    finally:
+        gate_module.identifiability_report = original
+
+
+@pytest.fixture(scope="module")
+def invalidated(calibrated):
+    """The calibrated run over a subject whose data has since moved.
+
+    The other row G8's truth table could not reach: ``INVALIDATED`` is pinned
+    by ``TestStatusComesBeforeVerdict`` through ``check_posterior`` only.
+    """
+    stale_meta = invalidate_meta(
+        calibrated.posterior.meta,
+        before=calibrated.posterior.meta.fingerprints,
+        after=dataclasses.replace(
+            calibrated.posterior.meta.fingerprints,
+            data=fingerprint(FingerprintKind.DATA, "the data moved"),
+        ),
+        policy=InvalidationPolicy.default(),
+        at="2026-09-04T00:00:00Z",
+    )
+    stale = dataclasses.replace(calibrated.posterior, meta=stale_meta)
+    assert stale.meta.lifecycle.status is ArtifactStatus.INVALIDATED
+    return run(lambda: calibrated.graph, posterior=stale)
 
 
 # ------------------------------------------------------------- the definition
@@ -966,12 +1041,42 @@ class TestStatusComesBeforeVerdict:
 
 
 class TestItDecidesNothing:
-    """§8.2, as things that go red rather than as a claim in a docstring."""
+    """§8.2, as things that go red rather than as a claim in a docstring.
+
+    **The two AST tests below are belt and braces, and they were walked past.**
+    They read gate.py's SPELLING -- "no numeric constant", "no ordering
+    operator" -- and a spelling is a thing a rename defeats.  Measured in this
+    worktree on 2026-09-04, at the commit before this docstring: a ``gate.py``
+    carrying ``_MY_DRAW_FLOOR = int("40")`` and ``_SLACK = float("0.30")``
+    (string arguments, so no ``ast.Constant`` of numeric type appears) and
+    deciding with ``operator.lt`` / ``operator.eq`` / ``math.isclose`` (calls,
+    so no ``ast.Lt`` appears) passed all 54 tests in this file, ``PYTEST_EXIT=0``,
+    with ``ruff check --no-cache src/ tests/`` clean -- **while rewriting a
+    required ``posterior_predictive_check`` FAIL into a PASS inside**
+    :func:`~bayesmith.evaluation.gate._file`.  Handed a report whose cell was
+    0.020, for which ``checks.tail_mass_within_rate(0.020)`` is ``False``, the
+    slot that came back said ``pass``.  Moving the constants into a sibling
+    module would have escaped both tests as well, since both read gate.py's own
+    file.  This is the same failure ``ProducerRef as _PR`` produced elsewhere in
+    this repository the day before.
+
+    **So the load-bearing assertions here are identity, not text.**  A report
+    is FILED, never re-decided: the slot that comes back from ``_file`` holds
+    the very object handed in, and every slot the runner builds holds the very
+    object its check function returned.  That property is indifferent to how a
+    threshold is spelled, where it lives and which operator applies it -- a
+    rewrite has to produce a different object, and ``is`` sees that.  The AST
+    tests stay because they are free and they name the file; they are no longer
+    the thing standing between gate.py and a second opinion.
+    """
 
     def test_the_module_writes_down_no_number_of_its_own(self):
         """One int -- the gate's version -- and no float at all.  A tolerance
         here would be a second copy of a threshold that already has an owner,
         which is the defect §0.10 exists to prevent, one layer up.
+
+        Belt and braces only: see the class docstring for the working
+        implementation that passed this test while rewriting a verdict.
         """
         source = _gate_source()
         floats = [
@@ -992,7 +1097,11 @@ class TestItDecidesNothing:
     def test_the_module_orders_nothing(self):
         """A gate that decides no number does not compare one.  ``<``, ``<=``,
         ``>`` and ``>=`` are absent; the comparisons that remain are identity,
-        membership and equality of codes."""
+        membership and equality of codes.
+
+        Belt and braces only, and for the same reason: ``operator.lt`` is an
+        ordering this test cannot see.
+        """
         ordering = {ast.Lt, ast.LtE, ast.Gt, ast.GtE}
         found = [
             type(op).__name__
@@ -1002,6 +1111,179 @@ class TestItDecidesNothing:
             if type(op) in ordering
         ]
         assert found == [], f"gate.py orders something: {found}"
+
+    # ------- the load-bearing pair: a report is filed, never re-decided -------
+
+    @pytest.mark.parametrize(
+        "kind", [item.name for item in MODEL_CHECKING.requirements]
+    )
+    def test_a_slot_holds_the_very_report_it_was_handed(self, calibrated, kind):
+        """:func:`~bayesmith.evaluation.gate._file` FILES a report; it does not
+        edit one.
+
+        Swept over every kind this gate declares, both conclusions an
+        applicable check can reach, and a ladder of cells around the one band
+        edge in this layer -- because a runner that re-decided a verdict would
+        re-decide it near that edge, and this is where such a rule fires.  The
+        assertion on every rung is ``is``: the object that comes back must be
+        the object that went in, so a rewrite fails whatever arithmetic it is
+        spelled with, wherever that arithmetic lives, and under whatever name.
+
+        Not a p-value comparison and not a tolerance -- ``EDGE_MULTIPLES`` is a
+        list of places to stand, and nothing here asserts a verdict about any
+        of them.
+        """
+        template = calibrated.report(POSTERIOR_PREDICTIVE_CHECK)
+        requirement = MODEL_CHECKING.requirement(kind)
+        for multiple in EDGE_MULTIPLES:
+            cell = multiple * (ALPHA / 2.0)
+            for conclusion in (C.FAIL, C.PASS):
+                report = dataclasses.replace(
+                    template,
+                    report_kind=kind,
+                    applicability=A.APPLICABLE,
+                    conclusion=conclusion,
+                    findings=(
+                        dataclasses.replace(
+                            template.findings[0],
+                            observed=("d", "a.discrepancy", cell, cell),
+                        ),
+                    ),
+                )
+                for slot in (_file(report), _file(report, expected=requirement)):
+                    assert slot.report is report, (
+                        f"{kind} at {cell!r} concluding {conclusion.value} came "
+                        "back as a different object: the gate re-decided it"
+                    )
+                    assert slot.requirement is requirement
+
+    def test_every_slot_holds_the_object_its_check_returned(
+        self, calibrated, monkeypatch
+    ):
+        """End to end: what the runner files is what the checks produced.
+
+        The sibling of the test above, and the one that survives a rewrite
+        moved OUT of ``_file`` -- into the runner, into a wrapper, into a
+        sibling module.  Each check is wrapped in a recorder that keeps the
+        object it returned, keyed by the ``report_kind`` that object CARRIES
+        (read off the check's own output, so no kind is spelled here), and
+        every slot must hold that identical object.
+
+        Both directions are asserted, because each fails differently: a kind
+        filed that no check produced is an invented report, and a kind produced
+        that no slot holds is the dropped-report trap
+        ``TestTheOptionalSlotTrap`` covers from the other side.
+        """
+        from bayesmith.evaluation import gate as gate_module
+
+        produced: dict[str, EvaluationReport] = {}
+
+        def recording(original):
+            def wrapper(*args, **kwargs):
+                report = original(*args, **kwargs)
+                produced[report.report_kind] = report
+                return report
+
+            return wrapper
+
+        for attribute in (
+            "posterior_predictive_check",
+            "prior_predictive_check",
+            "held_out_report",
+            "loo_report",
+            "identifiability_report",
+            "prior_sensitivity_report",
+        ):
+            monkeypatch.setattr(
+                gate_module, attribute, recording(getattr(gate_module, attribute))
+            )
+
+        with jax.enable_x64(True):
+            slots = model_checking_slots(
+                calibrated.graph,
+                calibrated.posterior,
+                key=jax.random.key(GATE_SEED),
+                budget=ComputeBudget(draws=DRAWS),
+                model_ref=model_ref(),
+            )
+
+        filed = {
+            slot.requirement.name: slot.report
+            for slot in slots
+            if slot.report is not None
+        }
+        assert set(filed) == set(produced)
+        # Non-vacuous whatever an optional check does on another BLAS: the
+        # required pair reaches for no optional dependency, so both always
+        # produce a report on this fixture.  Without this an all-error run
+        # would satisfy the identity assertion with two empty sets.
+        required = {item.name for item in MODEL_CHECKING.requirements if item.required}
+        assert required <= set(filed)
+        for name, report in filed.items():
+            assert report is produced[name], name
+
+    @pytest.mark.parametrize("multiple", EDGE_MULTIPLES)
+    def test_a_required_fail_reaches_the_verdict_wherever_its_cell_sits(
+        self, calibrated, monkeypatch, multiple
+    ):
+        """The consequence, which is what a reader of a gate result cares about.
+
+        A required check that FAILED must fail the gate -- at any cell, and in
+        particular at cells sitting on the band edge, which is exactly where a
+        runner that decided "close enough" would overturn it.  The canned
+        report is asserted to arrive in its slot BY IDENTITY as well, so the
+        two ways to break this (edit the report, or ignore it) are separated.
+        """
+        from bayesmith.evaluation import gate as gate_module
+
+        cell = multiple * (ALPHA / 2.0)
+        template = calibrated.report(POSTERIOR_PREDICTIVE_CHECK)
+        failed = dataclasses.replace(
+            template,
+            applicability=A.APPLICABLE,
+            conclusion=C.FAIL,
+            findings=(
+                dataclasses.replace(
+                    template.findings[0],
+                    observed=("d", "a.discrepancy", cell, cell),
+                ),
+            ),
+        )
+        monkeypatch.setattr(
+            gate_module, "posterior_predictive_check", lambda *a, **k: failed
+        )
+
+        # D105's own floor as the budget: the cheapest run the required check
+        # admits, since the report it would have produced is replaced anyway.
+        budget = ComputeBudget(draws=DRAW_FLOOR)
+        with jax.enable_x64(True):
+            slots = model_checking_slots(
+                calibrated.graph,
+                calibrated.posterior,
+                key=jax.random.key(GATE_SEED),
+                budget=budget,
+                model_ref=model_ref(),
+            )
+            gate = check_posterior(
+                calibrated.graph,
+                calibrated.posterior,
+                key=jax.random.key(GATE_SEED),
+                budget=budget,
+                model_ref=model_ref(),
+            )
+
+        filed = [
+            slot
+            for slot in slots
+            if slot.requirement.name == POSTERIOR_PREDICTIVE_CHECK
+        ]
+        assert len(filed) == 1
+        assert filed[0].report is failed
+        assert gate.status is S.EVALUATED
+        assert gate.verdict is C.FAIL, f"a required FAIL at {cell!r} was overturned"
+        assert "required_report_failed" in [
+            finding.code for finding in gate.findings
+        ]
 
     def test_the_producer_it_stamps_is_the_dispatch_object(self):
         """One fact, one object: the gate result must be stamped by the same
@@ -1013,12 +1295,17 @@ class TestItDecidesNothing:
     @pytest.mark.parametrize(
         "name",
         [
+            # EVALUATED x {PASS, FAIL, ABSTAIN} and BLOCKED ...
             "calibrated",
             "misspecified",
             "starved",
             "masked",
             "in_float32",
             "unpredictable",
+            # ... and the two rows of the truth table that had no witness
+            # here: a required check that raised, and a subject that moved.
+            "errored",
+            "invalidated",
         ],
     )
     def test_the_verdict_is_recomputable_from_the_slots(self, name, request):
