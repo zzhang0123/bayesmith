@@ -132,6 +132,38 @@ primitives the predictive seam uses, so there is one forward model rather than
 a simulator beside it. `EvidenceTask` is the one of the five still refused, and
 it returns the typed `capability_unavailable_r1`.
 
+R3's own surface is model checking. `bayesmith.evaluation.check_posterior(graph,
+posterior, key=..., budget=..., model_ref=...)` runs the checks that apply to
+one fitted posterior — posterior and prior predictive checks, held-out
+prediction on the points the graph's mask withheld, PSIS-LOO through the
+optional ArviZ seam, identifiability and prior sensitivity — files each as a
+typed `EvaluationReport`, and aggregates them under the versioned
+`model_checking@1` gate. Every report answers on **two** axes rather than one:
+an applicability (`APPLICABLE`, `INAPPLICABLE`, `UNVERIFIABLE`) beside a
+conclusion (`PASS`, `FAIL`, `ABSTAIN`), so that "this check does not apply
+here", "it applies but its inputs were missing" and "it ran and the model
+failed" are three answers instead of one word. Only an `APPLICABLE` check may
+pass or fail, which is what keeps a run failure from being dressed as a verdict
+about the model. One false-positive rate is declared in advance for the whole
+layer — `ALPHA = 0.05` — and the draw and replicate floors are derived from it
+rather than chosen beside it. The page is
+[`docs/evaluation.md`](docs/evaluation.md).
+
+**What a model-checking PASS does not promise** — stated here for the same
+reason the Status section below names what this release does not do yet: a
+front page is a claim, and finding out afterwards is worse than reading it now.
+A predictive check bounds the statistics it computed and nothing wider:
+`curved_line(0.15)` — a straight line fitted to data with a real quadratic
+term, a quarter the size of one the same check catches at p = 0.0000 — passes
+all five default discrepancies, and a green test in the suite exists to pin
+that it does. An SBC pass says a route's stated
+uncertainty is consistent with its stated prior, which a "posterior" that
+ignores the data and returns prior draws satisfies by construction. Neither is
+a defect being disclosed; both are what these checks measure. Every predictive
+check writes the first caveat into its own report's `meta.summary` — "a pass
+bounds these statistics and nothing wider" — so that one travels with the
+artifact rather than living only on a page.
+
 ## Status
 
 **0.7.2.** What other packages can depend on by name is whatever

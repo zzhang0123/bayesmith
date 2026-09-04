@@ -29,6 +29,7 @@
 |---|---|---|
 | `docs/artifacts.md` | `module-spec` | The artifact protocol: Tasks, Results, provenance and gates |
 | `docs/correlated-noise-proposal.md` | `record` | Declaring a correlated noise on a graph node |
+| `docs/evaluation.md` | `module-spec` | Model checking: eight report kinds, two axes, and what a PASS does not mean |
 | `docs/evidence-layer-readiness.md` | `record` | What B11 will find here |
 | `docs/factor-partition-examples.md` | `module-spec` | From a model to an auto-partitioned sampler: two worked examples |
 | `docs/ownership.md` | `decision-home` | Implementation ownership |
