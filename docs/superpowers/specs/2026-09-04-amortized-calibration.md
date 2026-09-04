@@ -308,8 +308,8 @@ it** — this is the rung taken, with **(d) skip loudly** as its else-branch.
 **The witness.** The recorded cell asserts nothing until `best_step == 322`
 and the validation minimum matches `-0.5286270976` to `rel=1e-4`; otherwise it
 skips with `THIS IS NOT A PASS`, naming both numbers it measured.
-`best_step` is a 1500-way discrete fingerprint of the optimisation — 20
-distinct values over the 24-seed sweep, and 322 → 580 under x64 — so it
+`best_step` is a 1500-way discrete fingerprint of the optimisation — **24
+distinct values over the 24-seed sweep**, and 322 → 580 under x64 — so it
 detects a diverged trajectory rather than a diverged bit. The loss is checked
 beside it because a coincident argmin index is not a coincident set of
 weights. `1e-4` sits between two measured scales: float32 eps on this loss is

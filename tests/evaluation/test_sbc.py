@@ -1447,11 +1447,11 @@ WIDTH_BAND = (0.60, 1.60)
 
 #: probe_29 §2's recorded trajectory, and the witness that says this machine
 #: reproduced it.  ``best_step`` is a 1500-way discrete fingerprint of the
-#: optimisation: measured, it takes 20 distinct values over the 24-seed
-#: retrain sweep and moves 322 -> 580 under ``JAX_ENABLE_X64=1``, so it detects
-#: a diverged trajectory rather than merely a diverged bit.  The validation
-#: minimum is checked beside it because a coincident argmin index is not a
-#: coincident set of weights.
+#: optimisation: measured, it takes 24 DISTINCT values over the 24-seed
+#: retrain sweep (292 .. 1190) and moves 322 -> 580 under ``JAX_ENABLE_X64=1``,
+#: so it detects a diverged trajectory rather than merely a diverged bit.  The
+#: validation minimum is checked beside it because a coincident argmin index
+#: is not a coincident set of weights.
 #:
 #: ``TRAJECTORY_RTOL``'s FORM is derived -- a relative tolerance on a float32
 #: loss -- and it is placed between two MEASURED scales rather than chosen:
