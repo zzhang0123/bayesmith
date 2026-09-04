@@ -158,7 +158,11 @@ term that was never lost.
    already uses — over a **declared multi-draw seed set**, not one draw.
 
 > **Note the asymmetry the naming invites.** `Graph.evidence_terms` holds graph-level
-> *likelihood* factors, not evidence — the R4 close-out records this and declines to rename it.
+> *likelihood* factors, not evidence — the **R4 plan** records this and declines to rename it
+> (`2026-09-04-r4-evidence.md:650`). 〔Execution write-back, red line 11 (Wave A review): this
+> line said "the R4 close-out", and the close-out contains **zero** occurrences of
+> `evidence_terms`. A citation to the wrong document is the same defect as a false docstring, and
+> it propagated from here into `dispatch/evidence.py`'s docstring before a reviewer checked it.〕
 > R5 puts them on the likelihood side of the split. **The assignment is asserted by
 > consequence** (the bitwise identity above, plus `∫ exp(log_prior) = 1` through R4's
 > `audit_prior`), never by the field's name.
@@ -1436,6 +1440,14 @@ mid-audit — a background job piped through `| tail -40`, so the exit code it r
 ## Red lines (self-check before each commit; a violation rolls that task back)
 
 **1. Adversarial review runs BEFORE the wave's commits are pushed, in its own worktree.**
+〔Execution write-back, red line 11 (Wave A): "before the commits are **pushed**" is load-bearing
+and this line nearly read "before they are made". It cannot: `CLAUDE.md`'s mutation protocol
+restores with `git checkout -- src/`, which restores to **HEAD**, so mutating an uncommitted tree
+is a silent full revert of the work. Wave A did exactly that and lost its implementation — the
+untracked test and probe survived, the tracked `src/` change did not, which is the failure
+`CLAUDE.md` describes verbatim. The order is therefore: **commit locally → mutate → review →
+follow-up commits → push.** A mutation script must additionally refuse to start on a dirty tree;
+Wave A's does, and it fired on the next run because a timeout had left a mutant behind.〕
 `Agent(..., isolation: "worktree")`. The prompt says **"build the bypass and run it"**, not "read
 the code". The reviewer must return: what code it wrote, whether the suite is still green with
 that code present, and a mutation table **naming every survivor individually** — a count is not a

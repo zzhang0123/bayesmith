@@ -1034,9 +1034,11 @@ class CompiledEvidenceProblem:
         log_likelihood: ``theta -> log L(theta)``, the observed nodes' densities
             (honouring ``observed_mask``) plus every graph-level
             ``evidence_terms`` entry. Those hold graph-level LIKELIHOOD factors
-            despite the field's name, which the R4 close-out records and
-            declines to rename; the assignment is asserted by consequence --
-            the prior side integrates to one -- and never by the name.
+            despite the field's name, which the R4 PLAN records and declines to
+            rename (`2026-09-04-r4-evidence.md:650`; the close-out does not
+            mention the field at all, and an earlier version of this line cited
+            it). The assignment is asserted by consequence -- the prior side
+            integrates to one -- and never by the name.
         prior_sample: ``key -> theta``, a draw from the prior. Strictly
             stronger than a prior that integrates to one, and it is what a
             nested sampler actually needs: ``improper_outside_prior`` raises
@@ -1079,8 +1081,21 @@ class CompiledEvidenceProblem:
 
 
 def _graph_term_value(graph: Graph, term: Any, env: Mapping[str, Any], names) -> Any:
-    """One graph-level term's density, read the way ``log_joint`` reads it."""
-    return jnp.asarray(term.log_density(graph, {name: env[name] for name in names}))
+    """One graph-level term's density, read the way ``log_joint`` reads it.
+
+    Including the scalar requirement, which an earlier version of this function
+    claimed in that sentence and did not enforce: measured, a term returning
+    shape ``(2,)`` made ``log_joint`` raise ``GraphError`` while this returned
+    the vector. ``graph_density`` is called rather than re-derived, so the two
+    cannot drift.
+    """
+    from bayesmith.graph.evaluate import graph_density
+
+    return graph_density(graph, term, dict(env), label=_term_label(term), names=names)
+
+
+def _term_label(term: Any) -> str:
+    return getattr(term, "__class__", type(term)).__name__
 
 
 
@@ -1215,7 +1230,7 @@ def compile_evidence_problem(
         log_likelihood=log_likelihood,
         prior_sample=prior_sample,
         exact_elimination=tuple(exact_elimination),
-        residual_parameters=tuple(name for name in residual if name in latents),
+        residual_parameters=residual,
         shapes=shapes,
         prior_terms=tuple(prior_terms),
         likelihood_terms=tuple(likelihood_terms),

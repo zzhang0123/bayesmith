@@ -88,8 +88,23 @@ def test_raw_ast_baseline_is_explicit() -> None:
     # with `scan_repository(REPOSITORY_ROOT)` on this tree, never summed from a
     # branch: the R3 close-out records two branches that both wrote 93 because
     # each measured itself against the same base.
-    assert family_counts[CandidateFamily.RAISE] == 195
-    assert family_counts[CandidateFamily.COMPARE] == 380
+    # R5 Task 1 moved RAISE 195 -> 197 and COMPARE 380 -> 389, all in
+    # dispatch/evidence.py's new `compile_evidence_problem` and
+    # `CompiledEvidenceProblem.__post_init__`. The two raises are the
+    # constructor refusing a name filed as both eliminated and residual, and a
+    # term filed on both the prior and the likelihood side. The nine comparisons
+    # are the partition itself -- `node.observed is None`, `observed_mask is
+    # not None`, `graph.joint_prior is not None`, `name not in eliminated` --
+    # none of them a threshold. It was ten until the Wave A review found that
+    # `residual_parameters`'s `if name in latents` filter could never remove
+    # anything, `residual` already being built from `graph.latents`.
+    #
+    # This pin is why the R5 plan's section 0.10 calls these two the landmine:
+    # they move when a module gains a `raise` or a comparison, whether or not
+    # anything numerical changed, and they are FAST-layer. Re-derived here with
+    # `scan_repository(REPOSITORY_ROOT)` on this tree, never summed.
+    assert family_counts[CandidateFamily.RAISE] == 197
+    assert family_counts[CandidateFamily.COMPARE] == 389
 
 
 def test_every_raw_candidate_has_exactly_one_code_classification() -> None:

@@ -122,6 +122,19 @@ GRAPHS = list(_graphs())
 #: test asserts RAISES, so it is an expectation and not a gap.
 UNSAMPLABLE_PRIOR = frozenset({"improper_outside_prior"})
 
+#: Fixtures whose joint is non-finite at EVERY declared seed, so the band test
+#: grades nothing for them. Declared, because the alternative is a row that
+#: passes having asserted nothing and looks identical to one that asserted
+#: something -- measured at 15 of 265 rows silently ungraded, three fixtures at
+#: 0 of 5. The band test asserts this set is exactly right in both directions.
+NEVER_FINITE = frozenset(
+    {
+        "overflowing_outside_latent",
+        "unusable_observed_scale",
+        "two_unusable_observed_scales",
+    }
+)
+
 
 def _needs_a_draw(label):
     if label.split("[")[0] in UNSAMPLABLE_PRIOR:
@@ -224,25 +237,71 @@ class TestTheRecompositionSitsInsideADerivedBand:
 
     @pytest.mark.parametrize("label,graph", GRAPHS, ids=[g[0] for g in GRAPHS])
     def test_over_a_declared_seed_set(self, label, graph):
+        """What this test CANNOT do, stated because a draft of it overclaimed.
+
+        It grades one thing: that splitting a running float sum into two and
+        adding them back lands within the rounding that reordering can produce.
+        The band is therefore sized by the largest term, because that is what
+        bounds the absolute error of a sum of logs.
+
+        **It cannot detect a small perturbation of the smaller side, and no
+        reformulation of the band fixes that.** On ``high_snr_curvature`` the
+        likelihood side is about 8.8e12 nats and the prior side about 1.9, so
+        any band that admits the reordering also admits a 0.2% error in the
+        prior. Measured twice: with the band as ``n eps max(|total|, 1)`` this
+        test passed at all five seeds under ``log_prior * (1 + 1e-7)``, and it
+        passed again after the band was rewritten as the sum of the two sides'
+        own magnitudes -- 3.9e-3 nats either way, against a 1.9e-7 shift. The
+        second form is kept because it is the tighter statement, not because it
+        repaired anything.
+
+        **The mutant is caught by the per-side bitwise test above**, which is
+        exact and does not depend on the sides' relative size. A reviewer called
+        that test the tautological one; it is the one that kills M7, and this is
+        why both exist.
+
+        Separately: ``if not math.isfinite(total): continue`` silently ungraded
+        15 of 265 rows, three fixtures at 0 of 5 seeds -- a guaranteed pass that
+        looks exactly like a graded one. The count is now asserted in both
+        directions.
+        """
         _needs_a_draw(label)
         eps = float(jnp.finfo(jnp.float64).eps)
+        graded = 0
         with jax.enable_x64(True):
             problem = compile_evidence_problem(graph)
+            terms = len(problem.prior_terms) + len(problem.likelihood_terms)
             for seed in SEEDS:
                 values = _prior_draw(graph, seed)
                 total = float(log_joint(graph, values))
-                recomposed = float(problem.log_prior(values)) + float(
-                    problem.log_likelihood(values)
-                )
-                if not math.isfinite(total):
+                prior = float(problem.log_prior(values))
+                likelihood = float(problem.log_likelihood(values))
+                if not (
+                    math.isfinite(total)
+                    and math.isfinite(prior)
+                    and math.isfinite(likelihood)
+                ):
                     continue
-                terms = len(problem.prior_terms) + len(problem.likelihood_terms)
-                band = terms * eps * max(abs(total), 1.0)
-                assert abs(recomposed - total) <= band, (
-                    f"{label} at seed {seed}: recomposed {recomposed!r} against "
-                    f"log_joint {total!r}, gap {recomposed - total:.3e}, band "
-                    f"{band:.3e}"
+                graded += 1
+                # Each side carries its own rounding; neither buys slack for
+                # the other.
+                band = terms * eps * (max(abs(prior), 1.0) + max(abs(likelihood), 1.0))
+                assert abs(prior + likelihood - total) <= band, (
+                    f"{label} at seed {seed}: recomposed {prior + likelihood!r} "
+                    f"against log_joint {total!r}, gap "
+                    f"{prior + likelihood - total:.3e}, band {band:.3e}"
                 )
+        if label.split("[")[0] in NEVER_FINITE:
+            assert graded == 0, (
+                f"{label} is declared as never producing a finite joint and "
+                f"graded {graded} rows; move it out of NEVER_FINITE"
+            )
+        else:
+            assert graded > 0, (
+                f"{label} graded NO seeds -- every draw was non-finite, so this "
+                "row passed without asserting anything. Declare it in "
+                "NEVER_FINITE or give it a seed that produces a finite joint."
+            )
 
 
 class TestTheSplitLocalisesWhatLogJointCannot:
@@ -580,6 +639,21 @@ class TestTheDimensionsTheFirstDraftHeldConstant:
             problem = compile_evidence_problem(graph)
         assert dict(problem.shapes)["w"] == ()
 
+    def test_the_residual_order_follows_the_graphs_latent_order(self):
+        """M19. ``shapes`` is a LAYOUT: a backend that flattens parameters in
+        this order and unflattens in another gets a different model, silently.
+        The order is the graph's own, minus what was eliminated."""
+        graph = as_graph(models.two_linear_latents())
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+        expected = tuple(n for n in graph.latents)
+        assert problem.residual_parameters == expected, (
+            f"residual order {problem.residual_parameters}, graph order {expected}"
+        )
+        assert [name for name, _ in problem.shapes] == list(expected), (
+            "the layout must be in the same order as the parameters it sizes"
+        )
+
     def test_exact_elimination_removes_names_from_the_residual(self):
         """The parameter Tasks 6 and 7 depend on, exercised here because no
         other test passes it a non-empty value."""
@@ -607,3 +681,134 @@ class TestTheDimensionsTheFirstDraftHeldConstant:
                 prior_terms=("w",),
                 likelihood_terms=("w",),
             )
+
+
+class TestPriorSampleIsGradedRatherThanOnlyRaised:
+    """Five mutants lived here because only the RAISE was ever asserted.
+
+    ``prior_sample`` had exactly one test -- that an improper prior raises --
+    and no test called it on a graph it can draw from. So ignoring the key
+    (every "draw" identical, which for a nested sampler is fatal), returning the
+    observed sites as well, and returning zeros all survived the whole file.
+    """
+
+    def test_two_keys_give_two_different_draws(self):
+        """M16. A sampler fed identical live points explores nothing, and the
+        evidence it reports would be confidently wrong rather than noisy."""
+        graph = as_graph(models.two_linear_latents())
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            first = problem.prior_sample(jax.random.key(0))
+            second = problem.prior_sample(jax.random.key(1))
+        assert set(first) == set(second)
+        assert any(
+            not jnp.array_equal(first[name], second[name]) for name in first
+        ), "two different keys produced identical draws"
+
+    def test_the_same_key_gives_the_same_draw(self):
+        """Reproducibility is the other half: a run record names its seed."""
+        graph = as_graph(models.two_linear_latents())
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            first = problem.prior_sample(jax.random.key(7))
+            second = problem.prior_sample(jax.random.key(7))
+        for name in first:
+            assert jnp.array_equal(first[name], second[name])
+
+    def test_it_returns_exactly_the_latents_and_no_observed_site(self):
+        """M17. An observed site handed back as a parameter would be integrated
+        over, which is a different model."""
+        graph = as_graph(models.two_observations())
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            drawn = problem.prior_sample(jax.random.key(0))
+        assert set(drawn) == set(graph.latents)
+        assert not (set(drawn) & set(graph.observed))
+
+    def test_the_draws_come_from_the_declared_prior(self):
+        """M18. Zeros are a valid-looking dict of the right keys and shapes.
+
+        Graded against the declared width rather than against a recorded
+        number: 4000 draws of ``w ~ N(0, 3)`` have a sample standard deviation
+        within 10% of 3 with overwhelming probability, and zeros give 0.
+        """
+        graph = as_graph(models.student_t_likelihood())  # w ~ Normal(0, 3)
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            draws = jnp.asarray(
+                [
+                    problem.prior_sample(jax.random.key(seed))["w"]
+                    for seed in range(4000)
+                ]
+            )
+        spread = float(jnp.std(draws))
+        assert 2.7 < spread < 3.3, (
+            f"4000 prior draws of w ~ N(0, 3) have spread {spread}; the "
+            "declared width is 3"
+        )
+
+    def test_the_shapes_match_the_declared_layout(self):
+        """A plated latent must draw at its plate width, not as a scalar."""
+        graph = as_graph(models.plated_latent())
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            drawn = problem.prior_sample(jax.random.key(0))
+        for name, shape in problem.shapes:
+            assert jnp.shape(drawn[name]) == shape, (
+                f"{name} drawn at {jnp.shape(drawn[name])}, layout says {shape}"
+            )
+
+
+class TestAGraphLevelTermSeesOnlyItsDeclaredBlock:
+    """M14: routing a term ``graph.latents`` instead of its own ``over``.
+
+    ``Graph._check_evidence_term`` makes ``over`` an enforceable dependency
+    boundary. Passing the full latent environment erases it, and survives every
+    other test here because the reference in this file makes the same call.
+    """
+
+    def test_the_term_receives_exactly_its_over_block(self):
+        seen = {}
+
+        class _Recording:
+            over = ("a",)
+
+            def log_density(self, graph, values):
+                del graph
+                seen["names"] = tuple(sorted(values))
+                return jnp.zeros(())
+
+        graph = Graph(
+            nodes=(_bare_latent("a"), _bare_latent("b")),
+            plates=(),
+            evidence_terms=(_Recording(),),
+        )
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            problem.log_likelihood({"a": jnp.asarray(0.1), "b": jnp.asarray(0.2)})
+        assert seen["names"] == ("a",), (
+            f"the term was handed {seen['names']}; its declared over is ('a',)"
+        )
+
+    def test_a_non_scalar_graph_level_term_is_refused_as_log_joint_refuses_it(self):
+        """The scalar requirement `_graph_term_value`'s docstring claimed and
+        did not enforce: measured, `log_joint` raised and this returned a
+        vector."""
+        from bayesmith.errors import GraphError
+
+        class _Vector:
+            over = ("a",)
+
+            def log_density(self, graph, values):
+                del graph, values
+                return jnp.asarray([-1.0, -2.0])
+
+        graph = Graph(
+            nodes=(_bare_latent("a"),), plates=(), evidence_terms=(_Vector(),)
+        )
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            with pytest.raises(GraphError, match="one scalar"):
+                problem.log_likelihood({"a": jnp.asarray(0.1)})
+            with pytest.raises(GraphError, match="one scalar"):
+                log_joint(graph, {"a": jnp.asarray(0.1)})

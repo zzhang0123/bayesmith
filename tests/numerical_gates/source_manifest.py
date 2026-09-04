@@ -10223,6 +10223,146 @@ EXPECTED_SOURCE_MANIFEST = (
         "tuple(node.parents)",
     ),
     ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::cd39392a08c7074b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sorted(set(self.exact_elimination) & set(self.residual_parameters))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::aeaab01445bcfade::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "both",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::raise::696276f670dd342c::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'{both} are named as both eliminated and residual; an eliminated parameter is precisely one the problem does not carry')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::d9b80001e5d59c48::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sorted(set(self.prior_terms) & set(self.likelihood_terms))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::b70b70c746217918::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "shared",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::raise::5aa1f67ca225f013::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'{shared} are filed on both the prior and the likelihood side; a term counted twice is the failure an evidence layer exists to prevent')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._latent_shape::decision_predicate::050ccb975ffbedb4::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "node.plate",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::decision_predicate::56bf767887b257fb::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "isinstance(node, Probabilistic) and node.observed is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::boolean_atom::a707fb320611f698::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "isinstance(node, Probabilistic)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::compare::9e10d192d63f1c9c::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "node.observed is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::boolean_atom::9e10d192d63f1c9c::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "node.observed is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::decision_predicate::5d96cd1d3c07ae14::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "isinstance(node, Probabilistic) and node.observed is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::boolean_atom::a707fb320611f698::1",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "isinstance(node, Probabilistic)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::compare::00e56e23a59ed550::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "node.observed is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::boolean_atom::00e56e23a59ed550::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "node.observed is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::compare::6859f4d935e5bd32::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "graph.joint_prior is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::decision_predicate::6859f4d935e5bd32::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "graph.joint_prior is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem._side::decision_predicate::b64f749d15f6bc08::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "not isinstance(node, Probabilistic)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem._side::compare::a864ae9369e4c1e9::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "(node.observed is not None) is not observed",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem._side::decision_predicate::a864ae9369e4c1e9::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "(node.observed is not None) is not observed",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem._side::compare::00e56e23a59ed550::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "node.observed is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem._side::compare::7e0d48ae0109cf14::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "node.observed_mask is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem._side::decision_predicate::7e0d48ae0109cf14::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "node.observed_mask is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem._side::decision_predicate::149f377539b2d098::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "observed",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem._side::compare::6859f4d935e5bd32::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "graph.joint_prior is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem._side::decision_predicate::6859f4d935e5bd32::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "graph.joint_prior is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem.prior_sample::compare::98df1fb9a2416890::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "name in latents",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.compile_evidence_problem::compare::2912c18778db2dcd::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "name not in eliminated",
+    ),
+    ManifestEntry(
         "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::decision_predicate::5768539d2f5f1973::0",
         CandidateClassification.ORDINARY_VALIDATION,
         "audit_graph_priors(graph)",
