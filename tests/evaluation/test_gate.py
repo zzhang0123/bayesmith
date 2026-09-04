@@ -692,8 +692,13 @@ class TestTheOptionalSlotTrap:
             slot = calibrated.slot(name)
             assert slot.attempt_status is AttemptStatus.NOT_ATTEMPTED, name
             assert slot.report is None and slot.error is None, name
-        # Six reports, eight slots: the two nobody ran contribute no reference.
-        assert len(calibrated.gate.report_refs) == 6
+        # Eight slots, and only the ones that produced a report contribute a
+        # reference.  Derived rather than pinned at six: an optional check
+        # that raised on another platform would move the count without
+        # touching the property.
+        produced = sum(1 for slot in calibrated.slots if slot.report is not None)
+        assert produced == len(MODEL_CHECKING.requirements) - len(CARRIED_KINDS)
+        assert len(calibrated.gate.report_refs) == produced
 
     def test_carrying_an_abstaining_report_changes_the_result(
         self, abstaining_sbc, calibrated
@@ -845,6 +850,43 @@ class TestACheckThatRaises:
         pair's ABSTAIN, not an ERROR status."""
         assert starved.gate.status is S.EVALUATED
         assert "blocking_optional_report_errored" not in starved.codes()
+
+    def test_a_required_check_that_raises_errors_the_gate_and_does_not_raise(
+        self, calibrated, monkeypatch
+    ):
+        """The other half of "not raise and not quietly skip".
+
+        A required check that could not run leaves the gate with an ERROR
+        status -- §0.6's own answer, computed by ``aggregate_gate`` and not
+        second-guessed here -- and the call still returns a result.  The two
+        outcomes this forbids are the traceback that reaches the caller with
+        no record at all, and the slot quietly downgraded to NOT_ATTEMPTED,
+        which would read as ABSTAIN and send a reader somewhere else.
+        """
+        from bayesmith.evaluation import gate as gate_module
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("the rank probe fell over")
+
+        monkeypatch.setattr(gate_module, "identifiability_report", explode)
+        with jax.enable_x64(True):
+            gate = check_posterior(
+                calibrated.graph,
+                calibrated.posterior,
+                key=jax.random.key(GATE_SEED),
+                budget=ComputeBudget(draws=DRAWS),
+                model_ref=model_ref(),
+            )
+        assert gate.status is S.ERROR
+        assert gate.verdict is None
+        errored = [
+            finding
+            for finding in gate.findings
+            if finding.code == "required_report_errored"
+        ]
+        assert len(errored) == 1
+        assert "identifiability" in errored[0].message
+        assert errored[0].observed == "check_raised"
 
     def test_a_refused_task_keeps_its_own_premise_code(self, unpredictable):
         """``execute_task`` refuses the predictive replay with
