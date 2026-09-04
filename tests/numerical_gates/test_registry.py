@@ -72,6 +72,10 @@ def test_raw_ast_baseline_is_explicit() -> None:
     # against the same 171/305 base; adding both deltas is a guess that a
     # duplicate or shadowed candidate would silently confirm.  Measured after
     # the merge with `scan_repository(REPOSITORY_ROOT)`: 188 and 339.
+    # A late R4 amendment added one more of each: the named refusal of a
+    # multi-dimensional observed node, which used to die inside jnp.where with
+    # a broadcast error naming neither the node nor the fix.
+    #
     # R4 Task 1 moved COMPARE 339 -> 340: `observed not in absorbed` in
     # dispatch/collapse.py::marginal_log_density, the membership test that
     # stops an observation outside the exact block being compressed into the
@@ -84,8 +88,8 @@ def test_raw_ast_baseline_is_explicit() -> None:
     # with `scan_repository(REPOSITORY_ROOT)` on this tree, never summed from a
     # branch: the R3 close-out records two branches that both wrote 93 because
     # each measured itself against the same base.
-    assert family_counts[CandidateFamily.RAISE] == 194
-    assert family_counts[CandidateFamily.COMPARE] == 379
+    assert family_counts[CandidateFamily.RAISE] == 195
+    assert family_counts[CandidateFamily.COMPARE] == 380
 
 
 def test_every_raw_candidate_has_exactly_one_code_classification() -> None:

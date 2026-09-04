@@ -8697,6 +8697,21 @@ EXPECTED_SOURCE_MANIFEST = (
         "observed not in absorbed",
     ),
     ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.marginal_log_density::compare::dc8b46985f71e899::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "jnp.ndim(block.data[observed]) > 1",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.marginal_log_density::decision_predicate::dc8b46985f71e899::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "jnp.ndim(block.data[observed]) > 1",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/collapse.py::<module>.marginal_log_density::raise::f154707d0e8fb5a9::0",
+        CandidateClassification.PAYLOAD_TERMINAL_RAISE,
+        "raise NotImplementedError(f\"observation {observed!r} has shape {tuple(jnp.shape(block.data[observed]))}, and the collapse arm flattens an observation's data while leaving its covariance the declared shape. A multi-dimensional observed node therefore has no marginal log-density here. Declare it with a single event dimension, or do not collapse this block.\")",
+    ),
+    ManifestEntry(
         "src/bayesmith/dispatch/collapse.py::<module>.marginal_log_density::decision_predicate::6559fc37ad3bb503::0",
         CandidateClassification.STRUCTURAL_CONTROL,
         "terms",

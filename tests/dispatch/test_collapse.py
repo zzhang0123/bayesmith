@@ -466,3 +466,32 @@ def test_a_block_the_data_does_not_reach_integrates_its_prior_to_one():
             "number away from zero means the prior was folded a second time "
             "or its normaliser was dropped"
         )
+
+
+def test_a_multi_dimensional_observation_is_refused_by_name():
+    """A jax broadcast error is not an error message.
+
+    The collapse arm ravels an observation's data and leaves its covariance
+    the declared shape, so a node with two event dimensions hands ``compress``
+    a ``(6,)`` residual and a ``(3, 2)`` sigma and dies inside ``jnp.where``
+    with ``Incompatible shapes for broadcasting: shapes=[(3, 2), (6,), ()]``.
+    That names neither the node nor the fix.
+
+    The limitation pre-dates R4 -- it reproduces with a single observed node --
+    and R4 does not lift it. What R4 does is give it a name, which is the same
+    treatment the masked observation and the unreached block already get.
+    Found by an adversarial review of Task 2 and out of that task's scope;
+    recorded here because a defect nobody wrote down is a defect found twice.
+    """
+    with jax.enable_x64(True):
+        basis = jnp.linspace(-1.0, 1.0, 6).reshape(3, 2)
+        data = 1.2 * basis
+
+        def model():
+            w = sample("w", lambda: dist.Normal(0.35, 1.7))
+            b = const("basis", basis)
+            mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+            observe("d", lambda m: dist.Normal(m, 0.5).to_event(2), mu, obs=data)
+
+        with pytest.raises(NotImplementedError, match="multi-dimensional"):
+            marginal_log_density(trace(model), ("w",), {})

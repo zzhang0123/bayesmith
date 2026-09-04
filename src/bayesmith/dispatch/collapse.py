@@ -157,6 +157,23 @@ def marginal_log_density(
         if observed not in absorbed:
             row += width
             continue
+        # The data is RAVELLED and the precision is not, so a multi-dimensional
+        # observed node hands `compress` a (6,) residual and a (3, 2) sigma and
+        # dies inside `jnp.where` with "Incompatible shapes for broadcasting",
+        # naming neither the node nor the fix. Pre-dates R4 -- it reproduces
+        # with a single observed node -- and R4 refuses it by name rather than
+        # leaving a jax broadcast error to represent it. Found by an
+        # adversarial review of Task 2, out of that task's scope and recorded
+        # here because a defect nobody wrote down is a defect found twice.
+        if jnp.ndim(block.data[observed]) > 1:
+            raise NotImplementedError(
+                f"observation {observed!r} has shape "
+                f"{tuple(jnp.shape(block.data[observed]))}, and the collapse "
+                f"arm flattens an observation's data while leaving its "
+                f"covariance the declared shape. A multi-dimensional observed "
+                f"node therefore has no marginal log-density here. Declare it "
+                f"with a single event dimension, or do not collapse this block."
+            )
         block_columns = design[row : row + width]
         by_name = {
             name: block_columns[:, spans[name][0] : spans[name][1]]
