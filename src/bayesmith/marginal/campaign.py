@@ -97,13 +97,31 @@ def epoch_terms(
     precision = precision_at(graph, {**zeros, **(at or {})})[observed]
     env = evaluate(graph, {**zeros, **(at or {})})
 
-    priors = {}
+    # The WHOLE per-epoch declaration, not its first entry.
+    #
+    # This read `jnp.reshape(scale, (-1,))[0]` and broadcast that one number to
+    # every epoch, so a campaign declaring `tau = [0.5, 1, 2, 4]` integrated
+    # three of its four epochs against a prior the model does not declare. What
+    # came back was finite, plausible and wrong by 2.75 nats on four epochs,
+    # with no warning and no refusal, and the comment that stood here
+    # acknowledged the limitation while naming no ledger row.
+    #
+    # The information was never missing. `gaussian_parts` returns the whole
+    # per-epoch vector, `nuisance_prior` already broadcasts a per-component
+    # std, and `one_epoch` below is already vmapped -- so the only change is
+    # that the prior stops being a closed-over scalar and becomes a mapped
+    # argument, which is what the vectorisation was for.
+    #
+    # Broadcast to `(size, *per-epoch shape)` rather than passed through: a
+    # latent declaring one width for the whole campaign is still legal and
+    # still means the same thing, and it must stay bitwise where it was.
+    prior_locs = {}
+    prior_scales = {}
     for name in found.per_epoch:
         loc, scale = gaussian_parts(graph, graph.node(name), env)
-        # the epoch-independent prior this latent declares. Broadcast to the
-        # per-epoch width by `nuisance_prior`, so one entry is enough and a
-        # per-epoch-varying prior would need more than this reads.
-        priors[name] = (jnp.reshape(loc, (-1,))[0], jnp.reshape(scale, (-1,))[0])
+        target = (size, *domain.shape[name][1:])
+        prior_locs[name] = jnp.broadcast_to(jnp.asarray(loc), target)
+        prior_scales[name] = jnp.broadcast_to(jnp.asarray(scale), target)
 
     # VECTORISED, not looped. Measured on a 1000-epoch campaign: the Python
     # loop this replaces cost 2.82 ms per epoch, all of it eager QR, and an
@@ -145,7 +163,9 @@ def epoch_terms(
         int(np.prod(nuisance_shapes[name], dtype=int)) for name in found.per_epoch
     )
 
-    def one_epoch(globals_, nuisances, values, offset_prediction, noise):
+    def one_epoch(
+        globals_, nuisances, values, offset_prediction, noise, locs, scales
+    ):
         joint, _ = epoch_joint(
             globals_,
             values,
@@ -153,14 +173,8 @@ def epoch_terms(
             global_shapes,
             nuisance_design=nuisances or None,
             nuisance_shapes=nuisance_shapes or None,
-            nuisance_prior_std={
-                name: priors[name][1] for name in found.per_epoch
-            }
-            or None,
-            nuisance_prior_mean={
-                name: priors[name][0] for name in found.per_epoch
-            }
-            or None,
+            nuisance_prior_std=scales or None,
+            nuisance_prior_mean=locs or None,
             offset_prediction=offset_prediction,
         )
         # `marginalise_arrays`, not `marginalise`: this runs under `vmap` and
@@ -180,6 +194,8 @@ def epoch_terms(
         stacked_data,
         stacked_constant,
         stacked_precision,
+        prior_locs,
+        prior_scales,
     )
     _refuse_unconstrained_epochs(pivots, nuisance_width, found.per_epoch)
 
