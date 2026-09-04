@@ -166,7 +166,9 @@ artifact rather than living only on a page.
 
 ## Status
 
-**0.7.2.** What other packages can depend on by name is whatever
+**0.8.0.** The minor slot rather than the patch one because R3 opens a new
+public subpackage, `bayesmith.evaluation`; nothing existing changed signature,
+default or numerical result. What other packages can depend on by name is whatever
 `pypi.org/simple/bayesmith/` lists, and that index is the place to ask rather
 than this line: 0.6.0, 0.6.1, 0.6.2 and 0.7.0 were each tagged and never
 reached it, every one failing its own built-wheel test (see `CHANGELOG.md`;

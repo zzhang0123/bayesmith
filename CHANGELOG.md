@@ -2,6 +2,64 @@
 
 ## Unreleased
 
+## 0.8.0 -- 2026-09-04
+
+R3, the model-checking and calibration layer. The minor slot rather than the
+patch one because this opens a new public subpackage; nothing that existed
+before changed signature, default or numerical result.
+
+### Added
+
+**`bayesmith.evaluation` -- reports ABOUT results, never results.** The layer
+the top-level design's §7.2 puts between the execution adapters and a
+workflow. Everything in it reads a finished `PosteriorResult`,
+`PredictiveResult` or `SimulationResult` and produces an `EvaluationReport`
+whose `subject_ref` points back at what it read. It does not modify a result,
+does not choose an algorithm, and does not re-judge a verdict that already has
+an owner in `bayesmith.diagnose` -- a threshold with two homes is the defect
+this repository has spent the most time repairing.
+
+* `posterior_predictive_check` / `prior_predictive_check` -- weighted
+  posterior-predictive p-values per (observed node, discrepancy), filed inside
+  or outside the band `[ALPHA/2, 1 - ALPHA/2]`. Discrepancies are recorded by
+  importable identity; a callable never enters an artifact.
+* `held_out_report` -- scores exactly the positions `observe(mask=...)`
+  withholds. There is no second held-out parameter, because a model that
+  declares what it did not see should not be asked again.
+* `loo_report` -- PSIS-LOO through `arviz.loo`, which owns the verdict.
+  ArviZ stays optional and is imported inside the function that needs it.
+* `sbc_report` / `simulation_based_calibration` -- an SBC harness that accepts
+  any `sampler(datum, key, n) -> draws`, so the exact route, NUTS and a trained
+  neural posterior are scored by one rank definition rather than three.
+* `identifiability_report` / `prior_sensitivity_report` -- projections of
+  `bayesmith.diagnose`'s reports into this layer's schema. The thresholds stay
+  in `diagnose`; these read the fields and file them.
+* `check_posterior` and the `model_checking@1` gate -- runs the applicable
+  checks, fills one slot per requirement and aggregates. It decides no number
+  of its own, and a test asserts that as a property rather than as a source
+  scan: a filed slot's report must BE the object the owning check returned.
+
+**One declared false-positive rate.** `ALPHA = 0.05`, stated in advance, with
+everything downstream derived from it and carrying no number of its own: the
+predictive draw floor is `ceil(1/(ALPHA/2)) = 40`, held-out Bonferroni is
+`ALPHA/(2m)`, SBC's is `ALPHA/K`. The SBC replicate floor is **100**, measured
+over ten seeds rather than the one the design proposed it from.
+
+`SimulationTask` executes from all three parameter sources (0.7.2), and
+`EvidenceTask` remains the one of the five still refused.
+
+### Documentation
+
+`docs/evaluation.md` publishes the report kinds, the verdict table, the rate
+and the floors -- and says what a PASS does not mean, with measurements rather
+than hedges: a missing quadratic term a quarter the size of the one that FAILS
+passes all five discrepancies; an SBC "posterior" that ignores the data and
+returns prior draws is uniform in rank by construction and scores PASS; the
+amortized battery has a datum-path mutant that survives it, priced on
+`docs/superpowers/specs/2026-09-04-amortized-calibration.md`. The R3 close-out
+records the acceptance matrix, the per-cell expected false-positive count, and
+the four limits that shipped disclosed rather than deferred.
+
 ## 0.7.2 -- 2026-09-03
 
 R3's first two tasks, plus the documents and the lint gate that the 0.7.1
