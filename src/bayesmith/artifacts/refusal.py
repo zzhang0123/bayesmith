@@ -119,7 +119,6 @@ PREMISES: frozenset[str] = frozenset(
         "evidence_prior_normalised",
         "evidence_prior_undeclared",
         "evidence_residual_integral_required",
-        "evidence_base_measure_undeclared",
         "evidence_requires_x64",
     }
 )

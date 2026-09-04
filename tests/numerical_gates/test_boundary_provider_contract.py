@@ -45,7 +45,9 @@ def test_direct_call_contract_covers_exactly_the_two_sided_registry() -> None:
 
     # 95 after the R3 merge: 91 two-sided on main, +2 from r3/t3-checks and
     # +2 from r3/t6-sbc.  Both branches independently wrote 93.
-    assert len(required_gates) == 95
+    # 95 through R3; R4 registers the prior audit's two thresholds.
+    # Re-derived on this tree rather than incremented.
+    assert len(required_gates) == 97
     assert set(REQUIRED_DIRECT_CALLS) == required_gates
     assert set(ALLOWED_DIRECT_CALLS) == required_gates
 

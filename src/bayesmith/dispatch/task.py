@@ -640,15 +640,6 @@ _REMEDIES: dict[str, tuple[Remedy, ...]] = {
             "`with jax.enable_x64(True):`. A posterior task is unaffected.",
         ),
     ),
-    "evidence_base_measure_undeclared": (
-        Remedy(
-            action="state_the_change_of_variables_for_the_transformed_graph",
-            message="This graph was rewritten into log space and the "
-            "change-of-variables Jacobian is not recorded, so its density is "
-            "off by a data-dependent constant that is invisible in every "
-            "posterior and visible only here. Use the untransformed graph.",
-        ),
-    ),
     "predictive_noise_unsupported": (
         Remedy(
             action="use_a_diagonal_gaussian_observation",

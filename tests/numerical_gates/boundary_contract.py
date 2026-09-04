@@ -186,6 +186,17 @@ _add(
     ("SBC:ranks_are_uniform:bonferroni-level",),
     ("ranks_are_uniform",),
 )
+# R4. The prior audit's two thresholds, each extracted into a named predicate
+# so the boundary grid can reach it -- a comparison written inline inside a
+# hundred-line function is a threshold no grid can exercise directly.
+_add(
+    ("EVIDENCE:increments_converge:convergent-increment-ratio",),
+    ("increments_converge",),
+)
+_add(
+    ("EVIDENCE:mass_is_normalised:normalisation-tolerance",),
+    ("mass_is_normalised",),
+)
 
 _add(
     ("LADDER:sigma:payload-symmetry",),

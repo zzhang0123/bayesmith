@@ -153,12 +153,37 @@ class LogSpace:
             zero) and disqualifying for one that does --
             :func:`~bayesmith.dispatch.factor.factor_partition` checks
             reachability against exactly this dict.
+        log_jacobian: the log absolute Jacobian of the change of variables
+            this transform performed, summed over every node whose data was
+            replaced by its logarithm. For ``y = log d`` that is
+            ``sum(log |dy/dd|) = -sum(log d)``, and it is the term that
+            SEPARATES the two densities:
+
+                ``log_joint(original) == log_joint(graph) + log_jacobian``
+
+            so it is the correction an evidence ADDS, sign included, rather
+            than a magnitude a caller has to orient. Measured on a six-point
+            fixture: ``-1.3459909820953684``.
+
+            Recorded rather than applied, and the distinction is the whole of
+            it. Adding it to :attr:`graph`'s own ``log_joint`` would move every
+            downstream consumer by a data-dependent constant that no posterior
+            shape, no diagnostic and no predictive check can see -- the class
+            of silent change R4 exists to prevent. An evidence assembler reads
+            this field and nothing else does; a posterior is unaffected because
+            a constant is unaffected by conditioning.
+
+            Zero for a graph with no transformed node, which cannot happen --
+            ``log_space`` refuses that case -- but is the right value anyway.
     """
 
     graph: Graph
     kind: dict[str, str]
     fractional: dict[str, jax.Array]
     skipped: dict[str, str]
+    log_jacobian: jax.Array = dataclasses.field(
+        default_factory=lambda: jnp.zeros(())
+    )
 
 
 def multiplicative_log_data(
@@ -417,6 +442,7 @@ def log_space(graph: Graph) -> LogSpace:
     # verdict that survives only inside its own prose is a verdict the caller
     # would have to parse back out.
     skipped_reasons: dict[str, str] = {}
+    jacobian = jnp.zeros(())
     nodes: list[Any] = []
     for node in graph.nodes:
         if not (isinstance(node, Probabilistic) and node.observed is not None):
@@ -430,6 +456,11 @@ def log_space(graph: Graph) -> LogSpace:
             nodes.append(node)
             continue
         _refuse_bad_data(node.name, node.observed)
+        # The change of variables, accumulated where it is performed. Both
+        # scenarios replace `d` with a log: `_log_normal_node` with `log d`
+        # and `_multiplicative_node` with `log d` shifted by `f^2/2`, and a
+        # SHIFT has no Jacobian -- only the log does. So one term serves both.
+        jacobian = jacobian - jnp.sum(jnp.log(jnp.asarray(node.observed)))
         kind[node.name] = scenario
         if scenario == "lognormal":
             nodes.append(_log_normal_node(node))
@@ -470,6 +501,7 @@ def log_space(graph: Graph) -> LogSpace:
         kind=kind,
         fractional=fractional,
         skipped=skipped,
+        log_jacobian=jacobian,
     )
 
 

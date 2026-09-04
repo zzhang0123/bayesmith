@@ -9562,6 +9562,846 @@ EXPECTED_SOURCE_MANIFEST = (
         CandidateClassification.ORDINARY_VALIDATION,
         "isinstance(ranks, Refusal)",
     ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.ExactAssembly.__post_init__::compare::f46ef4eae5931bf2::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "len(names) != len(set(names))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.ExactAssembly.__post_init__::decision_predicate::f46ef4eae5931bf2::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "len(names) != len(set(names))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.ExactAssembly.__post_init__::raise::c7ef038431b876f4::0",
+        CandidateClassification.PAYLOAD_TERMINAL_RAISE,
+        "raise ValueError(f'an exact assembly reported a term twice: {names}. Each constant enters log Z once, and a duplicate is the shape of the defect R4 Task 1 repaired one layer down.')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.ExactAssembly.__post_init__::compare::3d546e35c95bbc8a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "set(names) != set(EVIDENCE_COMPONENT_NAMES)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.ExactAssembly.__post_init__::decision_predicate::3d546e35c95bbc8a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "set(names) != set(EVIDENCE_COMPONENT_NAMES)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.ExactAssembly.__post_init__::raise::400196969fac748d::0",
+        CandidateClassification.PAYLOAD_TERMINAL_RAISE,
+        "raise ValueError(f'an exact assembly must report every term of log Z and no others; missing {missing}, unknown {unknown}. A provenance guard reads membership of EVIDENCE_COMPONENT_NAMES, so a name it does not know is a term nothing checks -- and a name it does not receive is a constant nothing reports.')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._dense_block::decision_predicate::c4d036516889f343::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "[]",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._dense_block::compare::10c8c5cfedadfd17::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "observed not in absorbed",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._dense_block::decision_predicate::10c8c5cfedadfd17::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "observed not in absorbed",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._dense_block::decision_predicate::1bff0891d01c60f4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not rows",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._dense_block::raise::594238108c92c382::0",
+        CandidateClassification.PAYLOAD_TERMINAL_RAISE,
+        "raise NotImplementedError(f\"no observation reaches the block {list(block.names)}, so its marginal likelihood is the prior's own integral and carries no data term. `marginal_log_density` answers 0.0 for this; an evidence DECOMPOSITION has no data normaliser and no residual to report, so R4 refuses rather than filing empty components.\")",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._dense_block::compare::90f1ef30707a354d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "part.size != expected",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._dense_block::decision_predicate::90f1ef30707a354d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "part.size != expected",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._dense_block::raise::d14ec54e56f8125d::0",
+        CandidateClassification.PAYLOAD_TERMINAL_RAISE,
+        "raise NotImplementedError(f'latent {name!r} declares {part.size} prior width(s) for a block component of width {expected}. An evidence needs one declared scale per degree of freedom -- `-sum(log s)` is a sum over components -- and this package has no rule for spreading fewer across more.')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._variance_of::compare::f3d466fc8c7c4b29::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sigmas is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._variance_of::decision_predicate::f3d466fc8c7c4b29::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sigmas is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._variance_of::raise::f8ee64b94824640c::0",
+        CandidateClassification.PAYLOAD_TERMINAL_RAISE,
+        "raise NotImplementedError(\"an exact evidence assembly needs a per-sample observation variance to write its dense oracle against. This observation's noise is correlated, which the square-root route integrates exactly and this dense decomposition has no independent reference for; R4 refuses the class rather than reporting a number nothing grades.\")",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._variance_of::decision_predicate::077bc7513df637ee::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not np.all(np.isfinite(sigma))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._variance_of::predicate_call_atom::f0a1e777dcfc0e72::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.all(np.isfinite(sigma))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._variance_of::predicate_call_atom::4a04cfe395a8d7a3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(sigma)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._variance_of::finite_predicate::4a04cfe395a8d7a3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(sigma)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._variance_of::raise::ccc3c76f0eec451f::0",
+        CandidateClassification.PAYLOAD_TERMINAL_RAISE,
+        "raise NotImplementedError(f\"observation {observed!r} declares a non-finite per-sample sigma, which is how this package spells a sample that was never taken. An evidence over a masked observation is a real quantity and R4 does not assemble one: the mask changes the dimension of the data, so the number would not be comparable with an unmasked model's even if it were right.\")",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.assemble_exact::decision_predicate::a5c6089936bb9ef5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "values or {}",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.assemble_exact::boolean_atom::5df80af79e5c9d18::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "values",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.assemble_exact::boolean_atom::0155f1e9b79e0a94::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "{}",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::decision_predicate::ccbdf97b3f180563::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(mean)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::predicate_call_atom::ccbdf97b3f180563::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(mean)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::finite_predicate::ccbdf97b3f180563::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(mean)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::compare::1c63d78f9c1a2a6d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::decision_predicate::1c63d78f9c1a2a6d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::decision_predicate::6149324691a26641::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(value)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::predicate_call_atom::6149324691a26641::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(value)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::finite_predicate::6149324691a26641::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(value)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::compare::1c63d78f9c1a2a6d::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::decision_predicate::1c63d78f9c1a2a6d::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::decision_predicate::86893f064636ce22::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(bound)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::predicate_call_atom::86893f064636ce22::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(bound)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::finite_predicate::86893f064636ce22::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(bound)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::compare::1c63d78f9c1a2a6d::2",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::decision_predicate::1c63d78f9c1a2a6d::2",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::decision_predicate::a43adfa9a3260273::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(variance) and variance > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::boolean_atom::f66713c360a8844f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(variance)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::predicate_call_atom::f66713c360a8844f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(variance)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::finite_predicate::f66713c360a8844f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(variance)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::compare::9e6f3bb10b7adcd4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "variance > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::boolean_atom::9e6f3bb10b7adcd4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "variance > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::compare::0b2b3295bc59120e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "scale <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::decision_predicate::275c5dbe91f29cc7::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "scale <= 0.0 or not np.isfinite(scale)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::boolean_atom::0b2b3295bc59120e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "scale <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::boolean_atom::6e25b3ab5e47045e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not np.isfinite(scale)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::predicate_call_atom::a60e1771e7ca2753::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(scale)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::finite_predicate::a60e1771e7ca2753::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(scale)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::decision_predicate::6861a182af23abea::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(declared) and declared > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::boolean_atom::54f836f79038e9c5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(declared)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::predicate_call_atom::54f836f79038e9c5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(declared)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::finite_predicate::54f836f79038e9c5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(declared)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::compare::4caf17031c7ffa8e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "declared > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::boolean_atom::4caf17031c7ffa8e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "declared > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._moments::clamp_selector::393001a98c19e727::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "max(scale, declared)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._support_bounds::decision_predicate::160d9cae78ff7135::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "hasattr(support, 'base_constraint')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._support_bounds::compare::945c335d3d95fc49::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "seen >= 8",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._support_bounds::decision_predicate::945c335d3d95fc49::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "seen >= 8",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._mass_on::predicate_call_atom::b992e6871aa5ff32::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(values)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._mass_on::finite_predicate::b992e6871aa5ff32::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(values)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.increments_converge::decision_predicate::6578fd7f6ef03993::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "not ratio >= threshold",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.increments_converge::compare::f9a9ee5e6203efaa::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ratio >= threshold",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.mass_is_normalised::decision_predicate::da7770169262baea::0",
+        CandidateClassification.NUMERICAL_GATE,
+        "bool(abs(total - 1.0) <= max(_NORMALISED_TOLERANCE, uncertainty))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.mass_is_normalised::predicate_call_atom::da7770169262baea::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "bool(abs(total - 1.0) <= max(_NORMALISED_TOLERANCE, uncertainty))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.mass_is_normalised::compare::7648fe7e17eb7de5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "abs(total - 1.0) <= max(_NORMALISED_TOLERANCE, uncertainty)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.mass_is_normalised::clamp_selector::53ca94d98cdd820a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "max(_NORMALISED_TOLERANCE, uncertainty)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._tail_sum::compare::88267350319ce69d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ratio <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._tail_sum::decision_predicate::1495e94be3f4d1e5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ratio <= 0.0 or ratio >= 1.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._tail_sum::boolean_atom::88267350319ce69d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ratio <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._tail_sum::compare::77d911327840ee7f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ratio >= 1.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._tail_sum::boolean_atom::77d911327840ee7f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "ratio >= 1.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::decision_predicate::35a3606bfbda3166::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "tuple(getattr(distribution, 'event_shape', ()) or ())",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::decision_predicate::9c5b7482be027e6f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "getattr(distribution, 'event_shape', ()) or ()",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::boolean_atom::a3b5b9c8ec1b37d3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "getattr(distribution, 'event_shape', ())",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::boolean_atom::4f349ef543d5d1c5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "()",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::decision_predicate::ae6af11c15b62c6a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "tuple(getattr(distribution, 'batch_shape', ()) or ())",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::decision_predicate::aaf87bc1cc5230fc::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "getattr(distribution, 'batch_shape', ()) or ()",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::boolean_atom::4f90af834fd6bb23::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "getattr(distribution, 'batch_shape', ())",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::boolean_atom::4f349ef543d5d1c5::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "()",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::decision_predicate::7d1d09182c4bc8d3::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "event or batch",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::boolean_atom::57a5a381903fb76d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "event",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::boolean_atom::67647882ef6df180::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "batch",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::decision_predicate::446c7233e4e6878b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "hasattr(support, 'base_constraint') and seen < 8",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::boolean_atom::160d9cae78ff7135::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "hasattr(support, 'base_constraint')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::compare::b23e60ee025e11f8::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "seen < 8",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::boolean_atom::b23e60ee025e11f8::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "seen < 8",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::decision_predicate::65996a0ef040b98c::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "bool(getattr(support, 'is_discrete', False))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::predicate_call_atom::65996a0ef040b98c::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "bool(getattr(support, 'is_discrete', False))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._out_of_scope::decision_predicate::42b9d50503404855::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not resolved",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::compare::084f95dcd63fb3fc::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "out_of_scope is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::decision_predicate::084f95dcd63fb3fc::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "out_of_scope is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::clamp_selector::dcd0831138e16c50::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "max(lower, centre - width * scale)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::clamp_selector::f11424143b360279::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "min(upper, centre + width * scale)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::decision_predicate::19a8eec0c05f70e5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not high > low",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::compare::1ed37e9ef934601a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "high > low",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::clamp_selector::058480ec12488267::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "max(8, int(_PANELS_PER_SCALE * (high - low) / scale))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::decision_predicate::ac4ae9d377c062c7::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not np.isfinite(mass)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::predicate_call_atom::3f0e0c971d69b326::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(mass)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::finite_predicate::3f0e0c971d69b326::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "np.isfinite(mass)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::compare::e6846fd3be58be8f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "tail <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::decision_predicate::40c251e373d62b08::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "tail <= 0.0 or abs(tail) <= 1e-12 * max(abs(settled), 1e-300)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::boolean_atom::e6846fd3be58be8f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "tail <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::compare::59b7874bb8af12f1::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "abs(tail) <= 1e-12 * max(abs(settled), 1e-300)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::boolean_atom::59b7874bb8af12f1::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "abs(tail) <= 1e-12 * max(abs(settled), 1e-300)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::clamp_selector::ce577a7ecd79adfb::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "max(abs(settled), 1e-300)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::compare::3784cb28cff1c3d2::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "abs(previous) <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::decision_predicate::3784cb28cff1c3d2::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "abs(previous) <= 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::decision_predicate::fa2d7490705f0664::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not increments_converge(ratio, _CONVERGENT_INCREMENT_RATIO)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::compare::d8f63934b116cbec::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "abs(refined - settled) > 1e-06 * max(abs(settled), abs(refined), 1e-300)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::decision_predicate::d8f63934b116cbec::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "abs(refined - settled) > 1e-06 * max(abs(settled), abs(refined), 1e-300)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::clamp_selector::f026eaa667d17a23::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "max(abs(settled), abs(refined), 1e-300)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::compare::99177d40c55c660b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "settled <= _NEGLIGIBLE_MASS",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::decision_predicate::99177d40c55c660b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "settled <= _NEGLIGIBLE_MASS",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::compare::359b2aca4d8ed106::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "len(increments) >= 3",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::decision_predicate::f8cb6a191404bb99::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "len(increments) >= 3 and abs(increments[-3]) > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::boolean_atom::359b2aca4d8ed106::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "len(increments) >= 3",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::compare::70259142fb622b9d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "abs(increments[-3]) > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::boolean_atom::70259142fb622b9d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "abs(increments[-3]) > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::predicate_call_atom::e1162416459eef1a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "mass_is_normalised(total, uncertainty)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_prior::decision_predicate::5703851ff75736ba::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "normalised",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::compare::6859f4d935e5bd32::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "graph.joint_prior is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::decision_predicate::6859f4d935e5bd32::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "graph.joint_prior is not None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::compare::d7e8111a3e992de0::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "name in covered",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::decision_predicate::d7e8111a3e992de0::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "name in covered",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::decision_predicate::f1387402d92cf6da::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "tuple(node.parents)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::decision_predicate::5768539d2f5f1973::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "audit_graph_priors(graph)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::decision_predicate::9aeb4b4e1e351fbc::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not audits",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::compare::109566af0507253d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "audit.mass is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::decision_predicate::109566af0507253d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "audit.mass is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::decision_predicate::5cbf87e63b03492e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "[a for a in audits if a.verdict is not PriorVerdict.PROPER or not a.normalised]",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::compare::f99878f852df0156::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "a.verdict is not PriorVerdict.PROPER",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::decision_predicate::177db12766325d20::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "a.verdict is not PriorVerdict.PROPER or not a.normalised",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::boolean_atom::f99878f852df0156::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "a.verdict is not PriorVerdict.PROPER",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::boolean_atom::d9bd9de3aeb39ed2::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not a.normalised",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::decision_predicate::96a557b0f2c512a4::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "[a for a in unusable if a.verdict is PriorVerdict.UNVERIFIABLE]",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::compare::a60aece4b068cabe::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "a.verdict is PriorVerdict.UNVERIFIABLE",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::decision_predicate::974a9f2d8571b3e5::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "undecided",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.normalization_audit_report::decision_predicate::6e641fd3089d313e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "unusable",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::decision_predicate::a890ae970428b185::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not (math.isfinite(loc) and math.isfinite(scale) and (scale > 0.0))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::decision_predicate::6f144c7e930e0b36::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(loc) and math.isfinite(scale) and (scale > 0.0)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::boolean_atom::c8ca46624ec79ab0::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(loc)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::predicate_call_atom::c8ca46624ec79ab0::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(loc)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::finite_predicate::c8ca46624ec79ab0::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(loc)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::boolean_atom::116a9e5ceefde43b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(scale)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::predicate_call_atom::116a9e5ceefde43b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(scale)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::finite_predicate::116a9e5ceefde43b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "math.isfinite(scale)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::compare::f9db05302fec917d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "scale > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::boolean_atom::f9db05302fec917d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "scale > 0.0",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::compare::76ca5d6a03246fb9::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "field != 'dist_fn'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::compare::207a321833ac6b2f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "item.name == latent",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>._rescaled::decision_predicate::207a321833ac6b2f::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "item.name == latent",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.prior_sensitivity_report::decision_predicate::c4d036516889f343::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "[]",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.prior_sensitivity_report::compare::75e3b592f41e1b89::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "perturbed is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.prior_sensitivity_report::decision_predicate::75e3b592f41e1b89::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "perturbed is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.prior_sensitivity_report::compare::76b9571f289796f9::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "len(values) != len(_WIDTH_FACTORS)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.prior_sensitivity_report::decision_predicate::76b9571f289796f9::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "len(values) != len(_WIDTH_FACTORS)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.prior_sensitivity_report::decision_predicate::2565209ded451e77::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not measured",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.prior_sensitivity_report::compare::f023ef2a1095890e::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "f.code == 'd_log_evidence_d_log_width'",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.prior_sensitivity_report::decision_predicate::21f88559d85f6985::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "usable",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.prior_sensitivity_report::decision_predicate::21f88559d85f6985::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "usable",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.comparability_report::compare::b3d2fad20bb8abce::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "result.meta.fingerprints != result.run.fingerprints",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.comparability_report::decision_predicate::b3d2fad20bb8abce::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "result.meta.fingerprints != result.run.fingerprints",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.comparability_report::compare::18db16f534d15c5b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "FingerprintKind.DATA in changed",
+    ),
+    ManifestEntry(
+        "src/bayesmith/evaluation/evidence.py::<module>.comparability_report::decision_predicate::18db16f534d15c5b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "FingerprintKind.DATA in changed",
+    ),
 )
 
 EXPECTED_CANDIDATE_IDS = tuple(entry.candidate_id for entry in EXPECTED_SOURCE_MANIFEST)

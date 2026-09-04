@@ -280,3 +280,99 @@ def test_a_float32_environment_is_refused_by_name():
         graph, PosteriorTask(meta=new_task_meta(label="p")), model_ref=_ref()
     )
     assert not isinstance(posterior, Refusal)
+
+
+def test_every_premise_r4_added_is_reachable_through_the_public_seam():
+    """A premise nothing can produce is a remedy nobody will read.
+
+    ``evidence_base_measure_undeclared`` was added in R4 for a log-space graph
+    whose change of variables is unrecorded, with a remedy and a place in the
+    vocabulary -- and nothing could ever raise it. A graph reaches log space
+    only through ``dispatch/factor.py``'s ``log-gcr`` route, and that method is
+    already outside R4's admitted class, so the structure gate refuses it first.
+    The premise was a second answer to a question that already had one.
+
+    Both directions of the vocabulary were checked and neither noticed: it had
+    a ``_REMEDIES`` row, so the symmetry test passed, and no fixture named it,
+    so the produce-side test passed too. What neither asked was whether
+    anything CAN name it.
+
+    Scoped to R4's own premises. The older ones have their own coverage and
+    this test is not the place to re-litigate them.
+    """
+    reachable: set[str] = set()
+    with jax.enable_x64(True):
+        basis = jnp.linspace(-1.0, 1.0, 6) + 0.3
+        data = 1.2 * (basis * 0.9)
+
+        def improper():
+            w = sample("w", lambda: dist.ImproperUniform(dist.constraints.real, (), ()))
+            b = const("basis", basis)
+            mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+            observe("d", lambda m: dist.Normal(m, SIGMA).to_event(1), mu, obs=data)
+
+        def unnormalised():
+            w = sample(
+                "w",
+                lambda: dist.ImproperUniform(
+                    dist.constraints.interval(-2.0, 5.0), (), ()
+                ),
+            )
+            b = const("basis", basis)
+            mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+            observe("d", lambda m: dist.Normal(m, SIGMA).to_event(1), mu, obs=data)
+
+        def hierarchical():
+            s = sample("s", lambda: dist.HalfNormal(1.0))
+            w = sample("w", lambda s_: dist.Normal(0.0, s_), s)
+            b = const("basis", basis)
+            mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+            observe("d", lambda m: dist.Normal(m, SIGMA).to_event(1), mu, obs=data)
+
+        def sampled_only():
+            tau = sample("tau", lambda: dist.HalfNormal(1.0))
+            nu = det("nu", lambda t_: t_ * jnp.ones(3), tau)
+            observe(
+                "e",
+                lambda m: dist.Normal(m, 0.8).to_event(1),
+                nu,
+                obs=jnp.asarray([0.4, -0.2, 1.1]),
+            )
+
+        for factory in (improper, unnormalised, hierarchical, sampled_only):
+            outcome = _compile(trace(factory))
+            if isinstance(outcome, Refusal):
+                reachable.add(outcome.failed_premise)
+
+        # A latent whose prior IS the graph-level reference prior. Its
+        # node-level ImproperUniform is required by diagnose/priors.py, so the
+        # improper arm must not claim it.
+        from bayesmith.diagnose.priors import JeffreysPrior
+        from bayesmith.graph.graph import Graph
+
+        bare = trace(improper)
+        covered = Graph(
+            nodes=bare.nodes,
+            plates=bare.plates,
+            joint_prior=JeffreysPrior(over=("w",)),
+        )
+        outcome = _compile(covered)
+        if isinstance(outcome, Refusal):
+            reachable.add(outcome.failed_premise)
+
+    # And the two that need something other than a graph.
+    outcome = _compile(trace(_model_factory()[0]))  # float32, no x64 context
+    if isinstance(outcome, Refusal):
+        reachable.add(outcome.failed_premise)
+    with jax.enable_x64(True):
+        outcome = _compile(trace(_model_factory()[0]), _evidence_task(repeat_count=3))
+        if isinstance(outcome, Refusal):
+            reachable.add(outcome.failed_premise)
+
+    r4_premises = {p for p in PREMISES if p.startswith("evidence_")}
+    unreachable = r4_premises - reachable
+    assert not unreachable, (
+        f"R4 premises nothing in this test can produce: {sorted(unreachable)}. "
+        f"Either a fixture is missing here or the premise is a second answer "
+        f"to a question that already has one."
+    )

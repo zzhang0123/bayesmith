@@ -32,6 +32,14 @@ SOURCE_PATHS = (
     # impossible.
     "src/bayesmith/evaluation/checks.py",
     "src/bayesmith/evaluation/sbc.py",
+    # R4. The evidence assembler and its prior audit. The audit carries the
+    # convergence ratio, the negligible-mass floor and the two agreement
+    # tolerances, and an adversarial review found the module with ZERO entries
+    # here while every sibling dispatch module had between 16 and 73 -- a
+    # threshold-bearing dispatcher outside the machinery this directory exists
+    # to be.
+    "src/bayesmith/dispatch/evidence.py",
+    "src/bayesmith/evaluation/evidence.py",
 )
 
 

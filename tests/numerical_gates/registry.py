@@ -128,6 +128,7 @@ COLLAPSE = "src/bayesmith/dispatch/collapse.py"
 PILOT = "src/bayesmith/dispatch/pilot.py"
 CHECKS = "src/bayesmith/evaluation/checks.py"
 SBC = "src/bayesmith/evaluation/sbc.py"
+EVIDENCE = "src/bayesmith/dispatch/evidence.py"
 
 
 def _seed_group(
@@ -575,6 +576,24 @@ _SEEDS = (
         CandidateFamily.DECISION_PREDICATE,
         "SBC:ranks_are_uniform:bonferroni-level",
     ),
+    # R4. The prior audit decides two things about a declared density and both
+    # are thresholds: whether its mass converges, and whether that mass is one.
+    # The rest of the module's numbers guard the RULE rather than the model --
+    # whether the window found anything, whether the quadrature converged --
+    # and answer UNVERIFIABLE, which is the absence of a verdict rather than
+    # one, so they are NUMERICAL_SAFETY and are not registered here.
+    *_seed_group(
+        EVIDENCE,
+        "increments_converge",
+        CandidateFamily.DECISION_PREDICATE,
+        "EVIDENCE:increments_converge:convergent-increment-ratio",
+    ),
+    *_seed_group(
+        EVIDENCE,
+        "mass_is_normalised",
+        CandidateFamily.DECISION_PREDICATE,
+        "EVIDENCE:mass_is_normalised:normalisation-tolerance",
+    ),
 )
 
 
@@ -993,6 +1012,18 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
         (
             "src/bayesmith/evaluation/sbc.py::<module>.ranks_are_uniform::decision_predicate::f06f6cedc1d043c1::0",
             "p_value >= level",
+        ),
+    ),
+    "EVIDENCE:increments_converge:convergent-increment-ratio": (
+        (
+            "src/bayesmith/dispatch/evidence.py::<module>.increments_converge::decision_predicate::6578fd7f6ef03993::0",
+            "not ratio >= threshold",
+        ),
+    ),
+    "EVIDENCE:mass_is_normalised:normalisation-tolerance": (
+        (
+            "src/bayesmith/dispatch/evidence.py::<module>.mass_is_normalised::decision_predicate::da7770169262baea::0",
+            "bool(abs(total - 1.0) <= max(_NORMALISED_TOLERANCE, uncertainty))",
         ),
     ),
     "LADDER:determinant-lemma:payload": (
@@ -1946,6 +1977,20 @@ _DECLARED_SOURCE_ANCHORS: dict[str, tuple[SourceAnchor, ...]] = {
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
+    "EVIDENCE:increments_converge:convergent-increment-ratio": (
+        SourceAnchor(
+            "src/bayesmith/dispatch/evidence.py",
+            "<module>.increments_converge",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
+    "EVIDENCE:mass_is_normalised:normalisation-tolerance": (
+        SourceAnchor(
+            "src/bayesmith/dispatch/evidence.py",
+            "<module>.mass_is_normalised",
+            CandidateFamily.DECISION_PREDICATE,
+        ),
+    ),
     "LADDER:determinant-lemma:payload": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
@@ -2632,6 +2677,12 @@ _DECLARED_SOURCE_CLASSIFICATIONS: dict[str, tuple[CandidateClassification, ...]]
         CandidateClassification.NUMERICAL_GATE,
     ),
     "SBC:ranks_are_uniform:bonferroni-level": (
+        CandidateClassification.NUMERICAL_GATE,
+    ),
+    "EVIDENCE:increments_converge:convergent-increment-ratio": (
+        CandidateClassification.NUMERICAL_GATE,
+    ),
+    "EVIDENCE:mass_is_normalised:normalisation-tolerance": (
         CandidateClassification.NUMERICAL_GATE,
     ),
     "LADDER:determinant-lemma:payload": (CandidateClassification.NUMERICAL_GATE,),
@@ -5161,6 +5212,34 @@ GATE_METADATA: dict[str, GateMetadata] = {
         extreme="0, a result carrying no draws at all",
         fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
     ),
+    "EVIDENCE:increments_converge:convergent-increment-ratio": _metadata(
+        quantity="the ratio of successive window increments in a prior's mass sequence; below one the series converges and the prior is PROPER, at or above it the integral diverges and there is no p(d).",
+        threshold="open upper boundary ratio < 0.995; DERIVED from the algebra of the two families -- a flat density doubles its mass with its window (ratio exactly 2) and a 1/x tail adds a constant log 2 (ratio exactly 1), while every convergent density falls strictly below 1. The margin below 1 is the one measured part: over the stock numpyro priors the largest convergent ratio is Cauchy's 1.005 before extrapolation and 0.5002 after, so any value in (0.006, 1) separates the families.",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="the mass is extrapolated to its geometric limit and reported PROPER, with normalised decided separately",
+        refused_outcome="IMPROPER, naming the ratio: p(d) is the integral of the likelihood against this prior and it does not converge",
+        oracle="independent complementary float comparison of a separately computed increment ratio, and for the two exact families the ratio is a closed form (2 for a flat density, 1 for 1/x) rather than a measurement.",
+        axis_name="Boundary cells for a prior's window-increment ratio; convergent when ratio < 0.995.",
+        low="0.5 (a 1/x^2 tail: Cauchy, StudentT, HalfCauchy all sit here)",
+        endpoints=("nextafter(0.995, -inf)", "0.995 and nextafter(0.995, +inf)"),
+        high="2.0 (a flat density, whose mass doubles with its window)",
+        extreme="1.0 exactly, the log-divergent 1/x tail that sits between the two families and must refuse; and 0.0, an increment already at the floor",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
+    "EVIDENCE:mass_is_normalised:normalisation-tolerance": _metadata(
+        quantity="the distance between a proper prior's extrapolated mass and one; within it the prior is normalised and its evidence is THE evidence, outside it the evidence is scaled by that factor.",
+        threshold="closed boundary |mass - 1| <= max(1e-6, uncertainty), where uncertainty is the extrapolation's own measured error -- the same tail extrapolation run one window earlier, differenced. DERIVED in form: a fixed tolerance would refuse Cauchy for being 3.6e-06 from one and InverseGamma for 3.7e-04, which is the extrapolation's error rather than the prior's.",
+        provenance=ThresholdProvenance.DERIVED,
+        admitted_outcome="normalised=True: the declared density integrates to one and its evidence needs no correction",
+        refused_outcome="normalised=False, and an evidence task on this prior is refused as evidence_prior_normalised with the mass in the finding",
+        oracle="independent complementary float comparison against a separately computed |mass - 1|, with the closed-form mass known for every fixture family (1 for a normalised prior, the interval width for a flat one).",
+        axis_name="Boundary cells for a prior's extrapolated mass; normalised when |mass - 1| <= the tolerance.",
+        low="0.0 (a mass of exactly one, the normalised case)",
+        endpoints=("1e-6 exactly", "nextafter(1e-6, +inf)"),
+        high="6.0 (an ImproperUniform over [-2, 5], whose mass is 7)",
+        extreme="the heavy-tail residue an extrapolation leaves, 3.7e-04 for InverseGamma(1,1), which must be admitted by the uncertainty term rather than by widening the fixed half",
+        fixture_scale_policy=FixtureScalePolicy.NOT_APPLICABLE,
+    ),
     "PILOT:ratio_exceeds_declared_multiple:declared-multiple": _metadata(
         quantity="the quadratic-over-linear canonical-correlation ratio against the declared multiple 7.0.",
         threshold="open lower boundary ratio > 7.0; derived D101, bracketed by the 6.08x estimator spread and the 8.36x worst funnel draw.",
@@ -7132,8 +7211,14 @@ def validate_registry(
 
 # 107 on main; r3/t3-checks added D104 and D105, r3/t6-sbc added the two SBC
 # gates, and both branches wrote 109 because each measured itself against the
-# same base.  111 is the merged tree's own count, re-derived rather than summed.
-if len(GATE_REGISTRY) != 111:
+# same base.  111 was the merged tree's own count, re-derived rather than summed.
+#
+# R4 adds the two the prior audit decides a model on: the convergent-increment
+# ratio and the normalisation tolerance.  113, re-derived here on this tree.
+# Note this raises at IMPORT, so a wrong number is a collection error across
+# every module that imports the registry rather than one failing test -- which
+# is why it is re-derived rather than incremented.
+if len(GATE_REGISTRY) != 113:
     raise RegistryValidationError(
-        f"semantic registry expected 111 reviewed entries, found {len(GATE_REGISTRY)}"
+        f"semantic registry expected 113 reviewed entries, found {len(GATE_REGISTRY)}"
     )

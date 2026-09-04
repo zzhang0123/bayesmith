@@ -94,6 +94,8 @@ from bayesmith.graph.graph import Graph
 
 __all__ = [
     "EVIDENCE_COMPONENT_NAMES",
+    "increments_converge",
+    "mass_is_normalised",
     "ExactAssembly",
     "PriorAudit",
     "PriorVerdict",
@@ -484,6 +486,12 @@ _CONVERGENT_INCREMENT_RATIO: float = 0.995
 #: no correct answer is lost by declining to name which of the two it is.
 _NEGLIGIBLE_MASS: float = 1e-12
 
+#: How close an extrapolated mass must be to one before the prior counts as
+#: normalised, when the extrapolation's own error is smaller than this (D110).
+#: The floor rather than the whole tolerance: a heavy tail's extrapolation
+#: carries more error than this and supplies its own.
+_NORMALISED_TOLERANCE: float = 1e-6
+
 
 def _moments(distribution: Any) -> tuple[float, float]:
     """A centre and a scale to place the quadrature window on.
@@ -615,6 +623,34 @@ def _mass_on(distribution: Any, lower: float, upper: float, panels: int) -> floa
         density = np.where(np.isfinite(values), np.exp(values), 0.0)
         density = density.reshape(panels, _NODES)
         return float(np.sum(half * np.sum(weights[None, :] * density, axis=1)))
+
+
+def increments_converge(ratio: float, threshold: float) -> bool:
+    """Whether a window sequence's increments are shrinking (D109).
+
+    The one predicate that decides PROPER against IMPROPER, extracted so the
+    threshold has a name, a boundary grid and a mutation -- the same shape
+    ``evaluation/sbc.py``'s ``replicates_meet_floor`` has, and for the same
+    reason: a comparison written inline inside a hundred-line function is a
+    threshold no grid can reach.
+
+    A flat density doubles its mass with its window, so its ratio is exactly 2;
+    a ``1/x`` tail adds a constant ``log 2``, ratio exactly 1; every convergent
+    density falls strictly below 1. The threshold separates those families and
+    carries no units, which is why it is a ratio and not a difference.
+    """
+    return not ratio >= threshold
+
+
+def mass_is_normalised(total: float, uncertainty: float) -> bool:
+    """Whether an extrapolated prior mass is one, to what can be resolved (D110).
+
+    The tolerance is ``max(1e-6, uncertainty)`` where the second term is the
+    extrapolation's own measured error. A fixed tolerance refuses Cauchy for
+    being 3.6e-06 from one and InverseGamma(1,1) for 3.7e-04, and both of those
+    are the rule's error rather than the prior's.
+    """
+    return bool(abs(total - 1.0) <= max(_NORMALISED_TOLERANCE, uncertainty))
 
 
 def _tail_sum(increment: float, ratio: float) -> float:
@@ -778,7 +814,7 @@ def audit_prior(distribution: Any, latent: str = "") -> PriorAudit:
     # window doubles, which is what improper means. Asking "is this
     # negligible?" first would have abstained on a prior whose divergence is
     # unambiguous, and abstaining is the wrong answer when there is a right one.
-    if ratio >= _CONVERGENT_INCREMENT_RATIO:
+    if not increments_converge(ratio, _CONVERGENT_INCREMENT_RATIO):
         return PriorAudit(
             latent=latent,
             verdict=PriorVerdict.IMPROPER,
@@ -850,7 +886,7 @@ def audit_prior(distribution: Any, latent: str = "") -> PriorAudit:
     )
     earlier_total = masses[-2] + _tail_sum(increments[-2], earlier_ratio)
     uncertainty = abs(total - earlier_total)
-    normalised = bool(abs(total - 1.0) <= max(1e-6, uncertainty))
+    normalised = mass_is_normalised(total, uncertainty)
     return PriorAudit(
         latent=latent,
         verdict=PriorVerdict.PROPER,

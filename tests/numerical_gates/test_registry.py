@@ -72,15 +72,20 @@ def test_raw_ast_baseline_is_explicit() -> None:
     # against the same 171/305 base; adding both deltas is a guess that a
     # duplicate or shadowed candidate would silently confirm.  Measured after
     # the merge with `scan_repository(REPOSITORY_ROOT)`: 188 and 339.
-    # R4 Task 1 moved COMPARE 339 -> 340 and left RAISE where it was. The one
-    # new comparison is `observed not in absorbed` in
-    # dispatch/collapse.py::marginal_log_density -- the membership test that
+    # R4 Task 1 moved COMPARE 339 -> 340: `observed not in absorbed` in
+    # dispatch/collapse.py::marginal_log_density, the membership test that
     # stops an observation outside the exact block being compressed into the
-    # marginal term as well as left in the reduced graph. Re-derived here with
-    # `scan_repository(REPOSITORY_ROOT)` on this tree, not by adding one to the
-    # previous figure.
-    assert family_counts[CandidateFamily.RAISE] == 188
-    assert family_counts[CandidateFamily.COMPARE] == 340
+    # marginal term as well as left in the reduced graph.
+    #
+    # R4 Task 10 then added dispatch/evidence.py and evaluation/evidence.py to
+    # SOURCE_PATHS -- a threshold-bearing dispatcher and its report layer had
+    # been outside the census entirely, with zero entries where every sibling
+    # dispatch module had between 16 and 73. Both figures below are re-derived
+    # with `scan_repository(REPOSITORY_ROOT)` on this tree, never summed from a
+    # branch: the R3 close-out records two branches that both wrote 93 because
+    # each measured itself against the same base.
+    assert family_counts[CandidateFamily.RAISE] == 194
+    assert family_counts[CandidateFamily.COMPARE] == 379
 
 
 def test_every_raw_candidate_has_exactly_one_code_classification() -> None:
@@ -1808,9 +1813,9 @@ def test_metadata_has_executable_gate_specific_semantics() -> None:
     # and +2 from r3/t6-sbc.  Both branches wrote 109 against the same base.
     # What this asserts is unchanged -- one distinct wording per entry, so the
     # count must equal len(GATE_REGISTRY), which the guard in registry.py pins.
-    assert len({entry.admitted_outcome for entry in GATE_REGISTRY}) == 111
-    assert len({entry.refused_outcome for entry in GATE_REGISTRY}) == 111
-    assert len({entry.oracle for entry in GATE_REGISTRY}) == 111
+    assert len({entry.admitted_outcome for entry in GATE_REGISTRY}) == 113
+    assert len({entry.refused_outcome for entry in GATE_REGISTRY}) == 113
+    assert len({entry.oracle for entry in GATE_REGISTRY}) == 113
     intermediate = {entry.gate_id: entry for entry in GATE_REGISTRY}[
         "PLAN:frozen:intermediate-runtime-range"
     ]
