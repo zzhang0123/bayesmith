@@ -521,6 +521,32 @@ class TestEveryDeclaredNameIsAKindSomethingReallyProduces:
             PRIOR_PREDICTIVE_CHECK
         )
 
+    def test_a_check_wired_to_the_wrong_slot_is_refused(self, calibrated, monkeypatch):
+        """The slot is chosen by the REPORT's kind, never by which check was
+        asked for.
+
+        The failure this prevents is a refactor that swaps two entries in the
+        runner's table: every slot still fills, every verdict still reads
+        plausibly, and two checks have exchanged names.  Here
+        ``identifiability_report`` is made to hand back a
+        ``posterior_predictive_check``, which must be refused rather than
+        filed under the name that was asked for.
+        """
+        from bayesmith.evaluation import gate as gate_module
+
+        stray = calibrated.report(POSTERIOR_PREDICTIVE_CHECK)
+        monkeypatch.setattr(
+            gate_module, "identifiability_report", lambda *a, **k: stray
+        )
+        with jax.enable_x64(True), pytest.raises(ValueError, match="another check"):
+            model_checking_slots(
+                calibrated.graph,
+                calibrated.posterior,
+                key=jax.random.key(GATE_SEED),
+                budget=ComputeBudget(draws=DRAWS),
+                model_ref=model_ref(),
+            )
+
     def test_the_chain_diagnostics_kind_is_what_dispatch_actually_wrote(self, chained):
         posterior, _graph, report = chained
         assert report.report_kind == CHAIN_DIAGNOSTICS
