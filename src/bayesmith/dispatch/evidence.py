@@ -51,25 +51,33 @@ and is read by ``evaluation``. It does not import ``evaluation``, and
 from __future__ import annotations
 
 import dataclasses
+import functools
 import math
 from collections.abc import Mapping
+from enum import StrEnum
 from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
 
+from bayesmith.artifacts._codec import register_artifact_type
 from bayesmith.artifacts.results import EvidenceComponent
 from bayesmith.dispatch.collapse import observed_descendants
 from bayesmith.exact.block import unchecked_operator
 from bayesmith.exact.fisher import dense_operator
 from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.precision import per_sample_sigma
+from bayesmith.graph.evaluate import apply_probabilistic
 from bayesmith.graph.graph import Graph
 
 __all__ = [
     "EVIDENCE_COMPONENT_NAMES",
     "ExactAssembly",
+    "PriorAudit",
+    "PriorVerdict",
     "assemble_exact",
+    "audit_graph_priors",
+    "audit_prior",
 ]
 
 #: The closed set of names an exact assembly may report.
@@ -308,3 +316,271 @@ def assemble_exact(
             for name in EVIDENCE_COMPONENT_NAMES
         ),
     )
+
+
+# --------------------------------------------------------- the prior audit
+
+
+@register_artifact_type
+class PriorVerdict(StrEnum):
+    """What an audit can say about a declared prior's own mass.
+
+    Four values and not two, because the questions genuinely differ.
+    ``PROPER`` says the density integrates to something finite; whether that
+    something is one is the separate ``normalised`` field.
+    ``IMPROPER`` says the integral diverges, so there is no ``Z``.
+    ``UNVERIFIABLE`` says this audit could not tell -- §2.4's rule that a method
+    which does not apply must not be dressed as a failure.
+    ``UNDECLARED`` says the latent has no node-level prior to audit because a
+    graph-level one covers it (§0.6).
+    """
+
+    PROPER = "proper"
+    IMPROPER = "improper"
+    UNVERIFIABLE = "unverifiable"
+    UNDECLARED = "undeclared"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class PriorAudit:
+    """One latent's prior, and the two things an evidence needs of it."""
+
+    latent: str
+    verdict: PriorVerdict
+    normalised: bool | None
+    mass: float | None
+    reason: str
+
+
+#: Half-widths, in the density's own scale, at which the mass is measured.
+#:
+#: Not a threshold and not registered as one: the point is the SEQUENCE, not
+#: any member of it. A proper density's mass stops moving as the window widens
+#: and an improper one's keeps growing with it, so what is read is the shape of
+#: the sequence -- which is what "improper" means, rather than a level anything
+#: is compared against.
+_WINDOWS: tuple[float, ...] = (8.0, 16.0, 32.0, 64.0, 128.0)
+
+#: Gauss-Legendre nodes per PANEL, and panels per unit of the density's own
+#: scale. Fixed, so the audit is deterministic and gives the same answer on
+#: every machine -- §9.3's rule for anything a test's verdict depends on.
+#:
+#: Composite rather than one high-order rule over the whole window, and that is
+#: not a performance choice. Gauss-Legendre clusters its nodes at the ends of
+#: the interval, so a single rule over +/-128 scale units samples the middle --
+#: where a peaked density actually lives -- most thinly. Panels of one scale
+#: unit put the same resolution everywhere the window reaches.
+_NODES: int = 24
+_PANELS_PER_SCALE: int = 2
+
+
+def _moments(distribution: Any) -> tuple[float, float]:
+    """A centre and a scale to place the quadrature window on.
+
+    Read off the distribution when it has finite moments, and defaulted to
+    ``(0, 1)`` when it does not -- a flat density has no mean, and the whole
+    point of the window sequence is that it does not need one.
+    """
+    centre, scale = 0.0, 1.0
+    try:
+        mean = float(np.asarray(distribution.mean))
+        if np.isfinite(mean):
+            centre = mean
+    except (AttributeError, TypeError, ValueError, NotImplementedError):
+        pass
+    try:
+        variance = float(np.asarray(distribution.variance))
+        if np.isfinite(variance) and variance > 0.0:
+            scale = float(np.sqrt(variance))
+    except (AttributeError, TypeError, ValueError, NotImplementedError):
+        pass
+    return centre, scale
+
+
+def _support_bounds(distribution: Any) -> tuple[float, float]:
+    """The declared support's bounds, as floats, ``(-inf, inf)`` when unbounded.
+
+    Read off the constraint's own ``lower_bound`` / ``upper_bound`` rather than
+    from the constraint's TYPE: an interval constraint carries its numbers, and
+    a constraint that carries none is unbounded whatever it is called.
+
+    **The bounds cannot be inferred from the density**, which is why this reads
+    the declaration. Measured: ``dist.Uniform(-2, 5).log_prob(100.0)`` is
+    ``-log 7``, not ``-inf``, and ``ImproperUniform`` over the same interval
+    returns ``0.0`` at every point on the line. NumPyro's ``log_prob`` does not
+    mask its own support, so integrating a bounded density over a wide window
+    without clipping reports EVERY bounded prior as improper.
+
+    ``base_constraint`` is unwrapped in a loop rather than special-cased,
+    because ``ImproperUniform``'s support arrives wrapped in an
+    ``IndependentConstraint`` and a check for that class by name would be the
+    spelling guard this module refuses to write.
+    """
+    support = getattr(distribution, "support", None)
+    seen = 0
+    while hasattr(support, "base_constraint") and seen < 8:
+        support = support.base_constraint
+        seen += 1
+    lower = getattr(support, "lower_bound", -np.inf)
+    upper = getattr(support, "upper_bound", np.inf)
+    try:
+        lower = float(np.asarray(lower))
+    except (TypeError, ValueError):
+        lower = -np.inf
+    try:
+        upper = float(np.asarray(upper))
+    except (TypeError, ValueError):
+        upper = np.inf
+    return lower, upper
+
+
+@functools.cache
+def _rule() -> tuple[np.ndarray, np.ndarray]:
+    """The Gauss-Legendre nodes and weights, computed once per process."""
+    return np.polynomial.legendre.leggauss(_NODES)
+
+
+def _mass_on(
+    distribution: Any, lower: float, upper: float, panels: int
+) -> float:
+    """``INT exp(log_prob(x)) dx`` over ``[lower, upper]``, composite GL."""
+    nodes, weights = _rule()
+    edges = np.linspace(lower, upper, panels + 1)
+    half = 0.5 * (edges[1:] - edges[:-1])
+    middle = 0.5 * (edges[1:] + edges[:-1])
+    points = (middle[:, None] + half[:, None] * nodes[None, :]).ravel()
+    values = np.asarray(
+        distribution.log_prob(jnp.asarray(points, dtype=jnp.float64)), dtype=float
+    )
+    # A density this large overflows the sum rather than the exponential, and
+    # that overflow is a RESULT -- it is how `audit_prior` learns it cannot
+    # resolve the mass -- so it is caught and returned, not warned about.
+    with np.errstate(over="ignore", invalid="ignore"):
+        density = np.where(np.isfinite(values), np.exp(values), 0.0)
+        density = density.reshape(panels, _NODES)
+        return float(np.sum(half * np.sum(weights[None, :] * density, axis=1)))
+
+
+def audit_prior(distribution: Any, latent: str = "") -> PriorAudit:
+    """Whether this declared density has finite mass, and whether it is one.
+
+    Decided by integrating the density the model declares, never by reading a
+    type name. ``isinstance(d, dist.ImproperUniform)`` is walked past by any
+    user subclass whose ``log_prob`` returns a constant -- built and run in
+    ``tests/dispatch/test_evidence_audit.py`` -- and ``unwrap`` strips only
+    ``Independent``, so nothing else in the package looks through one either.
+
+    The window sequence is the whole method. A proper density's mass stops
+    moving as the window widens; an improper one's grows with it. That is what
+    the two words MEAN, so reading the sequence is reading the property rather
+    than a proxy for it.
+    """
+    lower, upper = _support_bounds(distribution)
+    centre, scale = _moments(distribution)
+
+    masses: list[float] = []
+    for width in _WINDOWS:
+        low = max(lower, centre - width * scale)
+        high = min(upper, centre + width * scale)
+        if not (high > low):
+            return PriorAudit(
+                latent=latent,
+                verdict=PriorVerdict.UNVERIFIABLE,
+                normalised=None,
+                mass=None,
+                reason=(
+                    "the declared support and the density's own scale leave no "
+                    "interval to integrate over, so this audit cannot say "
+                    "whether the prior has finite mass"
+                ),
+            )
+        panels = max(8, int(_PANELS_PER_SCALE * (high - low) / scale))
+        mass = _mass_on(distribution, low, high, panels)
+        if not np.isfinite(mass):
+            return PriorAudit(
+                latent=latent,
+                verdict=PriorVerdict.UNVERIFIABLE,
+                normalised=None,
+                mass=None,
+                reason=(
+                    f"the mass over [{low:.6g}, {high:.6g}] is not a finite "
+                    f"number, so this audit cannot say whether the prior is "
+                    f"proper. That is not the same as improper: one is a "
+                    f"property of the prior, the other is a limit of this check"
+                ),
+            )
+        masses.append(mass)
+
+    settled = masses[-1]
+    previous = masses[-2]
+    if settled <= 0.0:
+        return PriorAudit(
+            latent=latent,
+            verdict=PriorVerdict.UNVERIFIABLE,
+            normalised=None,
+            mass=float(settled),
+            reason=(
+                "the density integrates to zero over every window tried, so "
+                "there is nothing to normalise and nothing to call improper"
+            ),
+        )
+    grew = abs(settled - previous) > 1e-6 * max(abs(settled), 1.0)
+    if grew:
+        return PriorAudit(
+            latent=latent,
+            verdict=PriorVerdict.IMPROPER,
+            normalised=None,
+            mass=None,
+            reason=(
+                f"the mass keeps growing as the window widens "
+                f"({previous:.6g} -> {settled:.6g}), so the integral diverges "
+                f"and p(d) is undefined for this model"
+            ),
+        )
+    normalised = bool(abs(settled - 1.0) <= 1e-6)
+    return PriorAudit(
+        latent=latent,
+        verdict=PriorVerdict.PROPER,
+        normalised=normalised,
+        mass=float(settled),
+        reason=(
+            f"the mass settles at {settled:.9g}"
+            + ("" if normalised else ", which is finite but not one")
+        ),
+    )
+
+
+def audit_graph_priors(graph: Graph) -> tuple[PriorAudit, ...]:
+    """One :class:`PriorAudit` per latent, in the graph's own order.
+
+    A latent inside ``graph.joint_prior.over`` is reported ``UNDECLARED`` and
+    not audited. Its node-level density is ``ImproperUniform`` BY REQUIREMENT --
+    ``diagnose/priors.py`` refuses a ``JeffreysPrior`` over a latent that also
+    declares a proper prior of its own, because the graph-level term IS the
+    declaration. Auditing it would report this package's mandated configuration
+    as a user error and hand back a remedy that undoes it (§0.6).
+    """
+    covered: frozenset[str] = frozenset(
+        getattr(graph.joint_prior, "over", ()) if graph.joint_prior is not None else ()
+    )
+    audits: list[PriorAudit] = []
+    for name in graph.latents:
+        if name in covered:
+            audits.append(
+                PriorAudit(
+                    latent=name,
+                    verdict=PriorVerdict.UNDECLARED,
+                    normalised=None,
+                    mass=None,
+                    reason=(
+                        "this latent has no node-level prior to audit: the "
+                        "graph's joint_prior covers it, and that term is the "
+                        "declaration. An evidence task needs a proper prior "
+                        "here, which a graph-level reference prior is not"
+                    ),
+                )
+            )
+            continue
+        node = graph.node(name)
+        audits.append(audit_prior(apply_probabilistic(graph, node, {}), latent=name))
+    return tuple(audits)
