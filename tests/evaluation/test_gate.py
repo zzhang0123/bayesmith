@@ -59,9 +59,14 @@ flipping is what burned four release tags here:
   ``GATE_SEED = 101`` only, where the same cell reads 0.0270, and the fixture
   is left exactly as it is rather than nudged away from an edge it does not
   decide anything from.  (An earlier draft of this list gave 0.1045 as the
-  seed-303 value.  That number is real, but it is a different cell -- the
-  CALIBRATED fixture's ``prior_predictive_check`` on ``largest`` at that seed
-  -- and quoting it here hid the one sub-ULP margin in the file.)
+  seed-303 value.  That number is real: it is this same MASKED fixture's
+  ``largest`` cell, ``0.10449999999999997`` -- a transposed row, not a
+  transposed fixture, and quoting it here hid the one sub-ULP margin in the
+  file.  A first correction said CALIBRATED, which is also wrong: that
+  fixture's ``largest`` at seed 303 reads ``0.10499999999999997``.  Both
+  numbers measured here on 2026-09-04.  The second error is the more
+  instructive one -- it was copied from a review rather than re-measured, one
+  line below a sentence about exactly that.)
 * everything the PASS VERDICTS below actually rest on is far from its edge:
   the required ``posterior_predictive_check``'s worst cell is 0.3205
   (calibrated) and 0.4175 (masked), twelve and sixteen times the edge, and
