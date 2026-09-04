@@ -18,6 +18,8 @@ Every bypass below was built and run.
 
 from __future__ import annotations
 
+import itertools
+
 import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
@@ -260,3 +262,337 @@ def test_a_density_too_large_to_integrate_is_unverifiable_not_improper():
         assert audit_prior(ConstantDensity(value=700.0)).verdict is (
             PriorVerdict.IMPROPER
         )
+
+
+class TestTheVerdictsAnAdversarialReviewFoundWrong:
+    """Thirty-one stock priors were misclassified and these pin the repairs.
+
+    The first version of the audit read the DIFFERENCE between successive
+    window masses and asked whether it had fallen below ``1e-6 * max(mass, 1)``.
+    That is wrong in both directions, and both were measured:
+
+    * too tight for a polynomial tail, so every heavy-tailed prior in numpyro
+      came back IMPROPER -- including ``HalfCauchy``, which is the standard
+      weakly-informative scale prior and appears in half the models anyone
+      writes;
+    * floored by the ``max(..., 1.0)``, so the verdict depended on the UNITS.
+      The same flat improper prior on a length was IMPROPER in metres and
+      PROPER in nanometres.
+
+    What replaced it reads the RATIO of successive increments, which is a
+    property of the density carrying no units: a flat density doubles its mass
+    with its window (ratio 2), a ``1/x`` tail adds a constant (ratio 1), and
+    every convergent density falls below 1.
+    """
+
+    @pytest.mark.parametrize(
+        "name, factory",
+        [
+            ("HalfCauchy(1)", lambda: dist.HalfCauchy(1.0)),
+            ("HalfCauchy(5)", lambda: dist.HalfCauchy(5.0)),
+            ("Cauchy(0,1)", lambda: dist.Cauchy(0.0, 1.0)),
+            ("Cauchy(3,2)", lambda: dist.Cauchy(3.0, 2.0)),
+            ("StudentT(1.5)", lambda: dist.StudentT(1.5, 0.0, 1.0)),
+            ("StudentT(3)", lambda: dist.StudentT(3.0, 0.0, 1.0)),
+            ("Pareto(1,3)", lambda: dist.Pareto(1.0, 3.0)),
+            ("Pareto(1,1.5)", lambda: dist.Pareto(1.0, 1.5)),
+            ("InverseGamma(1,1)", lambda: dist.InverseGamma(1.0, 1.0)),
+            ("HalfNormal(2)", lambda: dist.HalfNormal(2.0)),
+            ("Exponential(1)", lambda: dist.Exponential(1.0)),
+            ("Laplace(0,1)", lambda: dist.Laplace(0.0, 1.0)),
+        ],
+    )
+    def test_a_heavy_tail_is_proper_and_normalised(self, name, factory):
+        with jax.enable_x64(True):
+            audit = audit_prior(factory())
+            assert audit.verdict is PriorVerdict.PROPER, f"{name}: {audit.reason}"
+            assert audit.normalised is True, f"{name}: mass {audit.mass}"
+
+    def test_a_window_far_from_the_density_does_not_report_a_mass(self):
+        """``Cauchy(1e5, 1)``'s ``mean`` is ``nan``.
+
+        Before the fallback chain the centre defaulted to zero, the window
+        integrated empty space eight orders of magnitude from the peak, and the
+        audit reported PROPER with ``mass = 8.15e-9`` -- maximum confidence,
+        obtained by looking in the wrong place.
+        """
+        with jax.enable_x64(True):
+            audit = audit_prior(dist.Cauchy(1e5, 1.0))
+            assert audit.verdict is PriorVerdict.PROPER
+            assert audit.normalised is True
+            assert audit.mass == pytest.approx(1.0, abs=1e-4)
+
+    @pytest.mark.parametrize("level", [0.0, -20.0, -50.0])
+    def test_a_flat_density_is_improper_at_every_level(self, level):
+        """The units bug, pinned at the level where it used to flip.
+
+        ``max(|settled|, 1.0)`` is an absolute floor, so a diverging density
+        whose mass is small in absolute terms could never trip the growth test.
+        Measured: the boundary sat at ``log_prob = -18.6675``, and the same
+        flat improper prior was IMPROPER in metres and PROPER in nanometres.
+        The mass DOUBLES between the last two windows in every row here.
+        """
+        with jax.enable_x64(True):
+            audit = audit_prior(ConstantDensity(value=level))
+            assert audit.verdict is PriorVerdict.IMPROPER, audit.reason
+
+    @pytest.mark.parametrize(
+        "name, factory",
+        [
+            ("Bernoulli", lambda: dist.Bernoulli(probs=0.3)),
+            ("Poisson(3)", lambda: dist.Poisson(3.0)),
+            ("Poisson(50)", lambda: dist.Poisson(50.0)),
+            ("Binomial", lambda: dist.Binomial(10, 0.3)),
+            ("Geometric", lambda: dist.Geometric(0.3)),
+        ],
+    )
+    def test_a_discrete_prior_is_unverifiable_not_a_number(self, name, factory):
+        """The mass of a PMF is a SUM, and this rule is an integral.
+
+        ``Bernoulli`` came back IMPROPER and ``Poisson(50)`` came back PROPER
+        and normalised -- the second right by coincidence, because the
+        Euler-Maclaurin error happens to vanish at large lambda, and nothing in
+        the output distinguished it from ``Poisson(3)``, which was wrong.
+        """
+        with jax.enable_x64(True):
+            audit = audit_prior(factory())
+            assert audit.verdict is PriorVerdict.UNVERIFIABLE, name
+            assert "discrete" in audit.reason
+
+    @pytest.mark.parametrize(
+        "name, factory",
+        [
+            ("MultivariateNormal", lambda: dist.MultivariateNormal(jnp.zeros(2), jnp.eye(2))),
+            ("batched Normal", lambda: dist.Normal(jnp.zeros(3), 1.0)),
+            ("Independent", lambda: dist.Independent(dist.Normal(jnp.zeros(2), 1.0), 1)),
+            ("Dirichlet", lambda: dist.Dirichlet(jnp.ones(3))),
+        ],
+    )
+    def test_a_joint_prior_is_unverifiable_rather_than_an_exception(
+        self, name, factory
+    ):
+        """Six stock distributions raised ``TypeError`` out of ``log_prob`` on
+        a one-dimensional grid. An audit that cannot run is not a verdict that
+        the prior is improper, and an uncaught exception is neither."""
+        with jax.enable_x64(True):
+            audit = audit_prior(factory())
+            assert audit.verdict is PriorVerdict.UNVERIFIABLE, name
+            assert "one dimension" in audit.reason
+
+    def test_a_singular_density_the_rule_cannot_resolve_abstains(self):
+        """``Gamma(0.5, 1)`` has an integrable ``x^-0.5`` singularity at zero.
+
+        Its window masses creep upward -- 0.987483, 0.988001, 0.988039 -- and
+        the creep is the rule's own discretisation error rather than tail mass,
+        so the old growth test called a perfectly proper prior IMPROPER. The
+        quadrature-convergence check catches it: halving the panel width at the
+        widest window moves the answer, so the audit abstains instead of
+        naming either verdict.
+        """
+        with jax.enable_x64(True):
+            for factory in (
+                lambda: dist.Gamma(0.5, 1.0),
+                lambda: dist.Beta(0.5, 0.5),
+                lambda: dist.LogNormal(0.0, 3.0),
+            ):
+                audit = audit_prior(factory())
+                assert audit.verdict is PriorVerdict.UNVERIFIABLE, audit.reason
+                assert "converged" in audit.reason or "window" in audit.reason
+
+
+class TestTheParametersThatNothingUsedToPin:
+    """Twenty of thirty-five mutations survived, and these are why.
+
+    Nothing pinned the quadrature resolution, the window count, or either
+    tolerance: ``_NODES`` 24 -> 2, ``_PANELS_PER_SCALE`` 2 -> 1, the panel floor
+    8 -> 1, five windows -> two, and both thresholds moved by three orders of
+    magnitude, all with the suite green. A constant nothing measures is a
+    constant nobody chose.
+    """
+
+    def test_the_window_sequence_has_enough_members_to_read_a_ratio(self):
+        """The docstring says the point is the SEQUENCE. Two members give one
+        increment and no ratio, so the convergence test degenerates."""
+        from bayesmith.dispatch.evidence import _WINDOWS
+
+        assert len(_WINDOWS) >= 4, (
+            "the extrapolation reads two increments and its uncertainty needs "
+            "a third, so four windows is the floor"
+        )
+        assert all(
+            b == pytest.approx(2.0 * a) for a, b in itertools.pairwise(_WINDOWS)
+        ), "each window doubles the last; the ratios below assume it"
+
+    def test_the_convergence_ratio_sits_between_the_two_families(self):
+        """A flat density gives exactly 2 and a 1/x tail exactly 1; every
+        convergent density measured falls below 1. The threshold has to
+        separate those, and the derivation names 1."""
+        from bayesmith.dispatch.evidence import _CONVERGENT_INCREMENT_RATIO
+
+        assert 0.9 < _CONVERGENT_INCREMENT_RATIO < 1.0
+
+    def test_halving_the_resolution_changes_a_measured_mass(self):
+        """``_NODES`` and ``_PANELS_PER_SCALE`` are load-bearing, asserted by
+        their consequence: a coarser rule must actually move an answer, or the
+        values were never chosen."""
+        import bayesmith.dispatch.evidence as module
+
+        with jax.enable_x64(True):
+            fine = module._mass_on(dist.Gamma(0.5, 1.0), 1e-9, 40.0, 64)
+            coarse = module._mass_on(dist.Gamma(0.5, 1.0), 1e-9, 40.0, 2)
+            assert abs(fine - coarse) > 1e-6, (
+                "if the panel count does not change this integral, nothing in "
+                "the suite is measuring the quadrature at all"
+            )
+
+
+def test_the_audit_answers_for_every_fixture_this_package_ships():
+    """The plan's own step 4.3, as a standing test rather than a measurement.
+
+    §4.3 of the R4 plan reads: *record how many of ``tests/exact/models.py``'s
+    shipped fixtures the predicate refuses; if it refuses a fixture this
+    package ships, stop and rule before widening.* It was not run before the
+    audit was committed. An adversarial review ran it and found **six of the
+    fixtures crashing** with ``KeyError`` -- every hierarchical prior, because
+    ``apply_probabilistic(graph, node, {})`` reads ``env[parent]`` and a latent
+    with parents has none in an empty environment.
+
+    A measurement performed once is a measurement that goes stale, so it lives
+    here. What it asserts is not a distribution of verdicts -- those may
+    legitimately move -- but the two things that must stay true: the audit
+    RETURNS for every shipped graph, and every answer is a member of the
+    vocabulary. A crash is not a verdict.
+    """
+    from tests.exact import models
+
+    with jax.enable_x64(True):
+        seen = 0
+        verdicts: dict[str, int] = {}
+        for name in sorted(dir(models)):
+            if name.startswith("_"):
+                continue
+            factory = getattr(models, name)
+            if not callable(factory):
+                continue
+            try:
+                graph = factory()
+            except Exception:  # noqa: BLE001, S112 - not every name is one
+                continue
+            if not hasattr(graph, "latents"):
+                continue
+            seen += 1
+            for audit in audit_graph_priors(graph):
+                assert isinstance(audit.verdict, PriorVerdict), name
+                assert audit.reason, f"{name}: a verdict with no grounds"
+                verdicts[audit.verdict.value] = (
+                    verdicts.get(audit.verdict.value, 0) + 1
+                )
+        assert seen >= 20, f"only {seen} fixtures reached; the walk did not run"
+        assert verdicts, "no latent was audited"
+
+
+def test_a_hierarchical_prior_is_unverifiable_rather_than_a_keyerror():
+    """The six crashes, reduced to the shape they all share.
+
+    ``s ~ HalfNormal(1); w ~ Normal(0, s)``: ``p(w)`` is not a fixed density at
+    all -- it is defined only once ``s`` is integrated out -- so there is no
+    single ``p(theta)`` for a mass check to weigh. The refusal is not a
+    limitation of the arithmetic; answering would mean answering a different
+    question.
+    """
+    with jax.enable_x64(True):
+        basis = jnp.linspace(-1.0, 1.0, 6) + 0.3
+        data = 1.2 * basis
+
+        def model():
+            s = sample("s", lambda: dist.HalfNormal(1.0))
+            w = sample("w", lambda s_: dist.Normal(0.0, s_), s)
+            b = const("basis", basis)
+            mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+            observe("d", lambda m: dist.Normal(m, 0.5).to_event(1), mu, obs=data)
+
+        audits = {a.latent: a for a in audit_graph_priors(trace(model))}
+        assert audits["s"].verdict is PriorVerdict.PROPER
+        assert audits["w"].verdict is PriorVerdict.UNVERIFIABLE
+        assert "parameterised by" in audits["w"].reason
+        assert "'s'" in audits["w"].reason or "s" in audits["w"].reason
+
+
+class SlightlyUnnormalised(dist.Distribution):
+    """Mass 1.01 on ``[0, 1]``: wrong by more than 1e-6 and less than 1e-1."""
+
+    support = dist.constraints.interval(0.0, 1.0)
+    has_rsample = False
+
+    def __init__(self, mass=1.01):
+        self._mass = mass
+        super().__init__(batch_shape=(), event_shape=())
+
+    def log_prob(self, value):
+        return jnp.full_like(jnp.asarray(value, dtype=float), jnp.log(self._mass))
+
+    def sample(self, key, sample_shape=()):  # pragma: no cover - never drawn
+        raise NotImplementedError
+
+
+def test_the_normalisation_tolerance_is_not_a_tenth():
+    """A prior 1% away from normalised is not normalised.
+
+    Every fixture above is either exactly one or off by a factor of seven, so
+    widening the tolerance from 1e-6 to 1e-1 left the whole suite green -- the
+    threshold had no fixture in the band it governs. Measured by an adversarial
+    review; this is the fixture that band was missing.
+
+    The tolerance is ``max(1e-6, uncertainty)`` where the second term is the
+    extrapolation's own measured error, so a heavy tail is not refused for
+    being 3.6e-06 from one. This density has no tail at all, so the
+    uncertainty is zero and 1e-6 is what governs.
+    """
+    with jax.enable_x64(True):
+        audit = audit_prior(SlightlyUnnormalised(1.01))
+        assert audit.verdict is PriorVerdict.PROPER
+        assert audit.normalised is False, audit.reason
+        assert audit.mass == pytest.approx(1.01, rel=1e-9)
+
+        assert audit_prior(SlightlyUnnormalised(1.0)).normalised is True
+
+
+def test_the_base_resolution_does_not_decide_a_verdict():
+    """Why ``_NODES`` and ``_PANELS_PER_SCALE`` are NOT pinned to a number.
+
+    An adversarial review found both surviving mutation and called it a gap.
+    Measured, it is a property: halving ``_PANELS_PER_SCALE`` leaves every
+    verdict in this file unchanged, because the convergence check compares the
+    rule against a refinement OF ITSELF. A coarser base makes the audit abstain
+    sooner, never answer differently -- which is what a self-validating rule is
+    supposed to do.
+
+    So the honest assertion is that property, not a number. Pinning 24 and 2
+    would be a spelling guard: it would fail on any change to constants that
+    the design says are free, and pass on the changes that matter.
+    """
+    import bayesmith.dispatch.evidence as module
+
+    priors = [
+        dist.Normal(0.0, 1.0),
+        dist.HalfCauchy(1.0),
+        dist.Cauchy(0.0, 1.0),
+        dist.Gamma(0.5, 1.0),
+        dist.Uniform(-2.0, 5.0),
+        dist.ImproperUniform(dist.constraints.real, (), ()),
+    ]
+    original = module._PANELS_PER_SCALE
+    try:
+        with jax.enable_x64(True):
+            fine = [audit_prior(p).verdict for p in priors]
+            # An absolute coarser value, not a fraction of the current one:
+            # deriving it would make this test's own subject move with the
+            # constant it is asserting is free.
+            module._PANELS_PER_SCALE = 1
+            coarse = [audit_prior(p).verdict for p in priors]
+    finally:
+        module._PANELS_PER_SCALE = original
+    assert fine == coarse, (
+        "a coarser rule changed a verdict, which means the convergence check "
+        "is not doing the work the design says it does"
+    )

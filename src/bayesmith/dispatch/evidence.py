@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import itertools
 import math
 from collections.abc import Mapping
 from enum import StrEnum
@@ -421,9 +422,22 @@ class PriorVerdict(StrEnum):
     UNDECLARED = "undeclared"
 
 
+@register_artifact_type
 @dataclasses.dataclass(frozen=True, slots=True)
 class PriorAudit:
-    """One latent's prior, and the two things an evidence needs of it."""
+    """One latent's prior, and the two things an evidence needs of it.
+
+    Registered like its own verdict enum. Without it the verdict serialised and
+    the record holding it did not, which is the half of a pair going stale that
+    this repository has spent the most time repairing.
+
+    **The mass check needs float64 and does not open a context to get one.**
+    Its only production caller is behind evidence_requires_x64, which
+    refuses a float32 environment before any of this runs; a direct call from
+    outside that gate integrates at float32 and carries about 1e-7 of error
+    against a 1e-6 normalisation tolerance. One decision, one home: the gate
+    owns the dtype and this does not re-decide it.
+    """
 
     latent: str
     verdict: PriorVerdict
@@ -453,36 +467,96 @@ _WINDOWS: tuple[float, ...] = (8.0, 16.0, 32.0, 64.0, 128.0)
 _NODES: int = 24
 _PANELS_PER_SCALE: int = 2
 
+#: The increment ratio below which a window sequence counts as convergent.
+#:
+#: Derived, not tuned. A flat density doubles its mass every time the window
+#: doubles, so its increment ratio is exactly 2; the log-divergent ``1/x`` tail
+#: adds a constant ``log 2`` each time, ratio exactly 1. Every convergent
+#: density falls strictly below 1, and measured over the stock numpyro priors
+#: the largest is Cauchy at 1.005. Anything in (1.006, 2) separates the two
+#: families; 1.0 is the value the algebra names, and the margin below is the
+#: one measurement rather than the threshold.
+_CONVERGENT_INCREMENT_RATIO: float = 0.995
+
+#: Below this the integral has found nothing, and "nothing is here" cannot be
+#: told from "the window is elsewhere". Not a statistical threshold: any prior
+#: whose total mass is 1e-12 is unnormalised by twelve orders of magnitude, so
+#: no correct answer is lost by declining to name which of the two it is.
+_NEGLIGIBLE_MASS: float = 1e-12
+
 
 def _moments(distribution: Any) -> tuple[float, float]:
     """A centre and a scale to place the quadrature window on.
 
-    Read off the distribution when it has finite moments, and defaulted to
-    ``(0, 1)`` when it does not -- a flat density has no mean, and the whole
-    point of the window sequence is that it does not need one.
+    The centre is looked for in four places, in order: the distribution's
+    ``mean``, a declared ``loc``, a finite bound of the declared support, and
+    finally zero. The fallbacks are not decoration -- a heavy-tailed density
+    has no finite mean BY DEFINITION, so reading only ``mean`` and giving up
+    would refuse Cauchy and HalfCauchy, and reading only ``mean`` and
+    DEFAULTING to zero is worse: measured, ``dist.Cauchy(1e5, 1.0)`` was
+    audited PROPER with ``mass = 8.15e-9``, a confident answer obtained by
+    integrating empty space eight orders of magnitude from the peak.
+
+    A misplaced window is caught downstream by consequence rather than here by
+    inspection: a window that finds essentially no mass is reported
+    UNVERIFIABLE, because "the density is zero" and "the window is in the
+    wrong place" look identical from inside the integral.
     """
-    centre, scale = 0.0, 1.0
+    centre: float | None = None
+    scale = 1.0
     try:
         mean = float(np.asarray(distribution.mean))
         if np.isfinite(mean):
             centre = mean
-    except (AttributeError, TypeError, ValueError, NotImplementedError):
-        pass
+    except Exception:  # noqa: BLE001 - numpyro raises six kinds here
+        centre = None
+    if centre is None:
+        # A location the density itself declares, where there is one. Reached
+        # for Cauchy and StudentT, whose `mean` is nan by definition.
+        for attribute in ("loc", "low", "concentration"):
+            try:
+                value = float(np.asarray(getattr(distribution, attribute)))
+            except Exception:  # noqa: BLE001, S112 - absent is the answer
+                continue
+            if np.isfinite(value):
+                centre = value
+                break
+    if centre is None:
+        # A finite edge of the declared support, which is where a
+        # half-bounded density lives. HalfCauchy's `mean` is `inf` and it has
+        # no `loc`; its support starts at zero.
+        low, high, _ = _support_bounds(distribution)
+        for bound in (low, high):
+            if np.isfinite(bound):
+                centre = float(bound)
+                break
+    if centre is None:
+        centre = 0.0
     try:
         variance = float(np.asarray(distribution.variance))
         if np.isfinite(variance) and variance > 0.0:
             scale = float(np.sqrt(variance))
-    except (AttributeError, TypeError, ValueError, NotImplementedError):
+    except Exception:  # noqa: BLE001, S110 - a missing variance is recoverable
         pass
+    if scale <= 0.0 or not np.isfinite(scale):
+        scale = 1.0
+    for attribute in ("scale",):
+        try:
+            declared = float(np.asarray(getattr(distribution, attribute)))
+        except Exception:  # noqa: BLE001, S112 - absent is the answer
+            continue
+        if np.isfinite(declared) and declared > 0.0:
+            scale = max(scale, declared)
     return centre, scale
 
 
-def _support_bounds(distribution: Any) -> tuple[float, float]:
-    """The declared support's bounds, as floats, ``(-inf, inf)`` when unbounded.
+def _support_bounds(distribution: Any) -> tuple[float, float, bool]:
+    """``(lower, upper, resolved)`` for the declared support.
 
-    Read off the constraint's own ``lower_bound`` / ``upper_bound`` rather than
-    from the constraint's TYPE: an interval constraint carries its numbers, and
-    a constraint that carries none is unbounded whatever it is called.
+    ``resolved`` is ``False`` when the unwrapping loop hit its cap without
+    finding a leaf constraint. Returning ``(-inf, inf)`` silently in that case
+    turns a bounded proper prior into an IMPROPER verdict, which is the shape
+    of failure this module is otherwise about.
 
     **The bounds cannot be inferred from the density**, which is why this reads
     the declaration. Measured: ``dist.Uniform(-2, 5).log_prob(100.0)`` is
@@ -498,7 +572,9 @@ def _support_bounds(distribution: Any) -> tuple[float, float]:
     """
     support = getattr(distribution, "support", None)
     seen = 0
-    while hasattr(support, "base_constraint") and seen < 8:
+    while hasattr(support, "base_constraint"):
+        if seen >= 8:
+            return -np.inf, np.inf, False
         support = support.base_constraint
         seen += 1
     lower = getattr(support, "lower_bound", -np.inf)
@@ -511,7 +587,7 @@ def _support_bounds(distribution: Any) -> tuple[float, float]:
         upper = float(np.asarray(upper))
     except (TypeError, ValueError):
         upper = np.inf
-    return lower, upper
+    return lower, upper, True
 
 
 @functools.cache
@@ -520,9 +596,7 @@ def _rule() -> tuple[np.ndarray, np.ndarray]:
     return np.polynomial.legendre.leggauss(_NODES)
 
 
-def _mass_on(
-    distribution: Any, lower: float, upper: float, panels: int
-) -> float:
+def _mass_on(distribution: Any, lower: float, upper: float, panels: int) -> float:
     """``INT exp(log_prob(x)) dx`` over ``[lower, upper]``, composite GL."""
     nodes, weights = _rule()
     edges = np.linspace(lower, upper, panels + 1)
@@ -543,6 +617,83 @@ def _mass_on(
         return float(np.sum(half * np.sum(weights[None, :] * density, axis=1)))
 
 
+def _tail_sum(increment: float, ratio: float) -> float:
+    """What a geometric tail with this ratio adds beyond the last window."""
+    if ratio <= 0.0 or ratio >= 1.0:
+        return 0.0
+    return increment * ratio / (1.0 - ratio)
+
+
+def _undecidable(latent: str, reason: str, mass: float | None = None) -> PriorAudit:
+    """UNVERIFIABLE, which is not IMPROPER and must never be read as it.
+
+    One says the prior has no finite mass; the other says this audit could not
+    tell. §2.4's rule that a method which does not apply must not be dressed as
+    a failure, one layer down from the reports it was written for.
+    """
+    return PriorAudit(
+        latent=latent,
+        verdict=PriorVerdict.UNVERIFIABLE,
+        normalised=None,
+        mass=mass,
+        reason=reason,
+    )
+
+
+def _out_of_scope(distribution: Any, latent: str) -> PriorAudit | None:
+    """What this quadrature cannot decide, refused before it tries.
+
+    Each arm is a CONSEQUENCE of the density's own declaration rather than a
+    type name, and each was found by an adversarial review returning a
+    confident wrong answer or an uncaught exception:
+
+    * a non-scalar shape -- ``MultivariateNormal``, ``Dirichlet``,
+      ``Normal(zeros(3), 1)``, ``Independent(..., 1)`` -- raised ``TypeError``
+      out of ``log_prob`` on a 1-D grid. The rule is one-dimensional and says so.
+    * a discrete support -- the mass of a PMF is a SUM and this is an integral.
+      ``Bernoulli(0.3)`` was reported IMPROPER; ``Poisson(50)`` was reported
+      PROPER and normalised, which was right by coincidence, since the
+      Euler-Maclaurin error happens to vanish at large lambda. Nothing in the
+      output distinguished the two.
+    * an unplaceable window -- ``Cauchy(1e5, 1)``'s ``mean`` is ``nan``, the
+      centre defaulted to zero, and the audit integrated empty space eight
+      orders of magnitude from the peak to report ``mass = 8.15e-9``.
+    * an unresolved support -- see :func:`_support_bounds`.
+    """
+    event = tuple(getattr(distribution, "event_shape", ()) or ())
+    batch = tuple(getattr(distribution, "batch_shape", ()) or ())
+    if event or batch:
+        return _undecidable(
+            latent,
+            f"this prior has event shape {event} and batch shape {batch}; the "
+            f"mass check integrates one dimension and cannot speak for a "
+            f"joint density. An evidence over it is a real quantity and this "
+            f"audit is not the thing that decides it",
+        )
+    support = getattr(distribution, "support", None)
+    seen = 0
+    while hasattr(support, "base_constraint") and seen < 8:
+        support = support.base_constraint
+        seen += 1
+    if bool(getattr(support, "is_discrete", False)):
+        return _undecidable(
+            latent,
+            "this prior is declared over a discrete support, where the total "
+            "mass is a sum and not an integral. Quadrature over it returns a "
+            "number, and the number is not the mass",
+        )
+    _lower, _upper, resolved = _support_bounds(distribution)
+    if not resolved:
+        return _undecidable(
+            latent,
+            "the declared support is wrapped more deeply than this audit "
+            "unwraps, so its bounds were not established. Reporting the "
+            "unbounded default here would turn a bounded proper prior into an "
+            "improper verdict",
+        )
+    return None
+
+
 def audit_prior(distribution: Any, latent: str = "") -> PriorAudit:
     """Whether this declared density has finite mass, and whether it is one.
 
@@ -552,82 +703,164 @@ def audit_prior(distribution: Any, latent: str = "") -> PriorAudit:
     ``tests/dispatch/test_evidence_audit.py`` -- and ``unwrap`` strips only
     ``Independent``, so nothing else in the package looks through one either.
 
-    The window sequence is the whole method. A proper density's mass stops
-    moving as the window widens; an improper one's grows with it. That is what
-    the two words MEAN, so reading the sequence is reading the property rather
-    than a proxy for it.
+    **The method is the INCREMENTS of the window sequence, and the first
+    version of it read the differences instead.** That version asked whether
+    ``|mass(W) - mass(W/2)|`` had fallen below ``1e-6 * max(mass, 1)``, which
+    is wrong in both directions and an adversarial review measured both:
+
+    * too tight for a polynomial tail. ``HalfCauchy(1)`` -- the standard
+      weakly-informative scale prior -- reaches 0.995 of its mass by the last
+      window and was reported IMPROPER. So were ``Cauchy``, ``StudentT(1.5)``,
+      ``Pareto``, ``LogNormal(0,3)`` and ``InverseGamma(0.5,1)``: thirty-one
+      stock priors in all.
+    * floored, so the verdict depended on the UNITS. The same flat improper
+      prior on a length was IMPROPER in metres and PROPER in nanometres,
+      because ``max(..., 1.0)`` cannot be tripped by a mass of 1e-8 however
+      fast it doubles.
+
+    What separates the two cases cleanly is whether the increments SHRINK. A
+    convergent series has a ratio below one; a flat density doubles its mass
+    with its window, ratio exactly two; the log-divergent ``1/sigma`` adds a
+    constant ``log 2`` each time, ratio exactly one. That is a property of the
+    density and carries no units at all.
+
+    Where the increments shrink geometrically the tail is extrapolated rather
+    than truncated, so ``normalised`` is right for a heavy tail instead of
+    being short by the part the last window did not reach.
     """
-    lower, upper = _support_bounds(distribution)
+    out_of_scope = _out_of_scope(distribution, latent)
+    if out_of_scope is not None:
+        return out_of_scope
+
+    lower, upper, _ = _support_bounds(distribution)
     centre, scale = _moments(distribution)
 
     masses: list[float] = []
+    last_low = last_high = 0.0
+    last_panels = 0
     for width in _WINDOWS:
         low = max(lower, centre - width * scale)
         high = min(upper, centre + width * scale)
         if not (high > low):
-            return PriorAudit(
-                latent=latent,
-                verdict=PriorVerdict.UNVERIFIABLE,
-                normalised=None,
-                mass=None,
-                reason=(
-                    "the declared support and the density's own scale leave no "
-                    "interval to integrate over, so this audit cannot say "
-                    "whether the prior has finite mass"
-                ),
+            return _undecidable(
+                latent,
+                "the declared support and the density's own scale leave no "
+                "interval to integrate over, so this audit cannot say whether "
+                "the prior has finite mass",
             )
         panels = max(8, int(_PANELS_PER_SCALE * (high - low) / scale))
         mass = _mass_on(distribution, low, high, panels)
         if not np.isfinite(mass):
-            return PriorAudit(
-                latent=latent,
-                verdict=PriorVerdict.UNVERIFIABLE,
-                normalised=None,
-                mass=None,
-                reason=(
-                    f"the mass over [{low:.6g}, {high:.6g}] is not a finite "
-                    f"number, so this audit cannot say whether the prior is "
-                    f"proper. That is not the same as improper: one is a "
-                    f"property of the prior, the other is a limit of this check"
-                ),
+            return _undecidable(
+                latent,
+                f"the mass over [{low:.6g}, {high:.6g}] is not a finite "
+                f"number, so this audit cannot say whether the prior is "
+                f"proper. That is not the same as improper: one is a property "
+                f"of the prior, the other is a limit of this check",
             )
         masses.append(mass)
+        last_low, last_high, last_panels = low, high, panels
 
     settled = masses[-1]
-    previous = masses[-2]
-    if settled <= 0.0:
-        return PriorAudit(
-            latent=latent,
-            verdict=PriorVerdict.UNVERIFIABLE,
-            normalised=None,
-            mass=float(settled),
-            reason=(
-                "the density integrates to zero over every window tried, so "
-                "there is nothing to normalise and nothing to call improper"
-            ),
-        )
-    grew = abs(settled - previous) > 1e-6 * max(abs(settled), 1.0)
-    if grew:
+    increments = [b - a for a, b in itertools.pairwise(masses)]
+    tail = increments[-1]
+    previous = increments[-2]
+    if tail <= 0.0 or abs(tail) <= 1e-12 * max(abs(settled), 1e-300):
+        ratio = 0.0
+    elif abs(previous) <= 0.0:
+        ratio = 1.0
+    else:
+        ratio = abs(tail) / abs(previous)
+
+    # Growth decides BEFORE level, and the order is the point. A flat density
+    # at `log_prob = -50` has a mass of 5e-20 over the widest window, which is
+    # negligible by any absolute measure -- and it DOUBLES every time the
+    # window doubles, which is what improper means. Asking "is this
+    # negligible?" first would have abstained on a prior whose divergence is
+    # unambiguous, and abstaining is the wrong answer when there is a right one.
+    if ratio >= _CONVERGENT_INCREMENT_RATIO:
         return PriorAudit(
             latent=latent,
             verdict=PriorVerdict.IMPROPER,
             normalised=None,
             mass=None,
             reason=(
-                f"the mass keeps growing as the window widens "
-                f"({previous:.6g} -> {settled:.6g}), so the integral diverges "
-                f"and p(d) is undefined for this model"
+                f"the mass added by each doubling of the window is not "
+                f"shrinking (ratio {ratio:.6g}), so the integral diverges and "
+                f"p(d) is undefined for this model. A flat density gives "
+                f"exactly 2 and a 1/x tail exactly 1; a convergent one falls "
+                f"below {_CONVERGENT_INCREMENT_RATIO}"
             ),
         )
-    normalised = bool(abs(settled - 1.0) <= 1e-6)
+
+    # The increments do not diverge, so a mass is about to be reported -- and
+    # before reporting one, ask whether the RULE agrees with itself. Halving
+    # the panel width at the widest window is a different quadrature of the
+    # same integral; a density with structure finer than the node spacing moves
+    # under it. The window sequence tests the DOMAIN and nothing was testing
+    # the rule, which is how a normalised bimodal prior came back with
+    # `mass = 9.02e-31` and five identical windows behind it.
+    #
+    # It is also what separates a tail from a SINGULARITY. `Gamma(0.5, 1)` has
+    # an integrable x^-0.5 pole at zero; its window masses creep upward, the
+    # growth test reads that as tail mass, and the creep is this rule's own
+    # discretisation error -- measured, doubling the panels moves it by
+    # 3.5e-03 and it is still 1.2% short of one at sixty-four times the panels.
+    # Reporting `normalised=False` there would refuse a perfectly proper prior.
+    refined = _mass_on(distribution, last_low, last_high, last_panels * 2)
+    if abs(refined - settled) > 1e-6 * max(abs(settled), abs(refined), 1e-300):
+        return _undecidable(
+            latent,
+            f"the quadrature has not converged at the widest window: "
+            f"{settled:.9g} against {refined:.9g} at twice the panel count. "
+            f"The declared density has structure finer than this rule "
+            f"resolves, so any mass it reported would be about the grid",
+        )
+
+    if settled <= _NEGLIGIBLE_MASS:
+        # Not growing, and essentially nothing found. "The density is zero
+        # here" and "the window is somewhere the density is not" look
+        # identical from inside the integral, and the second is reachable: a
+        # density peaked far from every location it declares puts the window in
+        # empty space. Measured before this arm existed, `dist.Cauchy(1e5, 1)`
+        # came back PROPER with mass 8.15e-9.
+        return _undecidable(
+            latent,
+            f"the density integrates to {settled:.6g} over every window tried "
+            f"and is not growing. Either it is zero on its own support or the "
+            f"window is not where the density is, and this audit cannot tell "
+            f"which",
+            mass=float(settled),
+        )
+
+    # A geometric tail sums to `tail * r / (1 - r)`. Truncating instead is what
+    # made every heavy tail look unnormalised.
+    total = settled + _tail_sum(tail, ratio)
+
+    # And the extrapolation has an error of its own, because a real tail is
+    # only approximately geometric. It is measured rather than assumed: the
+    # same extrapolation is run one window earlier and the two totals compared.
+    # Without this, `normalised` was False for Cauchy (off by 3.6e-06) and for
+    # InverseGamma(1,1) (off by 3.7e-04) -- correct priors refused for being
+    # 0.0004 away from a mass this rule cannot resolve to better than that.
+    earlier_ratio = (
+        abs(increments[-2]) / abs(increments[-3])
+        if len(increments) >= 3 and abs(increments[-3]) > 0.0
+        else ratio
+    )
+    earlier_total = masses[-2] + _tail_sum(increments[-2], earlier_ratio)
+    uncertainty = abs(total - earlier_total)
+    normalised = bool(abs(total - 1.0) <= max(1e-6, uncertainty))
     return PriorAudit(
         latent=latent,
         verdict=PriorVerdict.PROPER,
         normalised=normalised,
-        mass=float(settled),
+        mass=float(total),
         reason=(
-            f"the mass settles at {settled:.9g}"
-            + ("" if normalised else ", which is finite but not one")
+            f"the window increments shrink with ratio {ratio:.6g}; the mass "
+            f"reaches {settled:.9g} by the last window and extrapolates to "
+            f"{total:.9g} +/- {uncertainty:.3g}"
+            + ("" if normalised else ", which is not one")
         ),
     )
 
@@ -639,8 +872,23 @@ def audit_graph_priors(graph: Graph) -> tuple[PriorAudit, ...]:
     not audited. Its node-level density is ``ImproperUniform`` BY REQUIREMENT --
     ``diagnose/priors.py`` refuses a ``JeffreysPrior`` over a latent that also
     declares a proper prior of its own, because the graph-level term IS the
-    declaration. Auditing it would report this package's mandated configuration
-    as a user error and hand back a remedy that undoes it (§0.6).
+    declaration. Auditing it would report this package's mandated
+    configuration as a user error and hand back a remedy that undoes it (§0.6).
+
+    **A latent with parents is UNVERIFIABLE, and that arm exists because six of
+    this package's own shipped fixtures crashed without it.** The first version
+    called ``apply_probabilistic(graph, node, {})`` on every latent; that
+    function reads ``env[parent]`` for each parent, so a hierarchical prior --
+    ``s ~ HalfNormal(1); w ~ Normal(0, s)`` -- raised ``KeyError``.
+    ``diamond_ancestor``, ``indirect_ancestor``, ``mixed_radiometer``,
+    ``orphaned_child_latent``, ``shared_ancestor`` and ``three_latent_chain``
+    all did. The plan's step 4.3 required exactly this measurement before
+    widening and it was not run; an adversarial review ran it.
+
+    The refusal is not a limitation of the arithmetic. A hierarchical prior is
+    not a fixed density at all -- ``p(w)`` is only defined after ``s`` is
+    integrated out -- so there is no single ``p(theta)`` for this audit to
+    weigh, and answering would mean answering a different question.
     """
     covered: frozenset[str] = frozenset(
         getattr(graph.joint_prior, "over", ()) if graph.joint_prior is not None else ()
@@ -664,5 +912,39 @@ def audit_graph_priors(graph: Graph) -> tuple[PriorAudit, ...]:
             )
             continue
         node = graph.node(name)
-        audits.append(audit_prior(apply_probabilistic(graph, node, {}), latent=name))
+        if tuple(node.parents):
+            audits.append(
+                _undecidable(
+                    name,
+                    f"this latent's prior is parameterised by "
+                    f"{list(node.parents)}, so it is not a fixed density: "
+                    f"p({name}) is defined only once those are integrated out. "
+                    f"There is no single p(theta) here for a mass check to "
+                    f"weigh",
+                )
+            )
+            continue
+        try:
+            declared = apply_probabilistic(graph, node, {})
+        except Exception as error:  # noqa: BLE001 -- any failure is the same answer
+            audits.append(
+                _undecidable(
+                    name,
+                    f"this latent's declared prior could not be built without "
+                    f"an environment ({type(error).__name__}: {error}), so its "
+                    f"mass was not established",
+                )
+            )
+            continue
+        try:
+            audits.append(audit_prior(declared, latent=name))
+        except Exception as error:  # noqa: BLE001
+            audits.append(
+                _undecidable(
+                    name,
+                    f"integrating this prior raised "
+                    f"{type(error).__name__}: {error}. An audit that cannot "
+                    f"run is not a verdict that the prior is improper",
+                )
+            )
     return tuple(audits)
