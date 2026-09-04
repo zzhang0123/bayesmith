@@ -449,9 +449,11 @@ def _mass_on(
     half = 0.5 * (edges[1:] - edges[:-1])
     middle = 0.5 * (edges[1:] + edges[:-1])
     points = (middle[:, None] + half[:, None] * nodes[None, :]).ravel()
-    values = np.asarray(
-        distribution.log_prob(jnp.asarray(points, dtype=jnp.float64)), dtype=float
-    )
+    # The ambient dtype, not a demanded one: asking for float64 outside an x64
+    # context gets a truncation warning and a float32 array anyway, and the
+    # caller who must care about that is the evidence gate, which refuses the
+    # environment by name rather than quietly integrating at half the digits.
+    values = np.asarray(distribution.log_prob(jnp.asarray(points)), dtype=float)
     # A density this large overflows the sum rather than the exponential, and
     # that overflow is a RESULT -- it is how `audit_prior` learns it cannot
     # resolve the mass -- so it is caught and returned, not warned about.

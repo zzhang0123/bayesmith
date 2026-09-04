@@ -110,6 +110,17 @@ PREMISES: frozenset[str] = frozenset(
         "posterior_data_mismatch",
         # the coverage domain of the predictive seam (R2 §0.4)
         "predictive_noise_unsupported",
+        # what an EVIDENCE task needs that a posterior task does not (R4).
+        # These are the asymmetry §2.2 names: an improper prior leaves the
+        # posterior perfectly well defined and the evidence undefined, so a
+        # task-aware compiler has to be able to say the second without saying
+        # the first.
+        "evidence_prior_proper",
+        "evidence_prior_normalised",
+        "evidence_prior_undeclared",
+        "evidence_residual_integral_required",
+        "evidence_base_measure_undeclared",
+        "evidence_requires_x64",
     }
 )
 

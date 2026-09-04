@@ -466,16 +466,38 @@ def test_a_posterior_run_without_a_key_is_a_programming_error():
         execute_task(planned, key=None)
 
 
-def test_a_hand_built_task_for_a_capability_r1_lacks_is_refused_defensively():
-    """``compile_task`` never produces one of these; a caller who assembles a
-    PlannedTask by hand gets the same verdict rather than an execution that
-    half-works."""
-    planned = planned_for(straight_line(), posterior_task())
-    forged = dataclasses.replace(planned, task=EvidenceTask(meta=new_task_meta()))
-    refusal = execute_task(forged)
+def test_a_hand_built_evidence_task_still_meets_the_compilers_own_gates():
+    """``compile_task`` never produces a plan that fails these; a caller who
+    assembles a PlannedTask by hand bypasses it entirely.
+
+    **This test changed in R4 and the reason is worth the paragraph.** Until R4
+    it forged an ``EvidenceTask`` onto a posterior plan and expected
+    ``capability_unavailable_r1`` -- the fifth Task was the one this package
+    could hold and not answer. R4 answers it, so that premise is no longer
+    reachable and the test would have lost its subject.
+
+    What replaces it is the property the original was protecting: a forged plan
+    must not execute unchecked. ``_run_evidence`` re-runs the compiler's own
+    eligibility and structure guards -- the same functions, not a second copy --
+    so an evidence assembled from a hand-built plan is refused for the same
+    reason ``compile_task`` would have refused it. An evidence that skipped its
+    audit is the false certainty §11.4 names, and it is the one Result where
+    bypassing the gate produces a plausible number rather than an obvious error.
+
+    The forged plan here carries a graph whose latent has a proper prior, so it
+    passes the prior audit and is refused on the structure class instead: the
+    plan was compiled for a posterior and its exact block does not cover the
+    whole graph.
+    """
+    import jax
+
+    with jax.enable_x64(True):
+        planned = planned_for(radiometer(), posterior_task())
+        forged = dataclasses.replace(planned, task=EvidenceTask(meta=new_task_meta()))
+        refusal = execute_task(forged)
 
     assert isinstance(refusal, Refusal)
-    assert refusal.failed_premise == CAPABILITY_UNAVAILABLE_R1
+    assert refusal.failed_premise == "evidence_residual_integral_required"
     assert refusal.meta.artifact_type is ArtifactKind.RESULT
     assert refusal.remedies
 

@@ -409,38 +409,49 @@ def test_a_planned_task_is_identified_by_its_records_and_not_by_the_runtime():
     assert dataclasses.replace(planned, runtime_plan=other.runtime_plan) == planned
 
 
-def test_the_one_task_this_release_cannot_answer_is_refused_as_a_capability():
-    """§0 ruling 1 keeps five tasks in the protocol; R3 answers the fourth.
+def test_every_task_kind_is_answered_and_the_set_is_still_derived():
+    """§0 ruling 1 keeps five tasks in the protocol. R4 answers the fifth.
 
-    This test used to be parametrized over evidence AND simulation. R3 §0.7
-    makes ``SimulationTask`` execute, so the simulation arm was removed and
-    replaced by :func:`test_a_simulation_task_compiles_into_a_planned_task`
-    below and by the execution tests in ``test_task_execution.py`` -- a
-    deliberate test change, and the coverage it gives up here it gains there.
+    This test has now shed both of its arms. It was parametrized over evidence
+    AND simulation; R3 §0.7 made ``SimulationTask`` execute and removed the
+    second; R4 opens ``TaskKind.EVIDENCE`` and removes the first. What it keeps
+    is the part that was never about either of them: the unanswered set is
+    DERIVED from ``SUPPORTED_TASK_KINDS`` rather than listed, so adding a sixth
+    kind without a branch, or dropping one, turns this red. The old
+    parametrized form could not have said that -- it named the two it already
+    knew about, which is the shape of guard that let three submodules go
+    missing from ``_LAZY_SUBMODULES`` at once.
 
-    What it still catches is more than the one refusal, because the set of
-    unanswered kinds is now DERIVED rather than listed: adding a kind to
-    ``SUPPORTED_TASK_KINDS`` without a story, or dropping one, turns the first
-    assertion red. The old parametrized form could not have said that -- it
-    named the two it already knew about, which is the shape of guard that let
-    three submodules go missing from ``_LAZY_SUBMODULES`` at once.
+    The capability refusal itself is not deleted. ``execute_task``'s
+    fall-through still produces it, and it is still the right answer for a
+    ``PlannedTask`` carrying something outside the enum; what changed is that
+    no legal kind reaches it any more.
     """
     unanswered = set(TaskKind) - task_module.SUPPORTED_TASK_KINDS
-    assert unanswered == {TaskKind.EVIDENCE}, sorted(k.value for k in unanswered)
+    assert unanswered == set(), sorted(k.value for k in unanswered)
+    assert task_module.SUPPORTED_TASK_KINDS == set(TaskKind)
 
-    task = EvidenceTask(meta=new_task_meta(label="Z"))
-    refusal = compile_task(straight_line(), task, model_ref=model_ref())
-    assert isinstance(refusal, Refusal)
-    assert refusal.failed_premise == CAPABILITY_UNAVAILABLE_R1
-    assert refusal.task is task
-    assert refusal.grounds and refusal.remedies
-    assert refusal.scope.kind is ScopeKind.TASK
-    assert refusal.meta.artifact_type is ArtifactKind.PLAN
-    # The refusal names what IS answered, read off the table rather than
-    # restated -- so this stays true when the fifth kind lands in R4.
-    assert refusal.grounds[0].expected == tuple(
-        sorted(kind.value for kind in task_module.SUPPORTED_TASK_KINDS)
-    )
+    # The premise stays in the vocabulary with a remedy, because the
+    # fall-through that names it is still reachable by a hand-built plan.
+    assert CAPABILITY_UNAVAILABLE_R1 in PREMISES
+    assert task_module._REMEDIES[CAPABILITY_UNAVAILABLE_R1]
+
+
+def test_an_evidence_task_now_compiles_where_it_used_to_be_refused():
+    """The other half of the change above, stated as its own measurement.
+
+    Deliberately inside x64: an evidence task in a float32 environment is
+    refused as ``evidence_requires_x64``, which is a different subject.
+    """
+    import jax
+
+    with jax.enable_x64(True):
+        task = EvidenceTask(meta=new_task_meta(label="Z"))
+        planned = compile_task(straight_line(), task, model_ref=model_ref())
+        assert not isinstance(planned, Refusal), getattr(
+            planned, "failed_premise", None
+        )
+        assert planned.task is task
 
 
 @pytest.mark.parametrize(

@@ -129,8 +129,25 @@ a correlated or non-Gaussian observed node is refused as
 `SimulationTask` executes too, since R3 opened the evaluation layer: prior,
 fixed and posterior-sourced parameter sources all run through the same forward
 primitives the predictive seam uses, so there is one forward model rather than
-a simulator beside it. `EvidenceTask` is the one of the five still refused, and
-it returns the typed `capability_unavailable_r1`.
+a simulator beside it.
+
+`EvidenceTask` executes since R4, and it is the last of the five. It answers
+`log p(d)` for one structure class -- a whole-graph-exact linear-Gaussian
+model -- and the answer arrives as five separately derived
+`EvidenceComponent`s rather than as a scalar, because every theta-independent
+constant that a posterior never sees is load-bearing in an evidence. Anything
+outside that class is refused as `evidence_residual_integral_required`, which
+names the numerical integral R5 supplies rather than returning a number
+nothing graded.
+
+Its refusals are the interesting half. A prior with infinite mass is refused
+as `evidence_prior_proper`; one whose mass is finite but not one as
+`evidence_prior_normalised`; a latent covered by the graph-level reference
+prior as `evidence_prior_undeclared`; a float32 environment as
+`evidence_requires_x64`, because the same assembly agrees with a dense
+analytic value to 3.4e-07 at that precision and 8.9e-16 at float64. In every
+case the SAME graph still compiles a posterior task unchanged -- that
+asymmetry is why compilation is task-aware at all.
 
 R3's own surface is model checking. `bayesmith.evaluation.check_posterior(graph,
 posterior, key=..., budget=..., model_ref=...)` runs the checks that apply to
@@ -189,7 +206,7 @@ still move -- 0.3.0 made `reason` required on `NotGaussian` and
 `NotLogLinear`, and 0.4.0 tightens two precision refusals, each breaking for
 a caller who was relying on the wrong answer.
 
-Implemented and tested, 5774 tests: the graph core with plates and joint
+Implemented and tested, 5790 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every
 route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR

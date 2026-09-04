@@ -111,6 +111,7 @@ from bayesmith.artifacts.reports import (
 )
 from bayesmith.artifacts.results import (
     DrawsPosterior,
+    EvidenceResult,
     LogDensityAvailability,
     PointEstimateResult,
     PosteriorResult,
@@ -193,6 +194,11 @@ SUPPORTED_TASK_KINDS: frozenset[TaskKind] = frozenset(
         TaskKind.POINT_ESTIMATE,
         TaskKind.PREDICTIVE,
         TaskKind.SIMULATION,
+        # R4. The fifth and last, and it is answered for ONE structure class:
+        # a whole-graph-exact linear-Gaussian block. Everything else is refused
+        # as `evidence_residual_integral_required`, which names the numerical
+        # integral R5 supplies rather than returning a number nothing graded.
+        TaskKind.EVIDENCE,
     }
 )
 
@@ -583,6 +589,66 @@ _REMEDIES: dict[str, tuple[Remedy, ...]] = {
             "and let it be sampled.",
         ),
     ),
+    # ---------------------------------------------------------------- R4
+    # An evidence task needs things of a model that a posterior task does not,
+    # and each remedy has to say which of the two the caller is standing in.
+    # "Use a proper prior" is the wrong advice for someone whose posterior is
+    # fine; "your model is broken" is the wrong advice for anyone.
+    "evidence_prior_proper": (
+        Remedy(
+            action="declare_a_proper_prior_on_every_latent",
+            message="p(d) is the integral of the likelihood against the prior, "
+            "so a prior with infinite mass leaves it undefined -- the posterior "
+            "is unaffected and still compiles. Give the named latent a prior "
+            "with finite mass, or ask for a posterior task instead.",
+        ),
+    ),
+    "evidence_prior_normalised": (
+        Remedy(
+            action="normalise_the_declared_prior",
+            message="This prior has finite mass, so p(d) converges, but the "
+            "mass is not one -- the number it converges to is that factor away "
+            "from the evidence a Bayes factor compares. Declare a normalised "
+            "density, or divide the reported value by the mass yourself.",
+        ),
+    ),
+    "evidence_prior_undeclared": (
+        Remedy(
+            action="replace_the_reference_prior_with_a_proper_one",
+            message="This latent's prior is the graph-level joint prior, which "
+            "is a reference prior rather than a declared density -- there is no "
+            "normalised p(theta) to integrate against. An evidence task needs "
+            "one; a posterior task does not and still compiles.",
+        ),
+    ),
+    "evidence_residual_integral_required": (
+        Remedy(
+            action="reduce_the_model_to_an_exactly_integrable_block",
+            message="R4 assembles an evidence only where the whole graph is an "
+            "exact linear-Gaussian block. This model leaves a residual problem "
+            "that needs numerical integration, which R5's nested-sampling "
+            "backend supplies. The posterior task is unaffected.",
+        ),
+    ),
+    "evidence_requires_x64": (
+        Remedy(
+            action="open_an_x64_context_around_the_graph_and_the_task",
+            message="An evidence is made of absolute normalising constants, "
+            "and float32 does not carry them: the same assembly agrees with a "
+            "dense analytic value to 3e-07 at this precision against 9e-16 at "
+            "float64. Build the graph and run the task inside "
+            "`with jax.enable_x64(True):`. A posterior task is unaffected.",
+        ),
+    ),
+    "evidence_base_measure_undeclared": (
+        Remedy(
+            action="state_the_change_of_variables_for_the_transformed_graph",
+            message="This graph was rewritten into log space and the "
+            "change-of-variables Jacobian is not recorded, so its density is "
+            "off by a data-dependent constant that is invisible in every "
+            "posterior and visible only here. Use the untransformed graph.",
+        ),
+    ),
     "predictive_noise_unsupported": (
         Remedy(
             action="use_a_diagonal_gaussian_observation",
@@ -756,13 +822,18 @@ def _map_method(task: Task) -> Any:
 def _known_options(task: Task, kind: TaskKind) -> frozenset[str]:
     if kind is TaskKind.POSTERIOR:
         return _POSTERIOR_OPTIONS
-    if kind in (TaskKind.PREDICTIVE, TaskKind.SIMULATION):
+    if kind in (TaskKind.PREDICTIVE, TaskKind.SIMULATION, TaskKind.EVIDENCE):
         return frozenset()
     return _MAP_OPTIONS if task.estimand is Estimand.MAP else _POSTERIOR_MEAN_OPTIONS
 
 
 def _given_options(task: Task, kind: TaskKind) -> tuple[tuple[str, Any], ...]:
-    if kind in (TaskKind.POSTERIOR, TaskKind.PREDICTIVE, TaskKind.SIMULATION):
+    if kind in (
+        TaskKind.POSTERIOR,
+        TaskKind.PREDICTIVE,
+        TaskKind.SIMULATION,
+        TaskKind.EVIDENCE,
+    ):
         return task.backend_options
     return task.optimizer_options
 
@@ -948,10 +1019,167 @@ def _refuse_before_compiling(
         unknown = tuple(name for name in task.names if name not in graph.latents)
         if unknown:
             return _undeclared_refusal(task, unknown, graph.latents, bundle)
+    if kind is TaskKind.EVIDENCE:
+        evidence_refusal = _evidence_precompile_refusal(graph, task, bundle)
+        if evidence_refusal is not None:
+            return evidence_refusal
     gap = model_identity_gap(graph, model_ref)
     if gap:
         return _identity_refusal(task, gap, bundle)
     return None
+
+
+def _evidence_precompile_refusal(
+    graph: Graph, task: Task, bundle: FingerprintBundle
+) -> Refusal | None:
+    """What an evidence task needs of a model that a posterior task does not.
+
+    Read here rather than after compilation because none of it depends on a
+    plan: whether a declared prior has mass one is a property of the
+    declaration, and a task that is going to be refused should not first pay
+    for the probes a plan costs.
+
+    Every arm of this function has a companion assertion that the SAME graph
+    still compiles a posterior task. §2.2 names the asymmetry as the reason
+    compilation is task-aware at all -- an improper prior leaves the posterior
+    perfectly well defined and the evidence undefined -- and a refusal that
+    also broke the posterior would be a regression wearing a boundary's name.
+    """
+    from bayesmith.dispatch.evidence import PriorVerdict, audit_graph_priors
+
+    # Judged by OUTCOME rather than by reading the config flag, the same way
+    # `refuse_ambient_float32` does it: `jnp.result_type(float)` is what the
+    # arithmetic below will actually run at, whether the caller used the
+    # context manager, the process-global switch or neither.
+    ambient = jnp.result_type(float)
+    if ambient != jnp.float64:
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.PLAN,
+            fingerprints=bundle,
+            failed_premise="evidence_requires_x64",
+            grounds=(
+                Finding(
+                    code="ambient_precision_too_narrow",
+                    message="An evidence is made of the absolute normalising "
+                    "constants a posterior never sees, and float32 does not "
+                    "carry them. Measured on this package's own fixture: the "
+                    "same assembly agrees with a dense analytic log evidence "
+                    "to 3.4e-07 at float32 and 8.9e-16 at float64.",
+                    observed=str(ambient),
+                    expected="float64",
+                ),
+            ),
+            scope=_scope(ScopeKind.BACKEND, "dtype"),
+            summary="this environment cannot carry an evidence's constants",
+        )
+
+    unread = tuple(
+        name
+        for name, value in (
+            ("repeat_count", task.repeat_count),
+            ("reconstruct_posterior", task.reconstruct_posterior or None),
+        )
+        if value is not None
+    )
+    if unread:
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.PLAN,
+            fingerprints=bundle,
+            failed_premise="task_options_recognised",
+            grounds=(
+                Finding(
+                    code="unrecognised_option",
+                    message=f"R4 assembles an exact evidence once and reads "
+                    f"none of {list(unread)}. Both sit inside the task "
+                    f"fingerprint, so naming one changes the digest while "
+                    f"changing nothing about the run -- refused rather than "
+                    f"ignored.",
+                    observed=unread,
+                    expected=(),
+                ),
+            ),
+            scope=_scope(ScopeKind.TASK, TaskKind.EVIDENCE.value),
+            summary="this release reads neither repeat_count nor "
+            "reconstruct_posterior on an evidence task",
+        )
+
+    for audit in audit_graph_priors(graph):
+        if audit.verdict is PriorVerdict.PROPER and audit.normalised:
+            continue
+        # A dict keyed by the enum rather than a chain of ifs, so that adding
+        # a verdict without deciding what it refuses raises KeyError here
+        # instead of falling through to a number.
+        premises = {
+            PriorVerdict.PROPER: ("evidence_prior_normalised", "prior_mass_is_not_one"),
+            PriorVerdict.IMPROPER: ("evidence_prior_proper", "prior_mass_diverges"),
+            PriorVerdict.UNDECLARED: (
+                "evidence_prior_undeclared",
+                "prior_is_a_graph_level_reference",
+            ),
+            PriorVerdict.UNVERIFIABLE: (
+                "evidence_prior_proper",
+                "prior_mass_not_resolved",
+            ),
+        }
+        premise, code = premises[audit.verdict]
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.PLAN,
+            fingerprints=bundle,
+            failed_premise=premise,
+            grounds=(
+                Finding(
+                    code=code,
+                    message=audit.reason,
+                    observed=(audit.latent, audit.verdict.value)
+                    if audit.mass is None
+                    else (audit.latent, audit.verdict.value, float(audit.mass)),
+                    expected=("proper", 1.0),
+                ),
+            ),
+            scope=_scope(ScopeKind.PARAMETER, audit.latent),
+            summary=f"{audit.latent}'s prior does not define a p(d) to report",
+        )
+    return None
+
+
+def _evidence_structure_refusal(
+    runtime: InferencePlan, task: Task, bundle: FingerprintBundle
+) -> Refusal | None:
+    """R4's admitted structure class, and the name for everything outside it.
+
+    One class: the whole graph is one exact linear-Gaussian block solved by
+    ``gcr``. A model with a sampled block leaves a residual problem that needs
+    numerical integration, which is R5's subject; a model with no exact block
+    at all leaves the whole thing. Both get the same premise, because the
+    caller's next step is the same in both cases and it is not available yet.
+    """
+    sampled = () if runtime.sampled is None else tuple(runtime.sampled.latents)
+    method = runtime.exact.method if runtime.exact is not None else None
+    if not sampled and method == "gcr":
+        return None
+    return _refusal(
+        task,
+        artifact_type=ArtifactKind.PLAN,
+        fingerprints=bundle,
+        failed_premise="evidence_residual_integral_required",
+        grounds=(
+            Finding(
+                code="not_whole_graph_exact_evidence",
+                message="R4 assembles an evidence only where the whole graph "
+                "is one exact linear-Gaussian block. What is left over here "
+                "needs a numerical integral over the residual problem, which "
+                "this release does not run.",
+                observed=(tuple(sampled), method or "none"),
+                expected=((), "gcr"),
+            ),
+        ),
+        scope=_scope(ScopeKind.MODEL, "evidence"),
+        summary="this graph leaves a residual problem an exact assembly "
+        "cannot integrate",
+    )
 
 
 def _estimate_refusal(
@@ -1254,6 +1482,11 @@ def compile_task(
 
     if kind is TaskKind.POINT_ESTIMATE and task.estimand is Estimand.POSTERIOR_MEAN:
         refusal = _estimate_refusal(runtime, task, bundle)
+        if refusal is not None:
+            return refusal
+
+    if kind is TaskKind.EVIDENCE:
+        refusal = _evidence_structure_refusal(runtime, task, bundle)
         if refusal is not None:
             return refusal
 
@@ -2355,8 +2588,96 @@ def execute_task(
         return _run_predictive(planned, key, source_posterior)
     if kind is TaskKind.SIMULATION:
         return _run_simulation(planned, key, source_posterior)
+    if kind is TaskKind.EVIDENCE:
+        return _run_evidence(planned)
     # compile_task never produces one of these; a PlannedTask assembled by
     # hand gets the same verdict rather than an execution that half-works.
     return _capability_refusal(
         planned.task, kind, planned.record.meta.fingerprints, ArtifactKind.RESULT
+    )
+
+
+def _run_evidence(planned: PlannedTask) -> Result:
+    """``log p(d)`` for a whole-graph-exact linear-Gaussian model.
+
+    A mechanical projection of :func:`~bayesmith.dispatch.evidence.assemble_exact`
+    onto the frozen artifact. Nothing is decided here: the structure class was
+    decided at compile time and the arithmetic lives one module across, so this
+    function's whole job is to put the five components and the total where a
+    consumer reads them, with the run record beside them.
+
+    ``standard_error`` stays ``None`` rather than ``0.0``. The two say different
+    things to a Bayes-factor consumer -- none was computed, against one measured
+    and found to be zero -- and an exact assembly has computed none.
+    """
+    from bayesmith.dispatch.evidence import assemble_exact
+
+    runtime = planned.runtime_plan
+    graph = runtime.graph
+
+    # The gates run again here, and they are the SAME functions compile_task
+    # called -- not a second copy of the rules. `compile_task` never produces a
+    # plan that fails them, but a PlannedTask assembled by hand bypasses it
+    # entirely, and an evidence that skipped its eligibility audit is precisely
+    # the false certainty §11.4 names. Calling the compiler's own guards means
+    # the two verdicts cannot drift apart, which is the shape `_estimate_refusal`
+    # already uses for the posterior mean.
+    fingerprints = planned.record.meta.fingerprints
+    refusal = _evidence_precompile_refusal(graph, planned.task, fingerprints)
+    if refusal is None:
+        refusal = _evidence_structure_refusal(runtime, planned.task, fingerprints)
+    if refusal is not None:
+        return dataclasses.replace(
+            refusal,
+            meta=dataclasses.replace(
+                refusal.meta, artifact_type=ArtifactKind.RESULT
+            ),
+        )
+
+    names = tuple(runtime.exact.latents)
+
+    started = utc_timestamp()
+    clock = time.perf_counter()
+    assembly = assemble_exact(graph, names, {})
+    elapsed = time.perf_counter() - clock
+    finished = utc_timestamp()
+
+    run = _run_record(
+        planned,
+        key=None,
+        values=[jnp.asarray(assembly.log_evidence)],
+        budget=ComputeBudget(),
+        termination=TerminationRecord(
+            reason=TerminationReason.COMPLETED,
+            iterations=1,
+            message="the exact Gaussian integral over the block was assembled "
+            "in closed form; there is nothing to converge",
+        ),
+        timing=_timing(started, finished, elapsed),
+        approximation=ApproximationRecord(
+            representation_class=ApproximationClass.EXACT,
+            target_fidelity=TargetFidelity.EXACT,
+            details=(
+                ("method", "exact_gaussian_assembly"),
+                ("requested_backend", planned.task.backend),
+                ("block", ",".join(names)),
+            ),
+        ),
+        warnings=(),
+        # No backend is chained: the assembly is this package's own dense
+        # linear algebra, not a call out to NumPyro or anything else.
+        chained=False,
+    )
+    return EvidenceResult(
+        meta=new_artifact_meta(
+            artifact_type=ArtifactKind.RESULT,
+            fingerprints=run.fingerprints,
+            producer=PRODUCER,
+            parent_refs=(),
+            summary=f"log evidence of {','.join(names)} integrated exactly",
+        ),
+        run=run,
+        log_evidence=float(assembly.log_evidence),
+        standard_error=None,
+        exact_components=assembly.components,
     )
