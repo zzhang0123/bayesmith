@@ -1519,6 +1519,25 @@ cache has held a lie in this checkout before.
 12. **`CLAUDE.md` and `AGENTS.md` move in the same commit**, and every count is re-measured
 rather than quoted.
 
+13. **A fix must behave differently from the bug it replaces on some input the package
+actually has.** Executable, not a maxim: put the old code back and re-run. **If the suite is
+still green, nothing was fixed** — what changed was the spelling.
+
+〔Added during Wave A, which produced the first instance. `shapes` was always `()` because the
+code read `graph.shape` behind a `hasattr` guard and `Graph` has no such attribute. The repair
+replaced it with `batch_shape + event_shape` broadcast against the plate — the correct
+expression — and **0 of 54 shipped latents have `batch_shape + event_shape` non-empty**, so on
+every input this package contains the repair is identically the bug. Three mutants lived there,
+inside the fix.
+
+This is the tenth instance of `CLAUDE.md`'s family in this batch and the first that is not a
+CHECK. The nine before were checks that could not distinguish the thing they named from a thing
+resembling it. This is a **repair** that cannot distinguish itself from what it replaced, and its
+diagnostic signal is weaker than a defeated guard's: a bypassed guard is still there to read,
+whereas a repair equivalent to the old bug on all available inputs **reads as correct**, passes,
+and carries a sincere commit message. What separated them was two fixtures the package does not
+have.〕
+
 ---
 
 ## Completion gates: §8 R5's seven, made countable
