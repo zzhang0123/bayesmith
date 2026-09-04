@@ -514,3 +514,96 @@ class TestThePriorSideIntegratesToOne:
             "likelihood factor filed on the prior side is exactly what this "
             "looks like"
         )
+
+
+# ------------------------------- the dimensions the first draft never varied
+
+class TestTheDimensionsTheFirstDraftHeldConstant:
+    """Three mutation survivors, and each was a dimension no test varied.
+
+    Every test above calls ``compile_evidence_problem(graph)`` with the default
+    ``exact_elimination=()``, and none looks at ``shapes`` or constructs a
+    problem with overlapping term tuples. So deleting the term-overlap check,
+    reporting every parameter as a scalar, and ignoring ``exact_elimination``
+    all survived the whole file. Found by enumerating what the fixtures hold
+    CONSTANT rather than by reading the diff -- red line 1's form.
+
+    One of the three was not a test gap at all: ``shapes`` really was always
+    ``()``, because the code read ``graph.shape`` behind a
+    ``hasattr(graph, "shape")`` guard and ``Graph`` has no such attribute. The
+    mutant and the code agreed, which is why no mutation of that line could
+    have shown it and why "SURVIVED" had to be diagnosed rather than counted.
+    """
+
+    def test_a_plated_latent_reports_its_real_shape(self):
+        """``plated_latent`` declares a plate of 6. Reporting `()` for it is
+        a parameter layout that tells a backend the wrong dimension."""
+        graph = as_graph(models.plated_latent())
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+        assert dict(problem.shapes)["z"] == (6,), (
+            f"shapes reports {problem.shapes}; the plate is 6 wide"
+        )
+
+    @pytest.mark.parametrize("label,graph", GRAPHS, ids=[g[0] for g in GRAPHS])
+    def test_the_layout_agrees_with_node_shape_where_node_shape_applies(
+        self, label, graph
+    ):
+        """Two routes to a latent's shape, pinned together.
+
+        ``compile_evidence_problem`` uses ``batch_shape + event_shape``
+        broadcast with the plate, because it must answer for an
+        ``ImproperUniform`` latent, which has no ``loc`` for ``node_shape`` to
+        read. ``node_shape`` is what ``to_numpyro`` is pinned against. Where
+        both are defined they must agree, or the compiled layout describes a
+        different space from the one a sampler would open.
+        """
+        from bayesmith.dispatch.classify import prior_environment
+        from bayesmith.exact.gaussian import node_shape
+
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            env = prior_environment(graph)
+            for name, shape in problem.shapes:
+                try:
+                    reference = tuple(node_shape(graph, graph.node(name), env))
+                except (AttributeError, TypeError):
+                    continue  # node_shape needs a `loc`; this latent has none
+                assert shape == reference, (
+                    f"{label}: layout says {name}{shape}, node_shape says "
+                    f"{reference}"
+                )
+
+    def test_a_scalar_latent_still_reports_the_empty_shape(self):
+        graph = as_graph(models.straight_line())
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+        assert dict(problem.shapes)["w"] == ()
+
+    def test_exact_elimination_removes_names_from_the_residual(self):
+        """The parameter Tasks 6 and 7 depend on, exercised here because no
+        other test passes it a non-empty value."""
+        graph = as_graph(models.two_linear_latents())
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph, exact_elimination=("a",))
+        assert problem.exact_elimination == ("a",)
+        assert problem.residual_parameters == ("b",)
+        assert [name for name, _ in problem.shapes] == ["b"], (
+            "shapes must cover the residual parameters and only those; a "
+            "backend sized from this layout would allocate for an eliminated "
+            "parameter"
+        )
+
+    def test_a_term_cannot_be_filed_on_both_sides(self):
+        """``__post_init__``'s second check, which nothing else constructs."""
+        with pytest.raises(ValueError, match="both the prior and the likelihood"):
+            CompiledEvidenceProblem(
+                log_prior=lambda values: jnp.zeros(()),
+                log_likelihood=lambda values: jnp.zeros(()),
+                prior_sample=lambda key: {},
+                exact_elimination=(),
+                residual_parameters=("w",),
+                shapes=(("w", ()),),
+                prior_terms=("w",),
+                likelihood_terms=("w",),
+            )

@@ -85,6 +85,7 @@ import numpy as np
 from bayesmith.artifacts._codec import register_artifact_type
 from bayesmith.artifacts.results import EvidenceComponent
 from bayesmith.bridge.numpyro_bridge import to_numpyro as _to_numpyro
+from bayesmith.dispatch.classify import prior_environment
 from bayesmith.dispatch.collapse import observed_descendants
 from bayesmith.exact.block import unchecked_operator
 from bayesmith.exact.fisher import dense_operator
@@ -1082,6 +1083,19 @@ def _graph_term_value(graph: Graph, term: Any, env: Mapping[str, Any], names) ->
     return jnp.asarray(term.log_density(graph, {name: env[name] for name in names}))
 
 
+
+def _latent_shape(graph: Graph, name: str, env: Mapping[str, Any]) -> tuple[int, ...]:
+    """A latent's value shape, defined for every distribution."""
+    node = graph.node(name)
+    distribution = apply_probabilistic(graph, node, dict(env))
+    shape = tuple(distribution.batch_shape) + tuple(distribution.event_shape)
+    if node.plate:
+        shape = tuple(
+            jnp.broadcast_shapes(shape, (graph.plate_size(node.plate[0]),))
+        )
+    return shape
+
+
 def compile_evidence_problem(
     graph: Graph,
     *,
@@ -1175,13 +1189,26 @@ def compile_evidence_problem(
         )
         return {name: site["value"] for name, site in traced.items() if name in latents}
 
-    residual = tuple(
-        name for name in graph.latents if name not in frozenset(exact_elimination)
-    )
-    shapes: list[tuple[str, tuple[int, ...]]] = []
-    for name in residual:
-        declared = graph.shape.get(name) if hasattr(graph, "shape") else None
-        shapes.append((name, tuple(declared) if declared is not None else ()))
+    eliminated = frozenset(exact_elimination)
+    residual = tuple(name for name in graph.latents if name not in eliminated)
+
+    # The parameter layout, from the DISTRIBUTION's own shape broadcast against
+    # the plate.
+    #
+    # Not a `graph.shape` lookup: `Graph` has no `.shape` attribute at all, so
+    # the first draft -- guarded by `hasattr(graph, "shape")` -- reported every
+    # parameter as a scalar, silently and for every graph. No mutation of that
+    # line could show it, because the mutant and the code agreed.
+    #
+    # And not `node_shape`, which is the obvious answer and reads `loc` off the
+    # distribution: an `ImproperUniform` latent has no `loc`, so a residual
+    # problem carrying one would raise here rather than report its layout.
+    # `batch_shape + event_shape`, broadcast with the plate, is what
+    # `to_numpyro` opens the site at and is defined for every distribution;
+    # `test_the_layout_agrees_with_node_shape_where_node_shape_applies` pins
+    # the two together on the fixtures where both are defined.
+    env = prior_environment(graph)
+    shapes = tuple((name, _latent_shape(graph, name, env)) for name in residual)
 
     return CompiledEvidenceProblem(
         log_prior=log_prior,
@@ -1189,7 +1216,7 @@ def compile_evidence_problem(
         prior_sample=prior_sample,
         exact_elimination=tuple(exact_elimination),
         residual_parameters=tuple(name for name in residual if name in latents),
-        shapes=tuple(shapes),
+        shapes=shapes,
         prior_terms=tuple(prior_terms),
         likelihood_terms=tuple(likelihood_terms),
     )
