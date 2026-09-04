@@ -199,9 +199,20 @@ would be, the treatment R4 gave the chain and campaign families.
 
 **This is not a small class [planning].** Compiling every shipped fixture:
 
-| class | count | fixtures |
+〔**Execution write-back, red line 11 (Task 1).** This table is a census over the **49 graphs
+whose fixtures take no constructor arguments.** Task 1 declared arguments for the other five and
+re-ran it over all **54**: four of them (`cancelling_sum`, `many_observations`, `roundoff_stress`,
+`wide_plate`) are class (a) and one (`sigma_functional_block`) is class (d), so the complete
+census is **19 / 7 / 13 / 10 / 5**. Classes (b) and (c) — R5's whole subject — are unchanged. The
+table below is kept at its original denominator with the correction stated, because the plan's
+own §0.15 note says a count whose denominator is unstated is one the next reader re-derives
+differently, and silently restating it here would leave two numbers in the batch with no
+explanation of the gap. `docs/probes/probe_34_residual_seams.py` §2 prints both and checks
+`49 + 5 == 54`.〕
+
+| class | count (of 49) | fixtures |
 |---|---:|---|
-| (a) whole-graph exact | 15 | R4 answers these |
+| (a) whole-graph exact | 15 (**19** of 54) | R4 answers these |
 | **(b) exact + residual, `gcr`** | **6** | `diamond_ancestor`, `indirect_ancestor`, `shared_ancestor`, `three_latent_chain`, `overflowing_outside_latent`, `improper_outside_prior` |
 | (b′) exact + residual, `gcr+mh` | 1 | `mixed_radiometer` — **refused** by (d) |
 
@@ -209,7 +220,7 @@ would be, the treatment R4 gave the chain and campaign families.
 > means **the six `gcr` graphs** everywhere below. Where all seven exact+residual graphs are meant,
 > the plan writes **"(b) ∪ (b′)"** — which is what §0.15's premise table counts.
 | **(c) all-residual** | **13** | incl. `student_t_likelihood`, `non_gaussian_observed_node`, `cubic_tail`, `bilinear_pair` |
-| (d) `gcr+snis`, no sampled block | 9 | **refused** |
+| (d) `gcr+snis`, no sampled block | 9 (**10** of 54) | **refused** |
 | compile refuses today | 5 | four deliberately malformed; `plated_student_t_latent` is **well formed** and simply outside the exact path (`NotGaussian`) |
 
 **And the price of (d)'s refusal is measured [planning].** Calling `marginal_log_density`

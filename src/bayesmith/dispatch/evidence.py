@@ -84,6 +84,7 @@ import numpy as np
 
 from bayesmith.artifacts._codec import register_artifact_type
 from bayesmith.artifacts.results import EvidenceComponent
+from bayesmith.bridge.numpyro_bridge import to_numpyro as _to_numpyro
 from bayesmith.dispatch.collapse import observed_descendants
 from bayesmith.exact.block import unchecked_operator
 from bayesmith.exact.fisher import dense_operator
@@ -91,9 +92,12 @@ from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.precision import per_sample_sigma
 from bayesmith.graph.evaluate import apply_probabilistic
 from bayesmith.graph.graph import Graph
+from bayesmith.graph.nodes import Probabilistic
 
 __all__ = [
     "EVIDENCE_COMPONENT_NAMES",
+    "CompiledEvidenceProblem",
+    "compile_evidence_problem",
     "increments_converge",
     "mass_is_normalised",
     "ExactAssembly",
@@ -984,3 +988,208 @@ def audit_graph_priors(graph: Graph) -> tuple[PriorAudit, ...]:
                 )
             )
     return tuple(audits)
+
+
+# ------------------------------------------------- the compiled residual problem
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class CompiledEvidenceProblem:
+    """A residual evidence problem, with its prior and likelihood separated.
+
+    Nested sampling needs ``log L(theta)`` apart from ``log pi(theta)``, and
+    nothing else in this package produces that separation:
+    :func:`~bayesmith.graph.evaluate.log_joint` sums every ``Probabilistic``
+    node into ONE running total and then adds ``joint_prior`` and every
+    ``evidence_terms`` entry in the same loop. Building the split is a compiler
+    pass and bayesmith owns it -- design section 1.5's first clause is graph
+    semantics, structure discovery, premise validation and task-aware
+    compilation.
+
+    **No FIELD is a Graph, and the densities close over one.** Both halves are
+    asserted, because stating only the first is how a guard that reads a
+    spelling gets written: an earlier test here walked the field values for a
+    ``.nodes`` attribute, and they are functions, so it passed while the graph
+    was reachable through every one of the three closures.
+
+    Design line 192 says a compiled problem may contain the residual log
+    density, transforms, constant terms and a reconstruction map, "but it may
+    not re-interpret the Graph". What that forbids is a BACKEND doing the
+    re-interpreting. bayesmith compiling the densities itself, by closing over
+    the graph, is the contract kept rather than broken -- the adapter receives
+    callables and cannot reach a graph without walking closure internals. The
+    half that binds an adapter is asserted where an adapter exists: its module
+    imports no ``Graph`` and its signature takes only a compiled problem.
+
+    The parent type design line 482 names, ``CompiledProblem``, does not exist
+    in this package -- the name appears six times in the design and nowhere in
+    the source -- so this is built standalone and to line 192's contract, in
+    order that the variant relation is a refactor rather than a redesign when
+    the parent is written.
+
+    Attributes:
+        log_prior: ``theta -> log pi(theta)``, the latent nodes' own densities
+            plus the graph-level ``joint_prior``.
+        log_likelihood: ``theta -> log L(theta)``, the observed nodes' densities
+            (honouring ``observed_mask``) plus every graph-level
+            ``evidence_terms`` entry. Those hold graph-level LIKELIHOOD factors
+            despite the field's name, which the R4 close-out records and
+            declines to rename; the assignment is asserted by consequence --
+            the prior side integrates to one -- and never by the name.
+        prior_sample: ``key -> theta``, a draw from the prior. Strictly
+            stronger than a prior that integrates to one, and it is what a
+            nested sampler actually needs: ``improper_outside_prior`` raises
+            here rather than returning a number.
+        exact_elimination: latents already integrated in closed form.
+        residual_parameters: latents the backend must integrate. Disjoint from
+            ``exact_elimination`` -- ``InferencePlanRecord`` already refuses a
+            name in both, and the two would otherwise disagree about which
+            parameters a backend was handed.
+        shapes: the parameter layout, ``(name, shape)`` per residual parameter.
+        prior_terms, likelihood_terms: which term went to which side. Carried
+            as data so that a test can assert every term is filed exactly once
+            without re-deriving the partition it is grading.
+    """
+
+    log_prior: Any
+    log_likelihood: Any
+    prior_sample: Any
+    exact_elimination: tuple[str, ...]
+    residual_parameters: tuple[str, ...]
+    shapes: tuple[tuple[str, tuple[int, ...]], ...]
+    prior_terms: tuple[str, ...]
+    likelihood_terms: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        both = sorted(set(self.exact_elimination) & set(self.residual_parameters))
+        if both:
+            raise ValueError(
+                f"{both} are named as both eliminated and residual; an "
+                "eliminated parameter is precisely one the problem does not "
+                "carry"
+            )
+        shared = sorted(set(self.prior_terms) & set(self.likelihood_terms))
+        if shared:
+            raise ValueError(
+                f"{shared} are filed on both the prior and the likelihood "
+                "side; a term counted twice is the failure an evidence layer "
+                "exists to prevent"
+            )
+
+
+def _graph_term_value(graph: Graph, term: Any, env: Mapping[str, Any], names) -> Any:
+    """One graph-level term's density, read the way ``log_joint`` reads it."""
+    return jnp.asarray(term.log_density(graph, {name: env[name] for name in names}))
+
+
+def compile_evidence_problem(
+    graph: Graph,
+    *,
+    exact_elimination: tuple[str, ...] = (),
+) -> CompiledEvidenceProblem:
+    """Split a graph's joint density into a prior and a likelihood.
+
+    The partition: latent ``Probabilistic`` nodes and ``joint_prior`` on the
+    prior side; observed ``Probabilistic`` nodes and every ``evidence_terms``
+    entry on the likelihood side.
+
+    **The identity this is graded against is not the obvious one.**
+    ``log_prior + log_likelihood == log_joint`` bitwise is a property of the
+    SUMMATION ORDER, not of the partition: ``log_joint`` accumulates one
+    running total and splitting it into two reorders that sum. Measured over
+    200 prior draws, ``two_observations`` is bitwise 186/200 and
+    ``observation_reused_downstream`` 182/200, while single-observation
+    fixtures are 200/200. So the test asserts each term is filed exactly once
+    -- which is what catches a constant that moved sides -- grades the
+    recomposition against a derived band over a declared seed set, and settles
+    CORRECTNESS with an oracle that compares no implementations at all: the
+    prior side must integrate to one.
+    """
+    from bayesmith.graph.evaluate import evaluate
+
+    latents = frozenset(graph.latents)
+    prior_nodes = tuple(
+        node.name
+        for node in graph.nodes
+        if isinstance(node, Probabilistic) and node.observed is None
+    )
+    likelihood_nodes = tuple(
+        node.name
+        for node in graph.nodes
+        if isinstance(node, Probabilistic) and node.observed is not None
+    )
+    prior_terms = list(prior_nodes)
+    if graph.joint_prior is not None:
+        prior_terms.append("joint_prior")
+    likelihood_terms = list(likelihood_nodes)
+    likelihood_terms.extend(
+        f"evidence_terms[{index}]" for index in range(len(graph.evidence_terms))
+    )
+
+    def _side(values: Mapping[str, Any], *, observed: bool) -> Any:
+        env = evaluate(graph, dict(values))
+        total = jnp.zeros(())
+        for node in graph.nodes:
+            if not isinstance(node, Probabilistic):
+                continue
+            if (node.observed is not None) is not observed:
+                continue
+            term = apply_probabilistic(graph, node, env).log_prob(env[node.name])
+            if node.observed_mask is not None:
+                term = jnp.where(node.observed_mask, term, 0.0)
+            total = total + jnp.sum(term)
+        if observed:
+            for term in graph.evidence_terms:
+                total = total + _graph_term_value(graph, term, env, term.over)
+        elif graph.joint_prior is not None:
+            total = total + _graph_term_value(
+                graph, graph.joint_prior, env, graph.latents
+            )
+        return total
+
+    def log_prior(values: Mapping[str, Any]) -> Any:
+        return _side(values, observed=False)
+
+    def log_likelihood(values: Mapping[str, Any]) -> Any:
+        return _side(values, observed=True)
+
+    def prior_sample(key: Any) -> dict[str, Any]:
+        """A draw from the declared prior, ancestrally.
+
+        Routed through ``to_numpyro`` with ``observed={}`` -- the bridge's own
+        prior-predictive convention -- rather than walked here. A
+        ``Probabilistic`` node's ``dist_fn`` returns one object that owns both
+        ``sample`` and ``log_prob``, and its docstring gives that as the reason
+        the field exists: a hand-written ancestral walk is the second
+        implementation those two could disagree across.
+
+        A prior with no ``sample`` -- an improper one -- raises here rather than
+        returning a number. That is the outcome R4 already refuses as
+        ``evidence_prior_proper``, and a nested sampler needs to be told before
+        it starts rather than after.
+        """
+        from numpyro import handlers
+
+        traced = handlers.trace(handlers.seed(_to_numpyro(graph), key)).get_trace(
+            observed={}
+        )
+        return {name: site["value"] for name, site in traced.items() if name in latents}
+
+    residual = tuple(
+        name for name in graph.latents if name not in frozenset(exact_elimination)
+    )
+    shapes: list[tuple[str, tuple[int, ...]]] = []
+    for name in residual:
+        declared = graph.shape.get(name) if hasattr(graph, "shape") else None
+        shapes.append((name, tuple(declared) if declared is not None else ()))
+
+    return CompiledEvidenceProblem(
+        log_prior=log_prior,
+        log_likelihood=log_likelihood,
+        prior_sample=prior_sample,
+        exact_elimination=tuple(exact_elimination),
+        residual_parameters=tuple(name for name in residual if name in latents),
+        shapes=tuple(shapes),
+        prior_terms=tuple(prior_terms),
+        likelihood_terms=tuple(likelihood_terms),
+    )
