@@ -1,4 +1,4 @@
-"""A per-epoch nuisance whose declared prior WIDTH varies across epochs.
+"""A per-epoch nuisance whose declared prior varies across epochs.
 
 ``epoch_terms`` read one entry of each per-epoch latent's declared prior and
 broadcast it to every epoch. For a campaign declaring ``tau = [0.5, 1, 2, 4]``
@@ -14,13 +14,24 @@ vector and the code took ``[0]``; ``nuisance_prior`` already broadcasts a
 per-component std; and ``one_epoch`` is already ``vmap``ped, so the prior only
 had to stop being a closed-over scalar and start being a mapped argument.
 
-**The oracle here shares nothing with the implementation.** Each epoch's
-marginal is a one-dimensional Gaussian written out by hand --
-``d_e ~ N(2g + m, tau_e^2 + sigma^2)`` -- summed in Python. No QR, no pivots,
-no offset arithmetic, and no ``SqrtInfo``.
+**The declaration has three dimensions, and a fixture that varies one of them
+convicts one third of the repair.** The first version of this file varied the
+WIDTH only, and an adversarial review put half the bug back -- ``prior_locs``
+rebuilt from ``loc.ravel()[0]``, the MEAN collapsed exactly as before -- and
+ran the whole fast layer green, 3257 passed, while being wrong by 4.221 nats on
+a fixture below. A second mutant deleted the ``[1:]`` from the broadcast target
+and also passed 3257. So each of the three is now varied and asserted
+separately: width, mean, and component width.
+
+**The oracles here share nothing with the implementation.** Each epoch's
+marginal is a Gaussian written out by hand and summed in Python. No QR, no
+pivots, no offset arithmetic, and no ``SqrtInfo``.
 """
 
 from __future__ import annotations
+
+import math
+import traceback
 
 import jax
 import jax.numpy as jnp
@@ -41,26 +52,27 @@ DATA = (0.3, 1.1, 0.4, 0.8)
 HETEROGENEOUS = (0.5, 1.0, 2.0, 4.0)
 HOMOGENEOUS = (0.5, 0.5, 0.5, 0.5)
 
+#: Four different declared means, for the half of the repair that the width
+#: fixtures above leave completely unasserted. Again the first entry is the one
+#: a collapsing implementation reproduces.
+HETEROGENEOUS_MEANS = (0.4, -0.7, 1.3, 0.05)
 
-def _campaign(widths):
-    """`n` is per-epoch and declares its own width in each epoch.
+
+def _campaign(widths, means=None):
+    """`n` is per-epoch and declares its own prior in each epoch.
 
     Both parameters are ``(E,)`` arrays. The spelling with a SCALAR mean and a
-    vector width is refused upstream, in ``unchecked_operator``, before this
-    layer is reached -- pinned by
-    :func:`test_a_scalar_mean_beside_a_vector_width_is_refused_upstream`.
+    vector width is refused -- pinned, with the frame that refuses it, by
+    :func:`test_a_scalar_mean_beside_a_vector_width_is_refused`.
     """
     taus = jnp.asarray(widths)
+    locs = jnp.full((EPOCHS,), PRIOR_MEAN) if means is None else jnp.asarray(means)
     data = jnp.asarray(DATA)
 
     def model():
         epoch = plate("epoch", EPOCHS)
         g = sample("g", lambda: dist.Normal(0.0, 2.0))
-        n = sample(
-            "n",
-            lambda: dist.Normal(jnp.full((EPOCHS,), PRIOR_MEAN), taus),
-            plate=epoch,
-        )
+        n = sample("n", lambda: dist.Normal(locs, taus), plate=epoch)
         mu = det(
             "mu", lambda g_, n_: 2 * g_ + n_, g, n, plate=epoch, linear_in=("g", "n")
         )
@@ -69,12 +81,13 @@ def _campaign(widths):
     return trace(model)
 
 
-def _dense(g_value, widths):
-    """``sum_e log N(d_e | 2g + m, tau_e^2 + sigma^2)``, by hand."""
+def _dense(g_value, widths, means=None):
+    """``sum_e log N(d_e | 2g + m_e, tau_e^2 + sigma^2)``, by hand."""
+    locs = (PRIOR_MEAN,) * len(widths) if means is None else means
     total = 0.0
-    for observation, tau in zip(DATA, widths, strict=True):
+    for observation, tau, mean in zip(DATA, widths, locs, strict=True):
         variance = tau**2 + SIGMA**2
-        residual = observation - (2.0 * g_value + PRIOR_MEAN)
+        residual = observation - (2.0 * g_value + mean)
         total += -0.5 * (
             residual * residual / variance
             + np.log(variance)
@@ -91,13 +104,36 @@ def test_each_epoch_is_integrated_against_the_width_it_declares(g_value):
         assert found == pytest.approx(_dense(g_value, HETEROGENEOUS), abs=1e-9)
 
 
+@pytest.mark.parametrize("g_value", [0.0, 1.5, -2.0])
+def test_each_epoch_is_integrated_against_the_mean_it_declares(g_value):
+    """The other half of the declaration, and the half a review had to find.
+
+    Every campaign fixture in this package declares ONE mean for the whole
+    campaign, so ``prior_locs`` could go on being rebuilt from
+    ``loc.ravel()[0]`` -- the original bug, in the new plumbing -- and pass
+    3257 tests. An adversarial review measured that mutant at 4.221 nats from
+    the dense truth; collapsing the mean in the ORACLE alone, which is what
+    :func:`test_the_wrong_answer_is_far_enough_away_to_fail_on` measures, moves
+    it 3.789 nats at ``g = -2`` and 1.162 at ``g = 0``. Two different pairs of
+    quantities, both far outside any tolerance here.
+    """
+    with jax.enable_x64(True):
+        term = compress_campaign(
+            _campaign(HETEROGENEOUS, HETEROGENEOUS_MEANS), "epoch"
+        )
+        found = float(term.log_prob({"g": jnp.asarray(g_value)}))
+        expected = _dense(g_value, HETEROGENEOUS, HETEROGENEOUS_MEANS)
+        assert found == pytest.approx(expected, abs=1e-9)
+
+
 def test_the_wrong_answer_is_far_enough_away_to_fail_on():
-    """The fixture must be able to fail, or the test above proves nothing.
+    """The fixtures must be able to fail, or the tests above prove nothing.
 
     A campaign that used the first epoch's width everywhere answers
     ``-3.086436`` where the truth is ``-5.838560``: 2.75 nats, on four epochs.
-    The gap grows with the campaign, which is what makes it worth a test rather
-    than a comment.
+    A campaign that used the first epoch's MEAN everywhere is 1.162 nats out
+    at ``g = 0`` and 3.789 at ``g = -2``. The gaps grow with the campaign,
+    which is what makes them worth tests rather than a comment.
     """
     with jax.enable_x64(True):
         truth = _dense(0.0, HETEROGENEOUS)
@@ -105,6 +141,12 @@ def test_the_wrong_answer_is_far_enough_away_to_fail_on():
         assert abs(truth - first_width_everywhere) > 2.0
         assert first_width_everywhere == pytest.approx(-3.086435510, abs=1e-8)
         assert truth == pytest.approx(-5.838560122, abs=1e-8)
+
+        one_mean = (HETEROGENEOUS_MEANS[0],) * EPOCHS
+        for g_value, floor in ((0.0, 1.0), (-2.0, 3.5)):
+            varying = _dense(g_value, HETEROGENEOUS, HETEROGENEOUS_MEANS)
+            collapsed = _dense(g_value, HETEROGENEOUS, one_mean)
+            assert abs(varying - collapsed) > floor
 
 
 @pytest.mark.parametrize("g_value", [0.0, 1.5])
@@ -121,14 +163,99 @@ def test_a_homogeneous_campaign_is_unchanged(g_value):
         assert found == pytest.approx(_dense(g_value, HOMOGENEOUS), abs=1e-9)
 
 
-def test_a_scalar_mean_beside_a_vector_width_is_refused_upstream():
-    """The spelling this repair does NOT reach, pinned so it stays visible.
+#: A per-epoch latent of COMPONENT width > 1, which is the only thing that
+#: makes ``(size, *domain.shape[name][1:])`` different from ``(size,)``.
+#: ``node_shape`` broadcasts the plate as a trailing axis, so a ``(E, k)``
+#: declaration is expressible only at ``k == E``; hence 3 epochs, 3 components.
+SQUARE_EPOCHS = 3
+SQUARE_SCALES = np.array([[0.5, 1.0, 2.0], [3.0, 0.25, 1.5], [0.75, 4.0, 0.6]])
+SQUARE_MEANS = np.array([[0.1, -0.2, 0.3], [0.4, 0.0, -0.5], [1.0, 0.2, -0.1]])
+SQUARE_WEIGHTS = np.array([1.0, -2.0, 0.5])
+SQUARE_DATA = np.array([0.3, 1.1, 0.4])
 
-    ``dist.Normal(0.4, taus)`` with a vector ``taus`` fails inside
-    ``unchecked_operator``, before ``epoch_terms`` sees it. That is a limitation
-    of the block layer rather than of this one, and it FAILS rather than lying,
-    which is the acceptable half of the two outcomes. Pinned so that a later
-    release lifting it finds this test rather than rediscovering the shape.
+
+def _square_campaign():
+    def model():
+        epoch = plate("epoch", SQUARE_EPOCHS)
+        g = sample("g", lambda: dist.Normal(0.0, 2.0))
+        n = sample(
+            "n",
+            lambda: dist.Normal(jnp.asarray(SQUARE_MEANS), jnp.asarray(SQUARE_SCALES)),
+            plate=epoch,
+        )
+        mu = det(
+            "mu",
+            lambda g_, n_: 2.0 * g_ + jnp.sum(jnp.asarray(SQUARE_WEIGHTS) * n_),
+            g,
+            n,
+            plate=epoch,
+            linear_in=("g", "n"),
+        )
+        observe(
+            "d",
+            lambda m: dist.Normal(m, SIGMA),
+            mu,
+            obs=jnp.asarray(SQUARE_DATA),
+            plate=epoch,
+        )
+
+    return trace(model)
+
+
+def _square_dense(g_value):
+    """``sum_e log N(d_e | 2g + w.m_e, sigma^2 + sum_j w_j^2 s_ej^2)``.
+
+    The scale matrix is deliberately NOT symmetric, so a route that indexed the
+    plate on the wrong axis would disagree rather than coincide.
+    """
+    total = 0.0
+    for epoch in range(SQUARE_EPOCHS):
+        variance = SIGMA**2 + float(
+            np.sum(SQUARE_WEIGHTS**2 * SQUARE_SCALES[epoch] ** 2)
+        )
+        residual = SQUARE_DATA[epoch] - (
+            2.0 * g_value + float(np.sum(SQUARE_WEIGHTS * SQUARE_MEANS[epoch]))
+        )
+        total += -0.5 * (
+            residual * residual / variance
+            + math.log(variance)
+            + math.log(2.0 * math.pi)
+        )
+    return float(total)
+
+
+@pytest.mark.parametrize("g_value", [0.0, 1.5, -2.0])
+def test_a_per_epoch_latent_of_component_width_uses_each_component(g_value):
+    """Every component of every epoch's declaration is read.
+
+    ``target = (size,)`` -- the broadcast target with ``[1:]`` deleted -- passes
+    the entire fast layer, because every other campaign fixture in this package
+    has a per-epoch latent of component width 1, where the two tuples are equal.
+    """
+    with jax.enable_x64(True):
+        term = compress_campaign(_square_campaign(), "epoch")
+        found = float(term.log_prob({"g": jnp.asarray(g_value)}))
+        assert found == pytest.approx(_square_dense(g_value), abs=1e-9)
+
+
+def test_a_scalar_mean_beside_a_vector_width_is_refused():
+    """The spelling this repair does NOT reach, pinned where it is refused.
+
+    ``dist.Normal(0.4, taus)`` with a vector ``taus`` is refused by
+    ``gaussian_parts``' ``broadcast_to(scale, shape(loc))``, reached from
+    ``epoch_terms``' own first statement through ``factorize`` ->
+    ``check_linearity`` -> ``check_gaussian``. An earlier version of this
+    docstring said it fails inside ``unchecked_operator`` before ``epoch_terms``
+    sees it; both halves were false, and the traceback assertion below is here
+    so that a repeat is a failure rather than a sentence.
+
+    The assertion does not read the message. JAX spells it
+    ``input type=float32[4]`` or ``float64[4]`` depending on when the trace ran,
+    so ``match="[Bb]roadcast"`` was satisfied by any broadcast error anywhere in
+    the call -- the guard-reads-a-spelling pattern this repository documents.
+    What is asserted instead: the refusal comes from OUR frame, and the same
+    model written with an explicit vector mean compresses and is correct. That
+    makes this a limitation of one SPELLING rather than of the model.
     """
     with jax.enable_x64(True):
         taus = jnp.asarray(HETEROGENEOUS)
@@ -148,32 +275,57 @@ def test_a_scalar_mean_beside_a_vector_width_is_refused_upstream():
             )
             observe("d", lambda m: dist.Normal(m, SIGMA), mu, obs=data, plate=epoch)
 
-        with pytest.raises(ValueError, match="[Bb]roadcast"):
+        with pytest.raises(ValueError) as caught:
             compress_campaign(trace(model), "epoch")
+
+        frames = traceback.extract_tb(caught.value.__traceback__)
+        ours = [
+            frame
+            for frame in frames
+            if "bayesmith" in frame.filename and ".venv" not in frame.filename
+        ]
+        assert ours, "the refusal must pass through this package"
+        assert ours[-1].name == "gaussian_parts", (
+            f"the declaration is refused where the prior is READ; the deepest "
+            f"frame of ours is {ours[-1].name} at "
+            f"{ours[-1].filename.rsplit('/', 1)[-1]}:{ours[-1].lineno}"
+        )
+        assert "epoch_terms" in {frame.name for frame in ours}, (
+            "epoch_terms IS on the stack -- the claim that this fails before "
+            "epoch_terms sees it was measured false"
+        )
+        assert "unchecked_operator" not in {frame.name for frame in ours}
+
+        # ... and the same model, spelled with the mean written out, is fine.
+        term = compress_campaign(_campaign(HETEROGENEOUS), "epoch")
+        found = float(term.log_prob({"g": jnp.asarray(0.0)}))
+        assert found == pytest.approx(_dense(0.0, HETEROGENEOUS), abs=1e-9)
 
 
 def test_the_fold_is_still_flat_in_the_campaign_length():
-    """The property the vectorisation exists for, kept.
+    """The property the vectorisation exists for, kept -- and the VALUE with it.
 
     A folded term is three leaves whatever the campaign length, and the cost is
     dominated by tracing rather than by the epoch count. Carrying the prior as
     a mapped argument rather than a closed-over scalar must not change either.
+
+    The leaf count alone would pass a fold that is right at four epochs and
+    wrong at sixty-four, so each length is also checked against the oracle --
+    which is free, the campaigns are already built and already heterogeneous.
     """
     with jax.enable_x64(True):
         for size in (8, 64):
             widths = tuple(np.linspace(0.4, 2.0, size))
+            means = tuple(np.linspace(-0.9, 0.9, size))
             data = tuple(np.linspace(-1.0, 1.0, size))
             taus = jnp.asarray(widths)
+            locs = jnp.asarray(means)
             observations = jnp.asarray(data)
 
-            def model(taus=taus, observations=observations, size=size):
+            def model(taus=taus, locs=locs, observations=observations, size=size):
                 epoch = plate("epoch", size)
                 g = sample("g", lambda: dist.Normal(0.0, 2.0))
-                n = sample(
-                    "n",
-                    lambda: dist.Normal(jnp.full((size,), PRIOR_MEAN), taus),
-                    plate=epoch,
-                )
+                n = sample("n", lambda: dist.Normal(locs, taus), plate=epoch)
                 mu = det(
                     "mu",
                     lambda g_, n_: 2 * g_ + n_,
@@ -195,4 +347,70 @@ def test_the_fold_is_still_flat_in_the_campaign_length():
                 f"a folded campaign of {size} epochs is three leaves whatever "
                 f"its length; that is the archive property the square-root "
                 f"form exists for"
+            )
+
+            found = float(term.log_prob({"g": jnp.asarray(0.35)}))
+            expected = 0.0
+            for observation, tau, mean in zip(data, widths, means, strict=True):
+                variance = tau**2 + SIGMA**2
+                residual = observation - (2.0 * 0.35 + mean)
+                expected += -0.5 * (
+                    residual * residual / variance
+                    + math.log(variance)
+                    + math.log(2.0 * math.pi)
+                )
+            assert found == pytest.approx(expected, rel=1e-9), (
+                f"the fold is flat in the length AND right at it; {size} epochs"
+            )
+
+
+def test_a_declared_width_far_below_the_noise_is_not_refused_and_not_reliable():
+    """A DISCLOSURE, not a contract. The limit is recorded so it is countable.
+
+    The square-root form carries the declared width `s` alongside the noise
+    `sigma`. Once `s/sigma` falls below `sqrt(eps)` the epoch's declared width
+    stops being representable beside its noise, and below that the returned
+    number degrades with no refusal of any kind. Measured on this machine, a
+    four-epoch campaign whose LAST epoch declares the width:
+
+    ======== =============== ===========
+    width    relative error  verdict
+    ======== =============== ===========
+    1e-4     5.8e-14         usable
+    1e-8     1.7e-09         usable
+    1e-12    6.9e-06         degraded
+    1e-16    5.7e-02         wrong
+    1e-300   --              ``-inf``
+    ======== =============== ===========
+
+    **The failure PRE-DATES the repair** -- the homogeneous all-``1e-300``
+    campaign is ``-inf`` at both commits, because the old code used epoch 0's
+    width everywhere. What the repair changes is that the tiny width is now
+    reachable from any of the E slots rather than only the first. Asserted here:
+    the good side agrees, and the far side is not finite. The DERIVED part is
+    that `s**2` underflows to zero for `s = 1e-300` in any IEEE double, which is
+    arithmetic rather than a BLAS choice; the intermediate percentages in the
+    table are this machine's and are not asserted.
+
+    Refusing a width below a stated floor would change published behaviour for
+    callers whose `1e-12` is usable today, so it is an owner decision and not
+    this test's business. The test's business is that the limit stops being
+    invisible.
+    """
+    with jax.enable_x64(True):
+        usable = compress_campaign(_campaign((0.5, 1.0, 2.0, 1e-4)), "epoch")
+        found = float(usable.log_prob({"g": jnp.asarray(0.0)}))
+        expected = _dense(0.0, (0.5, 1.0, 2.0, 1e-4))
+        assert found == pytest.approx(expected, rel=1e-10)
+
+        for widths in ((0.5, 1.0, 2.0, 1e-300), (1e-300,) * 4):
+            term = compress_campaign(_campaign(widths), "epoch")
+            answer = float(term.log_prob({"g": jnp.asarray(0.0)}))
+            assert not math.isfinite(answer), (
+                f"a width of 1e-300 returns {answer}; if this ever becomes "
+                f"finite the limit has moved and the table above is stale"
+            )
+            assert math.isfinite(_dense(0.0, widths)), (
+                "the dense oracle answers where the implementation does not, "
+                "which is what makes this a limit rather than a singularity"
             )
