@@ -1551,10 +1551,12 @@ def test_the_reference_npe_goes_through_the_sampler_arm_over_every_replicate():
     **What this cell catches.**  ``truth[index]`` -> ``truth[0]`` in
     ``sbc._accumulate`` (every replicate ranked against the first one's truth)
     and ``route = "sampler"`` -> ``route = "npe"`` in ``sbc_ranks`` both turn
-    it red, as does a ``NeuralPosterior`` whose scales are doubled (ratios
-    ~1.9) and one whose ``_mixture`` discards the datum -- which is
-    ``sbc.py``'s own documented blind spot, PASSES the SBC verdict, and is
-    caught here at ratios 15.18.
+    it red, as does ``sampler_draws`` -> ``sampler_draws // 2`` (which the
+    census tuple and the KS verdict both survive: only the call record sees
+    it), a ``NeuralPosterior`` whose scales are doubled (ratios 1.9321 /
+    2.0575 / 1.9079), and one whose ``_mixture`` discards the datum -- which
+    is ``sbc.py``'s own documented blind spot, PASSES the SBC verdict, and is
+    caught here at ratios 15.1805.
     """
     _q, _history, _ranks, report, sampler = _reference_npe_arm()
     _assert_the_sampler_arm_ran_over_every_replicate(report, sampler)
