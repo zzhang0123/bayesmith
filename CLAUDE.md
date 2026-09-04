@@ -230,6 +230,40 @@ Same shape as the two traps above: a result that cannot distinguish "absent"
 from "the command did not happen". Glob one pattern per `ls`, or use `find`,
 which has no opinion about patterns that match nothing.
 
+## A guard that reads a SPELLING is walked past by a rename
+
+Twice on 2026-09-04, in unrelated files, by the same move: a test asserted
+something about how the source is WRITTEN, and the thing it was meant to
+prevent was simply written a second way.
+
+* **"there is only one `PRODUCER`."** The guard walked the AST for calls named
+  `ProducerRef`. Re-introducing the duplicate as
+  `from ...base import ProducerRef as _PR` then `_PR(package=...)` left it
+  green -- measured, `10 passed`, exit 0. Repaired by asserting the OBJECT:
+  every module exporting a `PRODUCER` must export the same one, and a second
+  construction is a different object however it is spelled. Both spellings die
+  against that.
+* **"`evaluation/gate.py` decides no number."** The guard asserted the module
+  contains no float constant and no ordering comparison, and that assertion was
+  LITERALLY TRUE of the bypass: a `gate.py` spelling its threshold `int("40")`
+  and `float("0.30")` and applying them through `operator.lt` and
+  `math.isclose` has no float literal and no `<` in it. It passed 54/54 and
+  `ruff check --no-cache` clean **while rewriting a required check's FAIL into
+  a PASS**. Repaired by asserting the property the module exists to have: a
+  filed slot's report must BE the object the owning check returned.
+
+Neither was found by reading. Both were found because a reviewer BUILT the
+bypass and ran it -- the same instruction as "demonstrate the kill", pointed at
+the guard instead of at the code. Point it there whenever a guard's subject is
+"nobody may do X", and ask first what X looks like written differently.
+
+This is the third family of the disease the two sections above describe, after
+the zsh glob and the ruff cache: **a result that cannot distinguish the thing
+it names from a thing that merely resembles it.** Those two could not tell
+"absent" from "the check did not run". This one cannot tell "there is no
+threshold here" from "the threshold is spelled another way". Assert the
+consequence, not the syntax.
+
 ## On release day the index has three answers, and two are stale
 
 A green `publish.yml` run is a record, not the index. Measured within one
