@@ -16,7 +16,11 @@ arbitrary, the measurement that chose it is quoted on the test.
 from __future__ import annotations
 
 import dataclasses
+import functools
+import importlib.util
 import math
+import pathlib
+import sys
 import uuid
 
 import jax
@@ -1267,3 +1271,167 @@ def test_a_posterior_that_ignores_the_data_is_still_calibrated():
     assert report.conclusion is Conclusion.PASS
     uniformity = finding(report, "sbc_rank_uniformity")
     assert uniformity.observed[2] > 0.5, uniformity.message
+
+
+# ------------------------------ Task 9: the local reference NPE, through here
+
+_PROBE_29 = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "docs"
+    / "probes"
+    / "probe_29_amortized_candidates.py"
+)
+
+
+@functools.cache
+def probe_29():
+    """probe_29, imported as a module rather than run as a script.
+
+    The same loader ``tests/evaluation/test_probe28_pins.py`` uses, for the
+    same reason: ``docs/probes/`` is a shelf of scripts, not a package, and
+    the fixture below -- the graph, the bank, the budget, the seeds -- has to
+    be the ONE the probe measured.  A test that rebuilt it here would agree
+    with the probe by coincidence and stop agreeing on the day one of the two
+    was edited, which is the failure this repository has spent the most time
+    repairing.
+
+    ``sys.argv`` is swapped for the import because probe_29's ``main`` reads
+    ``sys.argv[1]`` as a replicate count; under pytest that argument is a node
+    id.  The guard belongs on this side, which is the side doing something
+    unusual.
+    """
+    spec = importlib.util.spec_from_file_location(_PROBE_29.stem, _PROBE_29)
+    assert spec is not None and spec.loader is not None, _PROBE_29
+    module = importlib.util.module_from_spec(spec)
+    saved = sys.argv
+    sys.argv = [str(_PROBE_29)]
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.argv = saved
+    return module
+
+
+#: The band the reference estimator's width must stay inside, as a multiple of
+#: the EXACT posterior width that ``tests/test_amortize.py``'s closed form
+#: gives for the same observation.
+#:
+#: **Which half is which.** The FORM -- a two-sided band on
+#: ``width / exact_width`` -- is derived: the target is a closed form in numpy,
+#: so 1.0 is where a correct estimator sits and no measurement of this machine
+#: chose it. The CONSTANTS 0.80 and 1.20 are FITTED: the three ratios measured
+#: here are 0.9660, 1.0287 and 0.9539, so the band is roughly four times the
+#: largest deviation, and it is the same shape as -- slightly tighter than --
+#: ``tests/test_amortize.py::test_the_posterior_width_matches``' own
+#: ``0.75 < ratio < 1.35`` at a larger training budget.
+WIDTH_BAND = (0.80, 1.20)
+
+
+@pytest.mark.full
+@pytest.mark.slow
+def test_the_reference_npe_is_calibrated_through_the_sampler_arm():
+    """R3 Task 9.1: the local reference NPE's calibration number, held here.
+
+    ``NeuralPosterior`` on ``tests/test_amortize.py``'s linear-Gaussian
+    problem -- bank 2048, 1500 Adam steps at batch 256, lr 1e-3, 10% held out,
+    seeds ``key(0)`` / ``key(1)`` / ``key(2)`` -- put through
+    :func:`~bayesmith.evaluation.sbc.sbc_ranks`' sampler arm at
+    ``key(11)``, N = 300 replicates, 200 draws each, judged at
+    ``ALPHA / K = 0.05`` (K = 1 coordinate).  Every one of those is
+    probe_29's, imported rather than restated.
+
+    **Measured on this checkout** (``PYTHONPATH=. .venv/bin/python
+    docs/probes/probe_29_amortized_candidates.py``): APPLICABLE x PASS,
+    KS D = 0.0683, p = 0.1159, 90% interval coverage 0.890, 300 of 300
+    replicates usable.  The exact posterior of the same problem, through the
+    same harness at the same seed, gives D = 0.0517, p = 0.3867, coverage
+    0.910 -- probe_29 §1, and the control that says this graph's forward law
+    IS the bank's joint.
+
+    **The p-value is a draw, so the seed was swept before this cell was
+    written.** Over ``key(11)`` .. ``key(20)``, holding the trained estimator
+    fixed, the reference's KS p ran 0.1159 / 0.1159 / 0.8815 / 0.4274 /
+    0.5156 / 0.3867 / 0.1726 / 0.2492 / 0.8431 / 0.2492 -- worst 0.1159,
+    median 0.3180 -- and the EXACT posterior's over the same ten ran worst
+    0.1008, median 0.4071.  The two spreads are the same spread: the
+    reference is not marginally calibrated at N = 300, it is drawing from the
+    null the way a correct posterior does.  ``key(11)`` is probe_29's own
+    seed, not a seed chosen from that sweep.
+
+    **Expected false positives: 0.05.** This cell rejects a correct posterior
+    with probability ALPHA by construction, which is what ALPHA means; §9.3
+    asks that the number be declared rather than discovered, and the close-out
+    adds it up.
+
+    **There is deliberately NO assertion on the KS digits.** At N = 300 the
+    PASS above already means ``D <= 0.077832``
+    (``scipy.stats.kstwo.ppf(0.95, 300)``), so any band on D loose enough to
+    survive a platform change is implied by the PASS and can never fail on its
+    own -- a guard that cannot fail, which this repository holds to be worse
+    than no guard.  The same is true of the coverage: measured over the width
+    family 0.5x .. 2.0x at this seed, the three-sigma binomial band
+    ``0.90 +- 3 * sqrt(0.9 * 0.1 / 300) = [0.848, 0.952]`` is crossed only at
+    distortions the KS verdict has already failed (1.3x gives p = 0.0046 and
+    coverage 0.9567; 1.2x gives p = 0.0558 and coverage 0.9400, inside the
+    band).  So the drift detector reads a quantity the verdict cannot see: the
+    estimator's width against a CLOSED FORM.  That sweep distorts the SAMPLER;
+    re-measured as a source mutation (the 1.2x row below) it agrees --
+    ``conclusion: PASS``, ``KS D=0.0767 p=0.05576``, coverage ``0.94``.
+
+    **What each assertion catches, and what killed it.**  Every row below was
+    applied to the source, run, and restored with ``git checkout -- src/``;
+    all four exited **1**, and the table is in
+    ``docs/superpowers/specs/2026-09-04-amortized-calibration.md``:
+
+    * the PASS -- an estimator whose stated uncertainty stops matching its
+      prior.  Killed by ``scales[component]`` -> ``2.0 * scales[component]``
+      in ``NeuralPosterior.sample`` (D = 0.1967, p = 1.2e-10).
+    * the PASS again, on the HARNESS rather than the estimator.  Killed by
+      ``truth[index]`` -> ``truth[0]`` in ``sbc._accumulate``, which ranks
+      every replicate against the first one's truth (D = 0.8733).
+    * the census -- which route produced the number, and over how many
+      replicates.  Killed by renaming the route label in ``sbc_ranks``; it is
+      the one element of the census a PASS does not already imply, since
+      ``sbc_report`` abstains before it passes whenever a replicate is
+      missing.
+    * the width band.  Killed by ``1.2 * scales[component]`` -- ratios
+      1.1592 / 1.2345 / 1.1447 -- which the PASS above **survives**, at a
+      measured p = 0.05576.  That mutant is the whole argument for this
+      band's existence.
+    """
+    probe = probe_29()
+    q, _history, _seconds, (_theta, data) = probe.train_reference()
+    _ranks, report = probe.judged(
+        probe.amortize_graph(np.asarray(data[0])), probe.reference_sampler(q)
+    )
+
+    # The property: this calibration is not rejected at the declared rate.
+    assert report.report_kind == REPORT_KIND
+    assert report.applicability is Applicability.APPLICABLE
+    assert report.conclusion is Conclusion.PASS, finding(
+        report, "sbc_rank_uniformity"
+    ).message
+
+    # ... over all of the replicates that were asked for. A PASS computed from
+    # the replicates that happened to work is a different claim.
+    assert finding(report, "sbc_replicate_accounting").observed == (
+        probe.REPLICATES,
+        probe.REPLICATES,
+        0,
+        0,
+        0,
+        "sampler",
+    )
+    uniformity = finding(report, "sbc_rank_uniformity")
+    assert uniformity.observed[0] == "theta"
+    assert uniformity.observed[3] == probe.REPLICATES
+    assert uniformity.expected == pytest.approx(ALPHA)
+
+    # DRIFT DETECTOR, not the property: the estimator's width against the
+    # closed form, which moves before the KS verdict does.
+    ratios = [
+        probe.width_against_exact(q, theta_true)[0]
+        for theta_true in probe.WIDTH_OBSERVATIONS
+    ]
+    low, high = WIDTH_BAND
+    assert all(low < ratio < high for ratio in ratios), ratios
