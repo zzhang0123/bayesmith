@@ -629,8 +629,18 @@ asymmetry is the lesson: **`test_readme_count.py` spoke because something pins i
 the fast-layer total is pinned by nothing, so it did not speak — it simply propagated.** A number
 that no assertion holds is a number that travels from a voided run into a document without
 resistance, and the only defence is to refuse to quote a run that was not HEAD-pinned on both
-sides, however plausible its number looks. **This plan quotes only runs with `sha`, `sha_after`
-and a `tree_before`/`tree_after` pair beside them.**
+sides, however plausible its number looks. **This plan quotes only runs with `sha`, `sha_after`, a `tree_before`/`tree_after` pair, and a
+`git merge-base --is-ancestor` check that the recorded SHA is STILL ON THE BRANCH.**
+
+〔Execution write-back, Wave A. The fifth artefact was added after a run reported `exit 0` with
+its SHA identical before and after — fully compliant on its face — pointing at a commit that a
+later `--amend` had taken off `main`. The four-artefact set proves *nothing moved during the
+run*; it cannot prove *the thing measured still exists*. Amend BEFORE the run, never after.
+
+And the run's own tree is not passive: **do not edit the repository while a verification run is
+in flight.** Three runs were voided this way in Wave A alone, each time for an edit that could
+not have changed the outcome — which is not the point, because a run whose tree moved cannot say
+that.〕
 
 ### 0.14 One item closed while this plan was written, with its authorisation outside the repository
 
@@ -1519,9 +1529,16 @@ cache has held a lie in this checkout before.
 12. **`CLAUDE.md` and `AGENTS.md` move in the same commit**, and every count is re-measured
 rather than quoted.
 
-13. **A fix must behave differently from the bug it replaces on some input the package
-actually has.** Executable, not a maxim: put the old code back and re-run. **If the suite is
-still green, nothing was fixed** — what changed was the spelling.
+13. **Put the old bug back and re-run. If the suite is still green, the repair is not
+demonstrated.** Executable, not a maxim.
+
+**It catches two different faults and cannot tell them apart, which is why the check is stated
+before the diagnosis.** A green suite with the bug restored means either (a) **no input exists**
+on which the fix and the bug differ — the fix is a rewrite, dead on everything the package can
+build; or (b) inputs exist but **the fixture set has none** — the fix is real and ungraded. The
+remedies differ: (a) needs a different fix, (b) needs a fixture. The check does not need to know
+which, and an earlier wording of this line said only "what changed was the spelling", which
+describes (a) and would have let (b) walk past.
 
 〔Added during Wave A, which produced the first instance. `shapes` was always `()` because the
 code read `graph.shape` behind a `hasattr` guard and `Graph` has no such attribute. The repair
@@ -1529,6 +1546,12 @@ replaced it with `batch_shape + event_shape` broadcast against the plate — the
 expression — and **0 of 54 shipped latents have `batch_shape + event_shape` non-empty**, so on
 every input this package contains the repair is identically the bug. Three mutants lived there,
 inside the fix.
+
+**Both faults occurred in this batch, one per session.** (a) is Wave A's `_latent_shape`, above.
+(b) is the campaign repair at `895e181`: `loc.ravel()[0]` was a genuine behaviour change on a
+heterogeneous per-epoch mean, and **no shipped campaign fixture varies that mean**, so restoring
+the old line left the suite green — the mutant M8 that a review later found surviving, 4.221 nats
+from the dense truth. Same check, same verdict, different repair.
 
 This is the tenth instance of `CLAUDE.md`'s family in this batch and the first that is not a
 CHECK. The nine before were checks that could not distinguish the thing they named from a thing
