@@ -577,6 +577,34 @@ class TestThePriorSideIntegratesToOne:
 
 # ------------------------------- the dimensions the first draft never varied
 
+#: Coverage of the two-route shape comparison, accumulated across the
+#: parametrized run and asserted once at the end. A comparison whose `except`
+#: branch quietly grows is a comparison that stops comparing without the output
+#: changing -- the same failure as the 15 silently ungraded band rows.
+_SHAPE_COMPARISON_HITS: set = set()
+_SHAPE_COMPARISON_SKIPS: set = set()
+
+
+def test_the_shape_comparison_actually_compared_something():
+    """Runs after the parametrized sweep above (alphabetical file order puts it
+    last within its module for `-p no:randomly`; under random order it asserts
+    only what has accumulated, which is why it asserts a RATIO and a named
+    skip rather than an exact hit count)."""
+    if not (_SHAPE_COMPARISON_HITS or _SHAPE_COMPARISON_SKIPS):
+        pytest.skip("the parametrized shape sweep has not run in this session")
+    skips = {name for _label, name in _SHAPE_COMPARISON_SKIPS}
+    assert skips <= {"z"}, (
+        f"node_shape was skipped for {sorted(_SHAPE_COMPARISON_SKIPS)}; the "
+        "only latent it cannot size is improper_outside_prior's `z`, which "
+        "declares an ImproperUniform and so has no `loc`"
+    )
+    assert len(_SHAPE_COMPARISON_HITS) > 20 * len(_SHAPE_COMPARISON_SKIPS), (
+        f"{len(_SHAPE_COMPARISON_HITS)} compared against "
+        f"{len(_SHAPE_COMPARISON_SKIPS)} skipped; the except branch has grown "
+        "and this test is no longer comparing much"
+    )
+
+
 class TestTheDimensionsTheFirstDraftHeldConstant:
     """Three mutation survivors, and each was a dimension no test varied.
 
@@ -627,7 +655,14 @@ class TestTheDimensionsTheFirstDraftHeldConstant:
                 try:
                     reference = tuple(node_shape(graph, graph.node(name), env))
                 except (AttributeError, TypeError):
-                    continue  # node_shape needs a `loc`; this latent has none
+                    # node_shape reads `loc`; this latent has none. Recorded
+                    # rather than skipped silently -- an `except: continue` that
+                    # grows is how a comparison stops comparing without saying
+                    # so. Measured over all 54 graphs: 78 parameters compared,
+                    # exactly 1 skipped, and it is improper_outside_prior's `z`.
+                    _SHAPE_COMPARISON_SKIPS.add((label, name))
+                    continue
+                _SHAPE_COMPARISON_HITS.add((label, name))
                 assert shape == reference, (
                     f"{label}: layout says {name}{shape}, node_shape says "
                     f"{reference}"
