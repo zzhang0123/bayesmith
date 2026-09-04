@@ -285,6 +285,22 @@ audit line, because the obvious reaction to "the release did not appear" is
 to re-push the tag -- and a tag that has already published is immutable, so
 that road only adds damage.
 
+**Measured again on 2026-09-04, at v0.8.0, and the DIRECTION was reversed.**
+One command, both endpoints, same moment: the JSON API already said `0.8.0`
+while `/simple/` still listed nothing past `0.7.2`. About a minute later
+`/simple/` had it. So "the JSON API is minutes behind" is not a property to
+rely on -- the two caches are independent and either can be ahead. What
+survives is the rule, not the explanation: `/simple/` is the table pip
+resolves against, so it is the one to ask, whatever the JSON API says.
+
+Unresolved from the same release, and recorded rather than guessed at:
+`uv pip install --refresh 'bayesmith>=0.8.0'` answered "unsatisfiable", and
+`--no-cache` a minute later succeeded. That is consistent with `--refresh`
+being insufficient AND with the index simply catching up in between, and
+nothing in the two runs separates them. Do not read it as a correction to the
+line below until someone measures it on a release day with both flags in the
+same minute.
+
 **Ask `/simple/`, or resolve once with `--refresh`.** The strongest check is
 the one a consumer performs: install the floor into a throwaway venv, then
 look inside the installed package for the module the floor exists for. A
