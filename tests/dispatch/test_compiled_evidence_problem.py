@@ -725,26 +725,42 @@ class TestPriorSampleIsGradedRatherThanOnlyRaised:
         assert set(drawn) == set(graph.latents)
         assert not (set(drawn) & set(graph.observed))
 
-    def test_the_draws_come_from_the_declared_prior(self):
-        """M18. Zeros are a valid-looking dict of the right keys and shapes.
+    #: Draws, and the band's width in standard errors. Both DECLARED, and the
+    #: band is derived from them rather than picked (spec section 9.3).
+    #:
+    #: The sample standard deviation of ``n`` draws from ``N(0, sigma)`` has
+    #: standard error ``sigma / sqrt(2n)`` for large ``n``. At ``n = 8000`` that
+    #: is ``0.0237``, so a ``k = 5`` band is ``3 * (1 +- 5/sqrt(2n))`` =
+    #: ``(2.881, 3.119)``, with a two-sided false-positive rate of ``5.7e-7``.
+    #:
+    #: ``n`` is 8000 and not 4000 because the band has to KILL something. A
+    #: first version used 4000 draws and a hand-picked ``(2.7, 3.3)``, which is
+    #: 8.9 standard errors wide -- a false-positive rate of 4e-19, and a
+    #: mutation scaling every draw by 1.05 gives 3.150 and SURVIVES it. At
+    #: n=4000 even a 5-sigma band (2.832, 3.168) admits it; 8000 is the point
+    #: where 5 sigma and a 5% error separate. A tolerance chosen for comfort
+    #: rather than derived is red line 6, and this one was chosen for comfort.
+    PRIOR_DRAWS = 8000
+    BAND_SIGMAS = 5.0
 
-        Graded against the declared width rather than against a recorded
-        number: 4000 draws of ``w ~ N(0, 3)`` have a sample standard deviation
-        within 10% of 3 with overwhelming probability, and zeros give 0.
-        """
-        graph = as_graph(models.student_t_likelihood())  # w ~ Normal(0, 3)
+    def test_the_draws_come_from_the_declared_prior(self):
+        """M18. Zeros are a valid-looking dict of the right keys and shapes."""
+        sigma = 3.0  # student_t_likelihood declares w ~ Normal(0, 3)
+        graph = as_graph(models.student_t_likelihood())
         with jax.enable_x64(True):
             problem = compile_evidence_problem(graph)
             draws = jnp.asarray(
                 [
                     problem.prior_sample(jax.random.key(seed))["w"]
-                    for seed in range(4000)
+                    for seed in range(self.PRIOR_DRAWS)
                 ]
             )
         spread = float(jnp.std(draws))
-        assert 2.7 < spread < 3.3, (
-            f"4000 prior draws of w ~ N(0, 3) have spread {spread}; the "
-            "declared width is 3"
+        half = self.BAND_SIGMAS * sigma / math.sqrt(2 * self.PRIOR_DRAWS)
+        assert abs(spread - sigma) <= half, (
+            f"{self.PRIOR_DRAWS} prior draws of w ~ N(0, {sigma}) have spread "
+            f"{spread}; the derived {self.BAND_SIGMAS}-sigma band is "
+            f"({sigma - half:.4f}, {sigma + half:.4f})"
         )
 
     def test_the_shapes_match_the_declared_layout(self):
