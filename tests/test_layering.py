@@ -87,17 +87,73 @@ def _import_from_targets(path: pathlib.Path, node: ast.ImportFrom) -> list[str]:
     return [resolved]
 
 
+def _is_type_checking(node: ast.expr) -> bool:
+    """Whether a test is the ``TYPE_CHECKING`` guard, however it is spelled."""
+    if isinstance(node, ast.Name):
+        return node.id == "TYPE_CHECKING"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "TYPE_CHECKING"
+    return False
+
+
+def _module_scope_statements(tree: ast.Module) -> list[ast.stmt]:
+    """Every statement that RUNS when the module is imported.
+
+    Not ``tree.body``. A module-level ``try:``/``except ImportError:`` or
+    ``if sys.version_info >= ...:`` executes at import exactly as the top level
+    does, and its imports are just as real -- but ``tree.body`` contains the
+    ``Try`` node, not the ``ImportFrom`` inside it, so a walk of the body alone
+    sees nothing.
+
+    Measured on 2026-09-04, after the previous repair to this file: of seven
+    spellings of ``bayesmith.dispatch`` written into an ``artifacts`` module,
+    five created a real ``sys.modules`` edge and were scored as no edge at all.
+    Two of those were ``try:`` and ``if:`` at module scope -- and
+    ``try: import x except ImportError:`` is the IDIOMATIC spelling for an
+    optional dependency, which is to say the shape this package's own arviz
+    rule invites an author to write.
+
+    A function, class or ``if TYPE_CHECKING:`` body is still excluded, because
+    those genuinely do not run at import; that distinction is the one this file
+    exists to make, and it is the only one.
+    """
+    statements: list[ast.stmt] = []
+    stack: list[ast.stmt] = list(tree.body)
+    while stack:
+        node = stack.pop()
+        statements.append(node)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        if isinstance(node, ast.If) and _is_type_checking(node.test):
+            stack.extend(node.orelse)
+            continue
+        for field in ("body", "orelse", "finalbody"):
+            stack.extend(getattr(node, field, []) or [])
+        for handler in getattr(node, "handlers", []) or []:
+            stack.extend(handler.body)
+    return statements
+
+
 def _module_scope_imports(path: pathlib.Path) -> set[str]:
     """Which bayesmith units this file imports AT MODULE SCOPE.
 
-    Walks only the top-level body, so an import nested in a function or an
-    ``if TYPE_CHECKING`` block is deliberately not counted. Relative imports
-    are resolved against the file's own package first -- see
-    :func:`_absolute_module` for why that is not a detail.
+    "Module scope" means "runs at import", which is what a layering claim is
+    about -- see :func:`_module_scope_statements`, which is where the
+    distinction is drawn and why. Relative imports are resolved against the
+    file's own package first; see :func:`_absolute_module` for why that is not
+    a detail.
+
+    **Dynamic imports are out of scope and this docstring says so rather than
+    leaving the promise wider than the check.** ``importlib.import_module
+    ("bayesmith.dispatch")`` and ``__import__(...)`` create a real edge that
+    nothing here sees. They are not idiomatic in this package -- no module in
+    ``src/`` uses either -- but the guard's subject is "nobody may import
+    upwards", and a reader is entitled to know which spellings it can actually
+    speak for.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     found: set[str] = set()
-    for node in tree.body:
+    for node in _module_scope_statements(tree):
         targets: list[str] = []
         if isinstance(node, ast.ImportFrom):
             targets.extend(_import_from_targets(path, node))
@@ -456,3 +512,74 @@ def test_no_unit_reaches_a_unit_above_it_however_the_import_is_spelled():
     assert "evaluation" not in edges["graph"]
     assert "dispatch" not in edges["artifacts"]
     assert "dispatch" not in edges["graph"]
+
+
+def test_an_import_that_runs_at_import_time_is_an_edge_however_it_is_nested(
+    tmp_path,
+):
+    """The five spellings an adversarial review walked the guard past.
+
+    Each of these puts ``bayesmith.dispatch`` in ``sys.modules`` when the module
+    is imported, and until R4 the graph scored all but the first two as nothing.
+    ``try:``/``except ImportError:`` is the one that matters most in practice:
+    it is the idiomatic spelling for an optional dependency, which is exactly
+    what this package's own arviz rule asks an author to write.
+
+    The last two rows are the boundary the docstring now states rather than
+    quietly leaves: a dynamic import is a real edge that this guard does not
+    see, and saying so is better than a promise wider than the check.
+    """
+    caught = {
+        "plain": "from bayesmith import dispatch",
+        "aliased": "from bayesmith import dispatch as _d",
+        "relative": "from .. import dispatch",
+        "deep": "from bayesmith.dispatch import task",
+        "plain import": "import bayesmith.dispatch",
+        "in a try": "try:\n    from bayesmith import dispatch\nexcept ImportError:\n    dispatch = None",
+        "in an if": "import os\nif os.name != 'nonesuch':\n    from bayesmith import dispatch",
+        "in an else": "import os\nif os.name == 'nonesuch':\n    pass\nelse:\n    from bayesmith import dispatch",
+        "in a finally": "try:\n    pass\nfinally:\n    from bayesmith import dispatch",
+    }
+    excluded = {
+        "in a function": "def f():\n    from bayesmith import dispatch",
+        "in a class body": "class C:\n    from bayesmith import dispatch",
+        "under TYPE_CHECKING": (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n    from bayesmith import dispatch"
+        ),
+        "dynamic": "import importlib\nimportlib.import_module('bayesmith.dispatch')",
+    }
+    # Written into the real tree's shape so the relative form has a package to
+    # resolve against; the file itself is a temporary copy, never imported.
+    target = SRC / "evaluation" / "_layering_probe.py"
+    for label, source in caught.items():
+        probe = tmp_path / "probe.py"
+        probe.write_text(source, encoding="utf-8")
+        found = _module_scope_imports_from(probe, target)
+        assert found == {"dispatch"}, f"{label}: got {found}"
+    for label, source in excluded.items():
+        probe = tmp_path / "probe.py"
+        probe.write_text(source, encoding="utf-8")
+        found = _module_scope_imports_from(probe, target)
+        assert found == set(), f"{label}: got {found}, expected no edge"
+
+
+def _module_scope_imports_from(source_path, as_if_at):
+    """:func:`_module_scope_imports` on one file, resolved as another path.
+
+    The relative spelling needs a package to resolve against, and a temporary
+    file has none. Splitting the read from the resolution is the whole of it.
+    """
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    found: set[str] = set()
+    for node in _module_scope_statements(tree):
+        targets: list[str] = []
+        if isinstance(node, ast.ImportFrom):
+            targets.extend(_import_from_targets(as_if_at, node))
+        elif isinstance(node, ast.Import):
+            targets.extend(alias.name for alias in node.names)
+        for name in targets:
+            parts = name.split(".")
+            if parts[0] == "bayesmith" and len(parts) > 1:
+                found.add(parts[1])
+    return found

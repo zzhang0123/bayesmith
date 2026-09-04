@@ -26,6 +26,7 @@ from bayesmith.dispatch.collapse import (
 )
 from bayesmith.dispatch.execute import _depends_on_prediction
 from bayesmith.errors import GraphError
+from bayesmith.exact.block import unchecked_operator
 from bayesmith.graph.evaluate import log_joint
 from tests.exact.models import mixed_radiometer
 
@@ -324,9 +325,16 @@ def test_the_block_determinant_enters_with_a_minus_one_half():
 
         logdet(A S A^T + N) = logdet(N) + logdet(S) + logdet(A^T N^-1 A + S^-1)
 
-    Flip the sign on the last term and this fails by ``logdet(F_bb)`` -- 4.38
-    nats on this fixture -- while every quantity in it stays finite and
-    plausible, which is the failure mode the whole file is about.
+    **This test kills nothing its neighbour does not**, and saying so is better
+    than letting a reader count it twice. The lemma form and the ``slogdet``
+    form of the same oracle are algebraically identical -- they differ by one
+    ULP here -- so flipping the pivot term inside ``marginalise_arrays`` fails
+    seven tests in this file at once, measured, and this is one of the seven.
+
+    It is kept because it is the only one that names the determinant and its
+    sign in a form a reader can compare against the module docstring. The
+    docstring got that sign backwards for a whole release; a test that spells
+    out ``logdet(N) + logdet(S) + logdet(F)`` is where the next reader checks.
     """
     with jax.enable_x64(True):
         graph, basis, d_obs, _ = _two_observation_graph()
@@ -358,4 +366,103 @@ def test_the_block_determinant_enters_with_a_minus_one_half():
         assert abs(float(wrong_sign) - found) > 1.0, (
             "the wrong sign must be far from the right answer, or this test "
             "would pass under both conventions"
+        )
+
+
+def _sorts_before_graph(*, n_d=6, n_a=3, sigma_d=0.5, sigma_a=0.8, seed=3):
+    """Like :func:`_two_observation_graph`, but the unreached node sorts FIRST.
+
+    ``marginal_log_density`` walks ``sorted(block.data)`` and advances a row
+    cursor through a design laid out in that same order, skipping the row group
+    of any node the block does not reach.  When the skipped node sorts LAST the
+    cursor advance in the skip branch is dead code -- nothing after it reads the
+    cursor -- so deleting it is invisible.  Measured 2026-09-04: with the
+    unreached node named ``e`` the mutant and the shipped code both return
+    -4.284669145867; renaming it ``a`` the mutant returns -8.446550081297, wrong
+    by 4.16 nats.
+
+    Found by an adversarial review, not by reading, and the hazard is the one
+    the code comment beside the loop explicitly names.
+    """
+    basis = jnp.linspace(-1.0, 1.0, n_d) + 0.3
+    d_obs = 1.2 * (basis * 0.9) + sigma_d * jax.random.normal(
+        jax.random.key(seed), (n_d,)
+    )
+    a_obs = jnp.asarray([0.4, -0.2, 1.1])[:n_a]
+
+    def model():
+        w = sample("w", lambda: dist.Normal(0.35, 1.7))
+        tau = sample("tau", lambda: dist.Normal(-0.2, 1.1))
+        b = const("basis", basis)
+        mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+        observe("d", lambda m: dist.Normal(m, sigma_d).to_event(1), mu, obs=d_obs)
+        nu = det("nu", lambda t_: t_ * jnp.ones(n_a), tau)
+        # Named to sort BEFORE "d". That is the whole fixture.
+        observe("a", lambda m: dist.Normal(m, sigma_a).to_event(1), nu, obs=a_obs)
+
+    return trace(model), basis, d_obs
+
+
+def test_the_skipped_row_group_still_advances_the_design_cursor():
+    """The hazard the loop's own comment names, with a fixture that can see it.
+
+    The design's rows are laid out in ``sorted(block.data)`` order, so skipping
+    a node's compression without advancing past its rows hands every LATER node
+    the wrong slice.  With the unreached observation sorting last there is no
+    later node and the bug is silent; here there is one.
+    """
+    with jax.enable_x64(True):
+        graph, basis, d_obs = _sorts_before_graph()
+        assert observed_descendants(graph, ("w",)) == ("d",)
+        block = unchecked_operator(
+            graph, ("w",), at={"tau": jnp.asarray(0.7)}, probe_gaussian=False
+        )
+        assert sorted(block.data) == ["a", "d"], (
+            "the fixture only tests the cursor if the unreached node sorts first"
+        )
+
+        found = float(marginal_log_density(graph, ("w",), {"tau": jnp.asarray(0.7)}))
+        b = np.asarray(basis, dtype=float)
+        d = np.asarray(d_obs, dtype=float)
+        covariance = (1.7**2) * np.outer(b, b) + 0.5**2 * np.eye(b.size)
+        residual = d - b * 0.35
+        _, logdet = np.linalg.slogdet(covariance)
+        oracle = -0.5 * (
+            residual @ np.linalg.solve(covariance, residual)
+            + logdet
+            + b.size * np.log(2.0 * np.pi)
+        )
+        assert found == pytest.approx(float(oracle), abs=1e-9)
+
+
+def test_a_block_the_data_does_not_reach_integrates_its_prior_to_one():
+    """The empty-terms branch, which is production-reachable and was untested.
+
+    A latent with no observed descendant is still classified exact and still
+    reaches the collapse arm -- an adversarial review ran
+    ``compile(...).sample(collapse=True)`` on one end to end.  With no data term
+    the Gaussian integral is over the prior alone, so the marginal log-density
+    is ``log INT p(z) dz = 0``.
+
+    Measured before this test existed: a mutant folding the prior TWICE returned
+    a number wrong by 0.349 nats with the whole fast layer green.
+    """
+    with jax.enable_x64(True):
+        observed = jnp.asarray([0.4, -0.2, 1.1])
+
+        def model():
+            z = sample("z", lambda: dist.Normal(1.5, 0.4))
+            tau = sample("tau", lambda: dist.Normal(-0.2, 1.1))
+            nu = det("nu", lambda t_: t_ * jnp.ones(3), tau)
+            observe("e", lambda m: dist.Normal(m, 0.8).to_event(1), nu, obs=observed)
+            # `z` is declared and never observed through: no descendant.
+            det("unused", lambda z_: z_ * 2.0, z, linear_in=("z",))
+
+        graph = trace(model)
+        assert observed_descendants(graph, ("z",)) == ()
+        found = float(marginal_log_density(graph, ("z",), {"tau": jnp.asarray(0.7)}))
+        assert found == pytest.approx(0.0, abs=1e-12), (
+            "a normalised prior integrates to one, so its log is zero; a "
+            "number away from zero means the prior was folded a second time "
+            "or its normaliser was dropped"
         )

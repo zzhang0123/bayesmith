@@ -670,58 +670,141 @@ def test_the_adapters_never_reach_for_a_regular_expression():
     assert "split" not in attributes and "rsplit" not in attributes
 
 
-def test_the_premise_vocabulary_holds_every_premise_the_source_can_name():
-    """The two directions the tests above check only where a fixture reaches.
+def test_the_premise_vocabulary_holds_every_premise_the_package_can_PRODUCE():
+    """The vocabulary, checked by CALLING rather than by reading the source.
 
-    ``test_every_premise_a_record_lists_is_in_the_one_vocabulary`` and
-    ``test_every_adapted_premise_is_in_the_one_vocabulary`` both assert
-    ``<= PREMISES`` over premises a particular fixture happened to produce, so
-    a premise no fixture reaches is outside both. Measured on 2026-09-04, three
-    were: ``named_latents_declared``, ``posterior_data_mismatch`` and
-    ``predictive_noise_unsupported`` are written as ``failed_premise=`` in
-    ``src/`` and are not members. ``named_latents_declared`` is additionally
-    listed by :func:`_premises` on every point-estimate plan that names
-    latents, so it reaches a stored ``PlanRecord`` as well.
+    The first version of this test AST-walked ``src/`` for ``failed_premise=``
+    keyword arguments whose value was a string constant.  An adversarial review
+    defeated it four ways in an afternoon and the suite stayed green each time:
+    ``failed_premise=_PNU`` (an ``ast.Name``), an f-string, ``"a" + "b"``, and a
+    positional ``Refusal(meta, task, "code", ...)`` -- ``Refusal`` is not
+    ``kw_only``.  Worse, one call site in ``src/`` was ALREADY outside it:
+    ``task.py`` writes ``failed_premise=CAPABILITY_UNAVAILABLE_R1``, a name.
 
-    Walked with ``ast`` over the whole of ``src/bayesmith`` rather than listed
-    here, because a hand-typed list is the second copy that goes stale -- which
-    is the defect this vocabulary exists to prevent, applied to itself.
+    And it looked in the wrong place.  Most premises are not written at a
+    refusal at all; they are appended by :func:`_premises` and reach a stored
+    ``PlanRecord``, and the four ``_ADAPTERS`` return theirs as tuple element
+    zero.  A premise added there is outside ``PREMISES`` AND outside
+    ``_REMEDIES``, which is a ``KeyError`` waiting at the subscript that builds
+    a Refusal -- the exact fault ``affine_prediction`` was added to prevent.
+
+    So this asks the objects instead of the syntax.  Everything the package can
+    actually put in ``premises`` or ``failed_premise`` is enumerated by running
+    the producers, and a premise spelled any way at all arrives here as the same
+    string.  Third instance of the family CLAUDE.md already records twice.
     """
-    import bayesmith
+    from bayesmith.dispatch.task import _ADAPTERS, _premises
 
-    source_root = pathlib.Path(bayesmith.__file__).resolve().parent
-    written: dict[str, str] = {}
-    for path in sorted(source_root.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.keyword) or node.arg != "failed_premise":
-                continue
-            if isinstance(node.value, ast.Constant) and isinstance(
-                node.value.value, str
-            ):
-                written[node.value.value] = str(path.relative_to(source_root))
+    produced: dict[str, str] = {}
 
-    assert written, "the walk found no failed_premise= literal, so it did not run"
-    missing = {code: where for code, where in written.items() if code not in PREMISES}
+    # (a) `_premises` itself, called over every task shape its branches read.
+    # Called directly rather than through `compile_task`, because some of those
+    # shapes are refused before a plan exists -- and a branch of `_premises`
+    # that only a refused shape reaches is still a branch that can append a
+    # code to a record on some other graph. An adversarial review added
+    # `codes.append("exact_block_conditioned")` to the `task.names is not None`
+    # branch and the compile-driven version of this loop never saw it.
+    seed = compile_task(straight_line(), posterior_task(), model_ref=model_ref())
+    runtime = seed.runtime_plan
+    shapes = (
+        (posterior_task(), TaskKind.POSTERIOR),
+        (
+            PointEstimateTask(
+                meta=new_task_meta(label="mean"), estimand=Estimand.POSTERIOR_MEAN
+            ),
+            TaskKind.POINT_ESTIMATE,
+        ),
+        (
+            PointEstimateTask(meta=new_task_meta(label="map"), estimand=Estimand.MAP),
+            TaskKind.POINT_ESTIMATE,
+        ),
+        (
+            PointEstimateTask(
+                meta=new_task_meta(label="named"),
+                estimand=Estimand.MAP,
+                names=("x",),
+            ),
+            TaskKind.POINT_ESTIMATE,
+        ),
+    )
+    for task, kind in shapes:
+        for code in _premises(runtime, task, kind):
+            produced.setdefault(code, "_premises")
+
+    # (b') and what a compile-time refusal names, which is a different producer.
+    for graph, task in (
+        (
+            straight_line(),
+            PointEstimateTask(
+                meta=new_task_meta(label="named"),
+                estimand=Estimand.MAP,
+                names=("x",),
+            ),
+        ),
+    ):
+        outcome = compile_task(graph, task, model_ref=model_ref())
+        if isinstance(outcome, Refusal):
+            produced.setdefault(outcome.failed_premise, "compile_task refusal")
+
+    # (b) every premise the verdict adapters can name.
+    for verdict in (
+        NotGaussian("x", reason="jointly_dependent", node="a"),
+        NotLogLinear("x", reason="noise_additive", node="d"),
+        Refused("x"),
+        NotApplicable("x"),
+    ):
+        produced.setdefault(adapted(verdict).failed_premise, "_ADAPTERS")
+    assert len(_ADAPTERS) == 4, (
+        "a fifth verdict adapter would name a premise this loop never asks for"
+    )
+
+    # (c) every premise a remedy row claims to answer.
+    from bayesmith.dispatch.task import _REMEDIES
+
+    for code in _REMEDIES:
+        produced.setdefault(code, "_REMEDIES")
+
+    assert produced, "the producers named nothing, so this test did not run"
+    missing = {code: where for code, where in produced.items() if code not in PREMISES}
     assert not missing, (
-        f"premises written in src/ but absent from PREMISES: {missing}. A "
-        "refusal naming one of these is outside the vocabulary a consumer "
-        "branches on."
+        f"premises this package can produce but PREMISES does not hold: "
+        f"{missing}. A refusal naming one of these is outside the vocabulary a "
+        f"consumer branches on, and _REMEDIES[code] raises KeyError where a "
+        f"typed Refusal was promised."
     )
 
 
-def test_every_premise_in_the_vocabulary_can_actually_be_refused():
-    """The inverse hole, and it is the one that raises rather than misleads.
+def test_the_remedy_table_and_the_vocabulary_name_the_same_premises():
+    """Both directions, because the reverse hole is silent.
 
-    :func:`~bayesmith.dispatch.task._refuse` looks up ``_REMEDIES[failed_premise]``
-    with a bare subscript, so a premise with no remedy row raises ``KeyError``
-    at the moment a Refusal was supposed to be produced -- a fault instead of
-    the typed verdict §1.4 invariant 9 requires. Measured on 2026-09-04:
-    ``affine_prediction`` is a member, is listed by :func:`_premises` on every
+    ``PREMISES`` without a ``_REMEDIES`` row raises ``KeyError`` at the
+    subscript in ``_refuse``.  A ``_REMEDIES`` row without a ``PREMISES``
+    member is a remedy for a premise nothing can name -- harmless in itself,
+    and a reliable sign that one of the two lists was edited alone.  An
+    adversarial review produced exactly that by deleting one member.
+    """
+    from bayesmith.dispatch.task import _REMEDIES
+
+    assert set(_REMEDIES) == set(PREMISES), {
+        "remedy row with no premise": sorted(set(_REMEDIES) - set(PREMISES)),
+        "premise with no remedy row": sorted(set(PREMISES) - set(_REMEDIES)),
+    }
+
+
+def test_every_premise_in_the_vocabulary_can_actually_be_refused():
+    """The lookup succeeding, and the remedy being worth handing to a caller.
+
+    ``_refuse`` looks up ``_REMEDIES[failed_premise]`` with a bare subscript, so
+    a premise with no row raises where a typed verdict was promised -- a fault
+    instead of the artifact §1.4 invariant 9 requires.  Measured on 2026-09-04:
+    ``affine_prediction`` was a member, was listed by ``_premises`` on every
     plan with an exact block, and had no row.
 
-    Asserted as the CONSEQUENCE -- the lookup succeeding -- rather than as a
-    key-set comparison, because the subscript is the thing that breaks.
+    The length floors are not decoration.  The first version asserted only
+    ``remedy.action and remedy.message``, and a review satisfied it with
+    ``action="x", message="y"`` -- a remedy that passes the guard and tells a
+    caller nothing.  An action is a code (no whitespace, like every other code
+    in this package); a message is a sentence.
     """
     from bayesmith.dispatch.task import _REMEDIES
 
@@ -729,4 +812,13 @@ def test_every_premise_in_the_vocabulary_can_actually_be_refused():
         remedies = _REMEDIES[premise]
         assert remedies, f"{premise} has an empty remedy tuple"
         for remedy in remedies:
-            assert remedy.action and remedy.message
+            assert len(remedy.action) >= 8, (
+                f"{premise}: {remedy.action!r} is not an action a caller can "
+                f"act on"
+            )
+            assert not any(c.isspace() for c in remedy.action), (
+                f"{premise}: an action is a code, not prose"
+            )
+            assert len(remedy.message) >= 40, (
+                f"{premise}: {remedy.message!r} does not say what to do"
+            )
