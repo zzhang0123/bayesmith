@@ -42,6 +42,7 @@ __all__ = [
     "DRAW_FLOOR",
     "REPLICATE_FLOOR",
     "SbcRanks",
+    "check_posterior",
     "discrepancy_identity",
     "held_out_report",
     "identifiability_report",
@@ -99,6 +100,7 @@ from bayesmith.evaluation.diagnostics import (
     identifiability_report,
     prior_sensitivity_report,
 )
+from bayesmith.evaluation.gate import check_posterior
 from bayesmith.evaluation.heldout import held_out_report
 from bayesmith.evaluation.loo import loo_report
 from bayesmith.evaluation.sbc import (
