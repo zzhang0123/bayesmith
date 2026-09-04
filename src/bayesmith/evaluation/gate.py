@@ -147,17 +147,17 @@ __all__ = [
 
 #: The two ``report_kind`` codes :mod:`bayesmith.evaluation.checks` writes.
 #:
-#: Every other kind in this gate is IMPORTED from the module that owns it --
+#: Five of the eight kinds are IMPORTED from the module that owns each --
 #: ``heldout.REPORT_KIND``, ``loo.REPORT_KIND``, ``sbc.REPORT_KIND``,
-#: ``diagnostics.IDENTIFIABILITY``, ``diagnostics.PRIOR_SENSITIVITY``.  These
-#: two and :data:`CHAIN_DIAGNOSTICS` have no constant to import: ``checks``
-#: passes its kinds as literals at the call site and
-#: ``dispatch.task._chain_diagnostics_report`` does the same.  Spelling them
-#: here would be a typo waiting to become a slot that silently never fills, so
-#: nothing in this module ROUTES on these constants: :func:`_file` looks a
-#: report's slot up by the report's own ``report_kind``, and a name the gate
-#: does not declare raises rather than being dropped.  ``test_gate.py`` fills
-#: every one of the eight from a real report as well.
+#: ``diagnostics.IDENTIFIABILITY``, ``diagnostics.PRIOR_SENSITIVITY``.  The
+#: other three are spelled: these two and :data:`CHAIN_DIAGNOSTICS`, which
+#: have no constant to import, because ``checks`` passes its kinds as literals
+#: at the call site and ``dispatch.task._chain_diagnostics_report`` does the
+#: same.  Spelling them here would be a typo waiting to become a slot that
+#: silently never fills, so nothing in this module ROUTES on them:
+#: :func:`_file` looks a report's slot up by the report's own ``report_kind``,
+#: and a name the gate does not declare raises rather than being dropped.
+#: ``test_gate.py`` fills every one of the eight from a real report as well.
 POSTERIOR_PREDICTIVE_CHECK = "posterior_predictive_check"
 PRIOR_PREDICTIVE_CHECK = "prior_predictive_check"
 
