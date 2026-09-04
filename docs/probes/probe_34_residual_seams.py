@@ -17,9 +17,11 @@ this file.
     structure gate, because "a latent with a latent parent" is precisely what
     makes a graph leave a residual behind.
 
-3.  The residual dimension of every shipped graph, sized from the DECLARED
-    shape. Sizing it from a prior draw silently drops the graph whose prior
-    cannot be drawn from.
+3.  The residual dimension of every shipped graph, sized from the compiled
+    LAYOUT. Sizing it from a prior draw silently drops the graph whose prior
+    cannot be drawn from; sizing it from `getattr(graph, "shape", {})` -- which
+    this probe did until a review caught it -- silently counts latents instead,
+    because `Graph` has no `.shape` attribute.
 
 4.  ``p(x | tau)`` is not proper for every tau. The conditional in
     ``shared_ancestor`` is degenerate at tau=0, which is interior to the
@@ -40,7 +42,8 @@ import numpyro.distributions as dist
 import scipy.stats as st
 
 import bayesmith
-from bayesmith.dispatch.evidence import compile_evidence_problem
+from bayesmith.dispatch.classify import prior_environment
+from bayesmith.dispatch.evidence import _latent_shape, compile_evidence_problem
 from bayesmith.errors import BayesmithError
 from bayesmith.graph.evaluate import log_joint
 from bayesmith.graph.reduction import as_graph
@@ -176,7 +179,7 @@ def section_2_which_premise_refuses():
 
 def section_3_residual_dimension():
     print("=" * 78)
-    print("3. residual dimension, sized from the DECLARED shape")
+    print("3. residual dimension, sized from the compiled LAYOUT")
     print("=" * 78)
     dims: Counter = Counter()
     total = 0
@@ -190,15 +193,28 @@ def section_3_residual_dimension():
             if not sampled:
                 continue
             total += 1
+            # `_latent_shape`, not `getattr(g, "shape", {})`. This probe shipped
+            # with the second spelling in the same batch that repaired it in
+            # `dispatch/evidence.py`: `Graph` has no `.shape`, so the lookup was
+            # always `{}` and `size` was a LATENT COUNT under a heading reading
+            # "sized from the DECLARED shape". It happened to print the right
+            # histogram, because no graph with a plated latent currently reaches
+            # a sampled block -- a number right for a reason the file did not
+            # have, which is this repository's named disease and not an
+            # exemption from it.
+            env = prior_environment(g)
             size = 0
             for name in sampled:
-                shape = getattr(g, "shape", {}).get(name)
+                shape = _latent_shape(g, name, env)
                 size += int(jnp.prod(jnp.array(shape))) if shape else 1
             dims[size] += 1
     print(f"  graphs with a sampled block: {total}")
     print(f"  histogram: {dict(sorted(dims.items()))}")
     print("  -> sizing from a prior DRAW instead drops improper_outside_prior")
-    print("     out of the histogram without it appearing anywhere as a gap")
+    print("     out of the histogram without it appearing anywhere as a gap;")
+    print("     sizing from getattr(graph, \'shape\', {}) counts LATENTS, because")
+    print("     Graph has no .shape -- this probe did that until a review caught")
+    print("     it, and printed this same histogram for the wrong reason")
 
 
 def section_4_the_degenerate_conditional():

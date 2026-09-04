@@ -297,10 +297,16 @@ class TestTheRecompositionSitsInsideADerivedBand:
                 f"graded {graded} rows; move it out of NEVER_FINITE"
             )
         else:
-            assert graded > 0, (
-                f"{label} graded NO seeds -- every draw was non-finite, so this "
-                "row passed without asserting anything. Declare it in "
-                "NEVER_FINITE or give it a seed that produces a finite joint."
+            # ALL of them, not "at least one". `graded > 0` lets a fixture drift
+            # to 4 of 5 non-finite -- 80% of its grading gone -- with nothing
+            # red and no output difference. Measured over the 265 rows: every
+            # fixture outside NEVER_FINITE grades 5 of 5 today, so the strict
+            # form costs nothing and the loose one bought nothing.
+            assert graded == len(SEEDS), (
+                f"{label} graded {graded} of {len(SEEDS)} seeds. A row that "
+                "grades fewer than all of them passed without asserting what it "
+                "claims to; declare the fixture in NEVER_FINITE or give it "
+                "seeds that produce a finite joint."
             )
 
 
@@ -668,6 +674,63 @@ class TestTheDimensionsTheFirstDraftHeldConstant:
                     f"{reference}"
                 )
 
+    def test_a_latent_with_a_non_scalar_batch_shape_reports_it(self):
+        """``batch_shape + event_shape`` is dead on the whole fixture family.
+
+        Measured: **0 of 54** shipped latents have
+        ``batch_shape + event_shape != ()``. Every non-``()`` layout in the
+        suite comes from the PLATE broadcast alone, so the expression the last
+        repair introduced can be replaced by the literal ``()`` and the file
+        still passes -- three mutants lived in that gap, in the code the repair
+        was written to fix.
+
+        A `Normal(loc=zeros(3))` latent compiles here and must be laid out as
+        `(3,)`. The fixture family does not contain one; this supplies it.
+        """
+        graph = Graph(
+            nodes=(
+                Probabilistic(
+                    name="v",
+                    parents=(),
+                    plate=(),
+                    dist_fn=lambda: dist.Normal(jnp.zeros(3), 1.0),
+                    observed=None,
+                ),
+            ),
+            plates=(),
+        )
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            drawn = problem.prior_sample(jax.random.key(0))
+        assert dict(problem.shapes)["v"] == (3,), (
+            f"a Normal(loc=zeros(3)) latent is laid out as "
+            f"{dict(problem.shapes)['v']}"
+        )
+        assert jnp.shape(drawn["v"]) == (3,)
+
+    def test_a_latent_with_an_event_shape_reports_it(self):
+        """The other half: ``event_shape``, which a multivariate latent has and
+        no shipped fixture does."""
+        graph = Graph(
+            nodes=(
+                Probabilistic(
+                    name="v",
+                    parents=(),
+                    plate=(),
+                    dist_fn=lambda: dist.MultivariateNormal(
+                        jnp.zeros(3), jnp.eye(3)
+                    ),
+                    observed=None,
+                ),
+            ),
+            plates=(),
+        )
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            drawn = problem.prior_sample(jax.random.key(0))
+        assert dict(problem.shapes)["v"] == (3,)
+        assert jnp.shape(drawn["v"]) == (3,)
+
     def test_a_scalar_latent_still_reports_the_empty_shape(self):
         graph = as_graph(models.straight_line())
         with jax.enable_x64(True):
@@ -809,6 +872,48 @@ class TestPriorSampleIsGradedRatherThanOnlyRaised:
                 f"{name} drawn at {jnp.shape(drawn[name])}, layout says {shape}"
             )
 
+    def test_each_latent_gets_its_OWN_draw_on_a_multi_latent_graph(self):
+        """Two mutants lived here, and one of them is sampler-fatal.
+
+        Every value assertion above uses a SINGLE-latent graph; the multi-latent
+        tests checked only key sets and key-determinism. So on a graph with more
+        than one latent, ``prior_sample`` could drop a latent, or hand every
+        latent the FIRST one's value, with nothing red -- the same class of
+        fatality the ignore-the-key mutant was written to prevent, one dimension
+        over.
+
+        Graded by the only thing that separates the latents: their declared
+        widths. ``a`` and ``b`` are given widths differing by 8x, so a draw
+        copied from one to the other shows up in the spread.
+        """
+        sigma_a, sigma_b = 0.5, 4.0
+        graph = Graph(
+            nodes=(
+                _bare_latent("a", scale=sigma_a),
+                _bare_latent("b", scale=sigma_b),
+            ),
+            plates=(),
+        )
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            drawn = [
+                problem.prior_sample(jax.random.key(seed))
+                for seed in range(self.PRIOR_DRAWS)
+            ]
+        assert all(set(d) == {"a", "b"} for d in drawn), "a latent was dropped"
+        for name, sigma in (("a", sigma_a), ("b", sigma_b)):
+            spread = float(jnp.std(jnp.asarray([d[name] for d in drawn])))
+            half = self.BAND_SIGMAS * sigma / math.sqrt(2 * self.PRIOR_DRAWS)
+            assert abs(spread - sigma) <= half, (
+                f"{name} drawn with spread {spread}; its declared width is "
+                f"{sigma}, derived band ({sigma - half:.4f}, {sigma + half:.4f})"
+            )
+        first, second = drawn[0]["a"], drawn[0]["b"]
+        assert not jnp.array_equal(first, second), (
+            "both latents drew the identical value; a sampler handed this "
+            "explores one dimension while reporting two"
+        )
+
 
 class TestAGraphLevelTermSeesOnlyItsDeclaredBlock:
     """M14: routing a term ``graph.latents`` instead of its own ``over``.
@@ -859,7 +964,38 @@ class TestAGraphLevelTermSeesOnlyItsDeclaredBlock:
         )
         with jax.enable_x64(True):
             problem = compile_evidence_problem(graph)
-            with pytest.raises(GraphError, match="one scalar"):
+            with pytest.raises(GraphError) as compiled:
                 problem.log_likelihood({"a": jnp.asarray(0.1)})
-            with pytest.raises(GraphError, match="one scalar"):
+            with pytest.raises(GraphError) as direct:
                 log_joint(graph, {"a": jnp.asarray(0.1)})
+        # The SLOT, not just "one scalar". Matching only the shared phrase is a
+        # guard reading a spelling weak enough to admit the divergence it exists
+        # to prevent: this refusal named the term's CLASS while log_joint named
+        # the slot, so two same-class terms were indistinguishable and a
+        # joint_prior could not be told from an evidence_terms[0].
+        assert "evidence_terms[0]" in str(compiled.value), str(compiled.value)
+        assert "one scalar" in str(compiled.value)
+        assert str(compiled.value) == str(direct.value), (
+            f"compiled: {compiled.value}\nlog_joint: {direct.value}"
+        )
+
+    def test_a_non_scalar_joint_prior_names_the_joint_prior_slot(self):
+        """The other slot, which the class-name label could not distinguish."""
+        from bayesmith.errors import GraphError
+
+        class _Vector:
+            over = ("a",)
+
+            def log_density(self, graph, values):
+                del graph, values
+                return jnp.asarray([-1.0, -2.0])
+
+        graph = Graph(nodes=(_bare_latent("a"),), plates=(), joint_prior=_Vector())
+        with jax.enable_x64(True):
+            problem = compile_evidence_problem(graph)
+            with pytest.raises(GraphError) as compiled:
+                problem.log_prior({"a": jnp.asarray(0.1)})
+            with pytest.raises(GraphError) as direct:
+                log_joint(graph, {"a": jnp.asarray(0.1)})
+        assert "joint_prior" in str(compiled.value), str(compiled.value)
+        assert str(compiled.value) == str(direct.value)

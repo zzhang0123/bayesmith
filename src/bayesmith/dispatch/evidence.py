@@ -1080,22 +1080,31 @@ class CompiledEvidenceProblem:
             )
 
 
-def _graph_term_value(graph: Graph, term: Any, env: Mapping[str, Any], names) -> Any:
+def _graph_term_value(
+    graph: Graph, term: Any, env: Mapping[str, Any], names, *, label: str
+) -> Any:
     """One graph-level term's density, read the way ``log_joint`` reads it.
 
-    Including the scalar requirement, which an earlier version of this function
-    claimed in that sentence and did not enforce: measured, a term returning
-    shape ``(2,)`` made ``log_joint`` raise ``GraphError`` while this returned
-    the vector. ``graph_density`` is called rather than re-derived, so the two
-    cannot drift.
+    Including the scalar requirement and the SLOT NAME in the refusal, both of
+    which earlier versions of this function got wrong in turn.
+
+    The first claimed the scalar check in its docstring and did not make it: a
+    term returning shape ``(2,)`` made ``log_joint`` raise ``GraphError`` while
+    this returned the vector. Calling ``graph_density`` fixed that and left a
+    smaller divergence in place -- the label. ``log_joint`` passes the SLOT
+    (``joint_prior``, ``evidence_terms[0]``); this passed the term's class name,
+    so with two same-class evidence terms the refusal could not say which one
+    failed, and could not tell a ``joint_prior`` from an ``evidence_terms[0]``
+    at all. The only test matched ``"one scalar"``, which both spellings
+    satisfy -- a guard reading a spelling weak enough to admit the divergence it
+    existed to prevent.
+
+    The slot is now passed in by the caller, which is the only place that knows
+    it, and a test asserts the two messages name the same slot.
     """
     from bayesmith.graph.evaluate import graph_density
 
-    return graph_density(graph, term, dict(env), label=_term_label(term), names=names)
-
-
-def _term_label(term: Any) -> str:
-    return getattr(term, "__class__", type(term)).__name__
+    return graph_density(graph, term, dict(env), label=label, names=names)
 
 
 
@@ -1168,11 +1177,13 @@ def compile_evidence_problem(
                 term = jnp.where(node.observed_mask, term, 0.0)
             total = total + jnp.sum(term)
         if observed:
-            for term in graph.evidence_terms:
-                total = total + _graph_term_value(graph, term, env, term.over)
+            for index, term in enumerate(graph.evidence_terms):
+                total = total + _graph_term_value(
+                    graph, term, env, term.over, label=f"evidence_terms[{index}]"
+                )
         elif graph.joint_prior is not None:
             total = total + _graph_term_value(
-                graph, graph.joint_prior, env, graph.latents
+                graph, graph.joint_prior, env, graph.latents, label="joint_prior"
             )
         return total
 

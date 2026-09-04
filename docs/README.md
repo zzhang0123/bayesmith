@@ -33,6 +33,7 @@
 | `docs/evidence-layer-readiness.md` | `record` | What B11 will find here |
 | `docs/evidence.md` | `module-spec` | The evidence layer: one structure class, five terms, and what a PASS does not mean |
 | `docs/factor-partition-examples.md` | `module-spec` | From a model to an auto-partitioned sampler: two worked examples |
+| `docs/mutation/2026-09-04-r5-wave-a.md` | `record` | R5 Wave A mutation table |
 | `docs/ownership.md` | `decision-home` | Implementation ownership |
 | `docs/superpowers/plans/2026-08-23-p1-graph-core-p2-numpyro-bridge.md` | `record` | bayesmith P1 图核 + P2 NumPyro 桥 — 实施计划 |
 | `docs/superpowers/plans/2026-08-23-p3a-exact-core.md` | `record` | bayesmith P3a 精确解核心 — 实施计划 |
