@@ -16,7 +16,11 @@ arbitrary, the measurement that chose it is quoted on the test.
 from __future__ import annotations
 
 import dataclasses
+import functools
+import importlib.util
 import math
+import pathlib
+import sys
 import uuid
 
 import jax
@@ -1267,3 +1271,404 @@ def test_a_posterior_that_ignores_the_data_is_still_calibrated():
     assert report.conclusion is Conclusion.PASS
     uniformity = finding(report, "sbc_rank_uniformity")
     assert uniformity.observed[2] > 0.5, uniformity.message
+
+
+# ------------------------------ Task 9: the local reference NPE, through here
+#
+# **Which rung of CLAUDE.md's ladder these three cells stand on, and why.**
+# The subject of Task 9's pin is a 1500-step float32 Adam trajectory, and a
+# trajectory is not a property.  Measured on this checkout, re-running the
+# IDENTICAL recipe at 24 other init/train seed pairs -- same bank, same
+# harness key, same budget, same machine -- fails this arm's own KS test in
+# **6 of 24** runs, with ``best_step`` swinging 292 .. 1190.  A cell whose
+# subject fails a quarter of the time under a re-run of its own recipe is the
+# fixture shape that spent four release tags, so pinning that PASS
+# unconditionally is not available.
+#
+# Rung (a) is not available either: the trajectory cannot be constructed
+# deterministically without deleting the thing being measured.  Rung (b) --
+# a derived band -- is not available for the mean bias, because over those 24
+# retrains ``|bias|`` reaches **0.5468** exact sds, ABOVE the 0.4079 a
+# 0.01-in-standardized-space mean shift produces; no band both survives the
+# recipe and catches the shift.
+#
+# So: **rung (c), with rung (d) as its else-branch.**  The CONTRACT assertions
+# -- that the sampler arm ran over every replicate, and that the estimator is
+# not grossly wrong -- are unconditional and come FIRST, in their own cell.
+# The trained network's recorded numbers -- the KS PASS, the width ratios, the
+# mean biases -- are the PREMISE, and they are asserted only where a witness
+# says this machine's arithmetic reproduced the recorded trajectory; where it
+# did not, the cell skips saying ``THIS IS NOT A PASS`` and naming what it
+# measured instead.
+#
+# The fragility is localised, not assumed.  It is NOT in the harness: nudging
+# every posterior draw by a relative 1e-6 -- eight times float32 eps -- changes
+# **0 of 300** ranks on both arms, and even a 1e-4 nudge (15 and 17 ranks
+# moved) leaves KS D and p identical to four digits.  It is in the weights.
+# Hence the third cell, which is new here: probe_29 §1's EXACT-posterior
+# control has no optimisation in it at all, and it is the arm that can carry
+# an unconditional PASS.
+
+_PROBE_29 = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "docs"
+    / "probes"
+    / "probe_29_amortized_candidates.py"
+)
+
+
+@functools.cache
+def probe_29():
+    """probe_29, imported as a module rather than run as a script.
+
+    The same loader ``tests/evaluation/test_probe28_pins.py`` uses, for the
+    same reason: ``docs/probes/`` is a shelf of scripts, not a package, and
+    the fixture below -- the graph, the bank, the budget, the seeds -- has to
+    be the ONE the probe measured.  A test that rebuilt it here would agree
+    with the probe by coincidence and stop agreeing on the day one of the two
+    was edited, which is the failure this repository has spent the most time
+    repairing.
+
+    ``sys.argv`` is swapped for the import because probe_29's ``main`` reads
+    ``sys.argv[1]`` as a replicate count; under pytest that argument is a node
+    id.  The guard belongs on this side, which is the side doing something
+    unusual.
+    """
+    spec = importlib.util.spec_from_file_location(_PROBE_29.stem, _PROBE_29)
+    assert spec is not None and spec.loader is not None, _PROBE_29
+    module = importlib.util.module_from_spec(spec)
+    saved = sys.argv
+    sys.argv = [str(_PROBE_29)]
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.argv = saved
+    return module
+
+
+class _CountedSampler:
+    """probe_29's §0.11 sampler, wrapped so the calls to it are countable.
+
+    The replicate census reports which arm produced the ranks as the STRING
+    ``"sampler"``, and a guard that reads a spelling can be walked past by a
+    rename.  So the string is checked beside an object-level fact that no
+    rename reaches: THIS object was the callable the harness drove, it was
+    driven once per replicate, and every call asked it for the declared draw
+    budget.
+    """
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.draw_requests: list[int] = []
+
+    def __call__(self, datum, key, n):
+        self.draw_requests.append(int(n))
+        return self.inner(datum, key, n)
+
+
+@functools.cache
+def _exact_posterior_arm():
+    """probe_29 §1: the CLOSED-FORM posterior through ``sbc_ranks``' sampler arm."""
+    probe = probe_29()
+    b = probe.bayesmith()
+    _theta, data = b.draw_bank(b.jax.random.key(probe.KEY_BANK), probe.BANK)
+    sampler = _CountedSampler(probe.exact_sampler())
+    ranks, report = probe.judged(probe.amortize_graph(np.asarray(data[0])), sampler)
+    return ranks, report, sampler
+
+
+@functools.cache
+def _reference_npe_arm():
+    """probe_29 §2: the trained reference through the same arm. Cached; ~7 s."""
+    probe = probe_29()
+    q, history, _seconds, (_theta, data) = probe.train_reference()
+    sampler = _CountedSampler(probe.reference_sampler(q))
+    ranks, report = probe.judged(probe.amortize_graph(np.asarray(data[0])), sampler)
+    return q, history, ranks, report, sampler
+
+
+def _assert_the_sampler_arm_ran_over_every_replicate(report, sampler):
+    """The contract both arms owe, independent of how good the estimator is.
+
+    A PASS computed from the replicates that happened to work is a different
+    claim from a PASS over the replicates that were asked for, so the census
+    is asserted whole; and the route label is checked beside the call count,
+    because the label is a spelling and the count is not.
+    """
+    probe = probe_29()
+    assert report.report_kind == REPORT_KIND
+    assert report.applicability is Applicability.APPLICABLE
+    assert finding(report, "sbc_replicate_accounting").observed == (
+        probe.REPLICATES,
+        probe.REPLICATES,
+        0,
+        0,
+        0,
+        "sampler",
+    )
+    assert sampler.draw_requests == [probe.DRAWS] * probe.REPLICATES
+    uniformity = finding(report, "sbc_rank_uniformity")
+    assert uniformity.observed[0] == "theta"
+    assert uniformity.observed[3] == probe.REPLICATES
+    assert uniformity.expected == pytest.approx(ALPHA)
+
+
+#: The band the reference estimator's width must stay inside UNCONDITIONALLY,
+#: as a multiple of the EXACT posterior width ``tests/test_amortize.py``'s
+#: closed form gives for the same observation.
+#:
+#: **Which half is which.** The FORM -- a two-sided band on
+#: ``width / exact_width`` -- is derived: the target is a closed form in numpy,
+#: so 1.0 is where a correct estimator sits and no measurement of this machine
+#: chose it.  The CONSTANTS 0.60 and 1.60 are FITTED, and fitted against a
+#: sweep rather than against one run: re-training the identical recipe at 24
+#: other seed pairs put all 72 measured ratios inside ``[0.8036, 1.1932]``, so
+#: the binding margin here is 0.204 -- twelve times the 0.0170 Monte-Carlo
+#: spread the same statistic shows over twelve draw keys at FIXED weights.
+#:
+#: **This is looser than the (0.80, 1.20) it replaces, deliberately, and the
+#: reason is that (0.80, 1.20) was not an unconditional claim.** The same
+#: 24-retrain sweep puts ratios at 0.8036 and 1.1932 -- inside, by 0.004 and
+#: 0.007 out of a half-width of 0.20, i.e. 2-3% of it -- and ``JAX_ENABLE_X64=1``
+#: on this machine moves one ratio from 0.9539 to 1.1103, which is 78% of that
+#: half-width and nine times the Monte-Carlo spread above.  A band with 2% of
+#: margin under a re-run of its own recipe records one trajectory; it does not
+#: state a property.  What it did catch is not lost: it moves into
+#: :func:`test_the_reference_npe_reproduces_its_recorded_calibration` as a
+#: ``+-0.05`` PIN, four times tighter than the old band, behind a witness that
+#: says the trajectory reproduced.
+#:
+#: It is deliberately NOT ``tests/test_amortize.py::test_the_posterior_width_matches``'
+#: ``0.75 < ratio < 1.35``, which owns this criterion for that file at a LARGER
+#: budget (bank 8192, 2000 steps).  Measured at Task 9's budget the retrain
+#: cloud reaches 0.8036, only 0.054 above that floor -- three times the
+#: Monte-Carlo spread, too thin to carry an unconditional guard here.
+WIDTH_BAND = (0.60, 1.60)
+
+#: probe_29 §2's recorded trajectory, and the witness that says this machine
+#: reproduced it.  ``best_step`` is a 1500-way discrete fingerprint of the
+#: optimisation: measured, it takes 24 DISTINCT values over the 24-seed
+#: retrain sweep (292 .. 1190) and moves 322 -> 580 under ``JAX_ENABLE_X64=1``,
+#: so it detects a diverged trajectory rather than merely a diverged bit.  The
+#: validation minimum is checked beside it because a coincident argmin index
+#: is not a coincident set of weights.
+#:
+#: ``TRAJECTORY_RTOL``'s FORM is derived -- a relative tolerance on a float32
+#: loss -- and it is placed between two MEASURED scales rather than chosen:
+#: float32 eps on this loss is 6e-8 (900x below), and the gap from this
+#: minimum to the second-best validation value is 7.856e-4, i.e. 1.49e-3
+#: relative (15x above), so no other step of this run can satisfy it.
+RECORDED_BEST_STEP = 322
+RECORDED_VALIDATION_MIN = -0.5286270976
+TRAJECTORY_RTOL = 1e-4
+
+#: probe_29 §2's recorded width ratios and mean biases at
+#: ``probe_29.WIDTH_OBSERVATIONS``, and the tolerance they are pinned to
+#: BEHIND the witness above.  At fixed weights and probe_29's fixed draw key
+#: these are reproducible to ten digits in-process; the tolerances are three
+#: times the Monte-Carlo spread the same statistics show over twelve draw keys
+#: at fixed weights (0.0170 for the ratio, 0.0232 for the bias), rounded DOWN
+#: to two digits.  So the FORM is derived -- a pin at the instrument's own
+#: noise floor -- and the factor three is fitted.
+RECORDED_WIDTH_RATIOS = (0.9660, 1.0287, 0.9539)
+RECORDED_MEAN_BIASES = (0.2605, -0.0213, 0.0054)
+WIDTH_PIN_TOLERANCE = 0.05
+BIAS_PIN_TOLERANCE = 0.07
+
+
+@pytest.mark.full
+@pytest.mark.slow
+def test_the_exact_posterior_is_calibrated_through_the_sampler_arm():
+    """R3 Task 9.1, the boundary check: probe_29 §1, held here unconditionally.
+
+    The amortize problem's EXACT posterior -- closed form, in numpy,
+    ``tests/test_amortize.py::exact_posterior`` -- through
+    :func:`~bayesmith.evaluation.sbc.sbc_ranks`' sampler arm on the graph
+    probe_29 builds, at ``key(11)``, N = 300 replicates, 200 draws each,
+    judged at ``ALPHA / K = 0.05``.
+
+    **What it is for.** Everything probe_29 reports rests on that graph's
+    forward law being the same joint ``draw_bank`` samples; if it were not,
+    the exact posterior of one problem would be scored against replicates of
+    another.  The page said so and nothing ran it.  Measured, a graph/bank
+    divergence of 40% in the observation noise -- ``dist.Normal(m, NOISE)``
+    -> ``dist.Normal(m, 1.4 * NOISE)`` in ``probe_29.amortize_graph`` -- turns
+    this cell red at KS D = 0.1267, p = 1.179e-4.
+
+    **Why THIS arm carries an unconditional PASS when the trained one does
+    not.** There is no optimisation in it.  Its risk really is the declared
+    ALPHA, and the two things that could move it were measured rather than
+    argued:
+
+    * the rank statistic is a COUNT, and counts do not move at rounding
+      scale.  Nudging every draw by a relative 1e-7 or 1e-6 changes 0 of 300
+      ranks; 1e-5 changes 1; even 1e-4 -- three orders above float32 eps, 15
+      ranks moved -- leaves ``D = 0.0517`` and ``p = 0.3867`` unchanged.
+    * ``JAX_ENABLE_X64=1``, which replaces the whole RNG stream as well as the
+      arithmetic, still PASSES here: D = 0.0367, p = 0.8006, coverage 0.890.
+
+    **Measured on this checkout** (``PYTHONPATH=. .venv/bin/python
+    docs/probes/probe_29_amortized_candidates.py 300 1``): APPLICABLE x PASS,
+    KS D = 0.0517, p = 0.3867, 90% coverage 0.910, 300 of 300 usable.  Over
+    harness seeds ``key(11)`` .. ``key(20)`` all ten PASS, worst p = 0.1008,
+    median 0.4071.
+
+    **Expected false positives: 0.05**, by construction, because that is what
+    ALPHA declares -- and for this arm that sentence is supported.
+    """
+    _ranks, report, sampler = _exact_posterior_arm()
+    _assert_the_sampler_arm_ran_over_every_replicate(report, sampler)
+    assert report.conclusion is Conclusion.PASS, finding(
+        report, "sbc_rank_uniformity"
+    ).message
+
+
+@pytest.mark.full
+@pytest.mark.slow
+def test_the_reference_npe_goes_through_the_sampler_arm_over_every_replicate():
+    """R3 Task 9.1, the unconditional half: the contract, and a gross-error floor.
+
+    ``NeuralPosterior`` on ``tests/test_amortize.py``'s linear-Gaussian
+    problem -- bank 2048, 1500 Adam steps at batch 256, lr 1e-3, 10% held out,
+    seeds ``key(0)`` / ``key(1)`` / ``key(2)`` -- put through
+    :func:`~bayesmith.evaluation.sbc.sbc_ranks`' sampler arm at ``key(11)``,
+    N = 300 replicates, 200 draws each, judged at ``ALPHA / K = 0.05``.  Every
+    one of those is probe_29's, imported rather than restated.
+
+    Nothing asserted here depends on WHICH trained estimator came out of that
+    recipe, which is the whole reason it is separate from
+    :func:`test_the_reference_npe_reproduces_its_recorded_calibration`.  Two
+    claims:
+
+    * the harness drove the sampler arm over all 300 replicates and refused,
+      lost or failed to draw none of them -- and the arm is identified by the
+      call count on the sampler OBJECT as well as by the census's route
+      string, so a rename cannot walk past it;
+    * the estimator is not grossly wrong: its width against the closed form
+      is inside :data:`WIDTH_BAND`, whose margin against a re-run of this
+      recipe is measured on that constant.
+
+    **What this cell catches.**  ``truth[index]`` -> ``truth[0]`` in
+    ``sbc._accumulate`` (every replicate ranked against the first one's truth)
+    and ``route = "sampler"`` -> ``route = "npe"`` in ``sbc_ranks`` both turn
+    it red, as does ``sampler_draws`` -> ``sampler_draws // 2`` (which the
+    census tuple and the KS verdict both survive: only the call record sees
+    it), a ``NeuralPosterior`` whose scales are doubled (ratios 1.9321 /
+    2.0575 / 1.9079), and one whose ``_mixture`` discards the datum -- which
+    is ``sbc.py``'s own documented blind spot, PASSES the SBC verdict, and is
+    caught here at ratios 15.1805.
+    """
+    _q, _history, _ranks, report, sampler = _reference_npe_arm()
+    _assert_the_sampler_arm_ran_over_every_replicate(report, sampler)
+
+    probe = probe_29()
+    ratios = [
+        probe.width_against_exact(_q, theta_true)[0]
+        for theta_true in probe.WIDTH_OBSERVATIONS
+    ]
+    low, high = WIDTH_BAND
+    assert all(low < ratio < high for ratio in ratios), ratios
+
+
+@pytest.mark.full
+@pytest.mark.slow
+def test_the_reference_npe_reproduces_its_recorded_calibration():
+    """R3 Task 9.1, the recorded half: probe_29 §2's numbers, behind a witness.
+
+    **This is CLAUDE.md rung (c).**  The premise -- that the 1500-step float32
+    Adam run this fixture describes came out the way it came out here on
+    2026-09-04 -- is platform-dependent and is therefore conditional and
+    recorded.  The contract assertions are unconditional and live in
+    :func:`test_the_reference_npe_goes_through_the_sampler_arm_over_every_replicate`,
+    ahead of this cell.  Where the premise does not hold this cell SKIPS
+    saying ``THIS IS NOT A PASS`` and naming the two numbers it measured,
+    rather than passing quietly (rung (d)).
+
+    **Why the premise is not a property.**  Re-running the identical recipe at
+    24 other init/train seed pairs on this machine -- same bank, same harness
+    key, same budget -- gave 6 KS FAILs of 24 (p = 0.0025 / 0.0207 / 0.0016 /
+    0.0037 / 0.0046 / 0.0037), ``best_step`` from 292 to 1190, and
+    ``|bias|`` up to 0.5468 exact sds.  A quarter of the re-runs of its own
+    recipe fail this arm's KS test; ALPHA is 0.05.  Under
+    ``JAX_ENABLE_X64=1``, which is not a pure BLAS swap -- it changes the RNG
+    stream as well -- ``best_step`` moves 322 -> 580 and the three width
+    ratios move to 1.0255 / 0.9612 / 1.1103 and the biases to +0.0753 /
+    -0.0816 / +0.0216.  Those movements are 8-9 times the 0.0170 / 0.0232
+    Monte-Carlo spread of the same statistics over twelve draw keys at fixed
+    weights, so they are the WEIGHTS moving, not the sampling.
+
+    **Measured on this checkout** (``PYTHONPATH=. .venv/bin/python
+    docs/probes/probe_29_amortized_candidates.py 300 2``): ``best_step`` 322,
+    validation minimum -0.5286270976, APPLICABLE x PASS, KS D = 0.0683,
+    p = 0.1159, 90% coverage 0.890, 300 of 300 usable, width ratios 0.9660 /
+    1.0287 / 0.9539 and mean biases +0.2605 / -0.0213 / +0.0054 exact sds at
+    ``theta_true`` = +0.5 / +1.6 / -0.9.
+
+    **Expected false positives: 0.05** wherever the witness holds, which is
+    what ALPHA declares; §9.3 asks that the number be declared rather than
+    discovered.  Note what the seed sweep above says about that number: it
+    bounds the risk of THIS trajectory, not of the recipe.
+
+    **There is deliberately no assertion on the KS digits.**  At N = 300 a
+    PASS already means ``D <= 0.077832``
+    (``scipy.stats.kstwo.ppf(0.95, 300)``), so a band on D is implied by the
+    PASS and can never fail on its own.  The same is true of the coverage:
+    sweeping a width distortion at this seed, the three-sigma binomial band
+    ``0.90 +- 3 * sqrt(0.9 * 0.1 / 300) = [0.848, 0.952]`` is crossed only
+    where the KS verdict has already failed (1.3x gives p = 0.0046 and
+    coverage 0.9567; 1.2x gives p = 0.0558 and coverage 0.9400, inside the
+    band).
+
+    **What each pin catches, and what killed it.**
+
+    * the PASS -- an estimator whose stated uncertainty stops matching its
+      prior.  Killed by ``scales[component]`` -> ``2.0 * scales[component]``
+      in ``NeuralPosterior.sample`` (D = 0.1967, p = 1.2e-10).
+    * the width pin.  Killed by ``1.2 * scales[component]`` -- ratios
+      1.1592 / 1.2345 / 1.1447 -- which the PASS above SURVIVES, at a measured
+      p = 0.05576.  That mutant is why a width instrument exists at all.
+    * the bias pin.  Killed by ``means[component]`` ->
+      ``means[component] + 0.01`` -- a constant shift in STANDARDIZED latent
+      space, 0.147 exact sds, which moves the biases to +0.4079 / +0.1261 /
+      +0.1528 while leaving the width ratios untouched and IMPROVING the KS
+      statistic to D = 0.0533, p = 0.3486.  Neither the verdict nor the width
+      can see it.  It cannot be caught unconditionally either: 6 of the 72
+      bias cells in the 24-retrain sweep exceed 0.40 and one reaches 0.5468,
+      so no band on ``|bias|`` both survives the recipe and catches a 0.147
+      shift.  It is caught HERE, where the trajectory is pinned.
+    """
+    probe = probe_29()
+    q, history, _ranks, report, _sampler = _reference_npe_arm()
+
+    best_step = int(history.best_step)
+    validation_min = float(np.asarray(history.validation).min())
+    reproduced = best_step == RECORDED_BEST_STEP and validation_min == pytest.approx(
+        RECORDED_VALIDATION_MIN, rel=TRAJECTORY_RTOL
+    )
+    if not reproduced:
+        pytest.skip(
+            "THIS IS NOT A PASS. probe_29 §2's recorded trajectory did not "
+            f"reproduce here: best_step={best_step} (recorded "
+            f"{RECORDED_BEST_STEP}), validation minimum={validation_min!r} "
+            f"(recorded {RECORDED_VALIDATION_MIN} at rel={TRAJECTORY_RTOL}). "
+            "The numbers below describe one 1500-step float32 Adam run and "
+            "are not asserted against a different one; re-run probe_29 §2 on "
+            "this machine and record what it gives."
+        )
+
+    assert report.conclusion is Conclusion.PASS, finding(
+        report, "sbc_rank_uniformity"
+    ).message
+
+    measured = [
+        probe.width_against_exact(q, theta_true)
+        for theta_true in probe.WIDTH_OBSERVATIONS
+    ]
+    ratios = [pair[0] for pair in measured]
+    biases = [pair[1] for pair in measured]
+    assert ratios == pytest.approx(
+        list(RECORDED_WIDTH_RATIOS), abs=WIDTH_PIN_TOLERANCE
+    ), ratios
+    assert biases == pytest.approx(
+        list(RECORDED_MEAN_BIASES), abs=BIAS_PIN_TOLERANCE
+    ), biases
