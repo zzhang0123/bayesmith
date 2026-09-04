@@ -119,7 +119,7 @@ from bayesmith.artifacts.identity import (
     InvalidationPolicy,
     fingerprint,
 )
-from bayesmith.artifacts.refusal import Refusal
+from bayesmith.artifacts.refusal import Finding, Refusal
 from bayesmith.artifacts.reports import Applicability, Conclusion, EvaluationReport
 from bayesmith.artifacts.tasks import PosteriorTask, new_task_meta
 from bayesmith.dispatch.execute import chain_diagnostics
@@ -1138,17 +1138,8 @@ class TestItDecidesNothing:
         for multiple in EDGE_MULTIPLES:
             cell = multiple * (ALPHA / 2.0)
             for conclusion in (C.FAIL, C.PASS):
-                report = dataclasses.replace(
-                    template,
-                    report_kind=kind,
-                    applicability=A.APPLICABLE,
-                    conclusion=conclusion,
-                    findings=(
-                        dataclasses.replace(
-                            template.findings[0],
-                            observed=("d", "a.discrepancy", cell, cell),
-                        ),
-                    ),
+                report = _at_cell(
+                    template, kind=kind, conclusion=conclusion, cell=cell
                 )
                 for slot in (_file(report), _file(report, expected=requirement)):
                     assert slot.report is report, (
@@ -1237,17 +1228,11 @@ class TestItDecidesNothing:
         from bayesmith.evaluation import gate as gate_module
 
         cell = multiple * (ALPHA / 2.0)
-        template = calibrated.report(POSTERIOR_PREDICTIVE_CHECK)
-        failed = dataclasses.replace(
-            template,
-            applicability=A.APPLICABLE,
+        failed = _at_cell(
+            calibrated.report(POSTERIOR_PREDICTIVE_CHECK),
+            kind=POSTERIOR_PREDICTIVE_CHECK,
             conclusion=C.FAIL,
-            findings=(
-                dataclasses.replace(
-                    template.findings[0],
-                    observed=("d", "a.discrepancy", cell, cell),
-                ),
-            ),
+            cell=cell,
         )
         monkeypatch.setattr(
             gate_module, "posterior_predictive_check", lambda *a, **k: failed
@@ -1457,6 +1442,34 @@ def _gate_source() -> ast.Module:
 
     path = pathlib.Path(gate_module.__file__)
     return ast.parse(path.read_text(encoding="utf-8"))
+
+
+def _at_cell(
+    template: EvaluationReport, *, kind: str, conclusion: Conclusion, cell: float
+) -> EvaluationReport:
+    """``template``'s real envelope, carrying ONE finding at ``cell``.
+
+    The finding is BUILT rather than edited from the template's own, so the
+    reports these tests hand to the runner do not depend on what the template
+    happens to contain -- a gate that stripped a finding would otherwise make
+    this helper raise, and a crash is a red for the wrong reason.  The
+    envelope is reused because an evaluation report needs a real fingerprint
+    bundle and a subject that is a result.
+    """
+    return dataclasses.replace(
+        template,
+        report_kind=kind,
+        applicability=A.APPLICABLE,
+        conclusion=conclusion,
+        findings=(
+            Finding(
+                code="discrepancy_outside_rate",
+                message=f"one cell, placed at {cell!r}",
+                observed=("d", "a.discrepancy", cell, cell),
+                expected=ALPHA / 2.0,
+            ),
+        ),
+    )
 
 
 def _ref_of(report: EvaluationReport) -> ArtifactRef:
