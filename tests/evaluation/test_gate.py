@@ -152,6 +152,17 @@ from bayesmith.evaluation.sbc import simulation_based_calibration
 from tests.dispatch.test_task_protocol import model_ref
 from tests.exact.models import bilinear_pair, straight_line
 
+try:  # pragma: no cover - exercised by its absence, in the wheel venv
+    import arviz as _arviz
+except ImportError:  # pragma: no cover
+    _arviz = None
+
+#: Skipped at RUN time, not at collection -- the same reason ``tests/bridge``
+#: and ``test_chain_diagnostics_oracle`` give: a module-level ``importorskip``
+#: shrinks the collection that ``tests/test_readme_count.py`` pins, and a
+#: partial view reads as a shrunken suite.
+requires_arviz = pytest.mark.skipif(_arviz is None, reason="arviz is not installed")
+
 pytestmark = pytest.mark.x64
 
 A = Applicability
@@ -911,12 +922,22 @@ class TestTheCarriedChannel:
 class TestACheckThatRaises:
     """An exception out of a check becomes a record, never a traceback."""
 
+    @requires_arviz
     def test_arviz_raising_on_a_starved_posterior_is_filed_as_an_error(self, starved):
         """Measured on this checkout: ``arviz.loo`` raises
         ``ValueError: n_draws_tail must be at least 5`` on an 8-draw
         posterior.  Without the catch the ``draws=8`` fixture §8.1 asks for
         could not reach a verdict at all -- the call would raise before the
         aggregator saw a single slot.
+
+        **Needs arviz PRESENT, and the built-wheel suite is where that stopped
+        being automatic.**  Measured 2026-09-04 in a wheel venv without the
+        dev-only dependency: the slot comes back with a REPORT rather than an
+        error -- ``loo_report``'s own UNVERIFIABLE arm, "arviz is required to
+        compute and it is not importable here" -- so this test was asserting
+        the wrong one of two correct behaviours.  The sibling test below holds
+        either way, and did pass there: an optional slot does not block the
+        gate whichever arm it took.
         """
         slot = starved.slot("loo_psis")
         assert slot.attempt_status is AttemptStatus.ATTEMPTED
