@@ -397,6 +397,7 @@ PYTHONPATH=<worktree>/src:<worktree> .venv/bin/python -m pytest \
 | M6 | `amortize.py` | `_mixture`: `features` → `0.0 * features`, an NPE that IGNORES the datum | the **unconditional width floor** at ratios `[15.1805, 15.1805, 15.1805]`. This is `sbc.py`'s own documented blind spot: it is uniform in rank by construction and the SBC verdict PASSES it. The recorded cell SKIPS — it changes training, so the witness fires: `best_step=1454 (recorded 322), validation minimum=2.132643461227417` | `1` |
 | M7 | `docs/probes/probe_29…py` | `amortize_graph`: `dist.Normal(m, b.NOISE)` → `dist.Normal(m, 1.4 * b.NOISE)`, the graph drifting from the bank | the **exact-posterior control** at `KS D=0.1267 p=1.179e-4`, and the recorded PASS on the same statistic | `1` |
 | M8 | `evaluation/sbc.py` | `sbc_ranks`: `sampler_draws` → `sampler_draws // 2` at the call site | the **draw-budget record on the sampler object**, in both unconditional cells — `[100, 100, …] == [200, 200, …]`. The census tuple, the KS verdict, the width and the bias all survive it; this is the row that says the object-level half is not decoration | `1` |
+| **M9** | `amortize.py` | `_mixture`: `(self.embed(datum) - self.data_mean) / self.data_scale` → `self.embed(datum) / self.data_scale`, standardisation losing the mean subtraction | **NOTHING here. SURVIVED.** The three cells give `2 passed, 1 skipped`, PYTEST_EXIT=0. The single cell they replaced (`46ceaa9`) gives PYTEST_EXIT=1 at KS D=0.07833, p=0.04769 vs α/K=0.05, and `probe_29 300 2` prints FAIL with biases −0.0907 / −0.0839 / **+0.4316**. Recorded rather than repaired: see [What is still uncaught](#what-is-still-uncaught-said-plainly) for the measured reason the released cell was not a guard worth keeping, and for the three unconditional instruments that were tried and do not catch it. | **0** |
 
 **And the same broken implementation at the scope where it used to survive.**
 The review that found M5 showed it passing
@@ -407,12 +408,37 @@ failure being `test_the_reference_npe_reproduces_its_recorded_calibration`.
 
 ### What is still uncaught, said plainly
 
-* A **training-side** mutation that changes the trajectory without making the
-  estimator grossly wrong reaches the witness, not an assertion: the recorded
-  cell skips and the unconditional floor `0.60 < ratio < 1.60` is wide. M6 is
-  the case where the floor catches it anyway; a subtler one would show up as a
-  loud skip, which is rung (d)'s behaviour and not a pass, but is also not a
-  red test.
+* **A datum-path defect that makes this arm fail its own SBC verdict now
+  passes the battery.** Not a hypothetical, and not the milder thing an earlier
+  draft of this bullet described. Measured 2026-09-04 at HEAD, in
+  `amortize.py`'s `_mixture`, dropping the mean subtraction from the
+  standardisation (`(embed(datum) - data_mean) / data_scale` ->
+  `embed(datum) / data_scale`):
+
+  | | result |
+  |---|---|
+  | the three cells as they now stand | `2 passed, 1 skipped`, PYTEST_EXIT=**0** -- SURVIVED |
+  | the single cell they replaced, `46ceaa9`'s `test_the_reference_npe_is_calibrated_through_the_sampler_arm` | `1 failed`, PYTEST_EXIT=**1**, KS D = 0.07833, p = 0.04769 against alpha/K = 0.05 |
+  | `probe_29 300 2` under the same mutation | `FAIL`, biases -0.0907 / -0.0839 / **+0.4316** |
+
+  So rung (c) gave up a kill, and this page says so rather than leaving the
+  reader to find out. **What it gave up is worth stating precisely, because it
+  is not a good guard being traded for a stable one.** That cell fails **6 of
+  24** re-runs of its own identical recipe at other init/train seeds (the sweep
+  in [The pins](#the-pins-and-what-they-can-still-catch)), and it caught this
+  defect at a margin of **0.0023** from its own threshold. A test with a 25%
+  false-positive rate on correct code, catching a true defect by two parts in a
+  thousand, is not separating signal from noise -- it is a coin that landed the
+  right way up. Rung (c) was taken because the witness cannot distinguish "a
+  different machine" from "different code", and that inability is the cost
+  being paid here, in both directions.
+
+  Checked before accepting it: the kill cannot be bought back unconditionally
+  at this budget. No width band catches this mutant (its ratios are 0.9477 /
+  0.9806 / 0.9304, all near 1); no `|bias|` band does either, because a
+  legitimate retrain reaches `|bias|` = 0.5468, *above* this mutant's 0.4316;
+  and the mean of the three biases does not separate them (mutant 0.2289 vs
+  legitimate 0.2318 and 0.2263).
 * A mean shift **smaller than about 0.15 exact sds** is below what any
   unconditional instrument here can separate from retraining, per the 0.5468
   measurement above. It is caught only where the witness holds.
