@@ -264,3 +264,355 @@ class TestTheFiveTerms:
             assert float(assembly.log_evidence) == pytest.approx(
                 sum(expected.values()), abs=1e-9
             )
+
+
+class TestTheShapesOneScalarSigmaHides:
+    """Fixtures for the seven mutants an adversarial review left alive.
+
+    Every test above this class uses ONE latent, ONE observation and ONE scalar
+    sigma, and that made six wrong implementations of ``_dense_block`` green:
+    a noise matrix built from ``variance[0]``, a ``_width_of`` returning 1, a
+    prior mean truncated to its first component, an unsorted walk over
+    ``block.data``, a skip branch that forgets its row cursor, and a
+    ``_variance_of`` that accepts anything. None is exotic; each is what the
+    code would look like if written slightly wrong.
+    """
+
+    def _oracle(self, design, data, prior_std, prior_mean, variance):
+        design = np.asarray(design, float)
+        n, _k = design.shape
+        noise = np.diag(np.asarray(variance, float))
+        prior_covariance = np.diag(np.asarray(prior_std, float) ** 2)
+        covariance = design @ prior_covariance @ design.T + noise
+        residual = np.asarray(data, float) - design @ np.asarray(prior_mean, float)
+        _, logdet = np.linalg.slogdet(covariance)
+        return float(
+            -0.5
+            * (
+                residual @ np.linalg.solve(covariance, residual)
+                + logdet
+                + n * np.log(2.0 * np.pi)
+            )
+        )
+
+    def test_per_sample_noise_is_not_the_first_samples_noise(self):
+        """Kills ``np.diag(variance)`` -> ``np.eye(n) * variance[0]``.
+
+        Every other fixture in this file has one scalar sigma, where the two
+        are the same matrix.
+        """
+        with jax.enable_x64(True):
+            n = 6
+            sigma = jnp.asarray([0.2, 0.35, 0.5, 0.8, 1.2, 1.6])
+            basis = jnp.linspace(-1.0, 1.0, n) + 0.3
+            data = 1.2 * (basis * 0.9)
+
+            def model():
+                w = sample("w", lambda: dist.Normal(PRIOR_MEAN, 1.7))
+                b = const("basis", basis)
+                s = const("sigma", sigma)
+                mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+                observe(
+                    "d", lambda m, s_: dist.Normal(m, s_).to_event(1), mu, s, obs=data
+                )
+
+            assembly = assemble_exact(trace(model), ("w",), {})
+            oracle = self._oracle(
+                np.asarray(basis, float)[:, None],
+                data,
+                [1.7],
+                [PRIOR_MEAN],
+                np.asarray(sigma, float) ** 2,
+            )
+            assert float(assembly.log_evidence) == pytest.approx(oracle, abs=1e-9)
+            assert float(sigma[0]) != float(sigma[-1]), "the fixture must vary"
+
+    def test_a_two_latent_block_with_distinct_prior_widths(self):
+        """Kills ``_width_of -> 1`` and the prior-mean truncation.
+
+        With k = 1 every ``logdet`` is a scalar log and every broadcast is the
+        identity, so a transposed or truncated vector is invisible.
+        """
+        with jax.enable_x64(True):
+            n = 8
+            x = jnp.linspace(-1.0, 1.0, n)
+            design = jnp.stack([jnp.ones(n), x], axis=1)
+            data = design @ jnp.asarray([0.4, 1.1])
+            stds = (0.6, 3.2)
+            means = (0.35, -0.8)
+
+            def model():
+                a = sample("wa", lambda: dist.Normal(means[0], stds[0]))
+                bb = const("design", design)
+                c = sample("wb", lambda: dist.Normal(means[1], stds[1]))
+                mu = det(
+                    "mu",
+                    lambda d_, a_, c_: d_ @ jnp.stack([a_, c_]),
+                    bb,
+                    a,
+                    c,
+                    linear_in=("wa", "wb"),
+                )
+                observe(
+                    "d", lambda m: dist.Normal(m, SIGMA_D).to_event(1), mu, obs=data
+                )
+
+            assembly = assemble_exact(trace(model), ("wa", "wb"), {})
+            oracle = self._oracle(
+                design, data, stds, means, np.full(n, SIGMA_D**2)
+            )
+            assert float(assembly.log_evidence) == pytest.approx(oracle, abs=1e-9)
+            assert stds[0] != stds[1] and means[0] != means[1]
+
+    def test_the_design_rows_follow_sorted_order_not_declaration_order(self):
+        """Kills ``sorted(block.data)`` -> ``list(block.data)``.
+
+        ``dense_operator`` lays its rows out in sorted-name order. A walk in
+        declaration order slices the design at the wrong offsets whenever the
+        two differ, and until this fixture nothing made them differ.
+        """
+        with jax.enable_x64(True):
+            n_z, n_a = 4, 3
+            bz = jnp.linspace(-1.0, 1.0, n_z) + 0.3
+            ba = jnp.linspace(0.2, 0.9, n_a)
+            dz = 1.2 * bz
+            da = 0.7 * ba
+
+            def model():
+                w = sample("w", lambda: dist.Normal(PRIOR_MEAN, 1.7))
+                cz = const("bz", bz)
+                ca = const("ba", ba)
+                muz = det("muz", lambda b_, w_: b_ * w_, cz, w, linear_in=("w",))
+                # "z" is declared FIRST and sorts LAST.
+                observe(
+                    "z", lambda m: dist.Normal(m, SIGMA_D).to_event(1), muz, obs=dz
+                )
+                mua = det("mua", lambda b_, w_: b_ * w_, ca, w, linear_in=("w",))
+                observe(
+                    "a", lambda m: dist.Normal(m, SIGMA_D).to_event(1), mua, obs=da
+                )
+
+            graph = trace(model)
+            assert tuple(graph.observed) == ("z", "a"), (
+                "the fixture only tests the ordering if declaration order and "
+                "sorted order differ"
+            )
+            assembly = assemble_exact(graph, ("w",), {})
+            design = np.concatenate(
+                [np.asarray(ba, float)[:, None], np.asarray(bz, float)[:, None]]
+            )
+            data = np.concatenate([np.asarray(da, float), np.asarray(dz, float)])
+            oracle = self._oracle(
+                design, data, [1.7], [PRIOR_MEAN], np.full(n_z + n_a, SIGMA_D**2)
+            )
+            assert float(assembly.log_evidence) == pytest.approx(oracle, abs=1e-9)
+
+    def test_a_correlated_observation_is_refused_by_name(self):
+        """The refusal fires, and nothing proved it until now.
+
+        A correlated covariance HAS an exact evidence -- ``compress`` reads it
+        through ``Precision`` with no special case -- and this module refuses
+        it anyway, because the dense decomposition has no independent oracle
+        for one and §9.1 does not admit a number whose only check is the route
+        that produced it. A refusal nothing exercises is a refusal nobody knows
+        still works.
+        """
+        with jax.enable_x64(True):
+            n = 8
+            kernel = jnp.asarray([1.0, 0.4, 0.1, 0.0, 0.0, 0.0, 0.1, 0.4]) * 0.25
+            basis = jnp.linspace(-1.0, 1.0, n) + 0.3
+            data = 1.2 * basis
+
+            def model():
+                w = sample("w", lambda: dist.Normal(PRIOR_MEAN, 1.7))
+                b = const("basis", basis)
+                mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+                observe("d", lambda m: dist.CirculantNormal(m, kernel), mu, obs=data)
+
+            with pytest.raises(NotImplementedError, match="correlated"):
+                assemble_exact(trace(model), ("w",), {})
+
+    def test_a_masked_observation_is_refused_rather_than_crashing(self):
+        """The guard that read a spelling, in the function written to avoid one.
+
+        ``per_sample_sigma(...) is None`` looks like a consequence check and is
+        a type check: a ``MaskedPrecision`` ANSWERS it, reporting ``inf`` for a
+        sample never taken. So a masked observation walked past, handed
+        ``slogdet`` an infinite variance, and died two modules away in
+        ``EvidenceComponent``'s validator with ``log_value must be finite; got
+        -inf`` -- naming neither the cause nor the fix.
+
+        Found by an adversarial review. The finiteness test is the consequence
+        and it holds whatever the class is called.
+        """
+        with jax.enable_x64(True):
+            n = 6
+            basis = jnp.linspace(-1.0, 1.0, n) + 0.3
+            data = 1.2 * basis
+            mask = jnp.asarray([True, True, False, True, True, True])
+
+            def model():
+                w = sample("w", lambda: dist.Normal(PRIOR_MEAN, 1.7))
+                b = const("basis", basis)
+                mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+                observe(
+                    "d",
+                    lambda m: dist.Normal(m, SIGMA_D),
+                    mu,
+                    obs=data,
+                    mask=mask,
+                )
+
+            with pytest.raises(NotImplementedError, match="never taken"):
+                assemble_exact(trace(model), ("w",), {})
+
+    def test_a_block_no_observation_reaches_is_refused_rather_than_crashing(self):
+        """``np.concatenate([])`` is not an error message.
+
+        ``marginal_log_density`` answers 0.0 here -- the integral is over the
+        prior alone. An evidence DECOMPOSITION has no data normaliser and no
+        residual to report, so the honest answer is a refusal that says which
+        of the two the caller is standing in, not a numpy exception about
+        array counts.
+        """
+        with jax.enable_x64(True):
+            observed = jnp.asarray([0.4, -0.2, 1.1])
+
+            def model():
+                z = sample("z", lambda: dist.Normal(1.5, 0.4))
+                tau = sample("tau", lambda: dist.Normal(-0.2, 1.1))
+                nu = det("nu", lambda t_: t_ * jnp.ones(3), tau)
+                observe(
+                    "e", lambda m: dist.Normal(m, 0.8).to_event(1), nu, obs=observed
+                )
+                det("unused", lambda z_: z_ * 2.0, z, linear_in=("z",))
+
+            with pytest.raises(NotImplementedError, match="no observation reaches"):
+                assemble_exact(trace(model), ("z",), {"tau": jnp.asarray(0.7)})
+
+
+def test_every_component_reports_the_method_that_produced_it():
+    """``assert component.method`` is truthiness, and truthiness is decoration.
+
+    An adversarial review set every component's ``method`` to one string and
+    the whole suite stayed green: four distinct methods over five terms, and a
+    single value satisfied every assertion in the file. A provenance field
+    nothing distinguishes is a field nothing carries.
+    """
+    with jax.enable_x64(True):
+        graph, _, _ = _graph()
+        found = {c.name: c.method for c in assemble_exact(graph, ("w",), {}).components}
+        assert found == {
+            "data_log_normaliser": "exact_gaussian_normaliser",
+            "residual_quadratic": "exact_dense_solve",
+            "prior_log_normaliser": "exact_gaussian_normaliser",
+            "integral_log_two_pi": "exact_gaussian_integral",
+            "block_log_determinant": "exact_dense_slogdet",
+        }
+        assert len(set(found.values())) == 4, (
+            "the five terms are produced four ways; collapsing them to one "
+            "string is what this test exists to notice"
+        )
+
+
+def test_an_assembly_missing_a_term_is_refused_at_construction():
+    """The subset hole, built and run by an adversarial review.
+
+    ``set(names) - set(EVIDENCE_COMPONENT_NAMES)`` is empty for any subset, so
+    an ``ExactAssembly`` reporting four components -- or none at all -- used to
+    construct cleanly. Only one test, over one producer, noticed; any other
+    producer of the type was unguarded. A dropped term is the whole defect this
+    class exists to make visible.
+    """
+    with jax.enable_x64(True):
+        graph, _, _ = _graph()
+        whole = assemble_exact(graph, ("w",), {})
+        with pytest.raises(ValueError, match="missing"):
+            ExactAssembly(
+                log_evidence=whole.log_evidence, components=whole.components[:-1]
+            )
+        with pytest.raises(ValueError, match="missing"):
+            ExactAssembly(log_evidence=whole.log_evidence, components=())
+
+
+class TestAVectorLatentAndAnUnreachedObservationThatSortsFirst:
+    """Two more shapes, for two more mutants that a scalar block cannot see.
+
+    ``test_a_two_latent_block_with_distinct_prior_widths`` above uses two
+    SCALAR latents, and every scalar has width one -- so ``_width_of`` returning
+    a hard-coded 1 and a prior mean truncated to ``[:1]`` are both still
+    correct there. One latent of shape ``(2,)`` is what distinguishes them.
+    """
+
+    def test_a_single_latent_of_width_two(self):
+        with jax.enable_x64(True):
+            n = 8
+            x = jnp.linspace(-1.0, 1.0, n)
+            design = jnp.stack([jnp.ones(n), x], axis=1)
+            data = design @ jnp.asarray([0.4, 1.1])
+            means = jnp.asarray([0.35, -0.8])
+            stds = jnp.asarray([0.6, 3.2])
+
+            def model():
+                w = sample("w", lambda: dist.Normal(means, stds).to_event(1))
+                d = const("design", design)
+                mu = det("mu", lambda d_, w_: d_ @ w_, d, w, linear_in=("w",))
+                observe(
+                    "d", lambda m: dist.Normal(m, SIGMA_D).to_event(1), mu, obs=data
+                )
+
+            graph = trace(model)
+            assembly = assemble_exact(graph, ("w",), {})
+
+            a = np.asarray(design, float)
+            noise = SIGMA_D**2 * np.eye(n)
+            prior_covariance = np.diag(np.asarray(stds, float) ** 2)
+            covariance = a @ prior_covariance @ a.T + noise
+            residual = np.asarray(data, float) - a @ np.asarray(means, float)
+            _, logdet = np.linalg.slogdet(covariance)
+            oracle = -0.5 * (
+                residual @ np.linalg.solve(covariance, residual)
+                + logdet
+                + n * np.log(2.0 * np.pi)
+            )
+            assert float(assembly.log_evidence) == pytest.approx(
+                float(oracle), abs=1e-9
+            )
+            assert float(stds[0]) != float(stds[1]), (
+                "per-component widths are what make the truncation visible"
+            )
+
+    def test_an_unreached_observation_that_sorts_before_the_absorbed_one(self):
+        """``_dense_block`` walks the full sorted list and skips row groups.
+
+        With the unreached observation sorting LAST there is nothing after it,
+        so dropping the cursor advance in the skip branch is dead code. Named
+        ``a`` it sorts first, and the design is then sliced at the wrong offset
+        for every later group. The same fixture exists one layer down in
+        ``test_collapse.py``; this one is for the decomposition.
+        """
+        with jax.enable_x64(True):
+            n_d, n_a = 6, 3
+            basis = jnp.linspace(-1.0, 1.0, n_d) + 0.3
+            d_obs = 1.2 * basis
+            a_obs = jnp.asarray([0.4, -0.2, 1.1])
+
+            def model():
+                w = sample("w", lambda: dist.Normal(PRIOR_MEAN, 1.7))
+                tau = sample("tau", lambda: dist.Normal(-0.2, 1.1))
+                b = const("basis", basis)
+                mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+                observe(
+                    "d", lambda m: dist.Normal(m, SIGMA_D).to_event(1), mu, obs=d_obs
+                )
+                nu = det("nu", lambda t_: t_ * jnp.ones(n_a), tau)
+                observe(
+                    "a", lambda m: dist.Normal(m, 0.8).to_event(1), nu, obs=a_obs
+                )
+
+            graph = trace(model)
+            assembly = assemble_exact(graph, ("w",), {"tau": jnp.asarray(0.7)})
+            expected = _by_hand(np.asarray(basis, float), np.asarray(d_obs, float), 1.7)
+            found = {c.name: c.log_value for c in assembly.components}
+            for name, value in expected.items():
+                assert found[name] == pytest.approx(float(value), abs=1e-9), name

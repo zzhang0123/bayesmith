@@ -7,10 +7,24 @@ the first. A dropped constant does not make an evidence obviously wrong; it
 makes it finite, plausible and wrong by a fixed number of nats.
 
 So nothing here returns one scalar. The exact block's contribution is five
-named terms, each derived from the block's own inputs, and the total is checked
-against the square-root information route in ``marginal_log_density`` -- two
-derivations that share no linear algebra, because §9.1 forbids proving a
-constant with a second entry point to the arithmetic that produced it.
+named terms, each derived from the block's own inputs.
+
+**What checks them, stated precisely, because the first draft of this sentence
+overclaimed.** Comparing this module's total against the square-root route in
+``marginal_log_density`` is NOT a check against an independent derivation: the
+two share every upstream seam -- ``unchecked_operator``, ``precision_at``,
+``dense_operator`` and ``observed_descendants`` -- and ``dense_operator`` is
+what builds the design matrix both of them integrate. An adversarial review
+priced that: scaling ``dense_operator``'s return by 1.03 leaves the
+cross-route test **completely blind**, 5 passed, exit 0, while the hand
+derivation fails 5 and an independent quadrature fails 14.
+
+The cross-route comparison is worth keeping -- it catches everything
+downstream of the shared design, which is where the constants live -- but the
+check §9.1 actually asks for is the one that rebuilds the design from the
+model's own parameters. That is ``_by_hand`` in
+``tests/dispatch/test_evidence.py``, and the genuinely third route is
+quadrature of the graph's own ``log_joint``.
 
 The decomposition is the determinant lemma written out. With ``A`` the design
 over the exact block, ``N`` the observation covariance, ``S`` the block's prior
@@ -30,12 +44,19 @@ which splits into
 ``block_log_determinant``    ``-1/2 logdet F``
 ===========================  ==========================================
 
-The third and fourth cancel exactly -- the prior contributes one row per block
-degree of freedom, so the ``k`` in both is the same ``k``. They are reported
-separately anyway. They come from different places (the prior's own normaliser,
-and the Gaussian integral's), a change to either alone is a real change, and a
-pre-cancelled pair is a decomposition that has already decided what the reader
-is allowed to see.
+The third and fourth do NOT cancel. Only their ``2 pi`` halves do -- the prior
+contributes one row per block degree of freedom, so the ``k`` in both is the
+same ``k`` -- and what is left is ``-sum_j log s_j``, the declared prior widths.
+That residue is exactly zero at unit width and nowhere else: measured,
+``-0.5306`` at ``s = 1.7``, ``+5.9915`` at ``k = 2, s = 0.05``, ``-12.2830`` at
+``k = 3, s = 60``.
+
+An earlier draft of this paragraph said they cancel exactly, which is what unit
+priors look like, and it contradicted a test in its own batch --
+``test_the_prior_normaliser_is_blind_at_unit_width`` asserts precisely that the
+residue vanishes there and nowhere else. Corrected after an adversarial review
+measured it. The two are reported separately because they come from different
+places and a change to either alone is a real change.
 
 **This module is dense on purpose.** R4's admitted structure class is a
 whole-graph-exact linear-Gaussian block small enough that ``dense_operator``
@@ -143,19 +164,27 @@ class ExactAssembly:
 
     def __post_init__(self) -> None:
         names = [component.name for component in self.components]
-        unknown = sorted(set(names) - set(EVIDENCE_COMPONENT_NAMES))
-        if unknown:
-            raise ValueError(
-                f"an exact assembly reported component names outside the "
-                f"closed set: {unknown}. A provenance guard reads membership "
-                f"of EVIDENCE_COMPONENT_NAMES, so a name it does not know is a "
-                f"term nothing checks."
-            )
         if len(names) != len(set(names)):
             raise ValueError(
                 f"an exact assembly reported a term twice: {names}. Each "
                 f"constant enters log Z once, and a duplicate is the shape of "
                 f"the defect R4 Task 1 repaired one layer down."
+            )
+        # EQUALITY, not containment. An earlier version subtracted the closed
+        # set from the reported names, which is empty for any SUBSET -- so an
+        # assembly reporting four of the five terms, or none, constructed
+        # cleanly. A dropped term is the defect this class exists to make
+        # visible, and it was the one shape the check could not see. Found by
+        # an adversarial review building it.
+        if set(names) != set(EVIDENCE_COMPONENT_NAMES):
+            missing = sorted(set(EVIDENCE_COMPONENT_NAMES) - set(names))
+            unknown = sorted(set(names) - set(EVIDENCE_COMPONENT_NAMES))
+            raise ValueError(
+                f"an exact assembly must report every term of log Z and no "
+                f"others; missing {missing}, unknown {unknown}. A provenance "
+                f"guard reads membership of EVIDENCE_COMPONENT_NAMES, so a "
+                f"name it does not know is a term nothing checks -- and a name "
+                f"it does not receive is a constant nothing reports."
             )
 
 
@@ -205,18 +234,44 @@ def _dense_block(
         )
         row += width
 
+    if not rows:
+        # `marginal_log_density` returns 0.0 here -- the integral is over the
+        # prior alone and a normalised prior integrates to one. Reaching
+        # np.concatenate([]) instead would report that as "need at least one
+        # array to concatenate", which names neither the model nor the fix.
+        raise NotImplementedError(
+            f"no observation reaches the block {list(block.names)}, so its "
+            f"marginal likelihood is the prior's own integral and carries no "
+            f"data term. `marginal_log_density` answers 0.0 for this; an "
+            f"evidence DECOMPOSITION has no data normaliser and no residual to "
+            f"report, so R4 refuses rather than filing empty components."
+        )
+
     prior_mean = np.concatenate(
         [np.atleast_1d(np.asarray(block.prior_mean[n], dtype=float)) for n in block.names]
     )
-    prior_std = np.concatenate(
-        [
-            np.broadcast_to(
-                np.atleast_1d(np.asarray(block.prior_std[n], dtype=float)),
-                (_width_of(block.shape[n]),),
+    # An ASSERTION, not a broadcast. An earlier version wrote
+    # `np.broadcast_to(std, (_width_of(shape),))`, which reads as if a scalar
+    # prior std were being expanded to the block's width -- and measured, it
+    # never is: `unchecked_operator` already returns one std per component in
+    # every reachable shape. Removing the broadcast changed no test, which is
+    # what dead defensive code looks like. What the line was actually doing was
+    # checking a width, so it now says so and fails with the two numbers rather
+    # than with a numpy broadcast error from inside a comprehension.
+    prior_std_parts: list[np.ndarray] = []
+    for name in block.names:
+        part = np.atleast_1d(np.asarray(block.prior_std[name], dtype=float))
+        expected = _width_of(block.shape[name])
+        if part.size != expected:
+            raise NotImplementedError(
+                f"latent {name!r} declares {part.size} prior width(s) for a "
+                f"block component of width {expected}. An evidence needs one "
+                f"declared scale per degree of freedom -- `-sum(log s)` is a "
+                f"sum over components -- and this package has no rule for "
+                f"spreading fewer across more."
             )
-            for n in block.names
-        ]
-    )
+        prior_std_parts.append(part)
+    prior_std = np.concatenate(prior_std_parts)
     return _DenseBlock(
         design=np.concatenate(rows, axis=0),
         data=np.concatenate(data),
@@ -237,11 +292,27 @@ def _width_of(shape: tuple[int, ...]) -> int:
 def _variance_of(precision: dict[str, Any], observed: str, width: int) -> np.ndarray:
     """The per-sample observation variance, or a refusal that says why not.
 
-    R4's admitted class is diagonal observation noise. A correlated covariance
-    has a perfectly good exact evidence -- ``compress`` reads it through
-    ``Precision`` with no special case -- but it has no DENSE ORACLE here, and
-    §9.1 does not allow shipping a number whose only check is the route that
-    produced it. So the class is refused rather than assembled ungated.
+    R4's admitted class is finite diagonal observation noise. A correlated
+    covariance has a perfectly good exact evidence -- ``compress`` reads it
+    through ``Precision`` with no special case -- but it has no DENSE ORACLE
+    here, and §9.1 does not allow shipping a number whose only check is the
+    route that produced it. So the class is refused rather than assembled
+    ungated.
+
+    **``per_sample_sigma is None`` is not enough, and this function is where
+    that was learned.** It reads as a consequence check and is a TYPE check: a
+    :class:`~bayesmith.exact.precision.MaskedPrecision` answers it, reporting
+    ``inf`` for a sample that was never observed rather than declining to
+    answer. So a masked observation passed the guard, gave ``slogdet`` an
+    infinite variance, and died in ``EvidenceComponent``'s validator with
+    ``log_value must be finite; got -inf`` -- a crash from two modules away
+    naming neither the cause nor the remedy, and the module's own
+    read-the-spelling disease inside the function written to avoid it.
+
+    The finiteness test is the consequence, and it holds whatever the class is
+    called. A masked evidence is a real capability and R4 does not have it:
+    a sample that was not taken changes the DIMENSION of the data, so two
+    models with different masks are not comparable by Bayes factor either.
     """
     sigmas = per_sample_sigma({observed: precision[observed]})
     if sigmas is None:
@@ -254,6 +325,15 @@ def _variance_of(precision: dict[str, Any], observed: str, width: int) -> np.nda
             "number nothing grades."
         )
     sigma = np.atleast_1d(np.asarray(sigmas[observed], dtype=float))
+    if not np.all(np.isfinite(sigma)):
+        raise NotImplementedError(
+            f"observation {observed!r} declares a non-finite per-sample sigma, "
+            f"which is how this package spells a sample that was never taken. "
+            f"An evidence over a masked observation is a real quantity and R4 "
+            f"does not assemble one: the mask changes the dimension of the "
+            f"data, so the number would not be comparable with an unmasked "
+            f"model's even if it were right."
+        )
     return np.broadcast_to(sigma, (width,)) ** 2
 
 

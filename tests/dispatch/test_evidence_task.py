@@ -30,9 +30,9 @@ from bayesmith.artifacts.tasks import (
     TaskKind,
     new_task_meta,
 )
-from tests.dispatch.test_task_protocol import model_ref as _model_ref
 from bayesmith.dispatch.evidence import EVIDENCE_COMPONENT_NAMES, assemble_exact
 from bayesmith.dispatch.task import SUPPORTED_TASK_KINDS
+from tests.dispatch.test_task_protocol import model_ref as _model_ref
 
 SIGMA = 0.5
 PRIOR_MEAN = 0.35
@@ -74,7 +74,7 @@ class TestTheSeamIsOpen:
 
     def test_a_whole_graph_exact_model_returns_an_evidence_result(self):
         with jax.enable_x64(True):
-            model, basis, data = _model_factory()
+            model, _, _ = _model_factory()
             graph = trace(model)
             planned = _compile(graph)
             assert not isinstance(planned, Refusal), getattr(

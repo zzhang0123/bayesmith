@@ -40,7 +40,7 @@ from bayesmith.artifacts.base import (
     TargetFidelity,
     TerminationReason,
 )
-from bayesmith.artifacts.refusal import CAPABILITY_UNAVAILABLE_R1, Refusal
+from bayesmith.artifacts.refusal import Refusal
 from bayesmith.artifacts.results import (
     DrawsPosterior,
     LogDensityAvailability,
