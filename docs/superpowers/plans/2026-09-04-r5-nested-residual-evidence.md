@@ -1424,6 +1424,14 @@ for the contract, which is not optional and not a code read.
       that is no longer true — which after R5 is about **row (e)** and nothing else (§0.3). R4
       plan §0.14: each widening deletes its own refusal.
 - [ ] **7.8 The reviewer enumerates the fixture family's CONSTANT dimensions and mutates each.**
+      〔Wave B measured this over the same class-(b) family Task 7 grades, and hands over the
+      list: **observed nodes per graph — exactly one, 5 of 5; the observation is a descendant of
+      the exact block — yes, 5 of 5; the eliminated block's prior MEAN — exactly 0.0, 4 of 5;
+      does `|m|/s` vary across the span — no, 5 of 5.** Every one of its four surviving mutants
+      lived in one of those rows. Task 7 grades the same family, so it inherits the same holes
+      unless it varies them. Wave B added `outside_observation_pair` (an observation the exact
+      block does not reach) and `shifted_block_prior` (`x ~ N(tau, 0.3)`, so `|m|/s` sweeps
+      1.3 → 13.3 across the span), both class (b) — use them rather than rebuilding them.〕
       Not "the axes this task did not vary" — red line 1 says why that weaker form fails.
       Mechanically: over the class-(b)/(c) fixture set, list every dimension of a prior
       declaration that takes the **same value in all of them** — the number of residual latents,
@@ -1625,6 +1633,20 @@ replaced it with `batch_shape + event_shape` broadcast against the plate — the
 expression — and **0 of 54 shipped latents have `batch_shape + event_shape` non-empty**, so on
 every input this package contains the repair is identically the bug. Three mutants lived there,
 inside the fix.
+
+**Red line 13 does NOT subsume red line 1, and Wave B measured the gap.** That wave ran red
+line 13 on **eight** repairs — each graded by restoring the old code — and **all eight went red**,
+so the rule passed every time. Its adversarial review then found **four surviving mutants**, none
+of which those eight checks could have caught, and the one mutant the review scored KILLED was
+the one whose grading test had already been written.
+
+The reason is structural: **every red line 13 mutant is enumerated from the repair's own diff.**
+The rule asks "does this change behave differently from what it replaced", which is a question
+about the change. It cannot ask "which dimension does the fixture family hold constant", which is
+a question about the *fixtures* and is the one red line 1 exists for. **Passing 13 says nothing
+about 1.** Wave B's session read red line 1 before starting and it did not stop them, which is
+the honest form of this warning: knowing the rule is not the same as having a procedure that
+executes it.
 
 **Both faults occurred in this batch, one per session.** (a) is Wave A's `_latent_shape`, above.
 (b) is the campaign repair at `895e181`: `loc.ravel()[0]` was a genuine behaviour change on a
