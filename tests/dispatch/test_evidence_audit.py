@@ -991,3 +991,94 @@ def _corner_divergent(*, cut):
         observe("d", lambda m: dist.Normal(m, 0.5), mu, obs=jnp.zeros(6))
 
     return model
+
+
+def _mean_corner(*, cut):
+    """``x``'s prior MEAN, not its width, is infinite at or below ``cut``.
+
+    The mean is a SEPARATE axis and the fixture family holds it constant: in
+    every hierarchical fixture -- ``diamond_ancestor``, ``indirect_ancestor``,
+    ``shared_ancestor``, ``three_latent_chain``, ``mixed_radiometer`` -- the
+    parent drives the conditional's SCALE and the mean is a literal ``0.0``.
+    A check developed against those alone could be blind on this axis and
+    nothing in the family would say so.
+
+    ``mu`` is quadratic in ``x`` so the latent stays in the residual block; made
+    linear it joins the exact block and ``check_gaussian`` answers first.
+    """
+
+    def model():
+        xs = const("X", jnp.linspace(1.0, 2.0, 6))
+        tau = sample("tau", lambda: dist.Normal(2.2, 0.45))
+        centre = det("centre", lambda t: jnp.where(t > cut, t, jnp.inf), tau)
+        x = sample("x", lambda c: dist.Normal(c, 0.3), centre)
+        mu = det("mu", lambda x_, g_: x_ * x_ * g_, x, xs)
+        observe("d", lambda m: dist.Normal(m, 0.4), mu, obs=jnp.zeros(6))
+
+    return model
+
+
+class TestTheDimensionsTheFixtureFamilyHoldsConstant:
+    """Coverage chosen by asking which dimensions take the SAME value in every
+    class-(b) fixture, rather than by asking what this change did not vary.
+
+    The second question is answerable only by whoever wrote the change, and
+    their decomposition of the problem is what produced the blind spot, so the
+    list they write omits the same axes again. The first is answerable by grep.
+    Wave B's review measured four such dimensions over its five fixtures --
+    one observed node in 5 of 5, the observation a descendant of the block in
+    5 of 5, the eliminated block's prior mean exactly 0.0 in 4 of 5, and
+    ``|m|/s`` constant across the span in 5 of 5 -- and found a survivor in
+    each.
+    """
+
+    @pytest.mark.parametrize(
+        "name", ["outside_observation_pair", "shifted_block_prior"]
+    )
+    def test_the_two_fixtures_that_break_the_constant_rows_are_admitted(self, name):
+        """Both are class (b) with a hierarchical prior, so both run the
+        conditional arm, and each varies a row the rest of the family fixes:
+        ``outside_observation_pair`` has TWO observed nodes with one outside
+        the block's descendants, and ``shifted_block_prior`` puts the residual
+        latent in the block's prior MEAN.
+        """
+        with jax.enable_x64(True):
+            graph = _fixture(name)
+            verdicts = _verdicts(graph)
+            report = conditional_prior_range_report(graph)
+        assert set(verdicts.values()) == {PriorVerdict.PROPER}, verdicts
+        assert report.degenerate == ()
+        assert report.at_points, "a verdict must carry the points it was taken at"
+
+    def test_an_impropriety_on_the_MEAN_axis_is_found_too(self):
+        """The bypass for the axis the family holds constant, built and run.
+
+        A rule that only ever inspected the conditional's SCALE would pass
+        every shipped fixture and every test above it, and would wave this
+        through. It does not: the verdict comes from integrating the realised
+        density, which is degenerate whichever parameter made it so.
+        """
+        with jax.enable_x64(True):
+            inside = conditional_prior_range_report(trace(_mean_corner(cut=1.75)))
+            below = conditional_prior_range_report(trace(_mean_corner(cut=0.0)))
+        assert inside.degenerate, (
+            "the conditional's mean is infinite over a corner inside the "
+            "declared range and the report calls it proper"
+        )
+        assert inside.degenerate[0][0] == "x"
+        # Same graph, corner moved below the range: not found, and that limit
+        # is recorded rather than gated -- see the class above.
+        assert below.degenerate == ()
+
+    def test_the_mean_axis_alone_does_not_make_a_prior_improper(self):
+        """The other half, so the test above cannot pass by over-refusing.
+
+        A Normal with any FINITE mean is proper however far from zero it sits,
+        and ``shifted_block_prior`` sweeps its block's mean across an order of
+        magnitude. A check that refused on a large mean would look like it had
+        found the axis while actually being broken on it.
+        """
+        with jax.enable_x64(True):
+            for centre in (0.0, 1.0, 25.0, -400.0):
+                audit = audit_prior(dist.Normal(centre, 0.3), latent="x")
+                assert audit.verdict is PriorVerdict.PROPER, (centre, audit.reason)
