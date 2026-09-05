@@ -1000,19 +1000,116 @@ def conditional_prior_verdicts(
 @register_artifact_type
 @dataclasses.dataclass(frozen=True, slots=True)
 class ConditionalPriorRange:
-    """Where each conditional prior was evaluated, and where it was not proper.
+    """Where each conditional prior was evaluated, where it was not proper, and
+    **where the check declined to run**.
 
-    ``at_points`` is the whole point of the object. A verdict from a finite
-    sweep is a statement about the points it visited and nothing else, so the
-    points travel with it -- the same discipline the collapsed oracle follows
-    when it records the prior mass its span excluded. A caller reading
-    ``degenerate == ()`` off this object without reading ``at_points`` is
-    reading "nothing was found" as "there is nothing", which is the confusion
-    this repository is largely built to prevent.
+    Three states, not two, and the third is why this class was rewritten. An
+    adversarial review found ``degenerate == ()`` carrying two meanings --
+    "swept, and every cell was a density" and "never swept at all" -- with
+    nothing downstream able to tell them apart. A refusal built on the first
+    meaning then asserted a coverage the second did not have. That is the
+    failure family ``CLAUDE.md`` opens with, reproduced inside a guard written
+    to enforce it.
+
+    So ``unresolved`` is a separate field from ``degenerate``, and
+    :meth:`covers` is the question most callers actually have.
+
+    Every field is a tuple. ``at_points`` was a ``dict``, which made this the
+    only one of this package's registered artifact types carrying a mutable
+    container. ``register_artifact_type`` refuses a mutable dataclass -- but it
+    reads ``__dataclass_params__.frozen``, a SPELLING, and a ``dict`` field on
+    a frozen dataclass walks straight past it. Measured: the instance was
+    editable after construction and was the only registered artifact that was
+    unhashable. Red line 7's subject exactly.
     """
 
-    at_points: dict[str, tuple[float, ...]]
-    degenerate: tuple[tuple[str, str, float, str], ...]
+    #: ``(parent, ((component, ...), ...))`` -- every probe, in full. The
+    #: components are the raveled probe rather than its first element, because
+    #: a parent with a shape is displaced element-wise and reading ``[0]``
+    #: reports one corner of it as though it were the whole.
+    at_points: tuple[tuple[str, tuple[tuple[float, ...], ...]], ...]
+    #: ``(latent, parents, values, verdict)`` for every cell whose conditional
+    #: was not a proper density. EVERY cell: a report that kept only the first
+    #: could not be told from one that kept them all.
+    degenerate: tuple[tuple[str, tuple[str, ...], tuple[float, ...], str], ...]
+    #: ``(latent, reason)`` for a conditional the sweep could not cover at all.
+    unresolved: tuple[tuple[str, str], ...]
+
+    def covers(self, latent: str) -> bool:
+        """Was ``latent``'s conditional actually swept?"""
+        return latent not in {name for name, _reason in self.unresolved}
+
+    def points_for(self, parent: str) -> tuple[tuple[float, ...], ...]:
+        return dict(self.at_points).get(parent, ())
+
+
+def _sweep_points(
+    graph: Graph, parent: str, centre: Mapping[str, Any]
+) -> tuple[tuple[Any, ...], str]:
+    """Where to probe ``parent``, and the reason there is nowhere if there is not.
+
+    Tries the package's own grid first --
+    :func:`~bayesmith.dispatch.plan._probe_values`, plus and minus one and
+    three prior widths about the centre -- so a Gaussian hyperprior is probed
+    at exactly the points the rest of the compiler probes it at.
+
+    **It returns ``None`` for any non-Gaussian prior, and that used to end the
+    sweep silently.** Measured by an adversarial review: ``StudentT``,
+    ``Laplace``, ``Uniform``, ``LogNormal`` and ``Cauchy`` all fall through it,
+    so an ordinary model with a StudentT hyperprior had **zero** points
+    evaluated while the report still read as "no degeneracy found". The corner
+    it missed carried 0.058 of the prior.
+
+    The fallback is not a second grid: it is the same offsets read through
+    :func:`_moments`, which is what ``audit_prior`` already uses to place its
+    own window, clipped into the declared support. A non-Gaussian hyperprior is
+    probed on the same footing rather than skipped, and only a prior with no
+    usable window at all -- a discrete support, or one that cannot be built --
+    is reported as unswept.
+    """
+    from bayesmith.dispatch.plan import KAPPA_PROBE_SIGMAS, _probe_values
+
+    probes = _probe_values(graph, parent, centre)
+    if probes is not None:
+        return tuple(probes), ""
+    try:
+        declared = apply_probabilistic(graph, graph.node(parent), centre)
+    except Exception as error:  # noqa: BLE001 -- any failure is the same answer
+        return (), f"its prior could not be built ({type(error).__name__}: {error})"
+    # `_support_bounds` returns `(lower, upper, RESOLVED)`. The third element
+    # says whether the unwrapping loop reached a leaf constraint -- it is NOT a
+    # discreteness flag, and reading it as one sent every non-Gaussian
+    # hyperprior down the unswept path: safe, in that they refused rather than
+    # being admitted, and wrong, because the fallback this exists for then
+    # never ran once and an ordinary StudentT model was refused for a reason
+    # that was not true of it.
+    try:
+        low, high, resolved = _support_bounds(declared)
+    except Exception as error:  # noqa: BLE001
+        return (), f"its support could not be read ({type(error).__name__}: {error})"
+    if not resolved:
+        return (), (
+            "its declared support could not be unwrapped to a leaf constraint, "
+            "so there is no interval to place probe points inside"
+        )
+    if bool(getattr(getattr(declared, "support", None), "is_discrete", False)):
+        return (), (
+            "its support is discrete, so a probe point between two atoms is a "
+            "value this parent cannot take and a conditional evaluated there "
+            "would be a corner the integral never reaches"
+        )
+    try:
+        loc, scale = _moments(declared)
+    except Exception as error:  # noqa: BLE001
+        return (), f"its window could not be placed ({type(error).__name__}: {error})"
+    seen: list[float] = []
+    for sigmas in KAPPA_PROBE_SIGMAS:
+        value = float(np.clip(loc + sigmas * scale, low, high))
+        if np.isfinite(value) and value not in seen:
+            seen.append(value)
+    if not seen:
+        return (), "no finite probe point lies inside its declared support"
+    return tuple(jnp.asarray(value) for value in seen), ""
 
 
 def conditional_prior_range_report(graph: Graph) -> ConditionalPriorRange:
@@ -1023,65 +1120,116 @@ def conditional_prior_range_report(graph: Graph) -> ConditionalPriorRange:
     rests on --
     ``Z = INT p(tau) [ INT p(x|tau) p(d|x,tau) dx ] dtau`` -- needs the second.
 
-    **The range is over the PARENT, and the verdict is read off the DENSITY.**
+    **The range is over the PARENTS, and the verdict is read off the DENSITY.**
     There is no coordinate on ``tau`` that separates a proper conditional from
     a degenerate one: measured at ``tau = 0``, ``shared_ancestor``'s ``x`` is
     degenerate while ``three_latent_chain``'s and ``mixed_radiometer``'s are
     ordinary, because each declares a different function of ``tau`` as its
     width. Any threshold on ``tau`` would have to admit all three or refuse all
-    three. So this function pins the parent and asks the one-dimensional rule
-    what the realised conditional is.
+    three. So this pins the parents and asks the one-dimensional rule what the
+    realised conditional is.
 
-    **The declared range is the package's existing probe grid** --
-    :data:`~bayesmith.dispatch.plan.KAPPA_PROBE_SIGMAS`, plus and minus one and
-    three prior widths about each parent's centre -- rather than a second grid
-    invented here. Only latents that some other latent's prior transitively
-    depends on are swept; sweeping the rest would put points in ``at_points``
-    that no conditional reads.
+    **Parents, plural, and the PRODUCT of their grids.** This swept one parent
+    at a time and left the others at their centres. An adversarial review built
+    the two-parent version of the same fault --
+    ``jnp.where((a < 1) & (b < 1), inf, 1)`` -- and it sailed through: both
+    ``a = 0.5`` and ``b = 0.5`` were listed as visited, the corner where they
+    are low TOGETHER was never asked about, and it carries 5.18e-04 of the
+    prior with ``marginal_log_density`` returning ``-inf`` on it. Every shipped
+    fixture has exactly one parent per conditioned latent, so nothing separated
+    "pin the parents that matter" from "pin one and hope".
+
+    The cost is the product of the grids over ONE conditioned latent's own
+    latent ancestors, so it is exponential in that number rather than in the
+    graph's size. Measured over the shipped graphs the largest is 4 cells, and
+    the largest reachable with today's four-point grid and two ancestors is 16.
+    The count is not capped, because a cap is a number and R5 pre-authorises
+    none here; a graph that ever makes this expensive is a measurement to act
+    on rather than a threshold to guess at now.
 
     **What it does not do, recorded rather than gated.** A degeneracy strictly
-    between the grid's points, or outside its ends, is not found. Closing that
-    would need a claim about the MEASURE of the degenerate set -- ``Z`` is
-    finite when the set is null and undefined when it is not -- and that is a
-    threshold, which R5 pre-authorises none of for this. The honest form is to
-    report the points and let the caller see the shape of the sample.
+    between the grid's points, or outside its ends, is not found -- closing
+    that needs a claim about the MEASURE of the degenerate set, which is a
+    threshold. A conditional whose parents cannot be probed goes to
+    ``unresolved`` rather than passing quietly.
     """
-    from bayesmith.dispatch.plan import _probe_values
     from bayesmith.exact.block import _ancestors
 
-    centre, _error = _prior_centre(graph)
-    if centre is None:
-        return ConditionalPriorRange(at_points={}, degenerate=())
-
+    centre, error = _prior_centre(graph)
     conditioned = tuple(
         name for name in graph.latents if tuple(graph.node(name).parents)
     )
-    depended_on = {
-        parent
-        for child in conditioned
-        for parent in _ancestors(graph, child)
-        if parent in graph.latents
-    }
+    if centre is None:
+        return ConditionalPriorRange(
+            at_points=(),
+            degenerate=(),
+            unresolved=tuple(
+                (name, f"this graph has no evaluable prior centre ({error})")
+                for name in conditioned
+            ),
+        )
 
-    at_points: dict[str, tuple[float, ...]] = {}
-    degenerate: list[tuple[str, str, float, str]] = []
-    for parent in graph.latents:
-        if parent not in depended_on:
+    ancestry = {
+        child: tuple(
+            name for name in graph.latents if name in _ancestors(graph, child)
+        )
+        for child in conditioned
+    }
+    grids: dict[str, tuple[Any, ...]] = {}
+    reasons: dict[str, str] = {}
+    for parent in {p for parents in ancestry.values() for p in parents}:
+        points, reason = _sweep_points(graph, parent, centre)
+        if points:
+            grids[parent] = points
+        else:
+            reasons[parent] = reason
+
+    degenerate: list[tuple[str, tuple[str, ...], tuple[float, ...], str]] = []
+    unresolved: list[tuple[str, str]] = []
+    used: dict[str, tuple[tuple[float, ...], ...]] = {}
+    for child in conditioned:
+        parents = ancestry[child]
+        if not parents:
+            unresolved.append(
+                (
+                    child,
+                    (
+                        "none of its parents is a latent, so this sweep has "
+                        "nothing to vary and its conditional is a fixed density"
+                    ),
+                )
+            )
             continue
-        probes = _probe_values(graph, parent, centre)
-        if probes is None:
+        missing = [name for name in parents if name not in grids]
+        if missing:
+            unresolved.append(
+                (child, f"{missing[0]} could not be probed: {reasons[missing[0]]}")
+            )
             continue
-        values: list[float] = []
-        for probe in probes:
-            value = float(np.asarray(probe).ravel()[0])
-            values.append(value)
-            for child, verdict in conditional_prior_verdicts(
-                graph, {parent: probe}
-            ).items():
-                if verdict is not PriorVerdict.PROPER:
-                    degenerate.append((child, parent, value, verdict.value))
-        at_points[parent] = tuple(values)
-    return ConditionalPriorRange(at_points=at_points, degenerate=tuple(degenerate))
+        for combination in itertools.product(*(grids[name] for name in parents)):
+            pins = dict(zip(parents, combination, strict=True))
+            verdict = conditional_prior_verdicts(graph, pins).get(child)
+            if verdict is not None and verdict is not PriorVerdict.PROPER:
+                degenerate.append(
+                    (
+                        child,
+                        parents,
+                        tuple(
+                            float(np.asarray(pin).ravel()[0]) for pin in combination
+                        ),
+                        verdict.value,
+                    )
+                )
+        for parent in parents:
+            used[parent] = tuple(
+                tuple(float(component) for component in np.asarray(point).ravel())
+                for point in grids[parent]
+            )
+    return ConditionalPriorRange(
+        at_points=tuple(sorted(used.items())),
+        degenerate=tuple(degenerate),
+        unresolved=tuple(unresolved),
+    )
 
 
 def audit_graph_priors(graph: Graph) -> tuple[PriorAudit, ...]:
@@ -1109,7 +1257,10 @@ def audit_graph_priors(graph: Graph) -> tuple[PriorAudit, ...]:
 
     **A latent with NO parents goes through that rule exactly as it did**, and
     measured over every shipped graph the only verdicts this restatement moves
-    are the six latents that have parents. The whole-graph-exact class R4 closed
+    are the seven latents that have parents, spread over six graphs --
+    ``three_latent_chain`` carries two of them, which is why the two counts are
+    different and why saying "six latents" was wrong. The exact-class census R4
+    closed
     on has none, so its census is untouched -- which is asserted rather than
     argued, in ``tests/dispatch/test_evidence_audit.py``.
 

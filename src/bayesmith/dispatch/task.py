@@ -1191,7 +1191,7 @@ def _evidence_structure_refusal(
     if not sampled and method == "gcr":
         return None  # whole-graph exact: R4's class, unchanged
 
-    if method in _RESIDUAL_METHODS_REFUSED:
+    if method is not None and method not in _RESIDUAL_METHODS_ADMITTED:
         return _refusal(
             task,
             artifact_type=ArtifactKind.PLAN,
@@ -1200,15 +1200,19 @@ def _evidence_structure_refusal(
             grounds=(
                 Finding(
                     code="residual_factor_is_not_a_nested_sampling_problem",
-                    message=f"this block is solved by {method!r}, whose "
-                    f"residual factor is an importance-weight normaliser "
-                    f"rather than an integral over a prior. R5 runs a nested "
-                    f"sampler, which is a different estimator with a different "
-                    f"failure mode and no oracle here, so the number is "
-                    f"refused rather than produced behind a gate that never "
-                    f"tested it.",
+                    message=f"this block is solved by {method!r}. R5 runs a "
+                    f"nested sampler over the residual prior, and that is the "
+                    f"integral this route grades; a prediction-dependent scale "
+                    f"leaves an importance-weight normaliser instead, which is "
+                    f"a different estimator with a different failure mode and "
+                    f"no oracle here. Any method outside "
+                    f"{sorted(_RESIDUAL_METHODS_ADMITTED)!r} is refused rather "
+                    f"than produced behind a gate that never tested it.",
                     observed=(exact, sampled, method),
-                    expected=("gcr", "or no exact block at all"),
+                    expected=(
+                        *sorted(_RESIDUAL_METHODS_ADMITTED),
+                        "or no exact block",
+                    ),
                 ),
             ),
             scope=_scope(ScopeKind.MODEL, "evidence"),
@@ -1225,11 +1229,12 @@ def _evidence_structure_refusal(
             grounds=(
                 Finding(
                     code="no_latents_to_integrate",
-                    message="this graph declares no latent parameter, so there "
-                    "is no integral for either route to run: p(d) here is the "
-                    "likelihood's own normalising constant at the values the "
-                    "graph fixes. That is computable and this release does not "
-                    "compute it. The posterior task is unaffected.",
+                    message="this graph declares no latent parameter to "
+                    "integrate over, so there is no integral for either route "
+                    "to run: p(d) here is the likelihood's own normalising "
+                    "constant at the values the graph fixes. That is "
+                    "computable and this release does not compute it. The "
+                    "posterior task is unaffected.",
                     observed=(exact, sampled, method or "none"),
                     expected="at least one latent",
                 ),
@@ -1240,11 +1245,22 @@ def _evidence_structure_refusal(
     return None
 
 
-#: The two block methods whose residual factor is not the integral R5 runs.
-#: Named here rather than written into the branch so that the enumeration and
-#: the refusal cannot drift apart, and so a third method arriving is a
-#: KeyError-shaped omission rather than a silent admission.
-_RESIDUAL_METHODS_REFUSED: frozenset[str] = frozenset({"gcr+snis", "gcr+mh"})
+#: The block methods whose residual factor IS the integral R5 runs. Stated as
+#: an allow-list, which is the whole point: the refusal below is written
+#: ``method not in`` this set, so a method nobody has considered is refused by
+#: default rather than admitted by default.
+#:
+#: 〔It was a deny-list -- ``{"gcr+snis", "gcr+mh"}`` -- with a comment claiming
+#: that a third method arriving would be "a KeyError-shaped omission rather
+#: than a silent admission". An adversarial review measured that and it is
+#: false: a frozenset membership test raises nothing, and a plan carrying
+#: ``method="gcr+newthing"`` with a non-empty sampled block fell through every
+#: branch and returned ``None``. Latent today because ``classify.py`` emits
+#: only three methods and because the capability refusal catches everything
+#: behind it -- and live the moment Task 6 installs a backend. A guard whose
+#: comment describes a property the code does not have is worse than no
+#: comment, because it is believed.〕
+_RESIDUAL_METHODS_ADMITTED: frozenset[str] = frozenset({"gcr"})
 
 
 def _evidence_route_refusal(
@@ -1258,6 +1274,15 @@ def _evidence_route_refusal(
     model; then the capability, which is a statement about the release. A model
     fault is named before a release limit, so that a graph this package will
     never answer is not told to come back later.
+
+    **One of those four boundaries cannot be observed, and saying so is better
+    than implying it can.** :func:`_evidence_option_refusal` returns ``None``
+    whenever the route is residual, and both later premises run ONLY when the
+    route is residual -- so no graph exists on which the option arm and the
+    conditional arm are both false, and swapping them changes nothing. An
+    adversarial review mutated exactly that and it survived. The other three
+    boundaries were each checked against a graph on which both premises are
+    false, and those checks are in ``TestThePremiseChainsOrder``.
     """
     refusal = _evidence_structure_refusal(runtime, task, bundle)
     if refusal is not None:
@@ -1353,33 +1378,65 @@ def _evidence_conditional_prior_refusal(
     from bayesmith.dispatch.evidence import conditional_prior_range_report
 
     report = conditional_prior_range_report(graph)
-    if not report.degenerate:
-        return None
-    latent, parent, value, verdict = report.degenerate[0]
-    return _refusal(
-        task,
-        artifact_type=ArtifactKind.PLAN,
-        fingerprints=bundle,
-        failed_premise="evidence_conditional_prior_proper",
-        grounds=(
-            Finding(
-                code="conditional_prior_not_proper_in_range",
-                message=f"p({latent} | {parent}) is {verdict} at "
-                f"{parent} = {value:.6g}, which lies inside the range a "
-                f"residual integral over {parent} covers. The inner integral "
-                f"this route takes in closed form is not a density there, so "
-                f"the outer one is not the evidence -- and nothing downstream "
-                f"reports that: the collapse returns a value rather than "
-                f"raising. Points evaluated: "
-                f"{ {k: list(v) for k, v in report.at_points.items()} }.",
-                observed=report.degenerate,
-                expected=(),
+    if report.degenerate:
+        latent, parents, values, verdict = report.degenerate[0]
+        at = ", ".join(
+            f"{name} = {value:.6g}"
+            for name, value in zip(parents, values, strict=True)
+        )
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.PLAN,
+            fingerprints=bundle,
+            failed_premise="evidence_conditional_prior_proper",
+            grounds=(
+                Finding(
+                    code="conditional_prior_not_proper_in_range",
+                    message=f"p({latent} | {', '.join(parents)}) is {verdict} "
+                    f"at {at}, which lies inside the range a residual integral "
+                    f"over {', '.join(parents)} covers. The inner integral this "
+                    f"route takes in closed form is not a density there, so the "
+                    f"outer one is not the evidence -- and nothing downstream "
+                    f"reports that: the collapse returns a value rather than "
+                    f"raising, `-inf` for an infinite width and `nan` for a "
+                    f"displaced location. "
+                    f"{len(report.degenerate)} such cell(s); points evaluated: "
+                    f"{dict(report.at_points)}.",
+                    observed=report.degenerate,
+                    expected=(),
+                ),
             ),
-        ),
-        scope=_scope(ScopeKind.PARAMETER, latent),
-        summary=f"{latent}'s conditional prior is not a density everywhere "
-        f"{parent} goes",
-    )
+            scope=_scope(ScopeKind.PARAMETER, latent),
+            summary=f"{latent}'s conditional prior is not a density everywhere "
+            f"{', '.join(parents)} goes",
+        )
+    if report.unresolved:
+        latent, reason = report.unresolved[0]
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.PLAN,
+            fingerprints=bundle,
+            failed_premise="evidence_conditional_prior_proper",
+            grounds=(
+                Finding(
+                    code="conditional_prior_not_resolved",
+                    message=f"p({latent} | its parents) was not established "
+                    f"anywhere: {reason}. This is an ABSENCE of a verdict and "
+                    f"not a verdict of absence -- the residual integral walks "
+                    f"a range this release could not evaluate the conditional "
+                    f"over, so whether Z exists is unknown rather than known. "
+                    f"Refused for the same reason R4 refuses a prior whose "
+                    f"mass it cannot resolve: an audit that cannot run is not "
+                    f"a pass.",
+                    observed=report.unresolved,
+                    expected=(),
+                ),
+            ),
+            scope=_scope(ScopeKind.PARAMETER, latent),
+            summary=f"{latent}'s conditional prior could not be checked over "
+            f"the range the integral covers",
+        )
+    return None
 
 
 def _evidence_capability_refusal(
@@ -1408,13 +1465,13 @@ def _evidence_capability_refusal(
         grounds=(
             Finding(
                 code="residual_backend_unavailable",
-                message=f"this graph's evidence is admitted: its priors are "
-                f"proper, its conditionals are densities across the range the "
-                f"integral covers, and {list(exact)} collapses exactly. What "
-                f"is missing is the sampler that runs the residual integral "
-                f"over {list(sampled)}, which is an optional extra this "
-                f"installation does not have. The question is held and nothing "
-                f"was computed for it; the posterior task is unaffected.",
+                message=f"this graph's evidence is admitted: every premise "
+                f"about the model holds, and {list(exact)} collapses exactly. "
+                f"What is missing is the sampler that runs the residual "
+                f"integral over {list(sampled)}, which is an optional extra "
+                f"this installation does not have. The question is held and "
+                f"nothing was computed for it; the posterior task is "
+                f"unaffected.",
                 observed=(exact, sampled),
                 expected="an installed residual-evidence backend",
             ),

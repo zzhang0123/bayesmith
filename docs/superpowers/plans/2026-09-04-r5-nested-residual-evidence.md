@@ -913,7 +913,9 @@ one-dimensional rule, non-roots at the prior centre. Three measurements forced i
    unexamined rather than admitted for a reason.
 3. **The graph's own factorisation is strictly stronger and costs nothing**: `p(θ) = Π p(θᵢ |
    parentsᵢ)` needs no partition, covers both blocks, and subsumes §0.20. Measured over every
-   shipped graph, the only verdicts it moves are the **six** latents that have parents
+   shipped graph, the only verdicts it moves are the **seven** latents that have parents,
+   spread over **six** graphs -- ``three_latent_chain`` carries two, and an earlier write-back
+   here said "six latents" for both numbers
    (`diamond_ancestor`, `indirect_ancestor`, `mixed_radiometer`, `orphaned_child_latent`,
    `shared_ancestor`, `three_latent_chain`); the whole-graph-exact class has none, so R4's census
    is untouched, and that is asserted rather than argued.〕
