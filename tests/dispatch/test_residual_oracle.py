@@ -74,7 +74,21 @@ CLASS_B = {
     "indirect_ancestor": (("x",), (("tau", -4.0, 8.0), ("x", -6.0, 6.0))),
     "shared_ancestor": (("x",), (("tau", 0.15, 4.5), ("x", -1.5, 3.5))),
     "overflowing_outside_latent": (("w",), (("z", -100.0, 100.0), ("w", -8.0, 8.0))),
+    # The two below are not shipped fixtures; they exist because an adversarial
+    # review measured what the four above hold CONSTANT. Every one of them has
+    # exactly one observed node, always a descendant of the exact block, and an
+    # eliminated block whose prior mean is exactly zero -- so a whole class of
+    # elimination defect and three mutants of `block_prior_ratio` were invisible
+    # to the comparison. See tests/exact/residual_models.py for the counts.
+    "outside_observation_pair": (("x",), (("tau", -1.5, 4.5), ("x", -7.0, 7.0))),
+    "shifted_block_prior": (("x",), (("tau", 0.4, 4.0), ("x", -1.0, 5.5))),
 }
+
+
+def _build(name):
+    """The graph for one CLASS_B entry, from whichever module ships it."""
+    source = models if hasattr(models, name) else residual_models
+    return as_graph(getattr(source, name)())
 
 
 def _sides(name):
@@ -86,7 +100,7 @@ def _sides(name):
     that matters.
     """
     exact, layout = CLASS_B[name]
-    graph = as_graph(getattr(models, name)())
+    graph = _build(name)
     spans = tuple(Span(*entry) for entry in layout)
     residual = tuple(span for span in spans if span.name not in exact)
     collapsed = oracle_collapsed(
@@ -432,11 +446,6 @@ def test_a_quadrature_outside_x64_is_refused_rather_than_certified():
         quadrature(lambda values: values["a"], (Span("a", -1.0, 1.0),), resolution=1e-9)
 
 
-def test_a_resolution_must_be_declared_and_positive():
-    with jax.enable_x64(True), pytest.raises(ValueError, match="positive level"):
-        quadrature(lambda values: values["a"], (Span("a", -1.0, 1.0),), resolution=0.0)
-
-
 # --------------------------------------------------------------- the census
 
 #: The five fixtures that need constructor arguments, with the arguments
@@ -495,6 +504,79 @@ def _structural_class(plan) -> str:
     if not exact and not sampled:
         return "(e) no latents"
     return f"(d) {method}"
+
+
+#: Every shipped graph and the class it compiles to. **Membership, not just
+#: counts.** An adversarial review hid one fixture behind a leading underscore
+#: and added a new class-(c) graph in its place: the counts still matched and all
+#: 36 tests passed, exit 0. A census that pins how MANY there are of each kind,
+#: while the WHICH is free to move, is a census of the wrong thing.
+CENSUS_MEMBERS = {
+    "(a) whole-graph exact": (
+        "cancelling_sum",
+        "collinear_pair",
+        "dangling_deterministic",
+        "flagged_line[0]",
+        "flagged_line[1]",
+        "many_observations",
+        "observation_reused_downstream",
+        "plated_and_scalar_latents",
+        "plated_latent",
+        "plated_latent_through_deterministic",
+        "prior_held_direction",
+        "roundoff_stress",
+        "straight_line",
+        "tunable_curvature",
+        "two_linear_latents",
+        "two_observations",
+        "two_observations_reverse_sorted_names",
+        "unconstrained_latent",
+        "wide_plate",
+    ),
+    "(b') exact+residual gcr+mh": ("mixed_radiometer",),
+    "(b) exact+residual gcr": (
+        "diamond_ancestor",
+        "improper_outside_prior",
+        "indirect_ancestor",
+        "overflowing_outside_latent",
+        "shared_ancestor",
+        "three_latent_chain",
+    ),
+    "(c) all-residual": (
+        "affine_only_at_zero",
+        "bilinear_pair",
+        "bright_and_faint_channels",
+        "bright_and_faint_observations",
+        "bright_and_faint_pair",
+        "cubic_tail",
+        "faint_alone",
+        "high_snr_curvature",
+        "nan_at_negative_probes",
+        "non_gaussian_observed_node",
+        "orphaned_child_latent",
+        "quadratic_claim",
+        "student_t_likelihood",
+    ),
+    "(d) gcr+snis": (
+        "contrast_sigma_pair",
+        "element_contrast_sigma_plate",
+        "hinged_sigma_beyond_the_probe",
+        "one_sided_sigma",
+        "plated_radiometer",
+        "radiometer",
+        "radiometer_group",
+        "sigma_functional_block",
+        "steep_radiometer",
+        "sum_sigma_pair",
+    ),
+    "compile-refused NotGaussian": ("plated_student_t_latent",),
+    "compile-refused StructureError": (
+        "lying_block_member",
+        "lying_observed_node",
+        "two_unusable_observed_scales",
+        "unusable_observed_scale",
+    ),
+}
 
 
 @pytest.fixture(scope="module")
@@ -564,6 +646,16 @@ def test_the_structural_class_census_over_the_forty_nine_no_argument_graphs(
         "three_latent_chain",
     ]
     assert members["(b') exact+residual gcr+mh"] == ["mixed_radiometer"]
+    # And the membership of every class, so a swap cannot hide inside a count.
+    for key, expected in CENSUS_MEMBERS.items():
+        got = tuple(
+            label
+            for label in sorted(members.get(key, ()))
+            if label.split("[")[0] not in PARAMETERISED
+        )
+        assert got == tuple(
+            label for label in expected if label.split("[")[0] not in PARAMETERISED
+        ), (key, got, expected)
     # Row (e) -- no latents at all -- is REACHABLE and shipped by nothing.  The
     # R5 plan's 0.3 says it is the only graph that will still reach
     # `evidence_residual_integral_required` after Task 7 widens the gate, so
@@ -578,8 +670,11 @@ def test_the_five_parameterised_fixtures_move_only_classes_a_and_d(classified):
     is why the plan's 0.3 keeps both numbers on the page rather than restating
     one of them silently.
     """
-    counts, _members = _census(classified, parameterised=True)
+    counts, members = _census(classified, parameterised=True)
     assert sum(counts.values()) == 54
+    assert {key: tuple(sorted(value)) for key, value in members.items()} == {
+        key: tuple(value) for key, value in CENSUS_MEMBERS.items()
+    }
     assert counts["(a) whole-graph exact"] == 19
     assert counts["(b) exact+residual gcr"] == 6
     assert counts["(b') exact+residual gcr+mh"] == 1
@@ -608,13 +703,21 @@ def test_only_the_collapsed_side_reaches_the_elimination():
         called.append(tuple(exact))
         return real(graph, exact, residual)
 
-    with jax.enable_x64(True):
-        graph = as_graph(models.diamond_ancestor())
-        spans = (Span("tau", -4.0, 8.0), Span("x", -6.0, 6.0))
-        oracle_joint(graph, spans, resolution=AGREEMENT_FLOOR, start=101, refinements=3)
-        assert called == []
-        residual_oracle.collapse_graph = watched
-        try:
+    residual_oracle.collapse_graph = watched
+    try:
+        with jax.enable_x64(True):
+            graph = as_graph(models.diamond_ancestor())
+            spans = (Span("tau", -4.0, 8.0), Span("x", -6.0, 6.0))
+            # The replacement is installed BEFORE this call, which is the whole
+            # guard. An adversarial review defeated the earlier ordering -- it
+            # ran oracle_joint first and installed the watcher afterwards, so a
+            # call from oracle_joint was invisible by construction and the
+            # bypass left all 36 tests green, exit 0. A guard that starts
+            # watching after the act it forbids is not watching.
+            oracle_joint(
+                graph, spans, resolution=AGREEMENT_FLOOR, start=101, refinements=3
+            )
+            assert called == [], called
             oracle_collapsed(
                 graph,
                 ("x",),
@@ -623,8 +726,8 @@ def test_only_the_collapsed_side_reaches_the_elimination():
                 start=201,
                 refinements=3,
             )
-        finally:
-            residual_oracle.collapse_graph = real
+    finally:
+        residual_oracle.collapse_graph = real
     assert called == [("x",)]
 
 
@@ -835,9 +938,114 @@ def test_the_eliminated_blocks_ratio_travels_with_the_collapsed_value():
             refinements=3,
         )
         shared = _sides("shared_ancestor")[0]
-    assert set(seen.values()) == {0.0}, seen
+    # Named per fixture, not collapsed to a set. Four are zero because their
+    # eliminated block's prior is centred at the origin; `shifted_block_prior`
+    # puts the residual latent IN that prior's mean, so its ratio is
+    # |tau| / 0.3 and the recorded figure must be the largest the span reaches
+    # -- 4.0 / 0.3, not the centre's 2.2 / 0.3 and not the low end's 0.4 / 0.3.
+    # Three mutants survived the whole suite before this fixture existed:
+    # forcing the mean to zero, taking a min over the probe points, and probing
+    # only the centre.
+    assert seen == {
+        "diamond_ancestor": 0.0,
+        "indirect_ancestor": 0.0,
+        "outside_observation_pair": 0.0,
+        "overflowing_outside_latent": 0.0,
+        "shared_ancestor": 0.0,
+        "shifted_block_prior": pytest.approx(4.0 / 0.3),
+    }, seen
+    assert seen["shifted_block_prior"] > 4.0 * (2.2 / 0.3) / 3.0, seen
     # oracle_joint eliminates nothing, so it has no such domain to declare and
     # says None rather than zero -- "not asked" and "asked, and it is zero" are
     # the distinction this repository has paid for most often.
     assert joint.exact_block_ratio is None
     assert "eliminated block |m|/s" in shared.describe()
+
+
+def test_the_band_carries_the_truncated_mass_and_a_verdict_depends_on_it():
+    """The truncation term is load-bearing, and this is what says so.
+
+    An adversarial review dropped ``truncation`` from
+    :attr:`~tests.dispatch.residual_oracle.Certificate.bound` and all 36 tests
+    stayed green, exit 0. Every comparison in this file happened to put both
+    sides on the SAME span, so their truncations were near-equal and cancelled
+    out of the gap, leaving the term true but never decisive.
+
+    Here the two sides are deliberately given DIFFERENT spans -- the collapsed
+    route over ``|z| <= 60`` and the oracle over ``|z| <= 100`` -- so the gap IS
+    the excluded mass. Measured: the gap is 1.27e-03, the band is 1.61e-03 and
+    the truncated mass is 100.00 per cent of it. Strike that term and the band
+    falls to 2.05e-08, which the gap exceeds by a factor of 6.2e+04.
+
+    So the assertion is not "the band contains a truncation term" -- that would
+    be a spelling. It is that this comparison AGREES, and that it could not have
+    without the term.
+    """
+    with jax.enable_x64(True):
+        graph = as_graph(models.overflowing_outside_latent())
+        short = oracle_collapsed(
+            graph,
+            ("w",),
+            (Span("z", -60.0, 60.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=401,
+            refinements=9,
+        )
+        wide = oracle_joint(
+            graph,
+            (Span("z", -100.0, 100.0), Span("w", -8.0, 8.0)),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=7,
+        )
+    verdict = agreement(short, wide)
+    assert verdict.agree, verdict.describe()
+    truncated = short.certificate.truncation + wide.certificate.truncation
+    without = verdict.band - truncated
+    assert without > 0.0, (verdict.band, truncated)
+    assert abs(verdict.gap) > 1e3 * without, (verdict.gap, without)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"resolution": 0.0}, "level in"),
+        ({"resolution": -1.0}, "level in"),
+        ({"resolution": math.inf}, "level in"),
+        ({"resolution": 1.0}, "level in"),
+        ({"resolution": math.nan}, "level in"),
+        ({"resolution": AGREEMENT_FLOOR, "start": 2}, "at least three points"),
+    ],
+)
+def test_the_declared_guards_refuse_what_they_name(kwargs, match):
+    """Three holes an adversarial review walked through, closed and pinned.
+
+    ``resolution=inf`` passed ``not resolution > 0.0`` and then made the tail
+    test ``tail <= inf`` vacuously true at the very first grid: the oracle
+    CERTIFIED a value 2.5e-04 wrong while reporting a refinement tail of
+    1.3e-03. ``resolution=1.0`` is the same hole one step in -- a relative level
+    of 1 demands nothing. And ``start=2`` raised ``IndexError`` from inside
+    ``_edges``, naming neither the argument nor the fix, because the edge test
+    reads the outermost cell AND its neighbour.
+    """
+    with jax.enable_x64(True), pytest.raises(ValueError, match=match):
+        quadrature(
+            lambda values: -(values["z"] ** 2),
+            (Span("z", -4.0, 4.0),),
+            **{"resolution": AGREEMENT_FLOOR, **kwargs},
+        )
+
+
+def test_the_recorded_domains_refuse_to_be_computed_in_single_precision():
+    """``quadrature`` guarded x64 and the two helpers beside it did not.
+
+    Called outside ``jax.enable_x64`` they returned float32-computed numbers
+    with no complaint -- an excluded prior mass and a block ratio that look
+    exactly like the double-precision ones and are not. Both now refuse.
+    """
+    graph = as_graph(models.shared_ancestor())
+    spans = (Span("tau", 0.15, 4.5),)
+    with pytest.raises(RuntimeError, match="double precision"):
+        residual_oracle.excluded_prior_mass(graph, spans)
+    with pytest.raises(RuntimeError, match="double precision"):
+        residual_oracle.block_prior_ratio(graph, ("x",), spans)

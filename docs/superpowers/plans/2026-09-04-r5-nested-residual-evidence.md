@@ -1219,7 +1219,18 @@ for the contract, which is not optional and not a code read.
 
 ### Task 3: the fixtures R5's completion gates require and this package does not have
 
-**Files:** Modify `tests/exact/models.py`; Create `tests/dispatch/test_residual_fixtures.py`.
+**Files:** Create `tests/exact/residual_models.py`, `tests/dispatch/test_residual_fixtures.py`,
+`docs/probes/probe_35_oracle_dimension.py`. **`tests/exact/models.py` is NOT modified**, and that
+is a ruling rather than a convenience: it is a census DENOMINATOR in three places — Task 1 walks
+it for the prior/likelihood split, Task 2's standing census pins 15/6/1/13/9/5 over its 49
+no-argument graphs and 19/6/1/13/10/5 over all 54, and Task 7 walks it again for the propriety
+audit. A fixture added there moves numbers in three places that have nothing to do with the
+fixture.
+
+> **The consequence, stated because it reads as a bug later.** `residual_models.py` is **not** in
+> the census denominator, so its five fixtures — including the two class-(b) ones — do not appear
+> in those counts and never will. Intended. A reader who finds `mixture_prior_residual` absent
+> from Task 7's class table has found the design, not a gap.
 
 - [ ] **3.1 Red.** Three fixtures, each with a **constructed closed-form** `log Z`, not a
       sampled one: (i) a genuinely **multimodal** residual posterior — well-separated mixture
@@ -1227,11 +1238,37 @@ for the contract, which is not optional and not a code read.
       prior extending `overflowing_outside_latent`'s Cauchy; (iii) a residual of **dimension
       ≥ 4**, above anything shipped today. Assert each against its closed form and against the
       Task 2 oracle where the oracle applies. Expect FAIL.
-- [ ] **3.2 Stop-rule, run here.** For (iii), record the dimension at which the quadrature
-      oracle stops converging within the time budget. **That dimension is the boundary of R5's
-      gradeable domain, and it is written into the module spec** — a backend answer above it has
-      no independent oracle, and §9.1 does not admit a number whose only check is the route that
-      produced it. 〔Planning measurement: every shipped residual is dimension 1 or 2.〕
+- [ ] **3.2 Stop-rule, run here — IT FIRED, and the answer is below.** Record the dimension at
+      which **`oracle_joint`** — total latent dimension, residual **plus** exact (§0.4) — stops
+      converging within the declared budget. That dimension is the boundary of R5's gradeable
+      domain: above it a backend answer has no independent oracle, and §9.1 does not admit a
+      number whose only check is the route that produced it.
+
+      〔**Measured at `MAX_POINTS = 5e7`. The boundary is FOUR.**
+
+      | d | certified | n | evaluations | value − closed form |
+      |---:|---|---:|---:|---:|
+      | 1 | yes | 33 | 33 | −1.235e-10 |
+      | 2 | yes | 65 | 4,225 | −1.743e-10 |
+      | 3 | yes | 65 | 274,625 | −2.609e-10 |
+      | 4 | yes | 65 | 17,850,625 | −3.646e-10 |
+      | 5 | **no** | 33 | 39,135,393 | −6.094e-10 |
+      | 6 | **no** | 17 | 24,137,569 | **+6.595e-03** |
+
+      **The last column is the part that matters.** At `d = 5` the uncertified value is right to
+      ten decimals; at `d = 6` it is wrong in the third — and **nothing about either number says
+      which is which.** That is the certificate's whole reason for existing, and it is why an
+      uncertified value is not a value.
+
+      With the budget lifted the boundary is five (1.16e9 points, ~19 GB, 53 s); six needs
+      `65**6 = 7.5e10`. So "the grid stopped it" and "the arithmetic stopped it" are different
+      facts, and `probe_35_oracle_dimension.py` keeps them apart.
+
+      **The domain statement is stricter than it looks.** `oracle_joint` integrates residual plus
+      exact, so a residual of four beside ANY exact block is five axes and is already outside the
+      gradeable domain at a test-affordable budget. **Task 5's correctness column depends on
+      this.** Task 10 carries it into `docs/residual-evidence.md`; until that page exists this
+      line is its home.〕
 - [ ] **3.3 Green + lint. 3.4 Commit.** `test: a multimodal, a heavy-tailed and a four-dimensional residual fixture with closed-form evidence`
 
 ---
@@ -1424,6 +1461,14 @@ for the contract, which is not optional and not a code read.
       that is no longer true — which after R5 is about **row (e)** and nothing else (§0.3). R4
       plan §0.14: each widening deletes its own refusal.
 - [ ] **7.8 The reviewer enumerates the fixture family's CONSTANT dimensions and mutates each.**
+      〔Wave B measured this over the same class-(b) family Task 7 grades, and hands over the
+      list: **observed nodes per graph — exactly one, 5 of 5; the observation is a descendant of
+      the exact block — yes, 5 of 5; the eliminated block's prior MEAN — exactly 0.0, 4 of 5;
+      does `|m|/s` vary across the span — no, 5 of 5.** Every one of its four surviving mutants
+      lived in one of those rows. Task 7 grades the same family, so it inherits the same holes
+      unless it varies them. Wave B added `outside_observation_pair` (an observation the exact
+      block does not reach) and `shifted_block_prior` (`x ~ N(tau, 0.3)`, so `|m|/s` sweeps
+      1.3 → 13.3 across the span), both class (b) — use them rather than rebuilding them.〕
       Not "the axes this task did not vary" — red line 1 says why that weaker form fails.
       Mechanically: over the class-(b)/(c) fixture set, list every dimension of a prior
       declaration that takes the **same value in all of them** — the number of residual latents,
@@ -1436,12 +1481,17 @@ for the contract, which is not optional and not a code read.
 
 ### Task 8: the reports and the gate, at a new gate version
 
-**Files:** Modify `src/bayesmith/evaluation/evidence.py`, `src/bayesmith/evaluation/gate.py`.
+**Files:** Modify `src/bayesmith/evaluation/evidence.py`, `tests/evaluation/test_evidence_report.py`.
+**Not `evaluation/gate.py`** — that module is `model_checking@1`'s runner; the evidence gate lives
+entirely in `evaluation/evidence.py`. `test_evidence_report.py` is in the list because it asserts
+`EVIDENCE.identity == "evidence@1"`, and red line 10 stages only the files a task lists.
 
 - [ ] **8.1 Red.** Four report kinds — termination, repeated-run stability, residual geometry
       and dimensionality, prior-transform validity — each reaching PASS, FAIL and ABSTAIN.
-      `evidence@2` requires the first two for a residual evidence and does not require them for
-      an exact one, so R4's results keep passing `evidence@1`'s semantics. Assert §4.3's
+      **`evidence@2` is a SECOND `GateDefinition` beside a retained `evidence@1`** (§0.19),
+      selected by `EvidenceTask.quality_gate`; `EVIDENCE.version` is **not** bumped, because
+      "required here, optional there" has no field on `ReportRequirement` and adding one is red
+      line 4. Assert `evidence@1`'s identity is unchanged. Assert §4.3's
       operational status ahead of verdict: BLOCKED, INVALIDATED, ERROR, EVALUATED, and that
       report ORDER does not change the verdict. Expect FAIL.
 - [ ] **8.2 Build the bypass, per red line 1.** The current guard requires that a filed slot's
@@ -1604,6 +1654,13 @@ lists; never `git add -A`. Run `git commit` as its own command. `ruff check --no
 cache has held a lie in this checkout before.
 
 11. **A decision's resolution goes on the line that asked the question** — in this document.
+〔And **verify it landed.** Four repairs to first-review defects were written and silently lost:
+the patch script applied edits in a batch and wrote once at the end, so a single failed anchor
+discarded all of them, and only the one that printed an error was noticed and re-applied. Task 8
+then carried a file list the review had already rejected, and the plan contradicted its own
+§0.19, for two waves. Apply edits one at a time and write after each; a batch that can lose four
+repairs while reporting one failure is the same disease as everything else here — a result that
+cannot distinguish "applied" from "silently discarded".〕
 
 12. **`CLAUDE.md` and `AGENTS.md` move in the same commit**, and every count is re-measured
 rather than quoted.
@@ -1625,6 +1682,20 @@ replaced it with `batch_shape + event_shape` broadcast against the plate — the
 expression — and **0 of 54 shipped latents have `batch_shape + event_shape` non-empty**, so on
 every input this package contains the repair is identically the bug. Three mutants lived there,
 inside the fix.
+
+**Red line 13 does NOT subsume red line 1, and Wave B measured the gap.** That wave ran red
+line 13 on **eight** repairs — each graded by restoring the old code — and **all eight went red**,
+so the rule passed every time. Its adversarial review then found **four surviving mutants**, none
+of which those eight checks could have caught, and the one mutant the review scored KILLED was
+the one whose grading test had already been written.
+
+The reason is structural: **every red line 13 mutant is enumerated from the repair's own diff.**
+The rule asks "does this change behave differently from what it replaced", which is a question
+about the change. It cannot ask "which dimension does the fixture family hold constant", which is
+a question about the *fixtures* and is the one red line 1 exists for. **Passing 13 says nothing
+about 1.** Wave B's session read red line 1 before starting and it did not stop them, which is
+the honest form of this warning: knowing the rule is not the same as having a procedure that
+executes it.
 
 **Both faults occurred in this batch, one per session.** (a) is Wave A's `_latent_shape`, above.
 (b) is the campaign repair at `895e181`: `loc.ravel()[0]` was a genuine behaviour change on a

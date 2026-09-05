@@ -526,6 +526,7 @@ def excluded_prior_mass(graph: Graph, spans: Sequence[Span]) -> dict[str, float 
     because "no mass excluded" and "not asked" are the distinction this
     repository has paid for most often.
     """
+    _require_x64()
     environment = prior_environment(graph)
     latents = frozenset(graph.latents)
     out: dict[str, float | None] = {}
@@ -578,6 +579,7 @@ def block_prior_ratio(
     """
     from bayesmith.exact.block import unchecked_operator
 
+    _require_x64()
     names = tuple(exact_names)
     if not names:
         return None
@@ -641,10 +643,15 @@ def quadrature(
     is the failure mode the module docstring's condition 2 describes.
     """
     _require_x64()
-    if not resolution > 0.0:
+    if not 0.0 < resolution < 1.0 or not math.isfinite(resolution):
         raise ValueError(
-            f"resolution={resolution!r}; the refinement needs a positive level "
-            "to reach, and a non-positive one is unreachable rather than strict"
+            f"resolution={resolution!r}; the refinement needs a level in "
+            "(0, 1), relative to max(1, |log Z|). An adversarial review found "
+            "the earlier `not resolution > 0.0` guard admitting `inf`, which "
+            "made the tail test `tail <= inf` -- vacuously true at the first "
+            "grid -- and CERTIFIED a value 2.5e-04 wrong with a refinement "
+            "tail of 1.3e-03. A guard that refuses 0, negatives and nan while "
+            "admitting inf refuses the harmless half of what it names"
         )
     if start ** len(spans) > max_points:
         raise ValueError(
@@ -658,6 +665,13 @@ def quadrature(
     if len(set(names)) != len(names):
         raise ValueError(
             f"{names} names an axis twice; a product grid needs distinct axes"
+        )
+    if start < 3:
+        raise ValueError(
+            f"start={start}; a grid needs at least three points, because the "
+            "edge test reads the outermost trapezoid cell AND its neighbour. "
+            "Below three it raised IndexError from inside `_edges`, which "
+            "names neither the argument nor the fix"
         )
     history: list[tuple[int, float]] = []
     edges: tuple[EdgeDecay, ...] = ()
