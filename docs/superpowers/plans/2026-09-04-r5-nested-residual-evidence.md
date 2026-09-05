@@ -1509,6 +1509,17 @@ fixture.
       behaviour, JIT/compile cost, memory, API stability — not §1.5 condition 3's four.** §0.16
       measured that the analytic Gaussian separates the candidates on none of the four; the
       deciding evidence is in the other four and does not exist yet.
+- [ ] **5.2a The gradeable dimension bites earlier than the residual dimension suggests.**
+      `oracle_joint` integrates residual **plus** exact, and Task 3.2 measured the boundary at
+      **four total axes** at the declared budget. So a residual of dimension 4 beside any exact
+      block is five axes and has **no independent oracle at a test-affordable budget** — the
+      correctness column cannot be filled for it, and §9.1 does not admit a number whose only
+      check is the route that produced it. Decide per fixture whether the column is *filled* or
+      *withheld*, and say which; a blank that reads as a pass is the failure §11.4 names.
+      〔`docs/probes/probe_35_oracle_dimension.py --lift-the-budget` separates "the grid stopped
+      it" from "the arithmetic stopped it" — behind a flag and not run by CI, because at five
+      axes it is 1.16e9 points and ~19 GB. Use it when the bake-off needs to know which of the
+      two stopped a cell.〕
 - [ ] **5.2b Re-run under Linux.** Everything in §0.16 is macOS/Accelerate. **A backend decision
       recorded as reproducible without the ubuntu job is not reproducible** — that claim cost this
       project four release tags. Record which CPU the job drew.
@@ -1959,6 +1970,22 @@ cannot raise `KeyError`: measured with `method="gcr+newthing"`, the structure re
 exists. Replaced with `_RESIDUAL_METHODS_ADMITTED = {"gcr"}`, which also repaired a second false
 message for free. The general form: a deny-list is a claim to have enumerated every bad case, and
 this project has now been wrong about an enumeration in every wave.〕
+
+18. **A hand-off that depends on a particular session still being alive is not a hand-off.**
+Put it in the plan, in a file, or in a failure message — anywhere a stranger will meet it without
+knowing to ask.
+
+〔Stated by Wave B's executor as it neared the end of its context, and it is the operating
+principle this whole batch has been running on without writing down. Three sessions executed R5
+in one checkout; each will end. What survived is what landed somewhere a reader trips over:
+`test_where_each_new_fixture_sits_in_the_structural_taxonomy` is safe because its **failure
+message names its own remedy** — Task 7's executor updated it without asking anyone, and produced
+a better version than its author's, because it also recorded that the taxonomy columns had not
+moved. What did not survive is whatever stayed in a session's head.
+
+The corollary is a duty rather than a caution: **if you can think of something you would want
+from a session that is ending, ask now.** Waiting until the moment you need it is waiting until
+it is gone.〕
 
 17. **A hand-off separates what was MEASURED from what is PREDICTED, in the message itself.**
 
