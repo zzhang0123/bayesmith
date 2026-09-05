@@ -642,8 +642,15 @@ def quadrature(
         if len(history) >= 3:
             previous = history[-2][1] - history[-3][1]
             latest = history[-1][1] - history[-2][1]
-            if latest == 0.0:
-                ratio, tail = 0.0, 0.0
+            if abs(latest) <= floor:
+                # The value has stopped moving as far as this arithmetic can
+                # tell. Demanding more is demanding a movement smaller than the
+                # sum's own representation, and what that produces is not
+                # convergence but DITHER: measured on the mixture fixture, the
+                # increments run 0.000e+00, +1.776e-15, -1.776e-15, whose ratio
+                # is exactly 1.0 -- indistinguishable, to a rule that only looks
+                # at ratios, from a quadrature drifting by a constant forever.
+                ratio, tail = 0.0, abs(latest)
             elif previous == 0.0:
                 ratio, tail = math.inf, math.inf
             else:
