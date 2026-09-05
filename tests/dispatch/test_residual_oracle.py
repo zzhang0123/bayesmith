@@ -1493,3 +1493,65 @@ def test_an_edge_only_just_above_one_is_still_the_mass_leaving_the_span():
     assert upper.fraction == math.inf
     assert not found.certified
     assert "not decaying" in found.certificate.refused
+
+
+def test_the_certificate_says_did_not_run_apart_from_ran_and_found_nothing():
+    """Red line 14, in the field a consumer actually reads.
+
+    ``truncation`` used to have two states and three meanings. ``inf`` said both
+    "an edge is growing, so the mass is outside this span" and "the integrand was
+    not a number, so there were no edges to measure at all" -- distinguishable
+    only by ALSO consulting ``history == ()``, which is the indirection the rule
+    exists to remove. It is now ``None`` for the second.
+
+    Measured across every outcome the oracle has:
+
+    ========================  ======  =====  ============
+    outcome                   grids   edges  truncation
+    ========================  ======  =====  ============
+    certified                      3      4  a float
+    integrand is not a number      0      0  ``None``
+    an edge is not decaying        3      4  ``inf``
+    ========================  ======  =====  ============
+
+    And ``bound`` is ``inf`` when the edge test did not run, because a bound that
+    was never measured is not a bound of zero.
+    """
+    with jax.enable_x64(True):
+        graph = as_graph(models.shared_ancestor())
+        certified = oracle_joint(
+            graph,
+            (Span("tau", 0.15, 4.5), Span("x", -1.5, 3.5)),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=6,
+        )
+        not_a_number = oracle_joint(
+            graph,
+            (Span("tau", -3.0, 7.0), Span("x", -6.0, 6.0)),
+            resolution=AGREEMENT_FLOOR,
+            start=101,
+            refinements=3,
+        )
+        growing = oracle_joint(
+            as_graph(models.diamond_ancestor()),
+            (Span("tau", 20.0, 30.0), Span("x", -6.0, 6.0)),
+            resolution=AGREEMENT_FLOOR,
+            start=101,
+            refinements=3,
+        )
+
+    assert certified.certified
+    assert isinstance(certified.certificate.truncation, float)
+    assert math.isfinite(certified.certificate.truncation)
+
+    # DID NOT RUN -- and the two other fields agree, but nobody has to read them.
+    assert not_a_number.certificate.truncation is None
+    assert not_a_number.certificate.history == ()
+    assert not_a_number.certificate.edges == ()
+    assert not_a_number.certificate.bound == math.inf
+
+    # RAN, and found the mass leaving the span.
+    assert growing.certificate.truncation == math.inf
+    assert growing.certificate.edges != ()
+    assert not growing.certified

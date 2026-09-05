@@ -250,13 +250,29 @@ class Certificate:
     increment_ratio: float | None
     refinement_tail: float
     float_floor: float
-    truncation: float
+    #: ``None`` means the edge test DID NOT RUN; ``inf`` means it ran and found
+    #: an edge the mass is still growing towards; a float is the bound.
+    #:
+    #: **Three states in the field a consumer reads, which is what red line 14
+    #: asks for.** It used to be two: the did-not-run case -- an integrand that
+    #: is not a number, so there are no edges to measure -- reported ``inf``,
+    #: the same value as a growing edge. They were distinguishable, but only by
+    #: also consulting ``history == ()`` and ``edges == ()``, and requiring a
+    #: reader to consult a second field to learn whether the first one means
+    #: anything is exactly the indirection the rule exists to remove.
+    truncation: float | None
     edges: tuple[EdgeDecay, ...]
     refused: str | None
 
     @property
     def bound(self) -> float:
-        """This side's total error bound: refinement, arithmetic and truncation."""
+        """This side's total error bound: refinement, arithmetic and truncation.
+
+        ``inf`` when the edge test did not run: a bound that was never measured
+        is not a bound of zero.
+        """
+        if self.truncation is None:
+            return math.inf
         return self.refinement_tail + self.float_floor + self.truncation
 
     @property
@@ -746,7 +762,9 @@ def quadrature(
     tail = math.inf
     floor = math.inf
     demanded = math.inf
-    truncation = math.inf
+    #: ``None`` until the first grid is measured, so a refinement budget of zero
+    #: reports "did not run" rather than "ran and found an unbounded edge".
+    truncation: float | None = None
     reasons: list[str] = []
     for _ in range(refinements):
         axes = [
@@ -768,7 +786,7 @@ def quadrature(
                     increment_ratio=None,
                     refinement_tail=math.inf,
                     float_floor=math.inf,
-                    truncation=math.inf,
+                    truncation=None,
                     edges=(),
                     refused=(
                         f"the integrand is not a number at {unusable} of "
@@ -811,12 +829,16 @@ def quadrature(
             else:
                 ratio = abs(latest) / abs(previous)
                 tail = _geometric_tail(abs(latest), ratio)
-            # No `math.isfinite(truncation)` conjunct here: the post-loop reason
-            # list re-tests exactly that, so an infinite truncation abstains
-            # either way and the conjunct only bought extra refinements before
-            # the same answer. An adversarial review scored it SURVIVED for that
-            # reason, and it was right -- a condition with no consequence is not
-            # a condition.
+            # No `truncation` conjunct here, and it is not an oversight twice
+            # over. The post-loop reason list re-tests exactly that, so an
+            # infinite truncation abstains either way and the conjunct only
+            # bought extra refinements before the same answer -- an adversarial
+            # review scored it SURVIVED for that reason and was right, since a
+            # condition with no consequence is not a condition. And `truncation`
+            # cannot be `None` at this point: the loop body assigns it from the
+            # edges before reaching here, and the one path that leaves it `None`
+            # returns before the loop. Adding a `None` guard here would be
+            # unreachable code guarding an unreachable state.
             if math.isfinite(tail) and tail <= demanded:
                 break
         if (2 * count - 1) ** len(spans) > max_points:
@@ -828,7 +850,7 @@ def quadrature(
             )
             break
         count = 2 * count - 1
-    if not math.isfinite(truncation):
+    if truncation is None or not math.isfinite(truncation):
         growing = [str(edge) for edge in edges if not edge.decaying]
         reasons.append(
             "the integrand is not decaying at "
