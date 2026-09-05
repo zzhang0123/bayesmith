@@ -1516,7 +1516,39 @@ question from "is there an adapter", and keeping it in `task.py` also keeps
       candidate importable reddens the suite, stop and rule** before the bake-off scores it — a
       backend that cannot be installed beside the tests is not a backend this package can adopt,
       whatever it scores on correctness, and repairing R4's shipped gate is not an R5 task.
-      〔**Execution write-back, red line 11 (Wave D): the rule as written could not have fired
+      〔**Execution write-back, red line 11 (Wave D), SECOND PASS — this rule FIRED, and the
+      first write-back below is superseded.** The adversarial review installed `blackjax` into an
+      isolated venv and ran the SUITE, not two tests:
+      `1 failed, 3548 passed` control against `2 failed, 3547 passed` with it, the extra failure
+      being `test_an_installed_extra_is_not_reported_as_a_missing_one`. At the wave's later HEAD
+      the same install turned **six** tests red. The condition this line states — a candidate
+      made installable reddens the suite — HELD.
+
+      **The cause was a test defect, not a backend defect**, so the owner ruling was repair and
+      continue rather than stop R5: the packaging is correct (the built wheel carries both
+      `Provides-Extra` rows and the probe reads the extra back out of an installed wheel), and
+      the two tests §0.16 names pass with either candidate installed while `JAX_ENABLE_X64=1`
+      reddens them. Every message assertion in `tests/dispatch/test_backend_absent.py` took its
+      "the extra is absent" baseline from whatever the checkout happened to have; the states are
+      now BUILT, including the **mixed** one that `pip install "bayesmith[blackjax]"` actually
+      produces. Repaired in `9c1ef72`, graded in `docs/mutation/2026-09-05-r5-wave-d.md`.
+
+      **Why the first write-back was wrong, since the error is the one this plan is about.** It
+      reasoned from two named tests and concluded the rule could not fire on any input. The
+      rule's denominator is the SUITE. A check narrower than the claim it supports is the defect
+      this batch has paid for most often, and it produced a false "did not fire" here.
+
+      What survives of that first pass is the narrower true claim: IMPORTABLE and IMPORTED are
+      different states, only the second flips `jax_enable_x64`, and nothing in `src/` imports
+      either candidate — verified independently by the wave coordinator, `import bayesmith` in a
+      fresh process leaves the flag `False`. So R4's precision gate is untouched by an install,
+      and what makes "importable" safe is a property of THIS package — that its capability probe
+      is not the thing that imports the candidate — which is a guard (Task 4.4's), not a
+      stop-rule.〕
+
+      〔**SUPERSEDED — Wave D, first pass.** Kept because red line 11 says a resolution goes on
+      the line that asked the question, and a resolution that was later found wrong is part of
+      the answer. **The rule as written could not have fired
       on any input, because the state it names is not the dangerous one.** IMPORTABLE and
       IMPORTED are two states and only the second flips the flag. Measured 2026-09-05: with
       blackjax installed, with jaxns installed, and with both, all three environments run both
