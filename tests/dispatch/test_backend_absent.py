@@ -252,7 +252,7 @@ def _refuse_with(monkeypatch, statuses, name="c_cauchy_residual_pair"):
         task_module, "residual_evidence_extras", lambda: tuple(statuses)
     )
     with jax.enable_x64(True):
-        return _refuse(_graph(name)).grounds[0].message
+        return _refuse(_graph(name))
 
 
 def _clause_for(message: str, extra: str) -> str:
@@ -329,7 +329,7 @@ def test_the_refusal_message_maps_each_extra_state_to_its_own_sentence(
     from bayesmith.dispatch.task import EXTRA_ABSENT, EXTRA_INSTALLED, EXTRA_UNKNOWN
 
     statuses = _states()[state]
-    message = _refuse_with(monkeypatch, statuses)
+    message = _refuse_with(monkeypatch, statuses).grounds[0].message
 
     for status in statuses:
         clause = _clause_for(message, status.extra)
@@ -413,9 +413,7 @@ def test_the_refusal_reports_whatever_state_this_environment_is_in():
             assert "could not be determined" in clause
 
 
-def test_the_refusal_says_what_is_true_of_the_graph_and_claims_nothing_more(
-    monkeypatch,
-):
+def test_the_refusal_says_what_is_true_of_the_graph_and_claims_nothing_more():
     """The fields beside the message, and the sentences it must not contain.
 
     `observed`, `expected`, `scope` and `summary` were read by nothing, so a
@@ -455,41 +453,145 @@ def test_the_refusal_says_what_is_true_of_the_graph_and_claims_nothing_more(
     assert "posterior task is also refused" not in message
 
 
-def test_the_refusal_carries_two_remedies_and_only_one_offers_the_extras():
-    """The remedy row, asserted as a field rather than as prose in a heap.
+#: What each state's remedy must be: its action, the commands it may name, and
+#: the extras it must carry as a machine-readable parameter. **The commands are
+#: the module-scope literals**, so no branch is graded against text the code
+#: under test supplied.
+REMEDY_BY_STATE = {
+    "both_absent": (
+        "install_the_residual_evidence_extra",
+        {BLACKJAX_COMMAND, JAXNS_COMMAND},
+        ("blackjax", "jaxns"),
+    ),
+    "mixed_blackjax_installed": (
+        "install_the_residual_evidence_extra",
+        {JAXNS_COMMAND},
+        ("jaxns",),
+    ),
+    "mixed_jaxns_installed": (
+        "install_the_residual_evidence_extra",
+        {BLACKJAX_COMMAND},
+        ("blackjax",),
+    ),
+    "both_installed": ("wait_for_a_residual_evidence_adapter", set(), ()),
+    "both_unknown": ("repair_the_distribution_metadata", set(), ("blackjax", "jaxns")),
+    "mixed_unknown_and_absent": (
+        "install_the_residual_evidence_extra",
+        {JAXNS_COMMAND},
+        ("jaxns",),
+    ),
+}
 
-    The first version concatenated `grounds[0].message` with every remedy's
-    message and searched the heap, so **either** remedy could be deleted, the
-    new one's parameters emptied, or its action renamed to the other's, all
-    green -- the install commands appear in the finding's own message too.
+
+@pytest.mark.parametrize("state", sorted(REMEDY_BY_STATE))
+def test_the_remedy_offers_what_the_state_actually_needs(monkeypatch, state):
+    """The remedy reads the probe, and each state gets a different one.
+
+    **The third instance in this wave of a remedy that does not read what it is
+    remedying**, and the one a structural test could not have caught. The first
+    was keyed by PREMISE instead of ground, so a `simulation` refusal was told
+    to install a nested sampler -- the wrong KIND of question. This one was
+    keyed by the static TABLE instead of the probe, so with `blackjax` already
+    installed the message correctly dropped its install command and the remedy
+    still carried it -- the wrong STATE of the right question. Milder, because
+    the prose hedged that installing is "necessary rather than sufficient", and
+    the same family.
+
+    The test it replaced asserted that exactly one remedy names every command.
+    That was state-INDEPENDENT precisely *because* the remedy was
+    unconditional: it graded the structure, and would have gone on passing
+    whether or not the remedy ever learned to read the probe. A test that
+    cannot fail either way is not what holds this.
     """
-    from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS
-
-    with jax.enable_x64(True):
-        refusal = _refuse(_graph("b_mixture_prior_residual"))
+    action, allowed, extras = REMEDY_BY_STATE[state]
+    refusal = _refuse_with(monkeypatch, _states()[state])
 
     actions = [remedy.action for remedy in refusal.remedies]
     assert len(actions) == len(set(actions)), f"two remedies, one action: {actions}"
     assert len(refusal.remedies) == 2, actions
 
-    offering = [
-        remedy
-        for remedy in refusal.remedies
-        if all(command in remedy.message for command in COMMANDS.values())
-    ]
-    assert len(offering) == 1, (
-        f"expected exactly one remedy offering the extras, got {actions}"
+    offered = [remedy for remedy in refusal.remedies if remedy.action == action]
+    assert len(offered) == 1, (
+        f"{state} should offer {action!r}; the refusal carries {actions}"
     )
-    parameters = dict(offering[0].parameters)
-    assert parameters.get("extras") == tuple(
-        extra for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS
-    ), parameters
+    remedy = offered[0]
 
-    # The other remedy is the premise's own, and it is still there: a caller
-    # whose release cannot answer the task at all needs it.
-    generic = [remedy for remedy in refusal.remedies if remedy not in offering]
+    named = {command for command in COMMANDS.values() if command in remedy.message}
+    assert named == allowed, {
+        "state": state,
+        "commands the remedy names": sorted(named),
+        "commands this state may name": sorted(allowed),
+    }
+    assert dict(remedy.parameters).get("extras") == extras, remedy.parameters
+
+    # The premise's own remedy is still beside it, in every state: a caller
+    # whose release cannot answer the task at all needs that one.
+    generic = [r for r in refusal.remedies if r is not remedy]
     assert len(generic) == 1
-    assert all(command not in generic[0].message for command in COMMANDS.values())
+    assert generic[0].action == "ask_a_supported_task"
+    assert not any(command in generic[0].message for command in COMMANDS.values())
+
+
+def test_the_remedy_and_the_message_describe_the_same_world(monkeypatch):
+    """One read of the probe, so the two halves cannot disagree.
+
+    `_evidence_capability_refusal` used to call `residual_evidence_extras()`
+    twice -- once for the sentence, once for the remedy -- and a function that
+    reads the environment can answer twice differently. A refusal whose prose
+    says "installed" while its remedy says "install it" is a third way to be
+    wrong, on top of the two that were measured.
+    """
+    for state in sorted(_states()):
+        refusal = _refuse_with(monkeypatch, _states()[state])
+        message = refusal.grounds[0].message
+        offered = " ".join(remedy.message for remedy in refusal.remedies)
+        for extra, command in COMMANDS.items():
+            in_message = command in _clause_for(message, extra)
+            in_remedy = command in offered
+            assert in_message == in_remedy, {
+                "state": state,
+                "extra": extra,
+                "the message offers the command": in_message,
+                "a remedy offers the command": in_remedy,
+            }
+
+
+def test_the_remedy_this_environment_gets_matches_the_state_it_is_in():
+    """The unforced half, asserting the mapping rather than which state it found.
+
+    Environment-independent, like its sibling on the message: it reads the live
+    probe and checks the remedy that comes back is the one that state calls for.
+    """
+    from bayesmith.dispatch.task import (
+        EXTRA_ABSENT,
+        EXTRA_UNKNOWN,
+        residual_evidence_extras,
+    )
+
+    statuses = residual_evidence_extras()
+    with jax.enable_x64(True):
+        refusal = _refuse(_graph("b_mixture_prior_residual"))
+
+    missing = tuple(s.extra for s in statuses if s.state == EXTRA_ABSENT)
+    unknown = tuple(s.extra for s in statuses if s.state == EXTRA_UNKNOWN)
+    if missing:
+        expected, extras = "install_the_residual_evidence_extra", missing
+    elif unknown:
+        expected, extras = "repair_the_distribution_metadata", unknown
+    else:
+        expected, extras = "wait_for_a_residual_evidence_adapter", ()
+
+    offered = [r for r in refusal.remedies if r.action == expected]
+    assert len(offered) == 1, [r.action for r in refusal.remedies]
+    assert dict(offered[0].parameters).get("extras") == extras
+
+    # Whatever the state, a command is offered for an extra only if that extra
+    # is one this environment actually lacks.
+    for extra, command in COMMANDS.items():
+        if command in offered[0].message:
+            assert extra in missing, (
+                f"the remedy offers {command!r} while {extra} is not absent here"
+            )
 
 
 def test_a_refusal_that_is_not_about_the_residual_integral_offers_no_sampler():

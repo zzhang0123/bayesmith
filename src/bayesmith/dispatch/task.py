@@ -1625,6 +1625,11 @@ def _evidence_capability_refusal(
         return None
     sampled = () if runtime.sampled is None else tuple(runtime.sampled.latents)
     exact = () if runtime.exact is None else tuple(runtime.exact.latents)
+    # Read ONCE. The message and the remedy have to describe the same world,
+    # and two calls to a function that reads the environment can return two
+    # answers -- a refusal whose prose says "installed" while its remedy says
+    # "install it" is a third way to be wrong, on top of the two below.
+    statuses = residual_evidence_extras()
     return _refusal(
         task,
         artifact_type=ArtifactKind.PLAN,
@@ -1636,7 +1641,7 @@ def _evidence_capability_refusal(
                 message=f"this graph's evidence is admitted: every premise "
                 f"about the model holds, and {list(exact)} collapses exactly. "
                 f"What is missing is the sampler that runs the residual "
-                f"integral over {list(sampled)}. {_extras_sentence()} The "
+                f"integral over {list(sampled)}. {_extras_sentence(statuses)} The "
                 f"question is held and nothing was computed for it; the "
                 f"posterior task is unaffected.",
                 observed=(exact, sampled),
@@ -1645,37 +1650,83 @@ def _evidence_capability_refusal(
         ),
         scope=_scope(ScopeKind.BACKEND, "residual_evidence"),
         summary="the residual integral has no backend in this installation",
-        extra_remedies=(_install_the_extra_remedy(),),
+        extra_remedies=(_install_the_extra_remedy(statuses),),
     )
 
 
-def _install_the_extra_remedy() -> Remedy:
-    """Where to get the missing capability, offered by the GROUND not the premise.
+def _install_the_extra_remedy(statuses: tuple[ExtraStatus, ...]) -> Remedy:
+    """Where to get the missing capability, offered by the GROUND not the premise
+    and reading the STATE rather than the table.
 
-    Attached at this call site rather than in ``_REMEDIES`` because the premise
+    Two separate rulings live here, and they were made a day apart because the
+    second is the first one layer down.
+
+    **Offered by the ground.** ``_REMEDIES`` is keyed by premise, and
     ``capability_unavailable_r1`` is also what a task kind this release cannot
-    answer names, and a ``simulation`` refusal advising a nested-sampler install
-    is a wrong answer rather than a useless one.
+    answer names. With this remedy in that row, a ``simulation`` refusal
+    advised a nested-sampler install -- the wrong KIND of question.
+
+    **Reading the state.** The first version of this function then built its
+    text from :data:`RESIDUAL_EVIDENCE_EXTRAS` alone, so with an extra already
+    installed the MESSAGE correctly dropped the install command and the remedy
+    still carried it -- the wrong STATE of the right question. The remedy is
+    the machine-actionable half: a program acting on it was told to install
+    what it has. Milder than the first, because the prose hedged ("necessary
+    rather than sufficient"), and the same family: a remedy that does not read
+    what it is remedying.
+
+    So there are three remedies, one per state of the world, and which one a
+    caller gets is a fact about their installation:
+
+    * something is absent -- install exactly that, and nothing else;
+    * nothing is absent but a lookup failed -- find out why before installing,
+      because an install chosen on a failed lookup is a guess;
+    * everything is installed -- the missing piece is this release's adapter,
+      and no install clears it.
     """
-    return Remedy(
-        action="install_the_residual_evidence_extra",
-        message="The residual integral needs a nested sampler, which is an "
-        "optional extra: "
-        + "; ".join(
-            f"{extra} with `{install_command(extra)}`"
-            for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS
+    missing = [status for status in statuses if status.state == EXTRA_ABSENT]
+    unknown = [status for status in statuses if status.state == EXTRA_UNKNOWN]
+
+    if missing:
+        return Remedy(
+            action="install_the_residual_evidence_extra",
+            message="The residual integral needs a nested sampler, which is an "
+            "optional extra: "
+            + "; ".join(
+                f"{status.extra} with `{install_command(status.extra)}`"
+                for status in missing
+            )
+            + ". Both candidates are declared because R5's bake-off has not "
+            "chosen between them, and installing one is necessary rather than "
+            "sufficient -- this release ships no adapter for either yet, so "
+            "the refusal will name that instead.",
+            parameters=(("extras", tuple(status.extra for status in missing)),),
         )
-        + ". Both candidates are declared because R5's bake-off has not chosen "
-        "between them, and installing one is necessary rather than sufficient "
-        "-- this release ships no adapter for either yet, so the refusal will "
-        "name that instead.",
-        parameters=(
-            ("extras", tuple(extra for extra, _dist in RESIDUAL_EVIDENCE_EXTRAS)),
-        ),
+
+    if unknown:
+        return Remedy(
+            action="repair_the_distribution_metadata",
+            message="Whether the residual-evidence extra is installed could "
+            "not be determined here, so there is nothing to install ON: "
+            + "; ".join(f"{status.extra} -- {status.detail}" for status in unknown)
+            + ". Find out why the lookup failed before installing anything, "
+            "because an install chosen on the strength of a failed lookup is a "
+            "guess about which package was missing.",
+            parameters=(("extras", tuple(status.extra for status in unknown)),),
+        )
+
+    return Remedy(
+        action="wait_for_a_residual_evidence_adapter",
+        message="Every declared extra is already installed here, so there is "
+        "nothing to install: what is missing is this release's adapter for "
+        "one of them, which R5 Task 6 supplies once the bake-off has named a "
+        "winner. Running an install again would change nothing and return this "
+        "same refusal.",
+        parameters=(("extras", ()),),
     )
 
 
-def _extras_sentence() -> str:
+def _extras_sentence(statuses: tuple[ExtraStatus, ...]) -> str:
     """What the optional extras are doing here, read rather than assumed.
 
     Three states per extra and they do not collapse into two.
@@ -1684,7 +1735,7 @@ def _extras_sentence() -> str:
     not the action that fixes an absence.
     """
     parts = []
-    for status in residual_evidence_extras():
+    for status in statuses:
         if status.state == EXTRA_INSTALLED:
             parts.append(
                 f"the {status.extra} extra is installed "
