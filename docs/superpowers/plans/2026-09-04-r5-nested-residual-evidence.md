@@ -1742,6 +1742,21 @@ entirely in `evaluation/evidence.py`. `test_evidence_report.py` is in the list b
       with what the adversarial reviews found, as R4's does. Nothing is borrowed from R4's green.
 ---
 
+17. **A hand-off separates what was MEASURED from what is PREDICTED, in the message itself.**
+
+〔Added after this session sent one message carrying "3602 passed, exit 0" (measured, true) and
+"your census test is now red" (predicted from the plan, **false** — the executing wave had already
+updated it). Nothing in the message separated them, so the unmeasured half read with the authority
+of the measured half, and the recipient was about to write a fix for a test that did not need one.
+The failure was not predicting instead of measuring; it was **shipping both in one breath**.
+
+**Corollary, from the same message:** it also said "I have not touched it", which was true of this
+session and **not of the wave it was merging** — Task 7's executor had. *"I have not touched it"*
+and *"nothing in the branch I am merging has touched it"* are different claims, and after a merge
+only the second one is useful.〕
+
+---
+
 **A note on how this plan was reviewed, because it is the shape every wave must copy.** Before
 this document was handed over, two adversarial reviews ran in isolated worktrees under red line 1.
 They **blocked it**: fifteen confirmed defects, including two that changed the mathematics —
@@ -1902,6 +1917,14 @@ about 1.** Wave B's session read red line 1 before starting and it did not stop 
 the honest form of this warning: knowing the rule is not the same as having a procedure that
 executes it.
 
+**A comment recording a removal is not a guard against re-adding it.** Wave B, making a field
+nullable, re-introduced a condition **three lines under the comment explaining why it had been
+removed** — the exact conjunct its own review had scored SURVIVED as decorative. The refactor made
+the removal look like an oversight, and the comment said only that it *was* removed. The repair is
+that the comment now says both why the thing is absent **and** why re-adding it would be
+unreachable code guarding an unreachable state, because the next person making that change will
+reach for it too.
+
 **Both faults occurred in this batch, one per session.** (a) is Wave A's `_latent_shape`, above.
 (b) is the campaign repair at `895e181`: `loc.ravel()[0]` was a genuine behaviour change on a
 heterogeneous per-epoch mean, and **no shipped campaign fixture varies that mean**, so restoring
@@ -1926,10 +1949,23 @@ assert the consequence rather than the spelling; this is the same rule one layer
 the layer where a guard actually protects something. A report is an intermediate value, and a
 test on an intermediate value grades the calculation, not the decision.〕
 
-16. **A new case defaults to REFUSED, not admitted.** Prefer an allow-list to a deny-list
-wherever an unconsidered value can arrive.
+16. **An enumeration is a claim with a denominator, and this batch has never once got the
+denominator right on the first attempt.** State the denominator wherever a count is asserted, and
+treat any enumeration as provisional until something has tried to falsify it.
 
-〔Wave C shipped `_RESIDUAL_METHODS_REFUSED`, a deny-list, with a comment claiming a new method
+**The deny-list is the special case**: a deny-list is an enumeration of every bad value, so
+**a new case must default to REFUSED, not admitted** — prefer an allow-list wherever an
+unconsidered value can arrive.
+
+〔**Every wave was wrong about an enumeration, and Wave B was wrong twice.** Wave A: the
+graph-level terms, absent from 0 of 54 fixtures, so four mutants had nowhere to die. Wave B's
+first review: five constant dimensions, correct and **incomplete** — its second found eleven
+more, and **three of those were introduced by the first review's own repair fixtures**, so the
+repair for a bad enumeration widened the thing it was repairing. Wave C: one parent per
+conditioned latent, scalar, and every swept parent a root `Normal`, constant across all 60 graphs.
+
+That is the pattern the deny-list case sits inside. Wave C shipped
+`_RESIDUAL_METHODS_REFUSED`, a deny-list, with a comment claiming a new method
 would be "a KeyError-shaped omission rather than a silent admission". A frozenset membership test
 cannot raise `KeyError`: measured with `method="gcr+newthing"`, the structure refusal returned
 `None` and the graph reached the capability refusal — **silently admitted** the moment a backend
