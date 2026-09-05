@@ -198,9 +198,19 @@ def _extra_provides(requirements, distribution) -> bool:
     probe still finds no ``blackjax``, and the refusal reports the extra absent
     forever. A review built exactly that and the suite stayed green.
     """
-    return _normalise(distribution) in {
-        _normalise(_requirement_name(requirement)) for requirement in requirements
-    }
+    from packaging.requirements import Requirement
+
+    for requirement in requirements:
+        parsed = Requirement(requirement)
+        if _normalise(parsed.name) != _normalise(distribution):
+            continue
+        # A marker that is false HERE means this extra installs nothing here.
+        # `blackjax>=1.6; python_version<'3.0'` names the right distribution and
+        # installs none of it; the name check alone passed it.
+        if parsed.marker is not None and not parsed.marker.evaluate():
+            continue
+        return True
+    return False
 
 
 def _status(extra, state, version=None, distribution=None, detail="forced"):
@@ -340,6 +350,13 @@ def test_the_refusal_message_maps_each_extra_state_to_its_own_sentence(
                 f"say how to install it"
             )
             assert "could not be determined" not in clause
+            # And it must SAY so. A mutant flipping "is not installed" to "is
+            # installed" while still handing over the install command survived
+            # every assertion above: they were all about the command.
+            assert "is not installed" in clause, (
+                f"{state}: the clause for {status.extra} hands over an install "
+                f"command while telling the caller it is already installed"
+            )
         elif status.state == EXTRA_INSTALLED:
             assert status.version in clause, (
                 f"{state}: the refusal cannot name the version of a "
@@ -743,6 +760,13 @@ def test_the_extras_table_is_exactly_what_pyproject_declares():
         # `black-jax`, a different project from `blackjax`. This row was
         # written the other way round and the parametrisation caught it.
         (["Black_Jax>=1.6"], "blackjax", False),
+        # A marker that is FALSE here: the requirement names the right
+        # distribution and installs none of it. `startswith` passed this, and so
+        # did name-equality until the marker was evaluated.
+        (["blackjax>=1.6; python_version<'3.0'"], "blackjax", False),
+        (["jaxns>=2.6; sys_platform == 'nonesuch'"], "jaxns", False),
+        # A marker that is TRUE here still counts.
+        (["blackjax>=1.6; python_version>='3.11'"], "blackjax", True),
         # Shapes the parser must survive rather than mistake for a name.
         (["jaxns[plot] ; python_version<'3.13'"], "jaxns", True),
         (["blackjax == 1.6.2"], "blackjax", True),
@@ -763,6 +787,80 @@ def test_an_extra_that_installs_a_near_miss_is_not_accepted(
     differ. Red line 13's fault (b), and (b) needs a fixture.
     """
     assert _extra_provides(requirements, distribution) is provides
+
+
+def test_the_probe_maps_each_table_row_to_the_right_pair(monkeypatch):
+    """The extra and the distribution are two columns, not one.
+
+    In the shipped table they are the same string for both rows, so every
+    mutant that confused them survived: filling `extra` with the distribution,
+    filling `distribution` with the extra, and calling the probe with the pair
+    reversed. The dimension is closed by forcing a table where they DIFFER.
+    """
+    import bayesmith.dispatch.task as task_module
+
+    monkeypatch.setattr(
+        task_module,
+        "RESIDUAL_EVIDENCE_EXTRAS",
+        (("sampler", "some-sampler-dist"), ("other", "other-dist")),
+    )
+    statuses = task_module.residual_evidence_extras()
+
+    assert [(s.extra, s.distribution) for s in statuses] == [
+        ("sampler", "some-sampler-dist"),
+        ("other", "other-dist"),
+    ], "the probe swapped the extra and the distribution"
+    for status in statuses:
+        assert status.state == task_module.EXTRA_ABSENT
+        assert status.distribution in status.detail, (
+            "the detail names something other than the distribution looked up"
+        )
+
+
+def test_the_message_and_the_remedy_come_from_ONE_read_of_the_probe(monkeypatch):
+    """Not "they agree" -- "there was only one answer to agree with".
+
+    `_evidence_capability_refusal` used to call `residual_evidence_extras()`
+    twice. A test that forces a constant answer cannot tell one call from two,
+    so the mutant restoring the second call survived. This forces an answer
+    that CHANGES between calls: with two reads the message and the remedy
+    describe different worlds, and with one they cannot.
+    """
+    import bayesmith.dispatch.task as task_module
+    from bayesmith.dispatch.task import EXTRA_ABSENT, EXTRA_INSTALLED
+
+    answers = [
+        (
+            _status("blackjax", EXTRA_ABSENT),
+            _status("jaxns", EXTRA_ABSENT),
+        ),
+        (
+            _status("blackjax", EXTRA_INSTALLED, version="1.6.2"),
+            _status("jaxns", EXTRA_INSTALLED, version="2.6.9"),
+        ),
+    ]
+    calls = {"n": 0}
+
+    def alternating():
+        answer = answers[min(calls["n"], len(answers) - 1)]
+        calls["n"] += 1
+        return answer
+
+    monkeypatch.setattr(task_module, "residual_evidence_extras", alternating)
+    with jax.enable_x64(True):
+        refusal = _refuse(_graph("c_cauchy_residual_pair"))
+
+    assert calls["n"] == 1, (
+        f"the refusal read the probe {calls['n']} times; a function that reads "
+        f"the environment can answer differently each time"
+    )
+    message = refusal.grounds[0].message
+    offered = " ".join(remedy.message for remedy in refusal.remedies)
+    for extra, command in COMMANDS.items():
+        assert (command in _clause_for(message, extra)) == (command in offered), {
+            "extra": extra,
+            "the message and the remedy disagree": True,
+        }
 
 
 def test_the_probe_reports_absent_when_the_distribution_is_not_installed():
