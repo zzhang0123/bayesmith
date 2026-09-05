@@ -322,6 +322,20 @@ One or two ULP, and the two sides converge in lockstep under refinement — the 
 to every printed digit, which is what a correct elimination looks like and what a near-miss
 does not. So R5's central gate has a working oracle before any backend is chosen.
 
+**A known hazard region for `oracle_joint`, recorded before it is walked into.** The exact
+linear-Gaussian path carries **two unbounded error laws with different origins**, and neither
+dominates: measured over a 7x7 sweep against an exact `Fraction` oracle, the shipped route wins
+15 cells, a recentred one wins 21, and 13 tie — at `m = s = 2^60` the shipped route is 1.4e-14
+and the recentred one **3.7e+05**, while at `m = s = 2^-60` the shipped route is **5.3 nats**
+wrong and the recentred one 8.9e-15. That is a **dispatcher** problem in
+`boundary-validation.md`'s sense, not a replacement, and R5 does not solve it.
+
+What R5 must not do is *evaluate its oracle inside a region nobody has covered*: **the largest
+literal prior mean anywhere in `tests/` is 1.75**, so both failure regions have zero coverage
+today. **Task 2's oracle declares the `|m| / s` range it evaluates over and stays inside the
+covered region, or it abstains** — a quadrature that silently samples a cell where the route it
+grades is 5.3 nats wrong is not an oracle, it is a second opinion from the same illness.
+
 **The oracle carries its own convergence certificate, and this is a stop-rule.** A gap between
 two quadratures where one has not converged is indistinguishable from a defect in the other,
 and this plan walked into it: **the first grid run on `shared_ancestor` reported a gap of
@@ -687,15 +701,35 @@ runs rather than by argument (M2: 553 passed / 3 failed; M8: 549 passed / 7 fail
 > hand writes the propriety restatement and the tests that grade it. Task 7's review prompt must
 > name the dimensions the repair did **not** vary and require a mutant in each.
 
-**A second open item, disclosed rather than repaired.** A per-epoch prior whose declared width
-falls far below that epoch's noise degrades silently: relative error 1.7e-09 at width 1e-8,
-6.9e-06 at 1e-12, 5.7e-02 at 1e-16, and **`-inf` with no refusal at 1e-300**. The failure
-**pre-dates** the repair — a homogeneous all-`1e-300` campaign was `-inf` on both commits — and
-what the repair changed is that it is now reachable from any epoch slot rather than only the
-first. Handled under `CLAUDE.md`'s rule (b): the good side is asserted, the far end is asserted
-non-finite (`s**2` underflowing to zero at 1e-300 is IEEE, not a BLAS choice, so it holds across
-platforms), and the percentages in between are recorded without assertion. **Setting a floor to
-refuse it would change released behaviour — owner's call, and R5 does not touch it.**
+**A second open item, disclosed rather than repaired.** A per-epoch prior degrades silently:
+relative error 1.7e-09 at width 1e-8, 6.9e-06 at 1e-12, 5.7e-02 at 1e-16, and **`-inf` with no
+refusal at 1e-300**. The failure **pre-dates** the repair — a homogeneous all-`1e-300` campaign
+was `-inf` on both commits — and what the repair changed is that it is now reachable from any
+epoch slot rather than only the first.
+
+〔**Execution write-back, red line 11: the mechanism this paragraph gave was invented, and the
+correction changes what a remedy would have to be.** It said the far end is non-finite because
+`s**2` underflows at 1e-300, "IEEE, not a BLAS choice". Measured by the session that wrote it:
+**nothing on that path squares `s`** — `nuisance_prior` builds `1/s` and `m/s`, and the only
+`**2` is on the noise sigma. And an underflow story cannot be non-monotonic in `s`, while this
+is: `s = 1e-200` returns a finite `-3.840157`, `1e-307` is finite again, and only `1e-300` is
+`-inf`.
+
+The real control is the prior **MEAN**, with error law `eps · |m| / s`:
+
+| width | `m = 0.4` | `m = 0` |
+|---|---|---|
+| 1e-16 | 5.7e-02 | 8.4e-16 |
+| 1e-300 | `-inf` | **8.9e-15** |
+
+At `m = 0` every width down to `1e-307` is exact to one ulp. **So a floor on `s` — the obvious
+remedy, and the one this paragraph implied — cannot separate the good cells from the bad ones at
+all.** The observation was real and the explanation was made up; citing the two as one thing is
+how the wrong remedy got written down. Same lesson as this plan's `evidence_terms` miscitation,
+one level deeper: an explanation is not a measurement.〕
+
+**Setting a floor to refuse it would change released behaviour — owner's call, and R5 does not
+touch it, and the floor it would have set is now known to be the wrong shape.**
 
 **Still open, and R5 does not touch it:** the `gcr+snis` family, refused by §0.3(d). Nine shipped
 fixtures sit there. Its residual factor is a self-normalised importance normaliser with no oracle
