@@ -330,11 +330,43 @@ and the recentred one **3.7e+05**, while at `m = s = 2^-60` the shipped route is
 wrong and the recentred one 8.9e-15. That is a **dispatcher** problem in
 `boundary-validation.md`'s sense, not a replacement, and R5 does not solve it.
 
-What R5 must not do is *evaluate its oracle inside a region nobody has covered*: **the largest
-literal prior mean anywhere in `tests/` is 1.75**, so both failure regions have zero coverage
-today. **Task 2's oracle declares the `|m| / s` range it evaluates over and stays inside the
-covered region, or it abstains** — a quadrature that silently samples a cell where the route it
-grades is 5.3 nats wrong is not an oracle, it is a second opinion from the same illness.
+**`oracle_collapsed` RECORDS the exact block's `|m| / s` beside its value, the way it already
+records the excluded prior mass. It gates nothing, and it does not abstain.** A number never
+travels without its domain; that is the whole of the remedy.
+
+〔**Execution write-back, red line 11 (Wave B). The remedy this paragraph first gave was wrong
+three ways, and its root error is the one the same commit was written to correct.**
+
+It said: *"Task 2's oracle declares the `|m|/s` range it evaluates over and stays inside the
+covered region, or it abstains."*
+
+1. **`|m|/s` cannot separate the cells this section names.** Both corners quoted above are
+   `m = s` — so `|m|/s = 1.0` in each, and one is 1.4e-14 while the other is 5.3 nats. A ceiling
+   on that ratio admits both or refuses both. The prescription could not refuse the very cells it
+   was written about.
+2. **It would suppress a detection.** `oracle_joint` does not share the exact route's error law,
+   it *detects* it: `log_joint` evaluates each node's own `log_prob` and never reaches
+   `nuisance_prior`, so there is no `m/s` entry to cancel in a QR. Measured on `w ~ N(m, s)`,
+   `mu = w X`, `d ~ N(mu, 0.5)`, n=4, against the closed form — at `|m|/s = 4e15` the shipped
+   route is **0.28 nats** out and `oracle_joint` matches to the last bit. Abstaining there would
+   have hidden exactly that.
+3. **A ceiling is a third number**, and red line 8 pre-authorises only D111 and D112. Writing it
+   as prescribed would itself have had to stop the work.
+
+**The root error is the one `b44e073` was correcting, made inside the correction.** That commit
+replaced an invented `s**2` mechanism with a measured law, `eps · |m| / s` — measured with `m`
+fixed and `s` swept. This section then used that law's *parameter* as a *region coordinate*, in a
+region where a different law operates. An error law's parameter is not a coordinate for the
+region it was measured in, and the slice it was measured on is part of the measurement.
+
+Measured over every Wave B fixture: the exact block's prior mean is exactly **0** in all four
+class-(b) cases, and 0.5625 for the mixture fixture's `b`. So the hazard region is entered by
+nothing, and the tier-1 comparison grades the route at the ratios actually used.
+
+One further limit, from the same session: a closed-form Cholesky reference **raises
+`LinAlgError: Matrix is not positive definite` at `s = 2^60`**, because float64 `slogdet` reports
+`sign = 0` there. So that corner has no usable float64 reference at all and needs the exact
+`Fraction` oracle, not a Cholesky one.〕
 
 **The oracle carries its own convergence certificate, and this is a stop-rule.** A gap between
 two quadratures where one has not converged is indistinguishable from a defect in the other,
