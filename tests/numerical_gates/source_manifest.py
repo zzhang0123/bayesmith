@@ -10198,6 +10198,86 @@ EXPECTED_SOURCE_MANIFEST = (
         "normalised",
     ),
     ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._environment_at::decision_predicate::add4c5c9b1122fd8::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "isinstance(node, Const)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._environment_at::decision_predicate::4711c425c2368b48::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "isinstance(node, Deterministic)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._environment_at::decision_predicate::a707fb320611f698::0",
+        CandidateClassification.STRUCTURAL_CONTROL,
+        "isinstance(node, Probabilistic)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._environment_at::compare::2ff8184e0776cd44::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "node.name in pinned",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._environment_at::decision_predicate::2ff8184e0776cd44::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "node.name in pinned",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>._environment_at::decision_predicate::cd3f1b96f854cba8::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "node.is_latent",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.conditional_prior_verdicts::decision_predicate::94f22d3626e5a80c::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "not tuple(node.parents)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.conditional_prior_range_report::compare::1c63d78f9c1a2a6d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.conditional_prior_range_report::decision_predicate::1c63d78f9c1a2a6d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.conditional_prior_range_report::compare::c9532ea64e5e8a7c::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "parent in graph.latents",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.conditional_prior_range_report::compare::6358dce5f44d6694::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "parent not in depended_on",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.conditional_prior_range_report::decision_predicate::6358dce5f44d6694::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "parent not in depended_on",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.conditional_prior_range_report::compare::7a4c1a7e1af1d919::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "probes is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.conditional_prior_range_report::decision_predicate::7a4c1a7e1af1d919::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "probes is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.conditional_prior_range_report::compare::9e00080f79db4b5a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "verdict is not PriorVerdict.PROPER",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.conditional_prior_range_report::decision_predicate::9e00080f79db4b5a::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "verdict is not PriorVerdict.PROPER",
+    ),
+    ManifestEntry(
         "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::compare::6859f4d935e5bd32::0",
         CandidateClassification.ORDINARY_VALIDATION,
         "graph.joint_prior is not None",
@@ -10218,9 +10298,49 @@ EXPECTED_SOURCE_MANIFEST = (
         "name in covered",
     ),
     ManifestEntry(
-        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::decision_predicate::f1387402d92cf6da::0",
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::decision_predicate::826e961e7f778e37::0",
         CandidateClassification.ORDINARY_VALIDATION,
-        "tuple(node.parents)",
+        "graph.node(name)",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::decision_predicate::81074e25c6e4c20b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "bool(tuple(node.parents))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::predicate_call_atom::81074e25c6e4c20b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "bool(tuple(node.parents))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::decision_predicate::93428f3ecdc484b6::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "conditioned and centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::boolean_atom::3ab9c41f42ba66bc::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "conditioned",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::compare::1c63d78f9c1a2a6d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::boolean_atom::1c63d78f9c1a2a6d::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "centre is None",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::decision_predicate::3ab9c41f42ba66bc::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "conditioned",
+    ),
+    ManifestEntry(
+        "src/bayesmith/dispatch/evidence.py::<module>.audit_graph_priors::decision_predicate::3ab9c41f42ba66bc::1",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "conditioned",
     ),
     ManifestEntry(
         "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::cd39392a08c7074b::0",

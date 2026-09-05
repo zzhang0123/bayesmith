@@ -101,12 +101,16 @@ __all__ = [
     "compile_evidence_problem",
     "increments_converge",
     "mass_is_normalised",
+    "ConditionalPriorRange",
     "ExactAssembly",
     "PriorAudit",
     "PriorVerdict",
     "assemble_exact",
     "audit_graph_priors",
     "audit_prior",
+    "conditional_prior_range_report",
+    "conditional_prior_verdicts",
+    "residual_backend",
 ]
 
 #: The closed set of names an exact assembly may report.
@@ -906,6 +910,180 @@ def audit_prior(distribution: Any, latent: str = "") -> PriorAudit:
     )
 
 
+def residual_backend() -> Any | None:
+    """The adapter that runs a residual integral, or ``None`` if there is none.
+
+    R5 widens the admitted structure class before it chooses a backend, and the
+    two are separate steps on purpose: the bake-off's legal answers include
+    "no candidate passed". So the widened classes must not be admitted with
+    nothing behind them, and this is where that is decided -- one function,
+    returning ``None`` today, so that a graph which now passes every premise
+    about the MODEL is refused for the reason that is actually true of it,
+    which is a missing capability rather than a defect in the model.
+
+    A function rather than a module constant because a constant read at import
+    time cannot answer "is the optional extra installed" without importing it,
+    and importing an optional dependency to find out whether it is optional is
+    the failure the extra exists to avoid.
+    """
+    return None
+
+
+def _prior_centre(graph: Graph) -> tuple[dict[str, Any] | None, str]:
+    """Every node at its prior centre, or ``None`` and the reason why not.
+
+    Split out so that a graph which cannot be centred keeps R4's answer with
+    the failure NAMED, rather than the audit raising from inside a loop over
+    latents that have nothing to do with it.
+    """
+    try:
+        return prior_environment(graph), ""
+    except Exception as error:  # noqa: BLE001 -- any failure is the same answer
+        return None, f"{type(error).__name__}: {error}"
+
+
+def _environment_at(graph: Graph, pinned: Mapping[str, Any]) -> dict[str, Any]:
+    """The prior centre with ``pinned`` latents held at the given values.
+
+    Repeats :func:`~bayesmith.dispatch.classify.prior_environment`'s scan for
+    the reason that function's own docstring gives: the substituted values have
+    to be derived DURING the scan, because a latent whose prior width is
+    another latent's value cannot be centred before its ancestor has been. The
+    only difference here is that a pinned latent takes the caller's value
+    instead of its centre, and everything downstream of it is then evaluated at
+    that value rather than at the centre.
+    """
+    from bayesmith.dispatch.classify import _latent_centre
+    from bayesmith.graph.evaluate import apply_deterministic
+    from bayesmith.graph.nodes import Const, Deterministic
+
+    env: dict[str, Any] = {}
+    for node in graph.nodes:
+        if isinstance(node, Const):
+            env[node.name] = node.value
+        elif isinstance(node, Deterministic):
+            env[node.name] = apply_deterministic(graph, node, env)
+        elif isinstance(node, Probabilistic):
+            if node.name in pinned:
+                env[node.name] = jnp.asarray(pinned[node.name])
+            elif node.is_latent:
+                env[node.name] = _latent_centre(graph, node, env)
+            else:
+                env[node.name] = node.observed
+    return env
+
+
+def conditional_prior_verdicts(
+    graph: Graph, at: Mapping[str, Any]
+) -> dict[str, PriorVerdict]:
+    """One verdict per latent WITH parents, with ``at``'s latents pinned.
+
+    The verdict for a latent whose conditional cannot be built or cannot be
+    integrated is ``UNVERIFIABLE``, which is the same answer R4's rule gives to
+    a density it cannot resolve: not proper, and not a claim that it diverges.
+    """
+    env = _environment_at(graph, at)
+    verdicts: dict[str, PriorVerdict] = {}
+    for name in graph.latents:
+        node = graph.node(name)
+        if not tuple(node.parents):
+            continue
+        try:
+            verdicts[name] = audit_prior(
+                apply_probabilistic(graph, node, env), latent=name
+            ).verdict
+        except Exception:  # noqa: BLE001 -- any failure is the same answer
+            verdicts[name] = PriorVerdict.UNVERIFIABLE
+    return verdicts
+
+
+@register_artifact_type
+@dataclasses.dataclass(frozen=True, slots=True)
+class ConditionalPriorRange:
+    """Where each conditional prior was evaluated, and where it was not proper.
+
+    ``at_points`` is the whole point of the object. A verdict from a finite
+    sweep is a statement about the points it visited and nothing else, so the
+    points travel with it -- the same discipline the collapsed oracle follows
+    when it records the prior mass its span excluded. A caller reading
+    ``degenerate == ()`` off this object without reading ``at_points`` is
+    reading "nothing was found" as "there is nothing", which is the confusion
+    this repository is largely built to prevent.
+    """
+
+    at_points: dict[str, tuple[float, ...]]
+    degenerate: tuple[tuple[str, str, float, str], ...]
+
+
+def conditional_prior_range_report(graph: Graph) -> ConditionalPriorRange:
+    """Is each conditional prior proper across a declared range of its parents?
+
+    ``p(x | tau)`` proper at the prior centre does not make it proper at every
+    ``tau`` the outer integral visits, and the identity the residual route
+    rests on --
+    ``Z = INT p(tau) [ INT p(x|tau) p(d|x,tau) dx ] dtau`` -- needs the second.
+
+    **The range is over the PARENT, and the verdict is read off the DENSITY.**
+    There is no coordinate on ``tau`` that separates a proper conditional from
+    a degenerate one: measured at ``tau = 0``, ``shared_ancestor``'s ``x`` is
+    degenerate while ``three_latent_chain``'s and ``mixed_radiometer``'s are
+    ordinary, because each declares a different function of ``tau`` as its
+    width. Any threshold on ``tau`` would have to admit all three or refuse all
+    three. So this function pins the parent and asks the one-dimensional rule
+    what the realised conditional is.
+
+    **The declared range is the package's existing probe grid** --
+    :data:`~bayesmith.dispatch.plan.KAPPA_PROBE_SIGMAS`, plus and minus one and
+    three prior widths about each parent's centre -- rather than a second grid
+    invented here. Only latents that some other latent's prior transitively
+    depends on are swept; sweeping the rest would put points in ``at_points``
+    that no conditional reads.
+
+    **What it does not do, recorded rather than gated.** A degeneracy strictly
+    between the grid's points, or outside its ends, is not found. Closing that
+    would need a claim about the MEASURE of the degenerate set -- ``Z`` is
+    finite when the set is null and undefined when it is not -- and that is a
+    threshold, which R5 pre-authorises none of for this. The honest form is to
+    report the points and let the caller see the shape of the sample.
+    """
+    from bayesmith.dispatch.plan import _probe_values
+    from bayesmith.exact.block import _ancestors
+
+    centre, _error = _prior_centre(graph)
+    if centre is None:
+        return ConditionalPriorRange(at_points={}, degenerate=())
+
+    conditioned = tuple(
+        name for name in graph.latents if tuple(graph.node(name).parents)
+    )
+    depended_on = {
+        parent
+        for child in conditioned
+        for parent in _ancestors(graph, child)
+        if parent in graph.latents
+    }
+
+    at_points: dict[str, tuple[float, ...]] = {}
+    degenerate: list[tuple[str, str, float, str]] = []
+    for parent in graph.latents:
+        if parent not in depended_on:
+            continue
+        probes = _probe_values(graph, parent, centre)
+        if probes is None:
+            continue
+        values: list[float] = []
+        for probe in probes:
+            value = float(np.asarray(probe).ravel()[0])
+            values.append(value)
+            for child, verdict in conditional_prior_verdicts(
+                graph, {parent: probe}
+            ).items():
+                if verdict is not PriorVerdict.PROPER:
+                    degenerate.append((child, parent, value, verdict.value))
+        at_points[parent] = tuple(values)
+    return ConditionalPriorRange(at_points=at_points, degenerate=tuple(degenerate))
+
+
 def audit_graph_priors(graph: Graph) -> tuple[PriorAudit, ...]:
     """One :class:`PriorAudit` per latent, in the graph's own order.
 
@@ -916,24 +1094,46 @@ def audit_graph_priors(graph: Graph) -> tuple[PriorAudit, ...]:
     declaration. Auditing it would report this package's mandated
     configuration as a user error and hand back a remedy that undoes it (§0.6).
 
-    **A latent with parents is UNVERIFIABLE, and that arm exists because six of
-    this package's own shipped fixtures crashed without it.** The first version
-    called ``apply_probabilistic(graph, node, {})`` on every latent; that
-    function reads ``env[parent]`` for each parent, so a hierarchical prior --
-    ``s ~ HalfNormal(1); w ~ Normal(0, s)`` -- raised ``KeyError``.
-    ``diamond_ancestor``, ``indirect_ancestor``, ``mixed_radiometer``,
-    ``orphaned_child_latent``, ``shared_ancestor`` and ``three_latent_chain``
-    all did. The plan's step 4.3 required exactly this measurement before
-    widening and it was not run; an adversarial review ran it.
+    **A latent with parents is audited through its CONDITIONAL, which is what
+    R5 changed and why.** R4 answered ``UNVERIFIABLE`` here, on the ground that
+    a hierarchical prior is not a fixed density -- ``p(w)`` is defined only once
+    ``s`` is integrated out. That is true of the MARGINAL, and it is the wrong
+    question to ask of ``w``: nothing ever integrates against ``p(w)``. The
+    joint prior factorises along the graph as ``prod p(theta_i | parents_i)``,
+    every factor of that product is a conditional density, and whether each one
+    is proper is both answerable and the thing that decides whether ``Z``
+    exists. So the conditional is built at the prior centre -- the same anchor
+    :func:`~bayesmith.dispatch.classify.prior_environment` gives the classifier,
+    rather than a second spelling of "where a latent sits" -- and handed to the
+    same one-dimensional rule a root prior gets.
 
-    The refusal is not a limitation of the arithmetic. A hierarchical prior is
-    not a fixed density at all -- ``p(w)`` is only defined after ``s`` is
-    integrated out -- so there is no single ``p(theta)`` for this audit to
-    weigh, and answering would mean answering a different question.
+    **A latent with NO parents goes through that rule exactly as it did**, and
+    measured over every shipped graph the only verdicts this restatement moves
+    are the six latents that have parents. The whole-graph-exact class R4 closed
+    on has none, so its census is untouched -- which is asserted rather than
+    argued, in ``tests/dispatch/test_evidence_audit.py``.
+
+    〔R5 Task 7 write-back. The R5 plan's section 0.15 restates propriety as a
+    property of *the residual block's* joint prior. That cannot be evaluated
+    here: this function is a PRE-compile refusal and no block partition exists
+    yet, and moving the audit after ``compile_plan`` would turn
+    ``lying_block_member``'s ``evidence_prior_normalised`` refusal into a raised
+    ``StructureError``, measured. It is also weaker than the graph's own
+    factorisation: three of the four fixtures the plan names as its target carry
+    the offending latent in the EXACT block, so a residual-only audit would
+    leave them unexamined rather than admitted for a reason. The plan's section
+    0.20 then rules that such a latent "still passes R4's one-dimensional rule";
+    measured, it did not and could not, because that rule short-circuits on
+    ``node.parents`` and never reaches the density its reasoning describes.〕
+
+    The environment is built once, not per latent, and a graph whose centre
+    cannot be built keeps R4's answer with the failure named -- an audit that
+    cannot run is not a verdict that the prior is improper.
     """
     covered: frozenset[str] = frozenset(
         getattr(graph.joint_prior, "over", ()) if graph.joint_prior is not None else ()
     )
+    centre, centre_error = _prior_centre(graph)
     audits: list[PriorAudit] = []
     for name in graph.latents:
         if name in covered:
@@ -953,26 +1153,32 @@ def audit_graph_priors(graph: Graph) -> tuple[PriorAudit, ...]:
             )
             continue
         node = graph.node(name)
-        if tuple(node.parents):
+        conditioned = bool(tuple(node.parents))
+        if conditioned and centre is None:
             audits.append(
                 _undecidable(
                     name,
                     f"this latent's prior is parameterised by "
-                    f"{list(node.parents)}, so it is not a fixed density: "
-                    f"p({name}) is defined only once those are integrated out. "
-                    f"There is no single p(theta) here for a mass check to "
-                    f"weigh",
+                    f"{list(node.parents)}, and the conditional could not be "
+                    f"built because this graph has no evaluable prior centre "
+                    f"({centre_error}). p({name} | parents) is the density an "
+                    f"evidence integrates against, and it was not reached",
                 )
             )
             continue
         try:
-            declared = apply_probabilistic(graph, node, {})
+            declared = apply_probabilistic(graph, node, centre if conditioned else {})
         except Exception as error:  # noqa: BLE001 -- any failure is the same answer
             audits.append(
                 _undecidable(
                     name,
-                    f"this latent's declared prior could not be built without "
-                    f"an environment ({type(error).__name__}: {error}), so its "
+                    "this latent's declared prior could not be built"
+                    + (
+                        " at its parents' prior centre"
+                        if conditioned
+                        else " without an environment"
+                    )
+                    + f" ({type(error).__name__}: {error}), so its "
                     f"mass was not established",
                 )
             )

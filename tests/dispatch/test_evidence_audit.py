@@ -32,7 +32,10 @@ from bayesmith.dispatch.evidence import (
     PriorVerdict,
     audit_graph_priors,
     audit_prior,
+    conditional_prior_range_report,
+    conditional_prior_verdicts,
 )
+from bayesmith.graph.evaluate import apply_probabilistic
 from bayesmith.graph.graph import Graph
 
 
@@ -491,14 +494,21 @@ def test_the_audit_answers_for_every_fixture_this_package_ships():
         assert verdicts, "no latent was audited"
 
 
-def test_a_hierarchical_prior_is_unverifiable_rather_than_a_keyerror():
-    """The six crashes, reduced to the shape they all share.
+def test_a_hierarchical_prior_is_audited_through_its_conditional():
+    """The six crashes, reduced to the shape they all share -- and R5's answer.
 
-    ``s ~ HalfNormal(1); w ~ Normal(0, s)``: ``p(w)`` is not a fixed density at
-    all -- it is defined only once ``s`` is integrated out -- so there is no
-    single ``p(theta)`` for a mass check to weigh. The refusal is not a
-    limitation of the arithmetic; answering would mean answering a different
-    question.
+    ``s ~ HalfNormal(1); w ~ Normal(0, s)``. R4 answered ``UNVERIFIABLE`` for
+    ``w`` because ``p(w)`` is not a fixed density: it is defined only once ``s``
+    is integrated out. That remains true of the MARGINAL, and R5 stopped asking
+    it, because nothing integrates against ``p(w)``. The joint prior factorises
+    as ``p(s) p(w | s)`` and both factors are densities the one-dimensional rule
+    can weigh, so both are weighed.
+
+    **What must not come back is the crash.** The reason that arm existed is
+    that ``apply_probabilistic(graph, node, {})`` reads ``env[parent]`` and
+    raised ``KeyError`` on six shipped fixtures. The conditional is built at the
+    prior centre instead, which supplies the parent -- and a graph with no
+    evaluable centre still gets a verdict rather than an exception.
     """
     with jax.enable_x64(True):
         basis = jnp.linspace(-1.0, 1.0, 6) + 0.3
@@ -511,11 +521,17 @@ def test_a_hierarchical_prior_is_unverifiable_rather_than_a_keyerror():
             mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
             observe("d", lambda m: dist.Normal(m, 0.5).to_event(1), mu, obs=data)
 
-        audits = {a.latent: a for a in audit_graph_priors(trace(model))}
+        graph = trace(model)
+        audits = {a.latent: a for a in audit_graph_priors(graph)}
         assert audits["s"].verdict is PriorVerdict.PROPER
-        assert audits["w"].verdict is PriorVerdict.UNVERIFIABLE
-        assert "parameterised by" in audits["w"].reason
-        assert "'s'" in audits["w"].reason or "s" in audits["w"].reason
+        assert audits["w"].verdict is PriorVerdict.PROPER, audits["w"].reason
+        # And the conditional is REALLY what was weighed: at s pinned to a
+        # degenerate width the same latent stops being proper. A rule that
+        # answered PROPER for everything with a parent would not move here.
+        assert (
+            conditional_prior_verdicts(graph, {"s": jnp.asarray(0.0)})["w"]
+            is not PriorVerdict.PROPER
+        )
 
 
 class SlightlyUnnormalised(dist.Distribution):
@@ -596,3 +612,382 @@ def test_the_base_resolution_does_not_decide_a_verdict():
         "a coarser rule changed a verdict, which means the convergence check "
         "is not doing the work the design says it does"
     )
+
+
+# ------------------------------------------------------------------ R5 Task 7
+#
+# The propriety restatement, and the range check the collapse guard does not
+# perform. Every claim below was measured before it was written, and where a
+# measurement contradicted the R5 plan the contradiction is named here and
+# written back onto the plan's own line, per that plan's red line 11.
+
+
+def _shipped_graphs():
+    """Every shipped GRAPH, with the counting convention stated.
+
+    **Graphs, not fixture functions.** ``flagged_line`` returns three objects,
+    two of which are graphs, so it contributes 2. Counting fixture functions
+    gives a different number, and counting them while letting a tuple return
+    fall into an ``except: continue`` gives a third; all three describe the
+    same set, and the R5 plan records that two independent censuses of it
+    differed because neither said which it meant.
+    """
+    import inspect
+
+    from bayesmith.graph.reduction import as_graph
+    from tests.exact import models
+
+    parameterised = {
+        "cancelling_sum": {"cancel": 1e2},
+        "many_observations": {"count": 3},
+        "roundoff_stress": {"big": 1e6, "sigma": 1e-3},
+        "sigma_functional_block": {"weights": (1.0, 0.0, -1.0)},
+        "wide_plate": {"size": 4},
+    }
+    for name, fn in sorted(vars(models).items()):
+        if not inspect.isfunction(fn) or name.startswith("_"):
+            continue
+        if fn.__module__ != models.__name__:
+            continue
+        built = fn(**parameterised.get(name, {}))
+        for index, candidate in enumerate(
+            built if isinstance(built, tuple) else (built,)
+        ):
+            try:
+                graph = as_graph(candidate)
+                graph.nodes  # noqa: B018 - reading it is the check
+            except (AttributeError, TypeError):
+                continue
+            yield (
+                name if not isinstance(built, tuple) else f"{name}[{index}]"
+            ), graph
+
+
+def _fixture(name, **kw):
+    """A shipped fixture by name, from either module that ships one."""
+    from bayesmith.graph.reduction import as_graph
+    from tests.exact import models, residual_models
+
+    module = models if hasattr(models, name) else residual_models
+    return as_graph(getattr(module, name)(**kw))
+
+
+def _verdicts(graph):
+    return {audit.latent: audit.verdict for audit in audit_graph_priors(graph)}
+
+
+#: The four HIERARCHICAL exact-plus-residual fixtures -- the ones whose
+#: admission the propriety restatement is responsible for. The other three of
+#: the seven shipped exact-plus-residual graphs each have their own reason not
+#: to be here: ``mixed_radiometer`` is ``gcr+mh`` and is refused by the method
+#: row, ``improper_outside_prior`` stays refused on ``z``, and
+#: ``overflowing_outside_latent`` was never gated by propriety at all.
+HIERARCHICAL_TARGETS = (
+    "diamond_ancestor",
+    "indirect_ancestor",
+    "shared_ancestor",
+    "three_latent_chain",
+)
+
+#: Class (b) has TWO shapes and only one of them is hierarchical, which is a
+#: dimension the family held constant until Wave B shipped a second.
+#: ``overflowing_outside_latent`` and ``mixture_prior_residual`` carry only
+#: ROOT latents, so their priors go through R4's one-dimensional rule
+#: unchanged and the conditional arm never runs for them. Both must still be
+#: admitted, and for a different reason from the four above -- which is why
+#: they are named separately rather than folded into one list.
+ROOT_ONLY_CLASS_B = ("overflowing_outside_latent", "mixture_prior_residual")
+
+
+class TestTheJointPriorIsAuditedFactorisedAlongTheGraph:
+    """A latent with parents has a CONDITIONAL prior, and that is the density
+    anything ever integrates against.
+
+    R4 answered UNVERIFIABLE for every latent with parents, on the ground that
+    ``p(w)`` is not a fixed density until its parents are integrated out. That
+    is true of the MARGINAL and it is the wrong question: the joint prior
+    factorises as ``prod p(theta_i | parents(theta_i))``, and every factor in
+    that product is a conditional density that either is or is not proper.
+
+    **The R5 plan said this differently and the difference is measurable.**
+    Its section 0.15 restates propriety as a property of *the residual block's*
+    joint prior. That cannot be evaluated where the audit runs -- the prior
+    audit is a PRE-compile refusal and there is no block partition yet -- and
+    it is also weaker than it needs to be: measured, three of the four target
+    fixtures carry the offending latent in the EXACT block, not the residual
+    one, so a residual-only audit would leave them unexamined rather than
+    admitted for a reason. Auditing the graph's own factorisation needs no
+    partition, covers both blocks, and admits the same four.
+    """
+
+    @pytest.mark.parametrize("name", HIERARCHICAL_TARGETS)
+    def test_a_hierarchical_fixture_is_proper_on_every_latent(self, name):
+        with jax.enable_x64(True):
+            verdicts = _verdicts(_fixture(name))
+        assert set(verdicts.values()) == {PriorVerdict.PROPER}, (
+            f"{name} is R5's headline class and every one of its latents "
+            f"declares a proper conditional density; got {verdicts}"
+        )
+
+    @pytest.mark.parametrize("name", ROOT_ONLY_CLASS_B)
+    def test_a_root_only_class_b_fixture_goes_through_the_unchanged_rule(self, name):
+        """Class (b) is not all hierarchical, and asserting only the four
+        hierarchical fixtures would leave that dimension untested.
+
+        ``mixture_prior_residual`` is the case worth naming: its ``w`` carries
+        a two-component mixture prior and its residual posterior is bimodal,
+        so it is the first multimodal graph R5's headline class admits -- and
+        the restatement has nothing to do with its admission. Both of its
+        latents are roots, so R4's one-dimensional rule answers, unchanged,
+        and what was blocking it is the structure premise alone.
+        """
+        with jax.enable_x64(True):
+            graph = _fixture(name)
+            assert all(not tuple(graph.node(n).parents) for n in graph.latents), (
+                f"{name} is in this list because it has no hierarchical prior; "
+                "if it grows one the list is what is wrong"
+            )
+            verdicts = _verdicts(graph)
+        assert set(verdicts.values()) == {PriorVerdict.PROPER}
+
+    def test_the_conditional_is_evaluated_and_not_assumed(self):
+        """The verdict has to come from integrating the realised conditional.
+
+        A rule that answered PROPER for every latent with parents would pass
+        the four fixtures above and be worthless. ``improper_outside_prior``
+        separates them: its ``z`` is a root with a genuinely improper prior and
+        must still be refused.
+        """
+        with jax.enable_x64(True):
+            verdicts = _verdicts(_fixture("improper_outside_prior"))
+        assert verdicts["z"] is PriorVerdict.IMPROPER
+        assert verdicts["w"] is PriorVerdict.PROPER
+
+    def test_a_conditional_that_is_improper_at_the_centre_is_refused(self):
+        """Built as a bypass rather than found: a hierarchical prior whose
+        conditional is improper AT the point the audit evaluates it.
+
+        If the new arm answered PROPER for anything with parents, this graph
+        would pass. It is the same shape as ``shared_ancestor`` with the width
+        replaced by one that is infinite at the prior centre.
+        """
+        with jax.enable_x64(True):
+            def model():
+                tau = sample("tau", lambda: dist.Normal(2.0, 0.5))
+                x = sample("x", lambda t: dist.Normal(0.0, t * jnp.inf), tau)
+                b = const("basis", jnp.linspace(-1.0, 1.0, 5))
+                mu = det("mu", lambda b_, x_: b_ * x_, b, x, linear_in=("x",))
+                observe("d", lambda m: dist.Normal(m, 0.5), mu, obs=jnp.zeros(5))
+
+            verdicts = _verdicts(trace(model))
+        assert verdicts["tau"] is PriorVerdict.PROPER
+        assert verdicts["x"] is not PriorVerdict.PROPER, (
+            "an infinite conditional width is not a proper density, and a rule "
+            "that answers PROPER for any latent with parents would say it is"
+        )
+
+    def test_the_shipped_census_moves_by_exactly_the_hierarchical_fixtures(self):
+        """The whole-graph-exact class must be untouched by this widening.
+
+        R4 closed on class (a) being admitted 15/15 -- 19/19 at the denominator
+        Task 1 corrected it to -- and the prior audit refuses nothing R4
+        admits. Measured over every shipped graph, the only latents whose
+        verdict this restatement moves are the ones with parents, and no
+        whole-graph-exact fixture has one.
+        """
+        moved = {}
+        with jax.enable_x64(True):
+            for label, graph in _shipped_graphs():
+                for audit in audit_graph_priors(graph):
+                    node = graph.node(audit.latent)
+                    if not tuple(node.parents):
+                        continue
+                    moved.setdefault(label, set()).add(audit.latent)
+                    assert audit.verdict is not PriorVerdict.UNVERIFIABLE, (
+                        f"{label}.{audit.latent} has parents and is still "
+                        f"UNVERIFIABLE, so the restatement did not reach it"
+                    )
+        assert set(moved) == {
+            "diamond_ancestor",
+            "indirect_ancestor",
+            "mixed_radiometer",
+            "orphaned_child_latent",
+            "shared_ancestor",
+            "three_latent_chain",
+        }, (
+            "the set of shipped graphs carrying a latent with parents is the "
+            f"set this widening can move, and it is not what was measured: "
+            f"{sorted(moved)}"
+        )
+
+    def test_a_latent_with_no_parents_still_goes_through_R4s_rule_unchanged(self):
+        """Section 0.20's protection, asserted where it actually lives.
+
+        **The plan's own form of this assertion is false and was measured to
+        be.** Section 0.20 rules that *every exact-block latent with no
+        residual-block parent still passes R4's one-dimensional rule*, on the
+        ground that ``_is_gaussian`` makes such a latent's prior a diagonal
+        Gaussian. Measured: ``diamond_ancestor`` and ``indirect_ancestor`` each
+        carry an exact-block ``x`` whose only parent is a DETERMINISTIC node,
+        so it has no residual-block parent and R4's rule answered UNVERIFIABLE
+        for it -- because the rule short-circuits on ``node.parents`` and never
+        reaches the density at all. The reasoning described a density family;
+        the rule never looked at one.
+
+        What is true, and is what protects the restatement: a latent with NO
+        parents is audited by R4's rule exactly as before. Everything with
+        parents is covered by its conditional instead, which is a strictly
+        stronger statement than the one section 0.20 asked for.
+        """
+        with jax.enable_x64(True):
+            for name in ("improper_outside_prior", "overflowing_outside_latent"):
+                graph = _fixture(name)
+                for audit in audit_graph_priors(graph):
+                    if tuple(graph.node(audit.latent).parents):
+                        continue
+                    direct = audit_prior(
+                        apply_probabilistic(graph, graph.node(audit.latent), {}),
+                        latent=audit.latent,
+                    )
+                    assert audit.verdict is direct.verdict
+                    assert audit.normalised == direct.normalised
+
+
+class TestConditionalProprietyOverADeclaredRange:
+    """``p(x | tau)`` proper at the centre does not make it proper everywhere,
+    and the guard that was supposed to catch that does not fire.
+
+    The identity the restatement rests on is
+    ``Z = INT p(tau) [ INT p(x|tau) p(d|x,tau) dx ] dtau``. The inner integral
+    is ``marginal_log_density``, and it needs ``p(x|tau)`` proper AT EVERY tau
+    the outer integral visits, not on average.
+    """
+
+    def test_tau_alone_separates_nothing_which_is_why_the_check_reads_the_density(
+        self,
+    ):
+        """The finding that decided the FORM of this check.
+
+        A range check needs a coordinate, and the obvious candidate -- tau
+        itself -- separates nothing. Measured at ``tau = 0``: ``shared_ancestor``
+        is degenerate there and ``three_latent_chain`` and ``mixed_radiometer``
+        are perfectly proper, because each declares a different function of tau
+        as its conditional width. The quantity that separates them is the
+        conditional's own realised scale, which is a DIFFERENT function of tau
+        in every fixture -- so the check evaluates the conditional density
+        rather than gating on any coordinate of tau.
+        """
+        with jax.enable_x64(True):
+            at_zero = {
+                name: conditional_prior_verdicts(
+                    _fixture(name), {"tau": jnp.asarray(0.0)}
+                )
+                for name in ("shared_ancestor", "three_latent_chain")
+            }
+        assert at_zero["shared_ancestor"]["x"] is not PriorVerdict.PROPER
+        assert at_zero["three_latent_chain"]["x"] is PriorVerdict.PROPER, (
+            "tau = 0 is degenerate for one fixture and ordinary for the other; "
+            "any threshold on tau would have to admit both or refuse both"
+        )
+
+    @pytest.mark.parametrize("name", HIERARCHICAL_TARGETS)
+    def test_the_targets_are_proper_across_the_declared_probe_range(self, name):
+        with jax.enable_x64(True):
+            graph = _fixture(name)
+            report = conditional_prior_range_report(graph)
+        assert report.degenerate == (), (
+            f"{name} is admitted by 7.2 and must stay proper across the range "
+            f"the check declares; got {report.degenerate}"
+        )
+        assert report.at_points, "a verdict must carry the points it was taken at"
+
+    def test_a_conditional_that_diverges_inside_the_range_is_reported(self):
+        """The bypass, built and run.
+
+        ``x``'s width is 1.0 above the cut and infinite below it, and the cut
+        sits inside the range the check declares. Nothing about the graph at
+        its prior centre says so: the centre is ``tau = 2.0``, where the model
+        is an ordinary straight line.
+        """
+        with jax.enable_x64(True):
+            graph = trace(_corner_divergent(cut=1.0))
+            assert _verdicts(graph) == {
+                "tau": PriorVerdict.PROPER,
+                "x": PriorVerdict.PROPER,
+            }, "at the centre this graph is proper, which is the point of it"
+            report = conditional_prior_range_report(graph)
+        assert report.degenerate, (
+            "the conditional is infinite over a positive-measure corner of the "
+            "declared range and the report says it is proper"
+        )
+        assert report.degenerate[0][0] == "x"
+
+    def test_the_report_carries_the_points_it_did_not_reach(self):
+        """A sample is not a proof, and the honest form is to say so.
+
+        The same bypass with the cut moved below the range's own lower end is
+        NOT reported, because no point the check evaluated is degenerate. That
+        is a limit of the check and it is recorded rather than gated: closing
+        it needs a claim about the MEASURE of the degenerate set, which needs a
+        threshold, and R5 pre-authorises none for this.
+        """
+        with jax.enable_x64(True):
+            graph = trace(_corner_divergent(cut=0.4))
+            report = conditional_prior_range_report(graph)
+        assert report.degenerate == ()
+        low = min(float(v) for values in report.at_points.values() for v in values)
+        assert low > 0.4, (
+            "this test's whole subject is a corner BELOW the range; if the "
+            "range reached it the test would be asserting nothing"
+        )
+
+    def test_today_the_collapse_guard_does_not_fire_on_this_at_all(self):
+        """Why the check has to exist, measured rather than argued.
+
+        The R5 plan's section 0.15 says an improper conditional surfaces as an
+        ``eqx.error_if`` abort from ``collapse.py``'s pivot guard, and that the
+        defect is its being an exception where a Refusal is required. Measured:
+        **it is not an exception either.** ``marginal_log_density`` returns
+        ``-inf`` and the guard never fires, because ``pivots_constrain_block``
+        tests a RELATIVE floor over the joint prior-and-data information, and
+        the data still constrains the block however improper the prior is.
+
+        ``-inf`` is the value the R5 plan's section 0.1 records as
+        unrepresentable in ``EvidenceResult.log_evidence``, so left alone this
+        surfaces as a validator error a long way from its cause, or not at all.
+        """
+        from bayesmith.dispatch.collapse import marginal_log_density
+
+        with jax.enable_x64(True):
+            graph = trace(_corner_divergent(cut=1.0))
+            inside = float(
+                jnp.asarray(marginal_log_density(graph, ("x",), {"tau": jnp.asarray(2.0)}))
+            )
+            corner = float(
+                jnp.asarray(marginal_log_density(graph, ("x",), {"tau": jnp.asarray(0.5)}))
+            )
+        assert jnp.isfinite(inside)
+        assert corner == float("-inf"), (
+            "the corner returns a value rather than aborting, which is what "
+            "makes a separate check necessary rather than merely tidier"
+        )
+
+
+def _corner_divergent(*, cut):
+    """``x``'s prior width is 1.0 above ``cut`` and infinite at or below it.
+
+    ``tau ~ Normal(2.0, 0.5)``, so the corner always carries positive prior
+    mass. ``compile`` probes each outside latent at +/-1 and +/-3 prior widths
+    about its centre -- ``{0.5, 1.5, 2.5, 3.5}`` here -- so a cut at 1.0 lies
+    inside that range and a cut at 0.4 lies below all of it.
+    """
+
+    def model():
+        xs = const("X", jnp.linspace(1.0, 2.0, 6))
+        tau = sample("tau", lambda: dist.Normal(2.0, 0.5))
+        width = det("width", lambda t: jnp.where(t > cut, 1.0, jnp.inf), tau)
+        x = sample("x", lambda w: dist.Normal(0.0, w), width)
+        mu = det("mu", lambda x_, g_: x_ * g_, x, xs, linear_in=("x",))
+        observe("d", lambda m: dist.Normal(m, 0.5), mu, obs=jnp.zeros(6))
+
+    return model

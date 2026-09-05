@@ -103,8 +103,19 @@ def test_raw_ast_baseline_is_explicit() -> None:
     # they move when a module gains a `raise` or a comparison, whether or not
     # anything numerical changed, and they are FAST-layer. Re-derived here with
     # `scan_repository(REPOSITORY_ROOT)` on this tree, never summed.
+    # R5 Task 7 moved COMPARE 389 -> 396 and left RAISE at 197. All seven are
+    # in dispatch/evidence.py's propriety restatement and its range check:
+    # `node.name in pinned` in `_environment_at`, `centre is None` twice (in
+    # `conditional_prior_range_report` and in `audit_graph_priors`), and
+    # `parent in graph.latents`, `parent not in depended_on`, `probes is None`
+    # and `verdict is not PriorVerdict.PROPER` in the range report. Not one is
+    # a threshold: they read a name, a membership or an enum member. RAISE did
+    # not move because Task 7's new refusals are Refusal OBJECTS built in
+    # dispatch/task.py, which is not in SOURCE_PATHS -- worth saying out loud,
+    # because "the raise count did not move" would otherwise read as evidence
+    # that no refusal was added.
     assert family_counts[CandidateFamily.RAISE] == 197
-    assert family_counts[CandidateFamily.COMPARE] == 389
+    assert family_counts[CandidateFamily.COMPARE] == 396
 
 
 def test_every_raw_candidate_has_exactly_one_code_classification() -> None:

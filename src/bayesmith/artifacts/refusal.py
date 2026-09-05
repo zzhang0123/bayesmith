@@ -120,6 +120,16 @@ PREMISES: frozenset[str] = frozenset(
         "evidence_prior_undeclared",
         "evidence_residual_integral_required",
         "evidence_requires_x64",
+        # R5. Two situations R4 refused under one premise whose message was
+        # true of neither. `gcr+snis` and `gcr+mh` leave a residual factor that
+        # is an importance-weight normaliser rather than an integral over a
+        # prior, so it is a different estimator and gets its own name; and a
+        # conditional prior can be a density at the point the audit checks and
+        # not across the range the residual integral walks, which is a
+        # statement about the model and therefore a Refusal rather than the
+        # runtime abort the collapse guard was assumed to raise.
+        "evidence_residual_method_unsupported",
+        "evidence_conditional_prior_proper",
     }
 )
 

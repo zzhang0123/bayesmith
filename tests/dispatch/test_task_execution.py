@@ -485,9 +485,16 @@ def test_a_hand_built_evidence_task_still_meets_the_compilers_own_gates():
     bypassing the gate produces a plausible number rather than an obvious error.
 
     The forged plan here carries a graph whose latent has a proper prior, so it
-    passes the prior audit and is refused on the structure class instead: the
-    plan was compiled for a posterior and its exact block does not cover the
-    whole graph.
+    passes the prior audit and is refused on the structure class instead:
+    ``radiometer``'s sigma tracks its own prediction, so its block is solved by
+    ``gcr+snis``, whose residual factor is an importance-weight normaliser
+    rather than the integral R5 runs.
+
+    **R5 moved which premise answers here, and not what the test is about.**
+    Before R5 this was ``evidence_residual_integral_required``, one premise over
+    every graph outside R4's class; R5 split it, and the row this graph is on
+    now has its own name. The property under test is unchanged: a forged plan
+    is refused by the compiler's own guards rather than executed.
     """
     import jax
 
@@ -497,7 +504,7 @@ def test_a_hand_built_evidence_task_still_meets_the_compilers_own_gates():
         refusal = execute_task(forged)
 
     assert isinstance(refusal, Refusal)
-    assert refusal.failed_premise == "evidence_residual_integral_required"
+    assert refusal.failed_premise == "evidence_residual_method_unsupported"
     assert refusal.meta.artifact_type is ArtifactKind.RESULT
     assert refusal.remedies
 

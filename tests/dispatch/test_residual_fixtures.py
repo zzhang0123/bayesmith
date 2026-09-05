@@ -26,7 +26,7 @@ import numpy as np
 import pytest
 
 import bayesmith
-from bayesmith.artifacts.refusal import Refusal
+from bayesmith.artifacts.refusal import CAPABILITY_UNAVAILABLE_R1, Refusal
 from bayesmith.artifacts.tasks import EvidenceTask, new_task_meta
 from bayesmith.graph.reduction import as_graph
 from tests.dispatch.residual_oracle import (
@@ -403,16 +403,19 @@ def test_where_each_new_fixture_sits_in_the_structural_taxonomy():
     refused under the premise that answers first, which is not the same as the
     premise that describes it.
 
-    **TASK 7 IS EXPECTED TO TURN THIS TEST RED, AND THAT IS THE POINT.** Task 7
-    widens ``_evidence_structure_refusal`` and the propriety predicate, after
-    which class (b) and class (c) stop being refused under
-    ``evidence_residual_integral_required`` and reach the executor. When this
-    goes red, the fix is to update the expected column to whatever the widened
-    gate answers -- ``(ADMITTED)`` for the two the widening admits, and a
-    capability refusal for whichever the plan's Task 7.4 routes there when no
-    adapter exists -- and NOT to delete the assertion. A before-state census
-    that quietly stops describing the before state is worth nothing; one that
-    goes red is a message from the session that wrote it.
+    **TASK 7 TURNED THIS TEST RED, WHICH IS WHAT IT WAS FOR**, and the column
+    below is the after-state. Task 7 widened ``_evidence_structure_refusal``
+    and restated propriety, and all three now pass every premise about the
+    MODEL: their priors are proper, and their conditionals are densities across
+    the range the residual integral covers. What stops all three is the
+    capability refusal -- the residual sampler is an optional extra and no
+    adapter exists yet -- which is exactly where Task 7.4 requires the widened
+    classes to route while the bake-off is still open, so that they are never
+    admitted with nothing behind them.
+
+    None of the three is stopped by anything structural any more, and the
+    structural columns are unchanged, which is the part worth keeping: the
+    widening moved the PREMISE and not the taxonomy.
     """
     reference = model_ref()
     seen = {}
@@ -438,30 +441,31 @@ def test_where_each_new_fixture_sits_in_the_structural_taxonomy():
     # The failure message names its own remedy. A red test that says only
     # "expected to change" costs its reader the whole investigation; one that
     # says what to change it to costs them a diff.
-    after_task_7 = (
-        "Task 7 widened the gates: replace the premise column with the widened "
-        "gate's own answer -- '(ADMITTED)' where an adapter exists, and the "
-        "capability refusal Task 7.4 routes to where none does -- and keep the "
-        "assertion. Do not delete it: it is the before-state census."
+    after_task_6 = (
+        "Task 6 installs the residual adapter, at which point "
+        "`residual_backend()` stops returning None and these three stop being "
+        "refused for a capability the release now has. Replace the premise "
+        "column with '(ADMITTED)' and keep the assertion -- it is the census "
+        "of where these fixtures sit, and each wave moves one column of it."
     )
     assert seen["mixture_prior_residual"] == (
         ("b",),
         "gcr",
         ("w",),
-        "evidence_residual_integral_required",
-    ), (seen["mixture_prior_residual"], after_task_7)
+        CAPABILITY_UNAVAILABLE_R1,
+    ), (seen["mixture_prior_residual"], after_task_6)
     assert seen["cauchy_residual_pair"] == (
         (),
         None,
         ("z",),
-        "evidence_residual_integral_required",
-    ), (seen["cauchy_residual_pair"], after_task_7)
+        CAPABILITY_UNAVAILABLE_R1,
+    ), (seen["cauchy_residual_pair"], after_task_6)
     assert seen["undeclared_quartet"][:3] == (
         (),
         None,
         ("alpha", "beta", "delta", "gamma"),
     )
-    assert seen["undeclared_quartet"][3] == "evidence_residual_integral_required", (
+    assert seen["undeclared_quartet"][3] == CAPABILITY_UNAVAILABLE_R1, (
         seen["undeclared_quartet"],
-        after_task_7,
+        after_task_6,
     )
