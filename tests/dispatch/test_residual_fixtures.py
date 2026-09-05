@@ -188,16 +188,26 @@ def test_the_cauchy_pair_closed_form_agrees_with_the_oracle():
         )
         assert found.certified, found.describe()
         exact = rm.cauchy_residual_pair_log_evidence()
+        # INSIDE the x64 block, and that is not tidiness. These two calls sat
+        # outside it until a second adversarial review noticed: the closed forms
+        # in residual_models.py carry no `_require_x64` of their own, so at
+        # float32 `cauchy_residual_pair_log_evidence` returns -2.2217936515808105
+        # against the analytic -2.2217938383113070 -- an error of 1.87e-07, which
+        # is 187 times AGREEMENT_FLOOR, returned silently. The assertion below
+        # still passed, because the values it discriminates are orders away; it
+        # was latent rather than failing, which is the only reason it survived
+        # to be found.
+        wrong_values = (
+            rm.cauchy_residual_pair_log_evidence(sigma=0.0),
+            rm.cauchy_residual_pair_log_evidence(gamma=0.0),
+            float(np.log(math.sqrt(1.75**2 + 0.4**2))),
+        )
     band = found.certificate.bound + AGREEMENT_FLOOR * max(1.0, abs(exact))
     assert abs(found.value - exact) <= band, (found.describe(), exact, band)
 
     # Discrimination: the prior's own width, the likelihood's own width, and a
     # Gaussian-style combination of the two are all far outside that band.
-    for wrong in (
-        rm.cauchy_residual_pair_log_evidence(sigma=0.0),
-        rm.cauchy_residual_pair_log_evidence(gamma=0.0),
-        float(np.log(math.sqrt(1.75**2 + 0.4**2))),
-    ):
+    for wrong in wrong_values:
         assert abs(wrong - exact) > 1e6 * band, (wrong, exact, band)
 
 
@@ -510,3 +520,107 @@ def test_the_slope_sweep_is_measured_rather_than_asserted(slope, weight, lower, 
     assert marginal[high] / marginal[valley] == pytest.approx(upper, rel=1e-3)
     # The second mode survives every row: the SMALLER ratio is what says so.
     assert min(lower, upper) > 300.0, (slope, lower, upper)
+
+
+def test_the_quartet_parts_are_read_off_the_graph_and_not_recomputed():
+    """The one crossing ``undeclared_family_parts``'s protection exists for.
+
+    Its docstring says the parts are read off the graph "so the closed form
+    cannot describe a different data vector from the one the graph carries".
+    Nothing tested that: all nine graph builds in this module sit INSIDE
+    ``jax.enable_x64``, so the graph and any recomputation agreed, and replacing
+    the read with the identical recomputation left 47 passed, exit 0.
+
+    Here the graph is built OUTSIDE the block and read INSIDE it -- the crossing
+    the protection is about, because ``jax.random.normal`` on one key returns
+    different draws at the two precisions and ``t``, ``t**2``, ``sin(t)`` and
+    ``cos(t)`` are evaluated at the graph's own. Measured: the data read off the
+    float32 graph is ``[2.387, 1.173, 1.406]`` and the same expressions
+    recomputed at x64 give ``[2.024, 1.816, 2.231]``; the closed forms are
+    -8.172355 and -5.987312, **2.185 nats apart**. The oracle, which sees only
+    the graph, agrees with the first to 2.1e-08 and with the second to nothing.
+    """
+    outside = as_graph(rm.undeclared_quartet())
+    assert np.asarray(outside.node("T").value).dtype == np.float32
+    with jax.enable_x64(True):
+        parts = rm.undeclared_family_parts(outside, dimension=4)
+        exact = rm.gaussian_log_evidence(
+            parts["design"],
+            parts["offset"],
+            parts["data"],
+            parts["prior_mean"],
+            parts["prior_std"],
+            parts["sigma"],
+        )
+        found = oracle_joint(
+            outside,
+            _quartet_spans(parts),
+            resolution=AGREEMENT_FLOOR,
+            start=9,
+            refinements=5,
+        )
+        assert found.certified, found.describe()
+        # The closed form describes the graph in hand, at the precision in hand.
+        band = found.certificate.bound + AGREEMENT_FLOOR * max(1.0, abs(exact))
+        assert abs(found.value - exact) <= max(band, 1e-6), (found.describe(), exact)
+        # And a recomputation would describe a different model entirely.
+        rebuilt = rm.undeclared_family_parts(
+            as_graph(rm.undeclared_quartet()), dimension=4
+        )
+    assert abs(rebuilt["data"][0] - parts["data"][0]) > 0.1
+
+
+def test_the_shifted_block_prior_fixture_has_a_closed_form_of_its_own():
+    """Both fixtures the first review's repairs added were graded only by
+    collapsed-versus-uncollapsed agreement, which grades the ELIMINATION and
+    cannot grade the FIXTURE: change the data vector and both sides move
+    together, still agreeing. A second review pointed that out by changing one
+    and watching 47 tests pass.
+
+    ``shifted_block_prior`` is jointly linear-Gaussian -- ``tau ~ N(m, s)`` and
+    ``x | tau ~ N(tau, w)`` make ``x`` marginally ``N(m, sqrt(s**2 + w**2))`` --
+    so it has an exact closed form and needs no quadrature at all. Two
+    independent derivations agree to fifteen digits: this one through the
+    marginal collapse, and the reviewer's through Sherman-Morrison on the
+    rank-one covariance with the remaining integral at mpmath 40 dps.
+    """
+    with jax.enable_x64(True):
+        exact = rm.shifted_block_prior_log_evidence()
+        found = oracle_joint(
+            as_graph(rm.shifted_block_prior()),
+            (Span("tau", 0.4, 4.0), Span("x", -1.0, 5.5)),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=6,
+        )
+        assert found.certified, found.describe()
+        band = found.certificate.bound + AGREEMENT_FLOOR * max(1.0, abs(exact))
+        assert abs(found.value - exact) <= band, (found.describe(), exact, band)
+        # Discrimination: forget that the two widths add in quadrature -- the
+        # single most likely way to write this closed form wrong.
+        wrong = rm.shifted_block_prior_log_evidence(tau_scale=0.45, block_width=0.0)
+    assert abs(wrong - exact) > 1e6 * band, (wrong, exact, band)
+
+
+def test_the_closed_forms_refuse_to_describe_a_graph_they_are_not_looking_at():
+    """MUT-X: the closed forms had no precision guard, and one call had drifted.
+
+    ``cauchy_residual_pair_log_evidence`` is now written in plain float64 and is
+    precision-blind -- it returns the same 16 digits inside and outside
+    ``enable_x64``, matching the 50-digit analytic value. The other two cannot
+    be: their grids are built with ``jnp``, so at float32 the GRAPH carries a
+    different data vector and a float64 reference would be exact about a model
+    nobody built. Those refuse instead.
+    """
+    outside = rm.cauchy_residual_pair_log_evidence()
+    with jax.enable_x64(True):
+        inside = rm.cauchy_residual_pair_log_evidence()
+    assert outside == inside
+    assert outside == pytest.approx(-2.221793838311306957321, abs=1e-15)
+
+    for closed_form in (
+        rm.mixture_prior_residual_log_evidence,
+        rm.shifted_block_prior_log_evidence,
+    ):
+        with pytest.raises(RuntimeError, match="double precision"):
+            closed_form()

@@ -516,6 +516,28 @@ def _power_tail(
     return edge * here / (width * (exponent - 1.0))
 
 
+def _geometric_tail(increment: float, ratio: float) -> float:
+    """What a geometric series of shrinking increments has left to give.
+
+    ``increment * ratio / (1 - ratio)`` is the sum of everything after the last
+    refinement, and it is a bound only while ``ratio < 1``. **Written as its own
+    function because the inline form had a hole an adversarial review walked
+    through**: relaxing the test to ``ratio < 2.0`` makes the expression
+    NEGATIVE for a ratio in ``(1, 2)``, and a negative tail is finite and
+    compares less than any demanded level, so a refinement that is DIVERGING
+    certifies. The guard was in the right place and was doing two jobs at once
+    -- deciding convergence and keeping the arithmetic meaningful -- and only
+    one of them was pinned.
+
+    So the sign is checked here rather than inferred from the ratio, and a tail
+    that comes out negative is `inf`: not a bound, and never a pass.
+    """
+    if not ratio < 1.0:
+        return math.inf
+    tail = increment * ratio / (1.0 - ratio)
+    return tail if tail >= 0.0 else math.inf
+
+
 def excluded_prior_mass(graph: Graph, spans: Sequence[Span]) -> dict[str, float | None]:
     """How much declared prior mass each span leaves out.
 
@@ -560,6 +582,47 @@ def _ancestors(graph: Graph, name: str) -> frozenset[str]:
     return frozenset(seen)
 
 
+def probe_points(spans: Sequence[Span]) -> list[dict[str, float]]:
+    """Where :func:`block_prior_ratio` looks: each axis's two ends and its centre.
+
+    ``2d + 1`` points, linear in the dimension. **Its own function because the
+    inline version was ungraded in a way one fixture could not show.** The only
+    fixture whose ratio varies is ``shifted_block_prior``, whose ``|tau| / 0.3``
+    is monotone increasing, so its maximum sits exactly at the span's upper end
+    -- and a probe that read the upper end and nothing else satisfied the test
+    written to pin this. Two adversarial mutants lived there: "probe only the
+    centre" and "probe only the upper end". A worst point in the INTERIOR is
+    what separates them, and no graph in this package has one.
+    """
+    centre = {span.name: (span.lower + span.upper) / 2.0 for span in spans}
+    points = [dict(centre)]
+    for span in spans:
+        for edge in (span.lower, span.upper):
+            points.append({**centre, span.name: edge})
+    return points
+
+
+def worst_ratio(prior_mean: Any, prior_std: Any) -> float:
+    """``max |mean| / min width`` over one block member's declared prior.
+
+    Both reductions run over an ARRAY, and in every fixture this package ships
+    that array has shape ``()``. Over one element ``max``, ``min``, ``first``
+    and ``sum`` are the same function, so an adversarial review swapped the two
+    reductions and swapped them again with each other and nothing moved. The
+    reductions are the conservative choice -- the largest mean against the
+    smallest width is the worst cell the member can be in -- and they are graded
+    here directly rather than through a graph, because building a plated
+    exact block to grade two calls to numpy is the wrong instrument.
+
+    ``|mean|`` and not ``mean``: a negative prior mean is as far from zero as a
+    positive one, and dropping the ``abs`` also survived, since the mean is
+    non-negative at every probe point of every span this package can build.
+    """
+    mean = float(np.max(np.abs(np.asarray(prior_mean, dtype=float))))
+    width = float(np.min(np.abs(np.asarray(prior_std, dtype=float))))
+    return math.inf if width == 0.0 else mean / width
+
+
 def block_prior_ratio(
     graph: Graph, exact_names: Sequence[str], spans: Sequence[Span]
 ) -> float | None:
@@ -583,11 +646,7 @@ def block_prior_ratio(
     names = tuple(exact_names)
     if not names:
         return None
-    centre = {span.name: (span.lower + span.upper) / 2.0 for span in spans}
-    points = [dict(centre)]
-    for span in spans:
-        for edge in (span.lower, span.upper):
-            points.append({**centre, span.name: edge})
+    points = probe_points(spans)
 
     def built(at):
         """The block at one probe point, or ``None`` if it cannot be built there.
@@ -611,9 +670,7 @@ def block_prior_ratio(
             unreachable += 1
             continue
         for member in block.names:
-            mean = float(np.max(np.abs(np.asarray(block.prior_mean[member]))))
-            width = float(np.min(np.abs(np.asarray(block.prior_std[member]))))
-            ratio = math.inf if width == 0.0 else mean / width
+            ratio = worst_ratio(block.prior_mean[member], block.prior_std[member])
             worst = ratio if worst is None else max(worst, ratio)
     if worst is None and unreachable:
         return None
@@ -643,15 +700,24 @@ def quadrature(
     is the failure mode the module docstring's condition 2 describes.
     """
     _require_x64()
-    if not 0.0 < resolution < 1.0 or not math.isfinite(resolution):
+    if not 0.0 < resolution <= AGREEMENT_FLOOR:
         raise ValueError(
-            f"resolution={resolution!r}; the refinement needs a level in "
-            "(0, 1), relative to max(1, |log Z|). An adversarial review found "
-            "the earlier `not resolution > 0.0` guard admitting `inf`, which "
-            "made the tail test `tail <= inf` -- vacuously true at the first "
-            "grid -- and CERTIFIED a value 2.5e-04 wrong with a refinement "
-            "tail of 1.3e-03. A guard that refuses 0, negatives and nan while "
-            "admitting inf refuses the harmless half of what it names"
+            f"resolution={resolution!r}; the refinement's level must be "
+            f"positive and no looser than the declared AGREEMENT_FLOOR "
+            f"({AGREEMENT_FLOOR:g}). A caller may demand MORE convergence than "
+            "D111 declares and may not demand less, because the band is "
+            "floored at D111 either way and a looser refinement only buys a "
+            "certificate that means nothing.\n\n"
+            "Two adversarial reviews walked through this guard in turn. The "
+            "first found `not resolution > 0.0` admitting `inf`, which made "
+            "`tail <= inf` vacuous at the first grid and certified a value "
+            "2.5e-04 wrong. The second found the repair -- `0 < resolution < 1` "
+            "-- admitting 0.999, which certifies `cauchy_residual_pair` "
+            "**0.873 nats** wrong while reporting a refinement tail of 0.36: "
+            "3500 times worse than the hole it closed. Nothing in the suite "
+            "passed any level but the declared one, so the whole admitted "
+            "range was unexercised both times. A bound is now the declared "
+            "level itself, which leaves no range to sweep"
         )
     if start ** len(spans) > max_points:
         raise ValueError(
@@ -744,9 +810,14 @@ def quadrature(
                 ratio, tail = math.inf, math.inf
             else:
                 ratio = abs(latest) / abs(previous)
-                tail = abs(latest) * ratio / (1.0 - ratio) if ratio < 1.0 else math.inf
-            settled = math.isfinite(tail) and tail <= demanded
-            if settled and math.isfinite(truncation):
+                tail = _geometric_tail(abs(latest), ratio)
+            # No `math.isfinite(truncation)` conjunct here: the post-loop reason
+            # list re-tests exactly that, so an infinite truncation abstains
+            # either way and the conjunct only bought extra refinements before
+            # the same answer. An adversarial review scored it SURVIVED for that
+            # reason, and it was right -- a condition with no consequence is not
+            # a condition.
+            if math.isfinite(tail) and tail <= demanded:
                 break
         if (2 * count - 1) ** len(spans) > max_points:
             over = (2 * count - 1) ** len(spans)
@@ -869,8 +940,10 @@ __all__ = [
     "Span",
     "agreement",
     "block_prior_ratio",
+    "probe_points",
     "excluded_prior_mass",
     "oracle_collapsed",
     "oracle_joint",
     "quadrature",
+    "worst_ratio",
 ]

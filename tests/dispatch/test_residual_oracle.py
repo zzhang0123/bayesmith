@@ -31,9 +31,12 @@ repeated:
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import math
+import types
 from collections import Counter
+from collections.abc import Mapping
 
 import equinox as eqx
 import jax
@@ -81,12 +84,20 @@ CLASS_B = {
     # elimination defect and three mutants of `block_prior_ratio` were invisible
     # to the comparison. See tests/exact/residual_models.py for the counts.
     "outside_observation_pair": (("x",), (("tau", -1.5, 4.5), ("x", -7.0, 7.0))),
+    # The same graph with its outside observation renamed so it sorts FIRST.
+    # `marginal_log_density` walks `sorted(block.data)` with a row cursor, so a
+    # filter defect indexed by POSITION is invisible while the unabsorbed
+    # observation is always last -- which it was, in 6 of 6 graphs, including
+    # the fixture written to close the previous gap.
+    "outside_observation_first": (("x",), (("tau", -1.5, 4.5), ("x", -7.0, 7.0))),
     "shifted_block_prior": (("x",), (("tau", 0.4, 4.0), ("x", -1.0, 5.5))),
 }
 
 
 def _build(name):
     """The graph for one CLASS_B entry, from whichever module ships it."""
+    if name == "outside_observation_first":
+        return as_graph(residual_models.outside_observation_pair(outer_name="a"))
     source = models if hasattr(models, name) else residual_models
     return as_graph(getattr(source, name)())
 
@@ -949,6 +960,7 @@ def test_the_eliminated_blocks_ratio_travels_with_the_collapsed_value():
     assert seen == {
         "diamond_ancestor": 0.0,
         "indirect_ancestor": 0.0,
+        "outside_observation_first": 0.0,
         "outside_observation_pair": 0.0,
         "overflowing_outside_latent": 0.0,
         "shared_ancestor": 0.0,
@@ -1009,24 +1021,34 @@ def test_the_band_carries_the_truncated_mass_and_a_verdict_depends_on_it():
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     [
-        ({"resolution": 0.0}, "level in"),
-        ({"resolution": -1.0}, "level in"),
-        ({"resolution": math.inf}, "level in"),
-        ({"resolution": 1.0}, "level in"),
-        ({"resolution": math.nan}, "level in"),
+        ({"resolution": 0.0}, "no looser than"),
+        ({"resolution": -1.0}, "no looser than"),
+        ({"resolution": math.nan}, "no looser than"),
+        ({"resolution": math.inf}, "no looser than"),
+        ({"resolution": 1.0}, "no looser than"),
+        # The one the FIRST repair still admitted, and the reason the bound is
+        # now the declared level rather than an interval around it.
+        ({"resolution": 0.999}, "no looser than"),
+        ({"resolution": 1e-3}, "no looser than"),
+        ({"resolution": AGREEMENT_FLOOR * 10}, "no looser than"),
         ({"resolution": AGREEMENT_FLOOR, "start": 2}, "at least three points"),
     ],
 )
 def test_the_declared_guards_refuse_what_they_name(kwargs, match):
-    """Three holes an adversarial review walked through, closed and pinned.
+    """Holes two adversarial reviews walked through in turn, and the bound that
+    leaves no range to walk through.
 
-    ``resolution=inf`` passed ``not resolution > 0.0`` and then made the tail
-    test ``tail <= inf`` vacuously true at the very first grid: the oracle
-    CERTIFIED a value 2.5e-04 wrong while reporting a refinement tail of
-    1.3e-03. ``resolution=1.0`` is the same hole one step in -- a relative level
-    of 1 demands nothing. And ``start=2`` raised ``IndexError`` from inside
-    ``_edges``, naming neither the argument nor the fix, because the edge test
-    reads the outermost cell AND its neighbour.
+    The first review found ``not resolution > 0.0`` admitting ``inf``: the tail
+    test became ``tail <= inf``, vacuous at the very first grid, and the oracle
+    CERTIFIED a value 2.5e-04 wrong. The repair was ``0 < resolution < 1``. The
+    second review swept what THAT still admits and found ``resolution=0.999``
+    certifying ``cauchy_residual_pair`` **0.873 nats** wrong while reporting a
+    refinement tail of 0.36 -- 3500 times worse than the hole it closed.
+
+    Both times the admitted range was entirely unexercised: nothing in the suite
+    passed any level but the declared one. So the bound is now the declared
+    level itself. A caller may demand MORE convergence than D111 and may not
+    demand less, and there is no interval left to sweep.
     """
     with jax.enable_x64(True), pytest.raises(ValueError, match=match):
         quadrature(
@@ -1034,6 +1056,29 @@ def test_the_declared_guards_refuse_what_they_name(kwargs, match):
             (Span("z", -4.0, 4.0),),
             **{"resolution": AGREEMENT_FLOOR, **kwargs},
         )
+
+
+def test_every_admitted_resolution_certifies_the_right_number():
+    """The other half: what the guard lets through must be safe.
+
+    Refusing 0.999 is only half an answer -- the levels still admitted have to
+    be ones that actually converge. Swept against ``cauchy_residual_pair``'s
+    closed form, which is exact.
+    """
+    with jax.enable_x64(True):
+        exact = residual_models.cauchy_residual_pair_log_evidence()
+        graph = as_graph(residual_models.cauchy_residual_pair())
+        for level in (AGREEMENT_FLOOR, AGREEMENT_FLOOR / 10, AGREEMENT_FLOOR / 1e3):
+            found = oracle_joint(
+                graph,
+                (Span("z", -1000.0, 1000.0),),
+                resolution=level,
+                start=4001,
+                refinements=6,
+            )
+            assert found.certified, (level, found.describe())
+            band = found.certificate.bound + AGREEMENT_FLOOR * max(1.0, abs(exact))
+            assert abs(found.value - exact) <= band, (level, found.describe())
 
 
 def test_the_recorded_domains_refuse_to_be_computed_in_single_precision():
@@ -1049,3 +1094,402 @@ def test_the_recorded_domains_refuse_to_be_computed_in_single_precision():
         residual_oracle.excluded_prior_mass(graph, spans)
     with pytest.raises(RuntimeError, match="double precision"):
         residual_oracle.block_prior_ratio(graph, ("x",), spans)
+
+
+# ------------------- what the second adversarial review found still ungraded
+
+
+def test_only_the_elimination_itself_is_watched_not_one_name_for_it():
+    """Red line 7 again, one level down, and the review walked through the first
+    attempt.
+
+    The previous guard replaced ``residual_oracle.collapse_graph`` -- ONE module
+    attribute. A function-local ``from bayesmith.dispatch.collapse import
+    collapse_graph as _cg`` inside ``oracle_joint`` binds from the source module
+    at call time, never reads the patched name, and left the guard at 1 passed
+    and the suite at 47 passed, exit 0. That is ``CLAUDE.md``'s
+    ``ProducerRef as _PR`` verbatim, inside the guard written to avoid it.
+
+    So all three doors are watched: the name ``residual_oracle`` imported, the
+    name in the SOURCE module that a local import would bind, and
+    ``marginal_log_density`` -- the half that actually computes, which
+    ``CollapsedEvidence.log_density`` calls out of ``collapse.py``'s own globals
+    and which no import into this module could avoid.
+    """
+    seen: list[str] = []
+    real_graph = collapse_module.collapse_graph
+    real_density = collapse_module.marginal_log_density
+
+    def watch_graph(graph, exact, residual):
+        seen.append("collapse_graph")
+        return real_graph(graph, exact, residual)
+
+    def watch_density(graph, exact, values):
+        seen.append("marginal_log_density")
+        return real_density(graph, exact, values)
+
+    collapse_module.collapse_graph = watch_graph
+    collapse_module.marginal_log_density = watch_density
+    residual_oracle.collapse_graph = watch_graph
+    try:
+        with jax.enable_x64(True):
+            graph = as_graph(models.diamond_ancestor())
+            spans = (Span("tau", -4.0, 8.0), Span("x", -6.0, 6.0))
+            oracle_joint(
+                graph, spans, resolution=AGREEMENT_FLOOR, start=101, refinements=3
+            )
+            assert seen == [], seen
+            oracle_collapsed(
+                graph,
+                ("x",),
+                (spans[0],),
+                resolution=AGREEMENT_FLOOR,
+                start=201,
+                refinements=3,
+            )
+    finally:
+        collapse_module.collapse_graph = real_graph
+        collapse_module.marginal_log_density = real_density
+        residual_oracle.collapse_graph = real_graph
+    assert "collapse_graph" in seen
+    assert "marginal_log_density" in seen
+
+
+#: Which latents each block-carrying graph puts on which side. **The class label
+#: never names a latent**, so an adversarial review replaced the exact tuple with
+#: a constant and both census tests still passed: the counts held, the membership
+#: held, and nothing asked WHICH latents were eliminated.
+BLOCK_SPLIT = {
+    "diamond_ancestor": (("x",), ("tau",)),
+    "improper_outside_prior": (("w",), ("z",)),
+    "indirect_ancestor": (("x",), ("tau",)),
+    "mixed_radiometer": (("w",), ("tau",)),
+    "overflowing_outside_latent": (("w",), ("z",)),
+    "shared_ancestor": (("x",), ("tau",)),
+    "three_latent_chain": (("y",), ("tau", "x")),
+}
+
+
+def test_the_census_pins_which_latents_are_eliminated_not_only_how_many():
+    """R5's whole subject is which side of the split a latent lands on.
+
+    ``three_latent_chain`` is the row that makes this more than bookkeeping: it
+    is the only shipped graph whose residual has TWO latents, and a classifier
+    that ejected the wrong one would keep every count and every membership
+    exactly as they are.
+    """
+    import warnings
+
+    found = {}
+    with jax.enable_x64(True), warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        for label, graph in _shipped_graphs():
+            try:
+                plan = bayesmith.compile(graph)
+            except BayesmithError:
+                continue
+            exact = tuple(plan.exact.latents) if plan.exact is not None else ()
+            sampled = tuple(plan.sampled.latents) if plan.sampled is not None else ()
+            if exact and sampled:
+                found[label] = (exact, sampled)
+    assert found == BLOCK_SPLIT
+
+
+def _two_gaussians(values):
+    """A product of unit Gaussians centred at 0 and at 1 -- an EXACT reference.
+
+    The excluded mass past any span is an ``erf``, so every edge the oracle
+    reports can be graded against a truth rather than against another grid.
+    """
+    return -0.5 * values["z"] ** 2 - 0.5 * (values["w"] - 1.0) ** 2
+
+
+def _gaussian_tails(lower, upper, mean):
+    """``(below, above)`` -- the exact mass a span leaves out, per side."""
+    below = 0.5 * (1.0 + math.erf((lower - mean) / math.sqrt(2.0)))
+    above = 0.5 * (1.0 - math.erf((upper - mean) / math.sqrt(2.0)))
+    return below, above
+
+
+def test_every_edge_bounds_the_mass_beyond_it_and_the_axes_are_walked_separately():
+    """Three survivors at once, and one exact reference settles all of them.
+
+    The fixtures could not: in every graded comparison the second axis's tail
+    runs 1e-33 to 1e-282, and the one fixture where truncation decides has
+    rho = 0.9542 on BOTH edges, so an asymmetric or single-axis defect
+    reproduces the right total. Measured, these survived the whole suite:
+    ``_edges`` walking only axis 0; the truncation reported as twice the lower
+    edges; and ``rho`` squared, which understates every tail.
+
+    Here the spans are deliberately asymmetric and material on the SECOND axis
+    only -- ``z`` cut at 6 sigma, ``w`` cut at 2.0 sigma below and 1.5 above --
+    and the property asserted is the one that makes the bound a bound: **each
+    edge's reported fraction is at least the exact mass beyond that edge.**
+    Halving any of them, which is what squaring rho does, drops two of the four
+    below their own truth.
+    """
+    spans = (Span("z", -6.0, 6.0), Span("w", -1.0, 2.5))
+    with jax.enable_x64(True):
+        found = quadrature(
+            _two_gaussians, spans, resolution=AGREEMENT_FLOOR, start=201, refinements=6
+        )
+    edges = {(edge.axis, edge.side): edge for edge in found.certificate.edges}
+    # Both axes are walked, not just the first.
+    assert {axis for axis, _side in edges} == {"z", "w"}
+
+    exact = {
+        ("z", "lower"): _gaussian_tails(-6.0, 6.0, 0.0)[0],
+        ("z", "upper"): _gaussian_tails(-6.0, 6.0, 0.0)[1],
+        ("w", "lower"): _gaussian_tails(-1.0, 2.5, 1.0)[0],
+        ("w", "upper"): _gaussian_tails(-1.0, 2.5, 1.0)[1],
+    }
+    for key, truth in exact.items():
+        assert edges[key].fraction >= truth, (key, edges[key].fraction, truth)
+        assert edges[key].fraction < 5.0 * truth, (key, edges[key].fraction, truth)
+
+    # The two sides of `w` are NOT equal, so a total assembled as twice one of
+    # them is a different number -- which is what the surviving mutant did.
+    assert edges[("w", "upper")].fraction > 2.0 * edges[("w", "lower")].fraction
+    # And the reported total is their sum, dominated by the axis that is cut.
+    assert found.certificate.truncation == pytest.approx(
+        sum(edge.fraction for edge in found.certificate.edges)
+    )
+    assert edges[("w", "upper")].fraction > 1e6 * edges[("z", "upper")].fraction
+
+
+@pytest.mark.parametrize(
+    ("mean", "width", "expected", "what"),
+    [
+        (-2.0, 0.5, 4.0, "a NEGATIVE mean is as far from zero as a positive one"),
+        ((1.0, 3.0), 0.5, 6.0, "the LARGEST mean is the worst cell"),
+        (1.0, (0.5, 2.0), 2.0, "the SMALLEST width is the worst cell"),
+        ((-4.0, 1.0), (0.25, 2.0), 16.0, "both reductions at once"),
+        (0.0, 1.0, 0.0, "a centred prior has no ratio to report"),
+        (1.0, 0.0, math.inf, "a zero width is not a ratio, it is infinity"),
+    ],
+)
+def test_the_block_ratio_reduces_to_the_worst_cell(mean, width, expected, what):
+    """Graded directly, because through a graph it cannot be graded at all.
+
+    ``block.prior_mean[member]`` and ``block.prior_std[member]`` are scalars of
+    shape ``()`` in 6 of 6 fixtures, and over one element ``max``, ``min``,
+    ``first`` and ``sum`` are the same function. An adversarial review swapped
+    the two reductions, swapped them with each other, and dropped the ``abs``,
+    and all three survived the whole suite. Building a plated exact block to
+    grade two calls to numpy would be the wrong instrument; this is the right
+    one, and the coverage statement is recorded beside it: **no graph in this
+    package has a vector-valued or negative-mean exact block**, so the shipped
+    fixtures cannot reach any of these rows.
+    """
+    assert residual_oracle.worst_ratio(mean, width) == pytest.approx(expected), what
+
+
+def test_the_probe_visits_both_ends_and_the_centre_of_every_axis():
+    """``2d + 1`` points, and which ones matters.
+
+    The only fixture whose ratio varies is monotone increasing, so its maximum
+    sits exactly at its span's upper end -- and a probe that read the upper end
+    and nothing else satisfied the test written to pin this. Both "centre only"
+    and "upper end only" survived.
+
+    **What this does NOT establish, stated because the review asked for it:** a
+    worst point in the INTERIOR of a span would be missed by all three probes,
+    and no graph in this package has one, so the probe's adequacy for that case
+    is unproven rather than proven.
+    """
+    spans = (Span("a", -2.0, 4.0), Span("b", 0.0, 10.0))
+    points = residual_oracle.probe_points(spans)
+    assert len(points) == 5
+    assert points[0] == {"a": 1.0, "b": 5.0}
+    assert {point["a"] for point in points} == {-2.0, 1.0, 4.0}
+    assert {point["b"] for point in points} == {0.0, 5.0, 10.0}
+    # Every point is a complete assignment: a probe missing an axis would build
+    # the block at a default rather than where the caller declared.
+    assert all(set(point) == {"a", "b"} for point in points)
+
+
+def test_the_guards_beside_the_pinned_ones():
+    """Four checks the repair batch left unreached, all of which survived.
+
+    The batch pinned the guards the first review named and no others -- the
+    duplicate-axis check sits three lines from the ``start >= 3`` check it did
+    pin. ``oracle_joint``'s span-set guard was already pinned; its twin on the
+    collapsed side was not.
+    """
+    with jax.enable_x64(True):
+        with pytest.raises(ValueError, match="names an axis twice"):
+            quadrature(
+                lambda values: -(values["z"] ** 2),
+                (Span("z", -1.0, 1.0), Span("z", -2.0, 2.0)),
+                resolution=AGREEMENT_FLOOR,
+            )
+        with pytest.raises(ValueError, match="not an interval"):
+            Span("z", 2.0, 2.0)
+        with pytest.raises(ValueError, match="not an interval"):
+            Span("z", 3.0, -3.0)
+        with pytest.raises(ValueError, match="every residual latent"):
+            oracle_collapsed(
+                as_graph(models.shared_ancestor()),
+                ("x",),
+                (Span("x", -1.0, 1.0),),
+                resolution=AGREEMENT_FLOOR,
+            )
+
+
+def test_an_abstaining_side_is_reported_as_no_comparison_and_never_as_agreement():
+    """``agreement()`` on an ABSTAIN, which nothing had ever called.
+
+    Every caller in this file asserts ``.certified`` before comparing, so the
+    whole "no comparison" path was dead code -- and a mutant that made it return
+    ``gap=0.0, band=inf``, so that ``agree`` reads True, survived the suite. A
+    future comparison written against ``verdict.agree`` alone would then read an
+    abstention as agreement, which is the one reading it must never have.
+    """
+    with jax.enable_x64(True):
+        graph = as_graph(models.diamond_ancestor())
+        good = oracle_joint(
+            graph,
+            (Span("tau", -4.0, 8.0), Span("x", -6.0, 6.0)),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=6,
+        )
+        away = oracle_joint(
+            graph,
+            (Span("tau", 20.0, 30.0), Span("x", -6.0, 6.0)),
+            resolution=AGREEMENT_FLOOR,
+            start=101,
+            refinements=3,
+        )
+    assert good.certified and not away.certified
+    verdict = agreement(good, away)
+    assert verdict.gap is None and verdict.band is None
+    assert not verdict.agree
+    assert verdict.margin == math.inf
+    assert "no comparison" in verdict.describe()
+    assert "ABSTAIN" in away.describe()
+
+
+def test_the_block_ratio_takes_the_worst_MEMBER_not_the_first(monkeypatch):
+    """Every exact block in this package has exactly one member, 7 of 7.
+
+    So ``for member in block.names`` and ``block.names[:1]`` are the same loop
+    on everything that can be built here, and a mutant that reads only the first
+    member is EQUIVALENT rather than surviving -- a distinction worth making,
+    because the two have different remedies. The loop is graded by handing
+    :func:`~tests.dispatch.residual_oracle.block_prior_ratio` a block that no
+    graph in this package produces, with the worst member second.
+    """
+
+    @dataclasses.dataclass(frozen=True)
+    class _Block:
+        names: tuple[str, ...] = ("first", "second")
+        prior_mean: Mapping[str, float] = types.MappingProxyType(
+            {"first": 0.5, "second": 8.0}
+        )
+        prior_std: Mapping[str, float] = types.MappingProxyType(
+            {"first": 1.0, "second": 0.25}
+        )
+
+    monkeypatch.setattr(
+        "bayesmith.exact.block.unchecked_operator",
+        lambda graph, names, at, probe_gaussian: _Block(),
+    )
+    with jax.enable_x64(True):
+        worst = residual_oracle.block_prior_ratio(
+            as_graph(models.shared_ancestor()), ("x",), (Span("tau", 0.15, 4.5),)
+        )
+    # 8.0 / 0.25 = 32, from the SECOND member; the first would give 0.5.
+    assert worst == pytest.approx(32.0)
+
+
+@pytest.mark.parametrize(
+    ("increment", "ratio", "expected"),
+    [
+        (1e-6, 0.25, 1e-6 * 0.25 / 0.75),
+        (1e-6, 0.5, 1e-6),
+        (1e-6, 0.0, 0.0),
+        # At and above 1 the series does not converge and there is no bound.
+        (1e-6, 1.0, math.inf),
+        (1e-6, 1.5, math.inf),
+        (1e-6, 3.0, math.inf),
+    ],
+)
+def test_the_geometric_tail_is_infinite_wherever_it_is_not_a_bound(
+    increment, ratio, expected
+):
+    """A ratio in (1, 2) makes the closed form NEGATIVE, and negative passes.
+
+    ``increment * ratio / (1 - ratio)`` is a bound only while ``ratio < 1``.
+    Relaxing the test to ``ratio < 2.0`` -- which an adversarial review did --
+    leaves the expression finite and NEGATIVE for a ratio in (1, 2), and a
+    negative tail compares less than any demanded level, so a refinement that is
+    DIVERGING certifies. The guard was doing two jobs, deciding convergence and
+    keeping the arithmetic meaningful, and only one of them was pinned.
+
+    ``ratio = 1.0`` is the row that separates the two spellings: under
+    ``< 1.0`` it is `inf`, and under ``< 2.0`` it is a division by zero.
+    """
+    assert residual_oracle._geometric_tail(increment, ratio) == pytest.approx(expected)
+
+
+def test_the_geometric_arm_decides_where_the_power_fit_has_no_meaning():
+    """``max(geometric, power)`` is ``power`` on every edge this package reaches.
+
+    Measured over 24 edges spanning three tail shapes -- a Gaussian, an
+    exponentially cut Cauchy prior and a genuine ``z**-4`` tail -- the power arm
+    wins **24 of 24**, by factors of 1.09 to 2.11. So the geometric arm never
+    decides a reported bound in this package, and an adversarial review squared
+    ``rho`` and nothing moved.
+
+    It is not dead weight, though: :func:`~tests.dispatch.residual_oracle._power_tail`
+    returns ``0.0`` when the fit has no meaning, and an INNER edge -- one closer
+    to the origin than its neighbour -- is exactly that case. A span of
+    ``(2, 10)`` around a mode at 8 has one: the geometric arm is the only bound
+    there, and squaring ``rho`` drops it below the mass it is supposed to cover.
+    """
+    with jax.enable_x64(True):
+        found = quadrature(
+            lambda values: -0.5 * (values["z"] - 8.0) ** 2,
+            (Span("z", 2.0, 10.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=6,
+        )
+    edges = {(edge.axis, edge.side): edge for edge in found.certificate.edges}
+    # The power fit is refused at an inner edge, so the geometric arm is alone.
+    assert residual_oracle._power_tail(1e-3, 2e-3, 2.05, 2.15, 0.04) == 0.0
+    lower_truth = 0.5 * (1.0 + math.erf((2.0 - 8.0) / math.sqrt(2.0)))
+    upper_truth = 0.5 * (1.0 - math.erf((10.0 - 8.0) / math.sqrt(2.0)))
+    assert edges[("z", "lower")].fraction >= lower_truth
+    assert edges[("z", "lower")].fraction < 2.0 * lower_truth
+    assert edges[("z", "upper")].fraction >= upper_truth
+
+
+def test_an_edge_only_just_above_one_is_still_the_mass_leaving_the_span():
+    """The off-the-mass ABSTAIN was pinned only far from its own boundary.
+
+    ``diamond_ancestor`` over ``tau in (20, 30)`` has an edge rho of 2.5 to 24.6,
+    so a threshold moved from ``rho >= 1.0`` to ``rho >= 1.5`` kept refusing it
+    and survived. **No fixture has an edge rho in [1.0, 1.5)** -- the interval
+    the move actually changes.
+
+    A slowly rising integrand does: ``0.01 * z`` over ``(0, 10)`` puts rho at
+    1.000125, and its mass is genuinely outside the span. The verdict has to be
+    ABSTAIN there for the same reason it is at 24.6, and only the threshold's
+    exact placement decides it.
+    """
+    with jax.enable_x64(True):
+        found = quadrature(
+            lambda values: 0.01 * values["z"],
+            (Span("z", 0.0, 10.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=3,
+        )
+    upper = next(edge for edge in found.certificate.edges if edge.side == "upper")
+    assert 1.0 < upper.ratio < 1.1, upper
+    assert not upper.decaying
+    assert upper.fraction == math.inf
+    assert not found.certified
+    assert "not decaying" in found.certificate.refused

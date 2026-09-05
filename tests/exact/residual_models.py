@@ -59,6 +59,34 @@ import numpyro.distributions as dist
 
 from bayesmith import const, det, observe, sample, trace
 
+
+def _require_x64() -> None:
+    """Every reference value here presumes a graph built in double precision.
+
+    **Not a stylistic preference: a second adversarial review found a live
+    instance.** Two discrimination values in ``test_residual_fixtures.py`` had
+    drifted below the end of their ``with jax.enable_x64(True):`` block and were
+    being computed at float32, where the Cauchy reference is 1.87e-07 out --
+    **187 times AGREEMENT_FLOOR** -- and returned silently. The test passed,
+    because what it discriminates is orders away. Latent, not failing, which is
+    the only reason it survived to be found.
+
+    Making the arithmetic precision-blind is the better fix where it is
+    available, and ``cauchy_residual_pair_log_evidence`` now is. It is not
+    available for the rest: their grids are built with ``jnp``, so at float32
+    the GRAPH genuinely carries float32 data and a float64 reference would
+    describe a model the graph does not have. The honest answer there is to
+    refuse rather than to answer about a different model.
+    """
+    if jnp.zeros(()).dtype != jnp.float64:
+        raise RuntimeError(
+            "the closed forms in residual_models.py describe a graph built in "
+            "double precision; wrap the call in `with jax.enable_x64(True):`. "
+            "At float32 the fixture's own grid is a different vector, so the "
+            "reference would be exact about a model nobody built"
+        )
+
+
 # ------------------------------------------------------------------ multimodal
 
 
@@ -169,28 +197,39 @@ def mixture_prior_residual_log_evidence(**overrides):
     The second return is not decoration: ``exp(terms - log Z)`` is each mode's
     posterior weight, which is what the grid's mass split is checked against.
     """
+    _require_x64()
     parts = _mixture_residual_parts(**overrides)
     x, data, sigma = parts["x"], parts["data"], parts["sigma"]
     weights, centres, widths = parts["weights"], parts["centres"], parts["widths"]
     offset_mean, offset_std = parts["offset_mean"], parts["offset_std"]
 
-    count = x.shape[0]
-    design = jnp.stack([x, jnp.ones_like(x)], axis=1)
-    noise = sigma**2 * jnp.eye(count)
+    # numpy float64 throughout, never jnp: the jnp route reads jax's dtype flag,
+    # so this reference value would change under `enable_x64` -- a reference that
+    # moves with its caller's context is not a reference. See
+    # `cauchy_residual_pair_log_evidence` for the measured cost of the same
+    # mistake one function down.
+    grid = np.asarray(x, dtype=float)
+    observed = np.asarray(data, dtype=float)
+    count = grid.size
+    design = np.stack([grid, np.ones_like(grid)], axis=1)
+    noise = float(sigma) ** 2 * np.eye(count)
     terms = []
-    for index in range(centres.shape[0]):
-        mean = design @ jnp.asarray([centres[index], offset_mean])
-        prior_cov = jnp.diag(jnp.asarray([widths[index] ** 2, offset_std**2]))
+    for index in range(np.asarray(centres).size):
+        centre = float(np.asarray(centres)[index])
+        width = float(np.asarray(widths)[index])
+        mean = design @ np.array([centre, float(offset_mean)])
+        prior_cov = np.diag(np.array([width**2, float(offset_std) ** 2]))
         cov = design @ prior_cov @ design.T + noise
-        residual = data - mean
-        _sign, logdet = jnp.linalg.slogdet(cov)
-        quadratic = residual @ jnp.linalg.solve(cov, residual)
+        residual = observed - mean
+        _sign, logdet = np.linalg.slogdet(cov)
+        quadratic = residual @ np.linalg.solve(cov, residual)
         terms.append(
-            jnp.log(weights[index])
-            - 0.5 * (count * jnp.log(2.0 * jnp.pi) + logdet + quadratic)
+            math.log(float(np.asarray(weights)[index]))
+            - 0.5 * (count * math.log(2.0 * math.pi) + logdet + quadratic)
         )
-    stacked = jnp.stack(terms)
-    return float(jax.scipy.special.logsumexp(stacked)), np.asarray(stacked, float)
+    stacked = np.asarray(terms, dtype=float)
+    peak = float(stacked.max())
+    return peak + float(np.log(np.exp(stacked - peak).sum())), stacked
 
 
 # ----------------------------------------------------------------- heavy tails
@@ -231,8 +270,24 @@ def cauchy_residual_pair_log_evidence(*, gamma=1.75, sigma=0.4, datum=1.3):
     """``log Z`` for :func:`cauchy_residual_pair`, in closed form.
 
     Same keywords as the fixture, so the two cannot drift apart silently.
+
+    **Written out in plain float64 rather than through ``dist.Cauchy``**, and
+    that is not style. The jnp route reads jax's dtype flag, so outside
+    ``jax.enable_x64`` it returned -2.2217936515808105 against the analytic
+    -2.2217938383113070 -- an error of 1.87e-07, which is **187 times
+    AGREEMENT_FLOOR**, returned silently. A second adversarial review found a
+    live instance of exactly that: two discrimination values in
+    ``test_residual_fixtures.py`` were being computed at float32 because the
+    calls had drifted below the end of the ``with`` block. The test still
+    passed, because what it discriminates is orders away.
+
+    A guard would have caught the call. Making the arithmetic precision-blind
+    means there is nothing to catch -- ``CLAUDE.md``'s rule (a), construct the
+    stress deterministically so it holds everywhere, applied to a reference
+    value instead of to a fixture.
     """
-    return float(dist.Cauchy(0.0, gamma + sigma).log_prob(jnp.asarray(datum)))
+    scale = gamma + sigma
+    return float(-math.log(math.pi * scale) - math.log1p((float(datum) / scale) ** 2))
 
 
 def cauchy_tail_mass(*, span, gamma=1.75, sigma=0.4, datum=1.3):
@@ -258,7 +313,14 @@ def cauchy_tail_mass(*, span, gamma=1.75, sigma=0.4, datum=1.3):
 
 
 def outside_observation_pair(
-    *, n=6, sigma=0.45, tau_loc=1.6, tau_scale=0.5, outer_sigma=0.7, outer=1.15
+    *,
+    n=6,
+    sigma=0.45,
+    tau_loc=1.6,
+    tau_scale=0.5,
+    outer_sigma=0.7,
+    outer=1.15,
+    outer_name="e",
 ):
     """An observation the exact block does NOT reach.
 
@@ -279,6 +341,17 @@ def outside_observation_pair(
     ``tests/dispatch/test_collapse.py``. So this fixture closes a gap in what the
     Wave B ORACLE is sensitive to, not a gap in the repository. Both statements
     are worth having, and only the second one was true before it was measured.)
+
+    **``outer_name`` exists because the first version of this fixture had a
+    constant dimension of its own.** ``marginal_log_density`` walks
+    ``sorted(block.data)`` with a row cursor, so WHERE the unabsorbed
+    observation falls in that order decides which rows a filter defect touches.
+    Named ``e`` it sorts after ``d`` and is always last; a second adversarial
+    review skipped the filter for ``sorted(block.data)[0]`` alone and the
+    fixture did not notice, because the first entry was absorbed in 6 of 6
+    graphs. Named ``a`` it sorts first and the same mutant dies inside
+    ``compress``. Same model, same numbers, one string -- which is the point:
+    a fixture that closes a dimension can be constant in another.
     """
     grid = jnp.linspace(1.0, 2.0, n)
     data = 1.0 * grid + sigma * jnp.linspace(-0.6, 0.7, n)
@@ -290,7 +363,10 @@ def outside_observation_pair(
         prediction = det("mu", lambda x_, g_: x_ * g_, x, columns, linear_in=("x",))
         observe("d", lambda m_: dist.Normal(m_, sigma), prediction, obs=data)
         observe(
-            "e", lambda t_: dist.Normal(t_, outer_sigma), tau, obs=jnp.asarray(outer)
+            outer_name,
+            lambda t_: dist.Normal(t_, outer_sigma),
+            tau,
+            obs=jnp.asarray(outer),
         )
 
     return trace(model)
@@ -449,6 +525,37 @@ def undeclared_quartet_parts(graph, *, sigma=FAMILY_SIGMA):
     return undeclared_family_parts(graph, dimension=4, sigma=sigma)
 
 
+def shifted_block_prior_log_evidence(
+    *, n=6, sigma=0.4, tau_loc=2.2, tau_scale=0.45, block_width=0.3
+):
+    """``log Z`` for :func:`shifted_block_prior`, in closed form.
+
+    The fixture is jointly linear-Gaussian even though bayesmith eliminates only
+    ``x``: ``tau ~ N(m, s)`` and ``x | tau ~ N(tau, w)`` make ``x`` marginally
+    ``N(m, sqrt(s**2 + w**2))``, and ``mu = x X`` is linear in ``x``. So the
+    whole thing collapses to one Gaussian evidence and needs no quadrature.
+
+    **Written because a second adversarial review pointed out that neither
+    fixture added by the FIRST review's repairs had a closed form.** They were
+    graded only by collapsed-versus-uncollapsed agreement, which grades the
+    ELIMINATION -- what it is for -- and cannot grade the FIXTURE: change the
+    data vector and both sides move together, still agreeing. Nothing would have
+    said so if the fixture were wrong.
+    """
+    _require_x64()
+    grid = jnp.linspace(1.0, 2.0, n)
+    data = 2.05 * grid + sigma * jnp.linspace(-0.5, 0.65, n)
+    spread = math.sqrt(tau_scale**2 + block_width**2)
+    return gaussian_log_evidence(
+        np.asarray(grid, float).reshape(-1, 1),
+        np.zeros(n),
+        np.asarray(data, float),
+        np.array([tau_loc]),
+        np.array([spread]),
+        sigma,
+    )
+
+
 def gaussian_log_evidence(design, offset, data, prior_mean, prior_std, sigma):
     """``log Z`` for ``d ~ N(A theta + c, sigma^2 I)``, ``theta ~ N(m, diag(s)^2)``.
 
@@ -514,6 +621,7 @@ __all__ = [
     "outside_observation_pair",
     "mixture_prior_residual_log_evidence",
     "shifted_block_prior",
+    "shifted_block_prior_log_evidence",
     "undeclared_family",
     "undeclared_family_parts",
     "undeclared_quartet",
