@@ -1451,7 +1451,7 @@ fixture.
 
 **Files:** Modify `pyproject.toml`, `src/bayesmith/dispatch/task.py`,
 `src/bayesmith/artifacts/refusal.py`; Create `tests/dispatch/test_backend_absent.py`,
-`docs/probes/probe_35_backend_survey.py`.
+`docs/probes/probe_36_backend_survey.py`.
 
 - [ ] **4.1 Red.** With no backend installed — **the state this checkout is in today** — an
       `EvidenceTask` over a class-(b)/(c) graph returns a capability `Refusal` naming the
@@ -1493,7 +1493,7 @@ fixture.
 ### Task 5: the bake-off — §1.5's six conditions, both candidates, one verdict
 
 **Files:** Create `docs/superpowers/specs/2026-09-XX-r5-backend-evaluation.md`,
-`docs/probes/probe_36_backend_bakeoff.py`.
+`docs/probes/probe_37_backend_bakeoff.py`.
 
 **This task produces a DECISION, not code.** No adapter is written here.
 
