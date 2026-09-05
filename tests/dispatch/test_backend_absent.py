@@ -38,6 +38,7 @@ import importlib
 import importlib.metadata
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -145,6 +146,17 @@ def _graph(name):
     return getattr(residual_models, GRAPHS[name])()
 
 
+def _extras_in(command: str) -> set[str]:
+    """The extras a ``pip install`` command actually asks for.
+
+    Reads the text rather than rebuilding it. ``pip install "bayesmith[a,b]"``
+    -> ``{"a", "b"}``; a command with no bracket -> the empty set, which is the
+    case that matters: it is what a command that forgot the extra looks like.
+    """
+    inside = re.findall(r"\[([^\]]*)\]", command)
+    return {part.strip() for group in inside for part in group.split(",") if part.strip()}
+
+
 def _refuse(graph):
     outcome = compile_task(
         graph,
@@ -167,21 +179,69 @@ def test_the_refusal_names_the_missing_extra_and_how_to_install_it(name):
     schema. The extra's NAME and the COMMAND are both asserted, and both are
     asserted against the extras table rather than against a literal, so a
     table that grows is covered without this test being edited.
+
+    **The command is parsed, not compared against itself.** An earlier version
+    asserted ``install_command(extra) in prose``, which is the refusal and the
+    guard reading the same function -- measured: replacing
+    ``install_command``'s body with a bare ``"pip install bayesmith"`` left this
+    green, because the message it is checked against is built from the same
+    call. The assertion now reads the extras OUT of the command text and
+    compares them with the table, so the two sides come from different places.
     """
     from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS, install_command
 
     with jax.enable_x64(True):
         refusal = _refuse(_graph(name))
 
-    prose = refusal.grounds[0].message + " " + " ".join(
-        remedy.message for remedy in refusal.remedies
-    )
+    message = refusal.grounds[0].message
     assert RESIDUAL_EVIDENCE_EXTRAS, "the extras table is empty, so this proves nothing"
     for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS:
-        assert extra in prose, f"the refusal never names the {extra!r} extra"
-        assert install_command(extra) in prose, (
+        assert extra in message, f"the refusal never names the {extra!r} extra"
+        command = install_command(extra)
+        assert _extras_in(command) == {extra}, (
+            f"{command!r} does not ask pip for the {extra!r} extra, so a caller "
+            f"who runs it installs bayesmith again and gets this refusal twice"
+        )
+        assert command in message, (
             f"the refusal names {extra!r} without saying how to install it"
         )
+
+
+def test_the_refusal_carries_a_remedy_a_program_can_act_on():
+    """The remedy row, asserted as a field rather than as prose in a heap.
+
+    **The first version of this file never graded the remedy at all.** It
+    concatenated ``grounds[0].message`` with every remedy's message and searched
+    the heap, so removing the install remedy entirely left the guard green --
+    measured, 141 passed, exit 0 -- because the same commands appear in the
+    finding's own message. A refusal's ``remedies`` is the field a caller
+    branches on, and a heap that contains the right words is not that field.
+
+    So: exactly one remedy offers the extras, it names every install command,
+    and it carries the extras as a PARAMETER, which is the half a program reads
+    when it is not reading English.
+    """
+    from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS, install_command
+
+    with jax.enable_x64(True):
+        refusal = _refuse(_graph("b_mixture_prior_residual"))
+
+    offering = [
+        remedy
+        for remedy in refusal.remedies
+        if all(
+            install_command(extra) in remedy.message
+            for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS
+        )
+    ]
+    assert len(offering) == 1, (
+        f"expected exactly one remedy offering the extras; the refusal carries "
+        f"{[remedy.action for remedy in refusal.remedies]}"
+    )
+    parameters = dict(offering[0].parameters)
+    assert parameters.get("extras") == tuple(
+        extra for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS
+    ), parameters
 
 
 @pytest.mark.parametrize("name", sorted(GRAPHS))
