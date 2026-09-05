@@ -1753,6 +1753,22 @@ entirely in `evaluation/evidence.py`. `test_evidence_report.py` is in the list b
       with what the adversarial reviews found, as R4's does. Nothing is borrowed from R4's green.
 ---
 
+18. **A hand-off that depends on a particular session still being alive is not a hand-off.**
+Put it in the plan, in a file, or in a failure message — anywhere a stranger will meet it without
+knowing to ask.
+
+〔Stated by Wave B's executor as it neared the end of its context, and it is the operating
+principle this whole batch has been running on without writing down. Three sessions executed R5
+in one checkout; each will end. What survived is what landed somewhere a reader trips over:
+`test_where_each_new_fixture_sits_in_the_structural_taxonomy` is safe because its **failure
+message names its own remedy** — Task 7's executor updated it without asking anyone, and produced
+a better version than its author's, because it also recorded that the taxonomy columns had not
+moved. What did not survive is whatever stayed in a session's head.
+
+The corollary is a duty rather than a caution: **if you can think of something you would want
+from a session that is ending, ask now.** Waiting until the moment you need it is waiting until
+it is gone.〕
+
 ---
 
 **A note on how this plan was reviewed, because it is the shape every wave must copy.** Before
@@ -1970,22 +1986,6 @@ cannot raise `KeyError`: measured with `method="gcr+newthing"`, the structure re
 exists. Replaced with `_RESIDUAL_METHODS_ADMITTED = {"gcr"}`, which also repaired a second false
 message for free. The general form: a deny-list is a claim to have enumerated every bad case, and
 this project has now been wrong about an enumeration in every wave.〕
-
-18. **A hand-off that depends on a particular session still being alive is not a hand-off.**
-Put it in the plan, in a file, or in a failure message — anywhere a stranger will meet it without
-knowing to ask.
-
-〔Stated by Wave B's executor as it neared the end of its context, and it is the operating
-principle this whole batch has been running on without writing down. Three sessions executed R5
-in one checkout; each will end. What survived is what landed somewhere a reader trips over:
-`test_where_each_new_fixture_sits_in_the_structural_taxonomy` is safe because its **failure
-message names its own remedy** — Task 7's executor updated it without asking anyone, and produced
-a better version than its author's, because it also recorded that the taxonomy columns had not
-moved. What did not survive is whatever stayed in a session's head.
-
-The corollary is a duty rather than a caution: **if you can think of something you would want
-from a session that is ending, ask now.** Waiting until the moment you need it is waiting until
-it is gone.〕
 
 17. **A hand-off separates what was MEASURED from what is PREDICTED, in the message itself.**
 
