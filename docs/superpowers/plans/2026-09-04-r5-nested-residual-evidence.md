@@ -505,8 +505,17 @@ table at all.** R5's would be the first extra this package has ever declared, wh
 things have no existing shape — the extra itself, a CI job that runs the suite **without** it,
 and a wheel test that installs it. `publish.yml` builds and tests the wheel; **a wheel that is
 only ever tested with the extra present has never tested the refusal**, and a wheel only ever
-tested without it has never tested the adapter. Task 4 builds both, and Task 10 confirms
-`publish.yml` runs both before the close-out claims the built-wheel gate.
+tested without it has never tested the adapter. **Task 10 builds both.**
+
+〔Execution write-back, red line 11 (Wave D). This said *"Task 4 builds both"*, which over-scoped
+Task 4 into CI work its own file list does not mention and which it did not do — no workflow file
+was touched. Moved to Task 10, where the built-wheel gate already lives.
+
+**The cost of not having had it is measured, not hypothetical.** Wave D's review found that
+installing `blackjax` reddens the suite, and a job that installs the extra and runs the suite is
+exactly what would have caught that before a tag rather than in a review. §0.9's own argument —
+a wheel only ever tested one way has never tested the other — turns out to apply to the *suite*
+as well as the wheel, and the failure it predicted arrived by the route it named.〕
 
 〔**Measured by Wave D, and recorded here because it lives nowhere else** (red line 18). The wheel
 was built and its metadata read: it declares `Provides-Extra: blackjax` and `Provides-Extra:
@@ -1481,9 +1490,14 @@ fixture.
 
 ### Task 4: the optional extra, and the refusal that is the default state
 
-**Files:** Modify `pyproject.toml`, `src/bayesmith/dispatch/task.py`,
-`src/bayesmith/artifacts/refusal.py`; Create `tests/dispatch/test_backend_absent.py`,
-`docs/probes/probe_36_backend_survey.py`.
+**Files:** Modify `pyproject.toml`, `src/bayesmith/dispatch/task.py`, **`README.md`**; Create
+`tests/dispatch/test_backend_absent.py`, `docs/probes/probe_36_backend_survey.py`.
+
+〔Execution write-back, red line 11 (Wave D). This list named
+`src/bayesmith/artifacts/refusal.py`, which the task correctly did **not** need to modify, and
+omitted `README.md`, which it must — `tests/test_readme_count.py` pins the count by equality and
+any new test moves it. A file list that names a file the work does not touch and omits one red
+line 10 forces is worse than no list: it makes the executor choose between two rules.〕
 
 - [ ] **4.1 Red.** With no backend installed — **the state this checkout is in today** — an
       `EvidenceTask` over a class-(b)/(c) graph returns a capability `Refusal` naming the
@@ -1491,8 +1505,12 @@ fixture.
       unaffected. Assert both halves; the second is what separates a boundary from a
       regression. **This red is only reachable because Task 7 (wave C) has already widened both
       gates** — before that every one of these graphs is refused earlier. Expect FAIL.
-- [ ] **4.2 Implement.** The extras table, the premise, its `_REMEDIES` row, and the import
-      guard. No `pytest.importorskip` on the absence path — the absence path must RUN.
+- [ ] **4.2 Implement.** The extras table, the premise, its `_REMEDIES` row, and the probe.
+      〔Execution write-back: this said "the import guard", which **contradicts 4.4's ruling that
+      the probe must never import the candidate.** There is no import to guard; the probe reads
+      `importlib.metadata` and the guarding is that it does not import. Wave D's review built the
+      bypass this wording invites — falling back to `__import__` when the metadata lookup raises
+      — and it survives the suite.〕 No `pytest.importorskip` on the absence path — the absence path must RUN.
 - [ ] **4.3 The survey, recorded not assumed.** §0.16 carries a planning-time measurement of most
       of this; **re-measure rather than copy it**, and add what §0.16 says is missing. For each
       candidate: installed version, its
@@ -1510,7 +1528,8 @@ fixture.
       pinned `jax` without moving the pin, it is out** — §1.5 condition 2 — and Task 5 scores it
       as failed rather than pretending the comparison is open. **If neither installs, stop:
       Task 5 becomes a written "no candidate passed" and Task 6 does not run.**
-- [ ] **4.6 Stop-rule, run here.** Install each candidate into a scratch copy of the venv and run
+- [ ] **4.6 Stop-rule — IT FIRED. See the ruling below.** Install each candidate into a scratch
+      copy of the venv and run
       `tests/dispatch/test_task_execution.py::test_the_run_record_says_what_actually_ran`.
       §0.16 measured that a global x64 flip turns **two** tests red — that one, and
       `tests/dispatch/test_evidence_task.py::test_a_float32_environment_is_refused_by_name`,
@@ -1518,6 +1537,27 @@ fixture.
       candidate importable reddens the suite, stop and rule** before the bake-off scores it — a
       backend that cannot be installed beside the tests is not a backend this package can adopt,
       whatever it scores on correctness, and repairing R4's shipped gate is not an R5 task.
+
+      〔**Execution write-back, red line 11 (Wave D): the rule FIRED, and was reported as not
+      firing.** Measured on a `git archive` snapshot in isolated venvs — control without
+      blackjax, `1 failed, 3548 passed`; with blackjax 1.6.2 and nothing else changed,
+      `2 failed, 3547 passed`. **Installing the thing the extra exists to install reddens the
+      suite.** The executing session reported "neither fired" because the check it ran was two
+      NAMED TESTS rather than the suite — a check narrower than the claim it was asked to
+      support, which is this batch's founding failure in the instrument that was supposed to
+      catch it.
+
+      **The ruling, given by the plan's owner: repair, do not stop.** This rule exists to catch
+      *a backend this package cannot adopt*, and that is not what fired. The cause is Task 4's own
+      new test deriving its "absent" baseline from the checkout's package set — a test defect. The
+      packaging is confirmed correct independently: the wheel carries both `Provides-Extra` rows,
+      the probe reads the extra back out of an installed wheel, and the two §0.16 tests pass with
+      the candidates installed while the `JAX_ENABLE_X64=1` control reddens them.
+
+      **But it is recorded as FIRED.** "Did not fire" and "fired for a reason that turned out to
+      be ours" are different facts and only the second is true. This also corrects the write-back
+      that argued the rule *could not fire on any input*: it could and did — what could not fire
+      was the narrower reading that was checked.〕
 - [ ] **4.7 Green + lint. 4.8 Commit.** `feat: refuse a residual evidence by name when the optional sampler is absent`
 
 ---
