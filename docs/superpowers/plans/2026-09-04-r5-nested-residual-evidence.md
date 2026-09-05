@@ -2034,6 +2034,37 @@ precisely what a source-tree run cannot check. See §0.9.
     prose beside the enum, the way D107's "derived form, measured coefficient" does. §0.10's
     stop-rule applies to the NEXT one, not this one.〕
   - **D112 — free.** Reserved for the repeated-run stability factor, form per §0.10's ruling.
+
+  〔**Execution write-back, red line 11 (Wave B close-out): D111 needs no registry entry, and
+  the definition of done's item 6 is over-broad as written.** It says D111 "is registered with
+  boundary grids and named fast-layer cells". Measured against the precedent rather than
+  reasoned: `GATE_REGISTRY` holds **113** gates, and the two the evidence layer added are
+  `EVIDENCE:increments_converge:convergent-increment-ratio` (D109) and
+  `EVIDENCE:mass_is_normalised:normalisation-tolerance` (D110). **D107 is not among them.** It
+  appears only in `docs/evidence.md`'s number table and in test prose, and no gate id in the
+  registry contains a D-number at all.
+
+  The line the precedent draws is not "which D-numbers matter" but WHERE THE THRESHOLD LIVES.
+  D109 and D110 are predicates in `src/bayesmith/dispatch/evidence.py`, which is in
+  `SOURCE_PATHS`; the registry exists so that a threshold in shipped source cannot exist without
+  a boundary grid and a mutation. D107 governs a COMPARISON IN A TEST and is registered nowhere.
+  D111 is D107's kind — `AGREEMENT_FLOOR` is in `tests/dispatch/residual_oracle.py`, which the
+  source scan does not walk — so registering it would mean inventing a `SourceAnchor` for a
+  module the census has no opinion about, and moving the 97/212 pins for a gate that guards no
+  shipped code.
+
+  What item 6 is actually asking for, and what Wave B delivered: the band's FORM is derived and
+  its LEVEL is measured, both halves said out loud, with the measurement pinned in both
+  directions by tests rather than by prose — it is four orders above the routes'
+  float-level disagreement (worst 1.95e-14 on `indirect_ancestor`) and seven below the smallest
+  defect it must catch (2e-2 from scaling `dense_operator` by 1.03). `ThresholdProvenance` has
+  no member for a measured statistical level, which is exactly why that sits in prose here and
+  beside D107 in `docs/evidence.md`.
+
+  **If Task 5 consumes D112 for the repeated-run stability factor, this ruling does not
+  transfer.** §0.10 requires that gate to be a real one — a stochastic threshold with no
+  precedent in the registry — and if it lands in `src/` it is D109's kind and needs the grid,
+  the fast-layer cell and the pin updates.〕
 ---
 
 ## What R5 explicitly does not do
@@ -2080,8 +2111,11 @@ precisely what a source-tree run cannot check. See §0.9.
    elimination, every oracle carries a convergence certificate it can fail with its span recorded
    beside every number, the 6.55-nat near-miss is pinned as a regression, and the
    `dense_operator × 1.03` kill is demonstrated;
-6. D111 (and D112 if consumed) are registered with boundary grids and named fast-layer cells,
-   and §0.10's ruling on statistical provenance is written on its own line;
+6. every consumed D-number that is a threshold **in `SOURCE_PATHS` source** is registered with a
+   boundary grid and a named fast-layer cell; every one that governs a **comparison in a test**
+   carries its derived form and its measured level in prose, with the level pinned in both
+   directions by tests — D107's precedent, measured in §D-numbering. D111 is the second kind.
+   §0.10's ruling on statistical provenance is written on its own line;
 7. every wave had an adversarial review in its own worktree that built and ran a bypass, and each
    review's survivors are named individually in the close-out;
 8. R1–R4 schema is unmoved — **no field and no enum member** — `evidence@1` still answers
