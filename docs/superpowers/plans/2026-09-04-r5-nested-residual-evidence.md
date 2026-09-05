@@ -1786,6 +1786,27 @@ whereas a repair equivalent to the old bug on all available inputs **reads as co
 and carries a sincere commit message. What separated them was two fixtures the package does not
 have.〕
 
+15. **A test on a report is not a test on the gate.** Assert at the layer the consumer reads,
+not at the layer that is convenient to call.
+
+〔Added during Wave C. Two of its own tests called `conditional_prior_range_report` **directly**,
+so two mutants that changed the **route** — whether the gate consults the report at all — left
+them green. The report was correct in both cases; nothing was asking the gate. Red line 7 says
+assert the consequence rather than the spelling; this is the same rule one layer out, and it is
+the layer where a guard actually protects something. A report is an intermediate value, and a
+test on an intermediate value grades the calculation, not the decision.〕
+
+16. **A new case defaults to REFUSED, not admitted.** Prefer an allow-list to a deny-list
+wherever an unconsidered value can arrive.
+
+〔Wave C shipped `_RESIDUAL_METHODS_REFUSED`, a deny-list, with a comment claiming a new method
+would be "a KeyError-shaped omission rather than a silent admission". A frozenset membership test
+cannot raise `KeyError`: measured with `method="gcr+newthing"`, the structure refusal returned
+`None` and the graph reached the capability refusal — **silently admitted** the moment a backend
+exists. Replaced with `_RESIDUAL_METHODS_ADMITTED = {"gcr"}`, which also repaired a second false
+message for free. The general form: a deny-list is a claim to have enumerated every bad case, and
+this project has now been wrong about an enumeration in every wave.〕
+
 ---
 
 ## Completion gates: §8 R5's seven, made countable
