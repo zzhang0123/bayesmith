@@ -47,13 +47,27 @@ class ComplexNormal(Distribution):
     prior states. A model needing correlated parts declares two real latents
     and says so.
 
-    ``arg_constraints`` is deliberately EMPTY. numpyro would otherwise check
-    ``loc`` against a real-valued constraint and refuse the one argument this
-    class exists to accept; the checks that matter here -- a positive finite
-    scale, and a ``log_prob`` that agrees with the ``(loc, scale)`` read off
-    the instance -- are made by
+    ``arg_constraints`` is deliberately EMPTY, and re-adding it is wrong
+    whichever entry is chosen. numpyro validates by walking this mapping and
+    calling each constraint on the named attribute, so an entry that rejects a
+    complex ``loc`` refuses the one argument this class exists to accept --
+    measured with ``{"loc": constraints.positive}`` standing in for one:
+    ``ValueError: ComplexNormal distribution got invalid loc parameter``.
+
+    The obvious entry does not reject it and is inert. On numpyro 0.21
+    ``_Real.__call__`` is ``(x == x) & (x != inf) & (x != -inf)``, which
+    ``1+2j`` satisfies, so ``{"loc": constraints.real}`` checks nothing while
+    reading as though ``loc`` were checked. Measured: it passes the whole fast
+    layer, 3637 tests, exit 0.
+
+    The checks that matter here -- a positive finite scale, and a ``log_prob``
+    that agrees with the ``(loc, scale)`` read off the instance -- are made by
     :func:`~bayesmith.exact.gaussian.check_gaussian` against concrete values,
     which is a stronger test than a constraint on construction.
+    ``TestTheDistribution::test_a_complex_loc_survives_construction_under_validation``
+    in ``tests/exact/test_complex.py`` holds the capability rather than the
+    spelling, so the fatal re-add fails there instead of arriving as a
+    tightening.
 
     **NUTS reaches this through a reparameterisation, not through this class.**
     ``to_numpyro`` emits a complex latent as two real sites plus a

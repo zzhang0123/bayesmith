@@ -377,6 +377,33 @@ class TestTheDistribution:
             np.asarray(prior.variance), np.full((2,), 2.0 * PRIOR_STD**2), rtol=1e-6
         )
 
+    def test_a_complex_loc_survives_construction_under_validation(self):
+        """The consequence ``arg_constraints = {}`` exists to have.
+
+        Asserted as the CAPABILITY, not as ``arg_constraints == {}``, so a
+        re-add is judged by what it DOES. numpyro validates by walking
+        ``arg_constraints`` and calling each entry on the attribute, so a
+        constraint that rejects a complex ``loc`` refuses the one argument
+        this class exists to accept. Measured with ``{"loc":
+        constraints.positive}`` standing in for such a constraint:
+        ``ValueError: ComplexNormal distribution got invalid loc parameter``.
+
+        The obvious re-add is ``{"loc": constraints.real}``, and on numpyro
+        0.21 that one is INERT rather than fatal: ``_Real.__call__`` is
+        ``(x == x) & (x != inf) & (x != -inf)``, which a complex number
+        satisfies. So it buys no checking while reading as though it did --
+        and its own source carries an ``XXX: consider to relax this
+        condition``, so the day that definition tightens is the day this
+        assertion is the one that notices.
+        """
+        validated = ComplexNormal(PRIOR_MEAN, PRIOR_STD, validate_args=True)
+        value = jnp.array([1.25 - 0.5j, -0.25 + 1.75j], dtype=jnp.complex64)
+        np.testing.assert_allclose(
+            np.asarray(validated.log_prob(value)),
+            np.asarray(ComplexNormal(PRIOR_MEAN, PRIOR_STD).log_prob(value)),
+            rtol=1e-6,
+        )
+
     def test_draws_are_complex_and_carry_scale_in_each_part(self):
         prior = ComplexNormal(PRIOR_MEAN, PRIOR_STD)
         draws = prior.sample(jax.random.key(1), (8192,))
