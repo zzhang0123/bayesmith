@@ -98,8 +98,17 @@ class _RaisingFinder:
     ANSWER does.
     """
 
+    def __init__(self, names=None):
+        #: Which distributions this finder refuses to answer about. ``None``
+        #: means all of them; a set lets the refusal path keep working for
+        #: everything that is not the subject of the test.
+        self.names = names
+
     def find_distributions(self, context=None):
-        raise OSError("the metadata backend could not be read")
+        wanted = getattr(context, "name", None)
+        if self.names is None or wanted in self.names:
+            raise OSError("the metadata backend could not be read")
+        return ()
 
     def find_spec(self, fullname, path=None, target=None):
         return None
@@ -362,6 +371,44 @@ def test_a_poisoning_distribution_is_reported_installed_and_never_executed(tmp_p
         sys.modules.pop(name, None)
         importlib.invalidate_caches()
         jax.config.update("jax_enable_x64", before)
+
+
+def test_the_refusal_itself_says_the_lookup_declined_rather_than_saying_absent():
+    """Red line 15: the same three states, asked at the layer a caller reads.
+
+    **This test exists because its absence was measured.** The sibling below
+    calls ``optional_extra_status`` directly, and with only that one,
+    ``_extras_sentence``'s UNKNOWN branch was reachable by nothing: a mutant
+    rewriting that branch to print the ABSENT text survived the whole file --
+    142 passed, exit 0. A report is an intermediate value, and a test on an
+    intermediate value grades the calculation rather than the decision.
+
+    So the metadata backend is broken for exactly the residual-evidence
+    distributions -- everything else still resolves, so `compile_task` runs
+    normally -- and the REFUSAL is read.
+    """
+    from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS, install_command
+
+    subjects = {distribution for _extra, distribution in RESIDUAL_EVIDENCE_EXTRAS}
+    finder = _RaisingFinder(subjects)
+    sys.meta_path.insert(0, finder)
+    try:
+        with jax.enable_x64(True):
+            message = _refuse(_graph("c_cauchy_residual_pair")).grounds[0].message
+    finally:
+        sys.meta_path.remove(finder)
+
+    for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS:
+        assert f"whether the {extra} extra is installed could not be" in message, (
+            f"the refusal reported {extra!r} as though the lookup had happened"
+        )
+        assert install_command(extra) not in message, (
+            f"the refusal told a caller to install {extra!r} on the strength of "
+            f"a lookup that never completed"
+        )
+    assert "OSError" in message, (
+        "a declined lookup that does not say why is a second silence"
+    )
 
 
 def test_a_probe_that_could_not_look_says_so_rather_than_saying_absent():
