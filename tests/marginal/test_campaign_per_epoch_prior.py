@@ -249,13 +249,21 @@ def test_a_scalar_mean_beside_a_vector_width_is_refused():
     sees it; both halves were false, and the traceback assertion below is here
     so that a repeat is a failure rather than a sentence.
 
-    The assertion does not read the message. JAX spells it
-    ``input type=float32[4]`` or ``float64[4]`` depending on when the trace ran,
-    so ``match="[Bb]roadcast"`` was satisfied by any broadcast error anywhere in
-    the call -- the guard-reads-a-spelling pattern this repository documents.
-    What is asserted instead: the refusal comes from OUR frame, and the same
-    model written with an explicit vector mean compresses and is correct. That
-    makes this a limitation of one SPELLING rather than of the model.
+    The assertion does not read the message. An earlier version of this
+    docstring said JAX prints ``float32[4]`` or ``float64[4]`` "depending on
+    when the trace ran". That was a guess written to explain a real
+    observation, and it is false: measured twice, deterministically, the dtype
+    tracks WHERE the array was built -- outside ``jax.enable_x64`` gives
+    float32, inside it or a plain Python tuple gives float64.
+
+    The guard was loose in two ways rather than one. ``match="[Bb]roadcast"``
+    reads a third-party message, AND at least four of this package's own
+    refusals say "broadcast" too (``graph/graph.py:147``,
+    ``diagnose/local.py:137``, ``diagnose/sensitivity.py:605``,
+    ``exact/precision.py:421``), so an unrelated first-party failure satisfies
+    it as well. What is asserted instead: the refusal comes from OUR frame, and
+    the same model written with an explicit vector mean compresses and is
+    correct. That makes this a limitation of one SPELLING, not of the model.
     """
     with jax.enable_x64(True):
         taus = jnp.asarray(HETEROGENEOUS)
@@ -364,38 +372,60 @@ def test_the_fold_is_still_flat_in_the_campaign_length():
             )
 
 
-def test_a_declared_width_far_below_the_noise_is_not_refused_and_not_reliable():
+def test_a_prior_mean_over_a_tiny_width_is_not_refused_and_not_reliable():
     """A DISCLOSURE, not a contract. The limit is recorded so it is countable.
 
-    The square-root form carries the declared width `s` alongside the noise
-    `sigma`. Once `s/sigma` falls below `sqrt(eps)` the epoch's declared width
-    stops being representable beside its noise, and below that the returned
-    number degrades with no refusal of any kind. Measured on this machine, a
-    four-epoch campaign whose LAST epoch declares the width:
+    An earlier version of this docstring named the WIDTH as the controlling
+    quantity and ``s**2`` underflowing to zero as the mechanism. Both were
+    invented to explain a real observation, and both are false:
 
-    ======== =============== ===========
-    width    relative error  verdict
-    ======== =============== ===========
-    1e-4     5.8e-14         usable
-    1e-8     1.7e-09         usable
-    1e-12    6.9e-06         degraded
-    1e-16    5.7e-02         wrong
-    1e-300   --              ``-inf``
-    ======== =============== ===========
+    * Nothing on this path squares ``s``. ``nuisance_prior`` writes ``1/s``
+      into the factor and ``m/s`` into the target (``marginal/compress.py``);
+      the only ``**2`` there is on the NOISE sigma.
+    * ``s**2`` is already exactly 0.0 at ``s = 1e-200``, where the route
+      returns a finite number, and ``s = 1e-307`` is finite again while
+      ``1e-300`` is ``-inf``. An underflow story cannot be non-monotonic.
+    * The controlling quantity is the prior MEAN. With ``m = 0`` and nothing
+      else changed, every width down to ``1e-307`` is exact to about one ulp.
+      The error law is ``eps * |m| / s``, so a floor on ``s`` alone cannot
+      separate the good cells from the bad.
+
+    The mechanism is catastrophic cancellation of the ``m/s`` target entry
+    inside ``SqrtInfo.combine``'s QR: at ``s = 1e-300`` the retained target
+    comes back as rounding noise of size ``(m/s) * eps``, and ``log_prob``
+    squares it to ``inf``.
+
+    Measured here, a four-epoch campaign whose LAST epoch declares the width:
+
+    ========= ================== ================
+    width     rel err, m = 0.4   rel err, m = 0
+    ========= ================== ================
+    1e-8      1.7e-09            0.0
+    1e-12     6.9e-06            1.7e-16
+    1e-16     5.7e-02            8.4e-16
+    1e-200    6.4e-02            1.9e-15
+    1e-300    ``-inf``           8.9e-15
+    ========= ================== ================
 
     **The failure PRE-DATES the repair** -- the homogeneous all-``1e-300``
     campaign is ``-inf`` at both commits, because the old code used epoch 0's
-    width everywhere. What the repair changes is that the tiny width is now
-    reachable from any of the E slots rather than only the first. Asserted here:
-    the good side agrees, and the far side is not finite. The DERIVED part is
-    that `s**2` underflows to zero for `s = 1e-300` in any IEEE double, which is
-    arithmetic rather than a BLAS choice; the intermediate percentages in the
-    table are this machine's and are not asserted.
+    width everywhere. The repair only makes it reachable from any of the E
+    slots rather than the first.
 
-    Refusing a width below a stated floor would change published behaviour for
-    callers whose `1e-12` is usable today, so it is an owner decision and not
-    this test's business. The test's business is that the limit stops being
-    invisible.
+    **Why nothing is refused or repaired here.** Recentring the prior (folding
+    ``A m`` into the offset) makes this column exact and introduces its OWN
+    unbounded law at large ``|m|`` and large ``s``: against an exact Fraction
+    oracle at ``m = s = 2**60`` the shipped route is 1.4e-14 out and the
+    recentred one 3.7e+05. Neither origin dominates -- over a 7x7 sweep the
+    shipped route wins 15 cells and the recentred one 21 -- so this is a
+    dispatcher with two valid regions, not a substitution, and this repository
+    has a written method for those (agree at the threshold, sweep the
+    extremes). Until that grid exists, changing the arithmetic would move the
+    failure rather than remove it.
+
+    Asserted: the good side agrees, the far side is not finite, and ``m = 0``
+    is exact at every width. Only the last is derived -- ``m = 0`` removes the
+    ``m/s`` entry entirely. The percentages are this machine's.
     """
     with jax.enable_x64(True):
         usable = compress_campaign(_campaign((0.5, 1.0, 2.0, 1e-4)), "epoch")
@@ -407,10 +437,24 @@ def test_a_declared_width_far_below_the_noise_is_not_refused_and_not_reliable():
             term = compress_campaign(_campaign(widths), "epoch")
             answer = float(term.log_prob({"g": jnp.asarray(0.0)}))
             assert not math.isfinite(answer), (
-                f"a width of 1e-300 returns {answer}; if this ever becomes "
-                f"finite the limit has moved and the table above is stale"
+                f"a width of 1e-300 beside a prior mean of {PRIOR_MEAN} "
+                f"returns {answer}; if this becomes finite the limit has moved"
             )
             assert math.isfinite(_dense(0.0, widths)), (
                 "the dense oracle answers where the implementation does not, "
                 "which is what makes this a limit rather than a singularity"
+            )
+
+        # The discriminator. If the WIDTH were the controlling quantity these
+        # would degrade too; they are exact, which is what refutes a floor on s.
+        centred = (0.0,) * EPOCHS
+        for width in (1e-8, 1e-16, 1e-200, 1e-300, 1e-307):
+            widths = (0.5, 1.0, 2.0, width)
+            term = compress_campaign(_campaign(widths, centred), "epoch")
+            answer = float(term.log_prob({"g": jnp.asarray(0.0)}))
+            assert answer == pytest.approx(
+                _dense(0.0, widths, centred), rel=1e-13
+            ), (
+                f"at prior mean 0, a width of {width:.0e} is exact; if this "
+                f"fails the law is not eps*|m|/s and the table above is stale"
             )
