@@ -508,6 +508,18 @@ only ever tested with the extra present has never tested the refusal**, and a wh
 tested without it has never tested the adapter. Task 4 builds both, and Task 10 confirms
 `publish.yml` runs both before the close-out claims the built-wheel gate.
 
+〔**Measured by Wave D, and recorded here because it lives nowhere else** (red line 18). The wheel
+was built and its metadata read: it declares `Provides-Extra: blackjax` and `Provides-Extra:
+jaxns` with the matching `Requires-Dist` markers, and the four hard dependencies are unchanged.
+So `pip install "bayesmith[blackjax]"` — **the exact string the capability refusal hands a
+caller** — is satisfiable by the built artefact and not merely by the source tree.
+
+**Nothing asserts that today.** A refusal whose remedy is an install command is only as good as
+the command, and the command is a claim about a wheel that no test in this repository builds.
+Wave D declined to add a wheel build to the fast layer, which is right — it belongs in
+`publish.yml`, and that is Task 10's. **Task 10 owes the assertion, not a repeat of the
+measurement.**〕
+
 > **Note the ordering trap.** `numpyro` is a hard dependency here, not an extra — the pyproject
 > comment says it is "the last row of the dispatch table, not an optional extra". So the two
 > existing `pytest.importorskip` sites (both under `tests/crosscheck/`, guarding the sibling
