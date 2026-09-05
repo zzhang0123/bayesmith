@@ -1618,16 +1618,32 @@ precisely what a source-tree run cannot check. See §0.9.
 
 ## D-numbering and probe numbering
 
-- **Probes:** `probe_34_residual_seams.py` (Task 1), `probe_35_backend_survey.py` (Task 4),
-  `probe_36_backend_bakeoff.py` (Task 5). Highest existing is `probe_33`; **`probe_32` was
-  reserved and never written** — the manifest-generator spike shipped as
-  `tools/sync_source_manifest.py` instead — and it stays unused rather than being recycled.
-- **D-numbers:** highest registered is **D110**, confirmed against
-  `tests/numerical_gates/registry.py` rather than against the docs. R5 declares **D111** (the
-  residual-oracle agreement band, derived form) and **D112** (the repeated-run stability factor,
-  form per §0.10's ruling). **D113–D115 reserved, expected consumption 0.** The
-  likelihood-evaluation budget, the seed set and the five component names are fixtures and
-  derivations, not thresholds, and are not numbered. Magic-number target: 0.
+- **Probes:** `probe_34_residual_seams.py` (Task 1), **`probe_35_oracle_dimension.py` (Task 2)**,
+  `probe_36_backend_survey.py` (Task 4), `probe_37_backend_bakeoff.py` (Task 5). Highest existing
+  is `probe_33`; **`probe_32` was reserved and never written** — the manifest-generator spike
+  shipped as `tools/sync_source_manifest.py` instead — and it stays unused rather than being
+  recycled.
+
+  〔**Execution write-back, red line 11 (Wave B).** This plan gave `probe_35` to Task 4 and
+  `probe_36` to Task 5, and did not foresee Task 2 needing a probe at all. Task 2's executing
+  session took `probe_35` for the oracle-dimension sweep, which is the right number for the
+  order the work actually ran in; Tasks 4 and 5 shift up by one. Recorded here rather than
+  renamed there, because the file exists and the plan is what was wrong.〕
+
+- **D-numbers:** highest registered was **D110**, confirmed against
+  `tests/numerical_gates/registry.py` rather than against the docs. R5 declares **D111** and
+  **D112**; **D113–D115 reserved, expected consumption 0.** The likelihood-evaluation budget, the
+  seed set and the five component names are fixtures and derivations, not thresholds, and are not
+  numbered. Magic-number target: 0.
+
+  - **D111 — CONSUMED (Task 2).** The residual-oracle agreement band, `1e-9` relative.
+    〔The plan pre-authorised D111, so red line 8 has not fired. **What still has to be on the
+    registry line is which half is derived and which is measured**: `ThresholdProvenance` has
+    exactly five members — `derived`, `borrowed`, `magic`, `exact_or_domain`, `api_contract` —
+    and none of them is a statistical category, so a level that was measured must say so in the
+    prose beside the enum, the way D107's "derived form, measured coefficient" does. §0.10's
+    stop-rule applies to the NEXT one, not this one.〕
+  - **D112 — free.** Reserved for the repeated-run stability factor, form per §0.10's ruling.
 ---
 
 ## What R5 explicitly does not do
