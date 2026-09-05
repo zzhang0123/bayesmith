@@ -465,3 +465,48 @@ def test_where_each_new_fixture_sits_in_the_structural_taxonomy():
         seen["undeclared_quartet"],
         after_task_7,
     )
+
+
+#: The slope sweep ``mixture_prior_residual``'s docstring states, re-measured on
+#: this tree. **It is here because two of the numbers it replaced were false and
+#: nothing could have noticed** -- nothing in the suite read the sweep, so a row
+#: transcribed from a design agent's report without being re-run sat in the
+#: docstring for two commits. The 0.15 row claimed a 0.625/0.375 split; the true
+#: split there is 0.5679/0.4321, and 0.625/0.375 is reached at slope 0.110894.
+MIXTURE_SLOPE_SWEEP = (
+    # slope, lower weight, valley/lower, valley/upper
+    (0.05, 0.7066, 1144.6, 333.7),
+    (0.15, 0.5679, 880.4, 470.3),
+    (0.24, 0.4315, 697.8, 645.4),
+    (0.36, 0.2663, 514.6, 995.6),
+)
+
+
+@pytest.mark.parametrize(("slope", "weight", "lower", "upper"), MIXTURE_SLOPE_SWEEP)
+def test_the_slope_sweep_is_measured_rather_than_asserted(slope, weight, lower, upper):
+    """``slope`` buys BALANCE, not the second mode -- and the sweep is now read.
+
+    The claim the fixture rests on is that tuning ``slope`` moves how evenly the
+    two modes are weighted while leaving both modes standing. That needs the
+    whole sweep, not the default: at the default alone, a fixture that had only
+    one mode for every other slope would look identical.
+
+    Both valley ratios are checked, because "the valley ratio" is two numbers and
+    only the smaller one bounds the multimodality. The tolerances are loose on
+    purpose -- these are peak locations read off a discrete grid, and pinning
+    them tighter would pin the grid rather than the model.
+    """
+    with jax.enable_x64(True):
+        graph = as_graph(rm.mixture_prior_residual(slope=slope))
+        marginal, axis = _mixture_marginal(graph)
+        total, terms = rm.mixture_prior_residual_log_evidence(slope=slope)
+    rising = np.diff(marginal) > 0
+    turns = np.flatnonzero(rising[:-1] != rising[1:]) + 1
+    assert len(turns) == 3, (slope, axis[turns])
+    low, valley, high = (int(index) for index in turns)
+
+    assert float(np.exp(terms - total)[0]) == pytest.approx(weight, abs=5e-5)
+    assert marginal[low] / marginal[valley] == pytest.approx(lower, rel=1e-3)
+    assert marginal[high] / marginal[valley] == pytest.approx(upper, rel=1e-3)
+    # The second mode survives every row: the SMALLER ratio is what says so.
+    assert min(lower, upper) > 300.0, (slope, lower, upper)

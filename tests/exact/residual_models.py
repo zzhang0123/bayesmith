@@ -103,18 +103,41 @@ def mixture_prior_residual(**overrides):
 
     with ``A = [X | 1]``. Nothing is sampled to get it.
 
-    **Measured on this checkout** (macOS/Accelerate, float64, 1751x1751 grid over
-    ``w`` in (-8, 9.5) and ``b`` in (-7.5, 9)): the ``w`` marginal peaks at
-    -1.620 and +1.940, carrying 0.4316 and 0.5684 of the mass, with a valley at
-    -0.120 whose density is 698x below the lower mode and 646x below the upper.
-    The two are 9.2 lower-mode standard deviations apart. The grid's mass split
-    and the closed form's own per-component weights agree to 2.8e-05, so the two
-    agree about the SHAPE and not only about the total -- a closed form that got
-    the total right by cancelling two wrong terms would disagree there.
+    **Measured on this checkout** (macOS/Accelerate, float64) on the 801 x 401
+    grid over ``w`` in (-8, 9.5) and ``b`` in (-7.5, 9) that
+    ``test_residual_fixtures._mixture_marginal`` actually builds: the ``w``
+    marginal peaks at -1.613 and +1.953, with a valley at -0.125 whose density is
+    697.8x below the lower mode and 645.4x below the upper. The two peaks are
+    3.566 apart, which is 9.20 lower-mode standard deviations. The grid puts
+    0.431527 of the mass below the valley against the closed form's own component
+    weight of 0.431502 -- they agree to 2.5e-05, so the two agree about the SHAPE
+    and not only about the total, which is the check the total alone cannot make.
 
-    ``slope=0.24`` is tuned, and only for BALANCE: swept at 0.05, 0.15 and 0.36
-    the split reads 0.707/0.293, 0.625/0.375 and 0.266/0.734 while the valley
-    ratio stays between 335x and 646x. The second mode survives all of them.
+    ``slope=0.24`` is tuned, and only for BALANCE. Swept, with BOTH valley ratios
+    named because "the valley ratio" is two numbers and the smaller is the one
+    that bounds the multimodality:
+
+    ======  ===============  ============  ============
+    slope   split            valley/lower  valley/upper
+    ======  ===============  ============  ============
+    0.05    0.7066 / 0.2934        1144.6         333.7
+    0.15    0.5679 / 0.4321         880.4         470.3
+    0.24    0.4315 / 0.5685         697.8         645.4
+    0.36    0.2663 / 0.7337         514.6         995.6
+    ======  ===============  ============  ============
+
+    The second mode survives every row -- the smaller ratio never falls below
+    333.7 -- so the tuning buys balance and not the second mode.
+
+    〔**Two of these numbers were false and a second adversarial review caught
+    them.** The sweep's 0.15 row read ``0.625/0.375``; it is ``0.5679/0.4321``,
+    and 0.625/0.375 is reached at ``slope = 0.110894``. The mass split read
+    ``0.4316 / 0.5684``; both printed digits were wrong in the last place. They
+    came from a design agent's report and I transcribed them without re-running
+    those particular rows, having re-measured the closed form and the gap myself
+    -- which is the whole of the lesson, since nothing in the suite read the
+    sweep and so nothing could have noticed. ``test_the_slope_sweep_is_measured``
+    now reads it.〕
 
     **No seed.** ``data`` is exactly ``slope * X + offset``. The closed form is
     exact for any data but the mass split is not, so a noise draw would make the
