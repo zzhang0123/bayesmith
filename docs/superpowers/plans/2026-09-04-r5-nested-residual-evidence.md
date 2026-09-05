@@ -1051,6 +1051,26 @@ Accelerate). They are **inputs to Task 5's bake-off, not its verdict.** Task 5 r
 one of them and adds the measurements that would actually separate the two, which have not been
 made. Nothing here pre-selects a backend, and §0.5's "no candidate passed" branch stays live.
 
+〔**Execution write-back, red line 11 (Wave D). Four of this section's measurements did not
+reproduce, and the reason is instructive in three of the four cases: they are properties of the
+ENVIRONMENT the measurement was taken in, recorded as properties of the package.**
+
+* **Package counts are 3 and 16, not 4 and 19.** How many packages an install *adds* depends on
+  what is already present, so the number belongs to the base environment and not to the
+  candidate. Re-measured in throwaway copies of this repo's environment.
+* **jaxns declares `jax>=0.6.0`.** §0.16 recorded no bound for it. A bound that exists and a
+  bound that was not looked for are different findings, and only the second was written down.
+* **`tfp_nightly` resolved to `dev20260905` — it moved overnight.** Which is not a contradiction
+  but a confirmation: §0.16's own argument against jaxns is that an unbounded nightly is not
+  pinnable, and the number changing between two consecutive days is that argument measured
+  rather than asserted.
+* **Three of Wave B's five fixtures are class (b), not two.** That count came from THIS session
+  and it was wrong: the census filter treated `**overrides` as a required argument, because a
+  `VAR_KEYWORD` parameter has no default, and so dropped `mixture_prior_residual` — which is
+  class (b) with `exact=('b',)`, `method="gcr"`, `sampled=('w',)`. Third time in this batch that
+  a census of mine dropped a row; the first two dropped them silently, this one named the drop
+  and the reason it gave was wrong. **A named drop is not a correct drop.**〕
+
 **Both install beside this repo's installed `jax`, and both coexist.** `jax` stays at `0.11.1` in
 every case. 〔"Pin" is the wrong word and this plan used it: `pyproject.toml` declares
 `jax>=0.5`, an open lower bound. 0.11.1 is what is **installed here**, not what is pinned — so
@@ -1059,8 +1079,8 @@ question this measurement does not answer.〕
 
 | | blackjax 1.6.2 | jaxns 2.6.9 |
 |---|---|---|
-| packages added | **4** — itself plus absl-py, optax, typing-extensions | **19** (incl. matplotlib, dm-tree, contourpy, pillow) |
-| declared `jax` bound | `>=0.9.0`, no upper cap | no downgrade observed |
+| packages added | **3** (4 in the planning environment) | **16** (19 in the planning environment) |
+| declared `jax` bound | `>=0.9.0`, no upper cap | **`>=0.6.0`** — §0.16 first recorded none |
 | heavy dependency | none | **`tfp_nightly`, unbounded** |
 | entry point | `blackjax.nss` (nested slice sampling) | its own `Prior`/`Model` DSL over a unit hypercube |
 | termination condition | **none — the caller writes the loop** | 11-field `TerminationCondition`, 12-bit `termination_reason` |
