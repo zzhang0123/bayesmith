@@ -862,8 +862,35 @@ data-dependent prior 或隐式截断"* — an implicit truncation is a thing tha
 meaningless. §0.4's earlier draft performed exactly that truncation and did not record it, which
 is how a pinned twelve-digit number can be an integral over a support nobody declared.
 
-**So the restatement:** for the residual route, propriety is a property of the **residual block's
-joint prior, factorised along the graph** — each residual latent's conditional density given its
+〔**Execution write-back, red line 11 (Wave C). This ruling named the wrong block, and the
+working half of its own reasoning is the half the conclusion dropped.** Measured over its four
+named targets — which latent the audit actually refuses, and which block holds it:
+
+| fixture | refused latent | block |
+|---|---|---|
+| `diamond_ancestor` | `x` | **EXACT** |
+| `indirect_ancestor` | `x` | **EXACT** |
+| `shared_ancestor` | `x` | **EXACT** |
+| `three_latent_chain` | `x` | residual |
+
+**Three of the four carry the offending latent in the EXACT block**, so a rule about "the residual
+block's joint prior" addresses the wrong half for the majority of the cases it was written to
+admit. The paragraph above gets it right — *"the exact block's prior is a conditional density, and
+R4's assembly already integrates it in closed form at each value of the residual parameters"* —
+and then the conclusion drops exactly that clause. The conclusion was right about the outcome and
+wrong about the reason, which is the harder error to notice because the fixtures still pass.
+
+**Two further corrections from the same wave.** The restatement is **unimplementable where the
+audit runs**: the audit is pre-compile and has no partition to factorise along, and moving it to
+where one exists turns `lying_block_member`'s Refusal into a raised `StructureError`. What
+shipped is the **graph's** factorisation, not the residual block's. And **class (b) has two
+shapes**: `overflowing_outside_latent` and `mixture_prior_residual` are root-only, so the
+restatement has nothing to do with their admission at all.〕
+
+**So the restatement, corrected:** propriety for the residual route is a property of the
+**graph's** factorisation — each latent's conditional given its parents, whichever block holds it
+— and the clause that does the work is that **an exact-block latent's prior is a conditional
+density integrated in closed form at each residual value** — each residual latent's conditional density given its
 residual-block parents, with the block's roots audited by R4's existing one-dimensional rule. A
 latent whose parents lie inside the residual block is admitted through its conditional; a latent
 whose prior is genuinely improper (`improper_outside_prior`'s `z`) is refused exactly as today.
@@ -893,8 +920,16 @@ inside a traced sampler loop is a **runtime abort**. Three consequences:
 * it **aborts rather than returning a `Refusal`**, so R5's gate gets an exception where §4.4
   requires a statistical boundary to be a filable refusal.
 
-**So Task 7's stop-rule is written the strong way: conditional propriety is verified over a
-DECLARED range of the residual parameters, not at the points the sampler happens to visit**, and
+〔**Execution write-back, red line 11 (Wave C): no coordinate on τ separates a proper conditional
+from a degenerate one.** At `τ = 0`, `shared_ancestor` is degenerate and `three_latent_chain` is
+ordinary — the same τ, opposite verdicts. A declared *range* therefore cannot be the check, for
+the same reason the `|m|/s` ceiling could not be: **a parameter that indexes one fixture's failure
+is not a coordinate for the region.** That is now the second time this plan has made that move,
+and the second time a session running it caught it. What shipped reads the **density** instead,
+and what it cannot see is **recorded rather than gated** — the same resolution Wave B reached.〕
+
+**So Task 7's stop-rule, corrected: conditional propriety is verified by reading the density, and
+what the check cannot see travels with the result**, and
 a violation inside that range produces a `Refusal`, not an `eqx.error_if` abort. R4 never met
 this because class (a) has no τ to vary.
 
@@ -1099,8 +1134,17 @@ evidence gate lives entirely in `evaluation/evidence.py`.
 
 ### 0.20 The restatement removes the exact block from the audit, and one line has to put it back
 
-**Ruling.** Task 7.2 asserts that **every exact-block latent with no residual-block parent still
-passes R4's one-dimensional rule.** §0.15's restatement audits the residual block's joint prior
+**Ruling — WITHDRAWN, and it was false of the fixtures it is about.**
+〔Execution write-back, red line 11 (Wave C). Measured: R4's rule short-circuits at
+`if tuple(node.parents): ... continue` (`dispatch/evidence.py:956`) and **never reaches the
+density this section's reasoning describes**. So "still passes R4's one-dimensional rule" is not
+a statement about the latents in question — the rule does not evaluate them. The hole this
+section worried about is closed by `check_gaussian`, which answers earlier and **symmetrically**:
+the posterior task raises on the same graph, which is the asymmetry test §2.2 asks for, in the
+one direction that matters. The original ruling read as follows and is kept for the record.〕
+
+**Superseded ruling.** Task 7.2 asserts that **every exact-block latent with no residual-block
+parent still passes R4's one-dimensional rule.** §0.15's restatement audits the residual block's joint prior
 and says nothing about the exact block's own root priors, which R4 audited.
 
 **Why this is a ruling and not a bug report.** The hole is **currently unreachable, and by
@@ -1437,8 +1481,15 @@ fixture.
 - [ ] **7.3 Red, conditional propriety over a declared range.** `p(x | τ)` must be proper across a
       **declared range of τ**, checked before the sampler runs, and a violation inside that range
       is a `Refusal`. Build the bypass: a prior that diverges only in a corner of τ-space, and
-      show that today it either escapes entirely or surfaces as an `eqx.error_if` abort from
-      `collapse.py:224` rather than as a filable refusal (§0.15). §4.4 requires a statistical
+      show what today actually does. 〔**Execution write-back: today's behaviour is worse than
+      this plan recorded.** The guard was described as an `eqx.error_if` abort, objectionable
+      only for being an exception where §4.4 requires a Refusal. Built as a bypass and run: **it
+      does not abort.** `marginal_log_density` returns `-inf` **silently**, because
+      `pivots_constrain_block`'s floor is *relative* over the joint prior-and-data information —
+      the data still constrains the block however improper the prior is. And `-inf` is the value
+      §0.1 records as **unrepresentable** in `log_evidence`. So the failure is not "an exception
+      where a refusal belongs"; it is a finite-looking pipeline producing a number the schema
+      cannot carry.〕 §4.4 requires a statistical
       boundary to be a Refusal, not an exception. Expect FAIL.
 - [ ] **7.4 Red, structure.** Rows (b) and (c) of §0.3 reach the adapter; row (d) refuses under a
       **new premise of its own** rather than `evidence_residual_integral_required`, whose message
@@ -1724,6 +1775,17 @@ have.〕
 | G5 | optional dependency 缺失时清晰拒绝，不破坏核心安装 | the extra absent — CI's default — an `EvidenceTask` refuses by name and a `PosteriorTask` on the same graph is unaffected; built-and-run, not mocked |
 | G6 | 不稳定的重复估计不能通过 evidence gate | `n ≥ 3` seeds; a run whose spread exceeds its reported `standard_error` by the declared factor FAILs `evidence@2`; the asymmetry of §0.8 asserted in both directions |
 | G7 | EvidenceResult 可用于 posterior reconstruction 和比较报告 | `WeightedDrawsPosterior` populated with `log_weights`, `ess`, `khat` — from `finalise()`+`sample()`, **never from live particles**, which are the highest-likelihood mode (§0.16); a Bayes factor between a residual evidence and an exact one carries the sampled side's error bar |
+
+**A repository defect found by Wave C, for Task 10 to place.** `tests/test_readme_count.py`
+shells out with `sys.executable` and **no `PYTHONPATH`**, so **inside a git worktree a bare
+`python` resolves `bayesmith` to the shared checkout at `/Users/zzhang/projects/bayesmith/src`,
+not to the worktree.** It therefore collects the worktree's tests against the *other* checkout's
+source, and errors on any symbol the branch adds. Same family as the ruff cache: a result that
+cannot distinguish "the count is wrong" from "the check measured the wrong tree". It matters now
+because every adversarial review in this batch runs in a worktree. `CLAUDE.md` is where it
+belongs, and `CLAUDE.md` cannot move without its `AGENTS.md` twin under red line 12, so Task 10
+carries it.
+
 
 Plus the four shared gates R1–R4 used: source full suite, `ruff check --no-cache`, built-wheel
 suite, rheplicant consumer gate. **R4 skipped the last two because it was not a release; R5
