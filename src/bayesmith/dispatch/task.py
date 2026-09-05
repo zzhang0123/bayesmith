@@ -1381,7 +1381,12 @@ def _evidence_conditional_prior_refusal(
     if report.degenerate:
         latent, parents, values, verdict = report.degenerate[0]
         at = ", ".join(
-            f"{name} = {value:.6g}"
+            f"{name} = "
+            + (
+                f"{value[0]:.6g}"
+                if len(value) == 1
+                else "(" + ", ".join(f"{component:.6g}" for component in value) + ")"
+            )
             for name, value in zip(parents, values, strict=True)
         )
         return _refusal(

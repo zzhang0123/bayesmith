@@ -1030,8 +1030,14 @@ class ConditionalPriorRange:
     at_points: tuple[tuple[str, tuple[tuple[float, ...], ...]], ...]
     #: ``(latent, parents, values, verdict)`` for every cell whose conditional
     #: was not a proper density. EVERY cell: a report that kept only the first
-    #: could not be told from one that kept them all.
-    degenerate: tuple[tuple[str, tuple[str, ...], tuple[float, ...], str], ...]
+    #: could not be told from one that kept them all. ``values`` carries each
+    #: pinned parent's FULL raveled probe rather than its first component --
+    #: measured, a plated parent whose declared centres vary across the plate
+    #: is probed at ``(0.5, 4.5, 8.5, 12.5)``, and quoting ``0.5`` names one
+    #: element of the cell as though it were the cell.
+    degenerate: tuple[
+        tuple[str, tuple[str, ...], tuple[tuple[float, ...], ...], str], ...
+    ]
     #: ``(latent, reason)`` for a conditional the sweep could not cover at all.
     unresolved: tuple[tuple[str, str], ...]
 
@@ -1215,7 +1221,11 @@ def conditional_prior_range_report(graph: Graph) -> ConditionalPriorRange:
                         child,
                         parents,
                         tuple(
-                            float(np.asarray(pin).ravel()[0]) for pin in combination
+                            tuple(
+                                float(component)
+                                for component in np.asarray(pin).ravel()
+                            )
+                            for pin in combination
                         ),
                         verdict.value,
                     )

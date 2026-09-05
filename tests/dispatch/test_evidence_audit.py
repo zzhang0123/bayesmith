@@ -26,11 +26,12 @@ import numpyro.distributions as dist
 import pytest
 
 from bayesmith import compile as bayesmith_compile
-from bayesmith import const, det, observe, sample, trace
+from bayesmith import const, det, observe, plate, sample, trace
 from bayesmith.diagnose.priors import JeffreysPrior
 from bayesmith.dispatch.evidence import (
     PriorAudit,
     PriorVerdict,
+    _prior_centre,
     audit_graph_priors,
     audit_prior,
     conditional_prior_range_report,
@@ -1304,6 +1305,11 @@ class TestWhatTheAdversarialReviewFoundSurviving:
         Here the residual latent ``x`` is quadratic (so it stays residual) and
         a SECOND latent ``y`` is linear (so an exact block exists beside it).
         """
+        from bayesmith import compile_task
+        from bayesmith.artifacts.refusal import Refusal
+        from bayesmith.artifacts.tasks import EvidenceTask, new_task_meta
+        from tests.dispatch.test_task_protocol import model_ref
+
         with jax.enable_x64(True):
             graph = trace(_class_b_corner())
             plan = bayesmith_compile(graph)
@@ -1312,7 +1318,18 @@ class TestWhatTheAdversarialReviewFoundSurviving:
                 "them the test is asserting nothing"
             )
             report = conditional_prior_range_report(graph)
+            # Through the TASK, not only through the report. The first version
+            # of this test called the report directly and a mutant guarding the
+            # gate with `if runtime.exact is None` survived it -- the report was
+            # right and nothing asked whether the route consulted it.
+            outcome = compile_task(
+                graph,
+                EvidenceTask(meta=new_task_meta(label="z")),
+                model_ref=model_ref(),
+            )
         assert report.degenerate
+        assert isinstance(outcome, Refusal)
+        assert outcome.failed_premise == "evidence_conditional_prior_proper"
 
     def test_a_non_normal_conditional_is_read_rather_than_waved_through(self):
         """K3: every conditional in the corpus is a ``Normal``, so a rule that
@@ -1337,6 +1354,128 @@ class TestWhatTheAdversarialReviewFoundSurviving:
             audit = audit_prior(dist.Normal(jnp.zeros(3), 1.0), latent="w")
         assert audit.verdict is PriorVerdict.UNVERIFIABLE
         assert "one dimension" in audit.reason
+
+    def test_a_plated_parents_whole_probe_is_recorded_not_its_first_element(self):
+        """K2: every conditioned latent and every swept parent in the corpus is
+        scalar, so ``ravel()[0]`` and ``ravel()[-1]`` name the same number
+        everywhere and a mutant swapping them survived the whole suite.
+
+        A plated parent whose declared centres vary across the plate separates
+        them: the probe is ``(0.5, 4.5, 8.5, 12.5)`` and quoting ``0.5`` names
+        one element of the cell as though it were the cell.
+        """
+        with jax.enable_x64(True):
+            report = conditional_prior_range_report(trace(_plated_parent_corner()))
+        assert report.degenerate, "the plated parent drives an infinite width"
+        _latent, parents, values, _verdict = report.degenerate[0]
+        assert parents == ("tau",)
+        assert len(values) == 1
+        assert len(values[0]) == 4, (
+            f"the cell has to carry the whole probe, not one component of it; "
+            f"got {values[0]}"
+        )
+        assert values[0][0] != values[0][-1], (
+            "this fixture exists because its probe components differ; if they "
+            "stop differing it separates nothing"
+        )
+
+    def test_a_graph_with_no_evaluable_centre_reports_unresolved(self):
+        """M16: ``_prior_centre`` returns ``None`` for 0 of the 60 shipped
+        graphs, so the arm that handles it was never taken.
+
+        A density whose ``mean`` raises is enough. What matters is that the
+        conditionals come back as ``unresolved`` rather than as an empty
+        ``degenerate``, which would read as "checked, and fine".
+        """
+        with jax.enable_x64(True):
+            graph = trace(_no_centre())
+            centre, reason = _prior_centre(graph)
+            report = conditional_prior_range_report(graph)
+        assert centre is None and reason
+        assert report.unresolved, (
+            "no centre means no sweep, and a report that said nothing about "
+            "that would be the exact confusion this repair removed"
+        )
+        assert not report.covers("x")
+        assert report.degenerate == ()
+
+    def test_the_refusal_may_name_any_degenerate_cell_but_reports_them_all(self):
+        """M26, measured rather than argued: naming the LAST cell instead of
+        the first is an EQUIVALENT mutation.
+
+        Both are true cells, both identify a real degeneracy, and the count is
+        reported separately from the example. So the property worth asserting
+        is not which cell is quoted -- it is that the quoted cell is a member
+        of the report and that the total is not lost.
+        """
+        from bayesmith import compile_task
+        from bayesmith.artifacts.refusal import Refusal
+        from bayesmith.artifacts.tasks import EvidenceTask, new_task_meta
+        from tests.dispatch.test_task_protocol import model_ref
+
+        with jax.enable_x64(True):
+            graph = trace(_two_parent_corner(both=False))
+            report = conditional_prior_range_report(graph)
+            outcome = compile_task(
+                graph,
+                EvidenceTask(meta=new_task_meta(label="z")),
+                model_ref=model_ref(),
+            )
+        assert isinstance(outcome, Refusal)
+        assert len(report.degenerate) > 1
+        named = outcome.grounds[0].observed
+        assert tuple(named) == report.degenerate, (
+            "the finding carries every cell, so a reader is never left with "
+            "one example and no idea how many there were"
+        )
+        assert f"{len(report.degenerate)} such cell" in outcome.grounds[0].message
+
+
+def _plated_parent_corner():
+    """A PLATED parent whose declared centres vary across the plate."""
+    centres = jnp.array([2.0, 6.0, 10.0, 14.0])
+
+    def model():
+        xs = const("X", jnp.linspace(1.0, 2.0, 4))
+        i = plate("i", 4)
+        tau = sample("tau", lambda: dist.Normal(centres, 0.5), plate=i)
+        width = det("width", lambda t: jnp.where(jnp.min(t) < 1.0, jnp.inf, 1.0), tau)
+        x = sample("x", lambda w: dist.Normal(0.0, w), width)
+        mu = det("mu", lambda x_, g_: x_ * x_ * g_, x, xs)
+        observe("d", lambda m: dist.Normal(m, 0.5), mu, obs=jnp.zeros(4))
+
+    return model
+
+
+class _NoCentre(dist.Distribution):
+    """A density that declares no centre this package can evaluate."""
+
+    support = dist.constraints.real
+
+    def __init__(self):
+        super().__init__(batch_shape=(), event_shape=())
+
+    @property
+    def mean(self):
+        raise RuntimeError("this density declares no centre")
+
+    def log_prob(self, value):
+        return -0.5 * value**2
+
+    def sample(self, key, sample_shape=()):  # pragma: no cover - never drawn
+        raise NotImplementedError
+
+
+def _no_centre():
+    def model():
+        xs = const("X", jnp.linspace(1.0, 2.0, 6))
+        tau = sample("tau", _NoCentre)
+        x = sample("x", lambda t: dist.Normal(0.0, jnp.abs(t) + 0.1), tau)
+        mu = det("mu", lambda x_, g_: x_ * x_ * g_, x, xs)
+        observe("d", lambda m: dist.Normal(m, 0.5), mu, obs=jnp.zeros(6))
+
+    return model
+
 
 
 def _two_parent_corner(*, both):
