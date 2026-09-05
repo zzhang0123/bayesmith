@@ -623,11 +623,37 @@ _REMEDIES: dict[str, tuple[Remedy, ...]] = {
     ),
     "evidence_residual_integral_required": (
         Remedy(
-            action="reduce_the_model_to_an_exactly_integrable_block",
-            message="R4 assembles an evidence only where the whole graph is an "
-            "exact linear-Gaussian block. This model leaves a residual problem "
-            "that needs numerical integration, which R5's nested-sampling "
-            "backend supplies. The posterior task is unaffected.",
+            action="declare_a_latent_to_integrate_over",
+            message="This graph has no latent parameter, so its p(d) is the "
+            "likelihood's own normalising constant and there is no integral "
+            "for either the exact route or the residual one to run. Declare "
+            "the parameter the evidence is meant to be marginal over, or read "
+            "the likelihood at the fixed values yourself. The posterior task "
+            "is unaffected.",
+        ),
+    ),
+    "evidence_residual_method_unsupported": (
+        Remedy(
+            action="remove_the_prediction_dependent_scale_from_the_block",
+            message="This block's scale moves with the prediction, so its "
+            "solve is a proposal and the exact answer needs an importance "
+            "reweighting whose normaliser is a different estimator from the "
+            "nested-sampling integral this release runs -- with heavy-tailed "
+            "weights as its failure mode and no oracle here. Give the block a "
+            "scale that does not depend on what it predicts, or ask for a "
+            "posterior task, which is unaffected.",
+        ),
+    ),
+    "evidence_conditional_prior_proper": (
+        Remedy(
+            action="floor_the_conditional_scale_the_parent_drives",
+            message="A hierarchical prior's conditional has to be a density at "
+            "every value the residual integral visits, not only at the prior "
+            "centre. The named conditional is degenerate somewhere in that "
+            "range -- usually a width that a parent can drive to zero or to "
+            "infinity. Floor the expression producing it, or narrow the "
+            "parent's own prior so the range no longer reaches it. The "
+            "posterior task is unaffected.",
         ),
     ),
     "evidence_requires_x64": (
@@ -1030,6 +1056,20 @@ def _evidence_precompile_refusal(
     declaration, and a task that is going to be refused should not first pay
     for the probes a plan costs.
 
+    **That is load-bearing and not merely thrifty.** ``lying_block_member``'s
+    prior is unnormalised AND its graph does not compile; measured, moving this
+    audit after ``compile_plan`` turns its ``evidence_prior_normalised``
+    Refusal into a raised ``StructureError``. So the R5 restatement of what
+    propriety means for a hierarchical prior had to be expressible without a
+    block partition, and it is: the joint prior factorises along the GRAPH, and
+    each factor's conditional is built at the prior centre. See
+    :func:`~bayesmith.dispatch.evidence.audit_graph_priors`.
+
+    What DID move out of here is the option arm. Whether ``repeat_count`` is
+    honoured depends on which route the task takes, which is a property of the
+    plan; it now lives in :func:`_evidence_option_refusal`, after the structure
+    gate.
+
     Every arm of this function has a companion assertion that the SAME graph
     still compiles a posterior task. §2.2 names the asymmetry as the reason
     compilation is task-aware at all -- an improper prior leaves the posterior
@@ -1063,37 +1103,6 @@ def _evidence_precompile_refusal(
             ),
             scope=_scope(ScopeKind.BACKEND, "dtype"),
             summary="this environment cannot carry an evidence's constants",
-        )
-
-    unread = tuple(
-        name
-        for name, value in (
-            ("repeat_count", task.repeat_count),
-            ("reconstruct_posterior", task.reconstruct_posterior or None),
-        )
-        if value is not None
-    )
-    if unread:
-        return _refusal(
-            task,
-            artifact_type=ArtifactKind.PLAN,
-            fingerprints=bundle,
-            failed_premise="task_options_recognised",
-            grounds=(
-                Finding(
-                    code="unrecognised_option",
-                    message=f"R4 assembles an exact evidence once and reads "
-                    f"none of {list(unread)}. Both sit inside the task "
-                    f"fingerprint, so naming one changes the digest while "
-                    f"changing nothing about the run -- refused rather than "
-                    f"ignored.",
-                    observed=unread,
-                    expected=(),
-                ),
-            ),
-            scope=_scope(ScopeKind.TASK, TaskKind.EVIDENCE.value),
-            summary="this release reads neither repeat_count nor "
-            "reconstruct_posterior on an evidence task",
         )
 
     for audit in audit_graph_priors(graph):
@@ -1139,37 +1148,341 @@ def _evidence_precompile_refusal(
 def _evidence_structure_refusal(
     runtime: InferencePlan, task: Task, bundle: FingerprintBundle
 ) -> Refusal | None:
-    """R4's admitted structure class, and the name for everything outside it.
+    """The admitted structure classes, and the name for each one outside them.
 
-    One class: the whole graph is one exact linear-Gaussian block solved by
-    ``gcr``. A model with a sampled block leaves a residual problem that needs
-    numerical integration, which is R5's subject; a model with no exact block
-    at all leaves the whole thing. Both get the same premise, because the
-    caller's next step is the same in both cases and it is not available yet.
+    R4 admitted one class -- the whole graph is one exact linear-Gaussian block
+    solved by ``gcr`` -- and refused everything else under one premise. R5
+    admits two more and splits the rest, because one premise over four
+    different situations was saying something false about three of them:
+
+    ============================== ==========================================
+    ``(exact.method, sampled)``    route
+    ============================== ==========================================
+    ``("gcr", ())``                R4's exact assembly, unchanged
+    ``("gcr", non-empty)``         exact collapse, then a residual integral
+    ``(None, non-empty)``          a residual integral over the whole thing
+    ``("gcr+snis" | "gcr+mh", *)`` refused, under a premise of its own
+    ``(None, ())``                 refused -- there is no integral to run
+    ============================== ==========================================
+
+    **``gcr+snis`` and ``gcr+mh`` are refused rather than admitted**, and the
+    reason is that their residual factor is a different object. Under
+    ``gcr+snis`` the covariance moves with the block, so the fixed point is a
+    proposal and the exact answer needs a self-normalised importance
+    reweighting; that reweighting's normaliser is a genuine residual evidence
+    and is not a nested-sampling problem. It has a different estimator, a
+    different failure mode -- heavy-tailed weights -- and no oracle in this
+    repository. The price of getting it wrong is measured: calling
+    ``marginal_log_density`` directly on ``mixed_radiometer`` returns a log
+    evidence 1.4e5 nats from the uncollapsed truth.
+
+    **The last row is why this refusal had to be split.** A graph of only
+    ``const``/``det``/``observe`` traces perfectly well, has no latents, and was
+    refused with a message reading "what is left over here needs a numerical
+    integral over the residual problem" -- which is FALSE about it. Its evidence
+    is the likelihood's own normalising constant, with no integral at all. After
+    R5's widening it is the only graph still reaching this premise, so the
+    message is now about it and says so.
     """
     sampled = () if runtime.sampled is None else tuple(runtime.sampled.latents)
+    exact = () if runtime.exact is None else tuple(runtime.exact.latents)
     method = runtime.exact.method if runtime.exact is not None else None
+
     if not sampled and method == "gcr":
+        return None  # whole-graph exact: R4's class, unchanged
+
+    if method is not None and method not in _RESIDUAL_METHODS_ADMITTED:
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.PLAN,
+            fingerprints=bundle,
+            failed_premise="evidence_residual_method_unsupported",
+            grounds=(
+                Finding(
+                    code="residual_factor_is_not_a_nested_sampling_problem",
+                    message=f"this block is solved by {method!r}. R5 runs a "
+                    f"nested sampler over the residual prior, and that is the "
+                    f"integral this route grades; a prediction-dependent scale "
+                    f"leaves an importance-weight normaliser instead, which is "
+                    f"a different estimator with a different failure mode and "
+                    f"no oracle here. Any method outside "
+                    f"{sorted(_RESIDUAL_METHODS_ADMITTED)!r} is refused rather "
+                    f"than produced behind a gate that never tested it.",
+                    observed=(exact, sampled, method),
+                    expected=(
+                        *sorted(_RESIDUAL_METHODS_ADMITTED),
+                        "or no exact block",
+                    ),
+                ),
+            ),
+            scope=_scope(ScopeKind.MODEL, "evidence"),
+            summary=f"a {method} block's residual factor is not the integral "
+            f"R5 runs",
+        )
+
+    if not sampled:
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.PLAN,
+            fingerprints=bundle,
+            failed_premise="evidence_residual_integral_required",
+            grounds=(
+                Finding(
+                    code="no_latents_to_integrate",
+                    message="this graph declares no latent parameter to "
+                    "integrate over, so there is no integral for either route "
+                    "to run: p(d) here is the likelihood's own normalising "
+                    "constant at the values the graph fixes. That is "
+                    "computable and this release does not compute it. The "
+                    "posterior task is unaffected.",
+                    observed=(exact, sampled, method or "none"),
+                    expected="at least one latent",
+                ),
+            ),
+            scope=_scope(ScopeKind.MODEL, "evidence"),
+            summary="this graph has no latent to integrate over",
+        )
+    return None
+
+
+#: The block methods whose residual factor IS the integral R5 runs. Stated as
+#: an allow-list, which is the whole point: the refusal below is written
+#: ``method not in`` this set, so a method nobody has considered is refused by
+#: default rather than admitted by default.
+#:
+#: 〔It was a deny-list -- ``{"gcr+snis", "gcr+mh"}`` -- with a comment claiming
+#: that a third method arriving would be "a KeyError-shaped omission rather
+#: than a silent admission". An adversarial review measured that and it is
+#: false: a frozenset membership test raises nothing, and a plan carrying
+#: ``method="gcr+newthing"`` with a non-empty sampled block fell through every
+#: branch and returned ``None``. Latent today because ``classify.py`` emits
+#: only three methods and because the capability refusal catches everything
+#: behind it -- and live the moment Task 6 installs a backend. A guard whose
+#: comment describes a property the code does not have is worse than no
+#: comment, because it is believed.〕
+_RESIDUAL_METHODS_ADMITTED: frozenset[str] = frozenset({"gcr"})
+
+
+def _evidence_route_refusal(
+    runtime: InferencePlan, task: Task, bundle: FingerprintBundle
+) -> Refusal | None:
+    """Everything an evidence task needs of the compiled PLAN, in order.
+
+    Structure first, because it decides which of the remaining questions even
+    applies; then the options, which this release honours on one route and not
+    the other; then conditional propriety, which is a statement about the
+    model; then the capability, which is a statement about the release. A model
+    fault is named before a release limit, so that a graph this package will
+    never answer is not told to come back later.
+
+    **One of those four boundaries cannot be observed, and saying so is better
+    than implying it can.** :func:`_evidence_option_refusal` returns ``None``
+    whenever the route is residual, and both later premises run ONLY when the
+    route is residual -- so no graph exists on which the option arm and the
+    conditional arm are both false, and swapping them changes nothing. An
+    adversarial review mutated exactly that and it survived. The other three
+    boundaries were each checked against a graph on which both premises are
+    false, and those checks are in ``TestThePremiseChainsOrder``.
+    """
+    refusal = _evidence_structure_refusal(runtime, task, bundle)
+    if refusal is not None:
+        return refusal
+
+    sampled = () if runtime.sampled is None else tuple(runtime.sampled.latents)
+    refusal = _evidence_option_refusal(task, bundle, residual=bool(sampled))
+    if refusal is not None:
+        return refusal
+    if not sampled:
+        return None
+
+    refusal = _evidence_conditional_prior_refusal(runtime.graph, task, bundle)
+    if refusal is not None:
+        return refusal
+    return _evidence_capability_refusal(runtime, task, bundle)
+
+
+def _evidence_option_refusal(
+    task: Task, bundle: FingerprintBundle, *, residual: bool
+) -> Refusal | None:
+    """``repeat_count`` and ``reconstruct_posterior``, honoured on one route.
+
+    R4 refused both on every evidence task, because an exact assembly runs once
+    and reconstructs nothing: both options sit inside the task fingerprint, so
+    naming one changes the digest while changing nothing about the run, and
+    refusing is better than ignoring. That reasoning is still exactly right for
+    an EXACT evidence and is wrong for a residual one, where repeated runs are
+    how the estimator's own error bar is checked and weighted draws are a
+    required output rather than an extra.
+
+    So the arm is kept and narrowed rather than deleted. It moved from before
+    compilation to after it for the same reason: which route a task takes is a
+    property of the plan, and this decision has no answer without one.
+    """
+    if residual:
+        return None
+    unread = tuple(
+        name
+        for name, value in (
+            ("repeat_count", task.repeat_count),
+            ("reconstruct_posterior", task.reconstruct_posterior or None),
+        )
+        if value is not None
+    )
+    if not unread:
         return None
     return _refusal(
         task,
         artifact_type=ArtifactKind.PLAN,
         fingerprints=bundle,
-        failed_premise="evidence_residual_integral_required",
+        failed_premise="task_options_recognised",
         grounds=(
             Finding(
-                code="not_whole_graph_exact_evidence",
-                message="R4 assembles an evidence only where the whole graph "
-                "is one exact linear-Gaussian block. What is left over here "
-                "needs a numerical integral over the residual problem, which "
-                "this release does not run.",
-                observed=(tuple(sampled), method or "none"),
-                expected=((), "gcr"),
+                code="unrecognised_option",
+                message=f"an exact evidence is assembled once and reconstructs "
+                f"nothing, so it reads none of {list(unread)}. Both sit inside "
+                f"the task fingerprint, so naming one changes the digest while "
+                f"changing nothing about the run -- refused rather than "
+                f"ignored. A residual evidence honours both.",
+                observed=unread,
+                expected=(),
             ),
         ),
-        scope=_scope(ScopeKind.MODEL, "evidence"),
-        summary="this graph leaves a residual problem an exact assembly "
-        "cannot integrate",
+        scope=_scope(ScopeKind.TASK, TaskKind.EVIDENCE.value),
+        summary="an exact evidence reads neither repeat_count nor "
+        "reconstruct_posterior",
+    )
+
+
+def _evidence_conditional_prior_refusal(
+    graph: Graph, task: Task, bundle: FingerprintBundle
+) -> Refusal | None:
+    """Is each conditional prior proper across the range the residual visits?
+
+    The identity the residual route rests on is
+    ``Z = INT p(tau) [ INT p(x|tau) p(d|x,tau) dx ] dtau``, whose inner
+    integral is ``marginal_log_density``. It needs ``p(x|tau)`` proper at every
+    ``tau`` the outer integral reaches, not at the prior centre alone -- and the
+    prior audit checks the centre.
+
+    **The guard that was supposed to cover this does not fire.** R5's plan
+    records ``collapse.py``'s ``eqx.error_if`` on ``pivots_constrain_block`` as
+    catching a diverging conditional and objects only that it aborts where a
+    Refusal is required. Measured on a graph whose conditional width is
+    infinite below a cut in ``tau``: it does not abort. ``marginal_log_density``
+    returns ``-inf``, silently, because that pivot guard tests a RELATIVE floor
+    over the joint prior-and-data information and the data still constrains the
+    block however improper the prior is. ``-inf`` is then unrepresentable in
+    ``EvidenceResult.log_evidence``, so untouched this surfaces as a validator
+    error far from its cause, or not at all.
+    """
+    from bayesmith.dispatch.evidence import conditional_prior_range_report
+
+    report = conditional_prior_range_report(graph)
+    if report.degenerate:
+        latent, parents, values, verdict = report.degenerate[0]
+        at = ", ".join(
+            f"{name} = "
+            + (
+                f"{value[0]:.6g}"
+                if len(value) == 1
+                else "(" + ", ".join(f"{component:.6g}" for component in value) + ")"
+            )
+            for name, value in zip(parents, values, strict=True)
+        )
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.PLAN,
+            fingerprints=bundle,
+            failed_premise="evidence_conditional_prior_proper",
+            grounds=(
+                Finding(
+                    code="conditional_prior_not_proper_in_range",
+                    message=f"p({latent} | {', '.join(parents)}) is {verdict} "
+                    f"at {at}, which lies inside the range a residual integral "
+                    f"over {', '.join(parents)} covers. The inner integral this "
+                    f"route takes in closed form is not a density there, so the "
+                    f"outer one is not the evidence -- and nothing downstream "
+                    f"reports that: the collapse returns a value rather than "
+                    f"raising, `-inf` for an infinite width and `nan` for a "
+                    f"displaced location. "
+                    f"{len(report.degenerate)} such cell(s); points evaluated: "
+                    f"{dict(report.at_points)}.",
+                    observed=report.degenerate,
+                    expected=(),
+                ),
+            ),
+            scope=_scope(ScopeKind.PARAMETER, latent),
+            summary=f"{latent}'s conditional prior is not a density everywhere "
+            f"{', '.join(parents)} goes",
+        )
+    if report.unresolved:
+        latent, reason = report.unresolved[0]
+        return _refusal(
+            task,
+            artifact_type=ArtifactKind.PLAN,
+            fingerprints=bundle,
+            failed_premise="evidence_conditional_prior_proper",
+            grounds=(
+                Finding(
+                    code="conditional_prior_not_resolved",
+                    message=f"p({latent} | its parents) was not established "
+                    f"anywhere: {reason}. This is an ABSENCE of a verdict and "
+                    f"not a verdict of absence -- the residual integral walks "
+                    f"a range this release could not evaluate the conditional "
+                    f"over, so whether Z exists is unknown rather than known. "
+                    f"Refused for the same reason R4 refuses a prior whose "
+                    f"mass it cannot resolve: an audit that cannot run is not "
+                    f"a pass.",
+                    observed=report.unresolved,
+                    expected=(),
+                ),
+            ),
+            scope=_scope(ScopeKind.PARAMETER, latent),
+            summary=f"{latent}'s conditional prior could not be checked over "
+            f"the range the integral covers",
+        )
+    return None
+
+
+def _evidence_capability_refusal(
+    runtime: InferencePlan, task: Task, bundle: FingerprintBundle
+) -> Refusal | None:
+    """The residual classes are admitted by the model gates and have no runner.
+
+    R5 widens the admitted structure class in one wave and chooses a backend in
+    a later one, and the bake-off's legal answers include "no candidate
+    passed". Between those two points a graph passes every premise about the
+    model and there is nothing to run it, so it is refused for the reason that
+    is true of it -- a capability this release does not have -- rather than
+    admitted into an assembly written for a different structure class.
+    """
+    from bayesmith.dispatch.evidence import residual_backend
+
+    if residual_backend() is not None:  # pragma: no cover - Task 6 fills this
+        return None
+    sampled = () if runtime.sampled is None else tuple(runtime.sampled.latents)
+    exact = () if runtime.exact is None else tuple(runtime.exact.latents)
+    return _refusal(
+        task,
+        artifact_type=ArtifactKind.PLAN,
+        fingerprints=bundle,
+        failed_premise=CAPABILITY_UNAVAILABLE_R1,
+        grounds=(
+            Finding(
+                code="residual_backend_unavailable",
+                message=f"this graph's evidence is admitted: every premise "
+                f"about the model holds, and {list(exact)} collapses exactly. "
+                f"What is missing is the sampler that runs the residual "
+                f"integral over {list(sampled)}, which is an optional extra "
+                f"this installation does not have. The question is held and "
+                f"nothing was computed for it; the posterior task is "
+                f"unaffected.",
+                observed=(exact, sampled),
+                expected="an installed residual-evidence backend",
+            ),
+        ),
+        scope=_scope(ScopeKind.BACKEND, "residual_evidence"),
+        summary="the residual integral has no backend in this installation",
     )
 
 
@@ -1477,7 +1790,7 @@ def compile_task(
             return refusal
 
     if kind is TaskKind.EVIDENCE:
-        refusal = _evidence_structure_refusal(runtime, task, bundle)
+        refusal = _evidence_route_refusal(runtime, task, bundle)
         if refusal is not None:
             return refusal
 
@@ -2616,7 +2929,7 @@ def _run_evidence(planned: PlannedTask) -> Result:
     fingerprints = planned.record.meta.fingerprints
     refusal = _evidence_precompile_refusal(graph, planned.task, fingerprints)
     if refusal is None:
-        refusal = _evidence_structure_refusal(runtime, planned.task, fingerprints)
+        refusal = _evidence_route_refusal(runtime, planned.task, fingerprints)
     if refusal is not None:
         return dataclasses.replace(
             refusal,

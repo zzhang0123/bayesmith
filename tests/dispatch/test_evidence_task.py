@@ -22,7 +22,11 @@ import pytest
 
 from bayesmith import compile_task, const, det, execute_task, observe, sample, trace
 from bayesmith.artifacts.identity import ArtifactKind
-from bayesmith.artifacts.refusal import PREMISES, Refusal
+from bayesmith.artifacts.refusal import (
+    CAPABILITY_UNAVAILABLE_R1,
+    PREMISES,
+    Refusal,
+)
 from bayesmith.artifacts.results import EvidenceComponent, EvidenceResult
 from bayesmith.artifacts.tasks import (
     EvidenceTask,
@@ -61,6 +65,42 @@ def _evidence_task(**kw):
 
 def _compile(graph, task=None):
     return compile_task(graph, task or _evidence_task(), model_ref=_ref())
+
+
+def _corner_divergent(*, collapsible):
+    """``x``'s prior width is 1.0 above ``tau = 1.0`` and infinite at or below.
+
+    ``tau ~ Normal(2.0, 0.5)``, and the package probes each outside latent at
+    plus and minus one and three prior widths -- ``{0.5, 1.5, 2.5, 3.5}`` -- so
+    the corner sits inside that range and nothing about the graph AT ITS PRIOR
+    CENTRE says so: at ``tau = 2.0`` this is an ordinary straight line.
+
+    ``collapsible`` decides which boundary the fault meets. Linear in ``x``, it
+    joins the exact block and ``check_gaussian`` refuses it during compilation,
+    for every task kind alike. Quadratic, it stays in the residual block, where
+    no exact-block check reads it and the evidence premise is what answers.
+    """
+
+    def model():
+        xs = const("X", jnp.linspace(1.0, 2.0, 6))
+        tau = sample("tau", lambda: dist.Normal(2.0, 0.5))
+        width = det("width", lambda t: jnp.where(t > 1.0, 1.0, jnp.inf), tau)
+        x = sample("x", lambda w: dist.Normal(0.0, w), width)
+        if collapsible:
+            mu = det("mu", lambda x_, g_: x_ * g_, x, xs, linear_in=("x",))
+        else:
+            mu = det("mu", lambda x_, g_: x_ * x_ * g_, x, xs)
+        observe("d", lambda m: dist.Normal(m, 0.5), mu, obs=jnp.zeros(6))
+
+    return model
+
+
+def _residual_corner_divergent():
+    return _corner_divergent(collapsible=False)
+
+
+def _exact_corner_divergent():
+    return _corner_divergent(collapsible=True)
 
 
 class TestTheSeamIsOpen:
@@ -164,10 +204,20 @@ class TestWhatItRefuses:
             "regression rather than a coverage boundary"
         )
 
-    def test_a_model_with_a_sampled_block_names_the_residual_integral(self):
-        """§0.14: R4 stops at exact assembly. A model whose posterior needs
-        NUTS needs a residual integral, and R5 supplies it; saying so by name
-        is the difference between a boundary and a silence."""
+    def test_a_model_with_a_sampled_block_reaches_the_capability_refusal(self):
+        """R5 admits this class and has nothing to run it, and says which.
+
+        R4 refused every model with a sampled block under
+        ``evidence_residual_integral_required``. R5's gates admit it: the prior
+        is proper, the conditional has no parent to degenerate over, and the
+        whole graph is the residual problem. What stops it is the sampler that
+        would run the integral, which is an optional extra and absent here --
+        a statement about the RELEASE, not about the model.
+
+        The distinction is the whole reason the two are different premises. A
+        caller told "reduce your model to an exactly integrable block" would
+        rewrite a model that is already fine.
+        """
         with jax.enable_x64(True):
             observed = jnp.asarray([0.4, -0.2, 1.1])
 
@@ -179,8 +229,67 @@ class TestWhatItRefuses:
                 )
 
             graph = trace(model)
+            refusal = self._refused(graph, CAPABILITY_UNAVAILABLE_R1)
+            assert refusal.grounds[0].code == "residual_backend_unavailable"
+            self._posterior_still_compiles(graph)
+
+    def test_a_graph_with_no_latent_at_all_is_told_what_is_true_of_it(self):
+        """The one graph still reaching ``evidence_residual_integral_required``.
+
+        ``const``/``det``/``observe`` and nothing else. It traces, it plans, and
+        R4 refused it saying "what is left over here needs a numerical integral
+        over the residual problem" -- which is false about it: there is no
+        integral, its p(d) is the likelihood's own normalising constant. After
+        R5's widening it is the only graph reaching that premise, so the
+        message is now about it.
+        """
+        with jax.enable_x64(True):
+
+            def model():
+                xs = const("X", jnp.linspace(1.0, 2.0, 5))
+                mu = det("mu", lambda g_: 2.0 * g_, xs)
+                observe("d", lambda m: dist.Normal(m, 0.5), mu, obs=jnp.zeros(5))
+
+            graph = trace(model)
+            assert graph.latents == ()
             refusal = self._refused(graph, "evidence_residual_integral_required")
-            assert "residual" in refusal.remedies[0].message.lower()
+            message = refusal.grounds[0].message
+            assert "no latent" in message
+            assert "residual problem" not in message, (
+                "this is the sentence R5 deleted: it named an integral this "
+                "graph does not have, and after the widening no other graph "
+                "reaches this premise for it to be true of"
+            )
+            self._posterior_still_compiles(graph)
+
+    @pytest.mark.parametrize(
+        "fixture, method",
+        [("radiometer", "gcr+snis"), ("mixed_radiometer", "gcr+mh")],
+    )
+    def test_a_prediction_dependent_scale_is_refused_by_its_own_name(
+        self, fixture, method
+    ):
+        """These blocks' residual factor is not the integral R5 runs.
+
+        Refused rather than admitted, because that factor is an
+        importance-weight normaliser: a different estimator, a different
+        failure mode, and no oracle in this repository. Admitting it under
+        R5's gate would put a number behind a gate that never tested it.
+
+        **Both methods, because they arrive by different roads.**
+        ``radiometer`` is ``gcr+snis`` with no sampled block at all;
+        ``mixed_radiometer`` is ``gcr+mh`` WITH one, so it is an
+        exact-plus-residual graph that the structure widening would otherwise
+        have admitted. Testing only the first would leave the row that
+        actually costs something uncovered.
+        """
+        from bayesmith.graph.reduction import as_graph
+        from tests.exact import models
+
+        with jax.enable_x64(True):
+            graph = as_graph(getattr(models, fixture)())
+            refusal = self._refused(graph, "evidence_residual_method_unsupported")
+            assert method in refusal.grounds[0].message
             self._posterior_still_compiles(graph)
 
     def test_an_improper_prior_is_refused_and_the_posterior_is_not(self):
@@ -234,11 +343,15 @@ class TestWhatItRefuses:
             found = {f.code: f for f in refusal.grounds}
             assert any("mass" in f.message for f in found.values())
 
-    def test_repeating_a_run_is_refused_rather_than_ignored(self):
+    def test_repeating_an_exact_run_is_refused_rather_than_ignored(self):
         """Both options sit inside the TASK fingerprint slot, so a caller
         naming one gets a different digest and reasonably expects different
         behaviour. Silently ignoring it is the worst of the three available
-        behaviours."""
+        behaviours.
+
+        Still true of an EXACT evidence, which is assembled once and
+        reconstructs nothing. R5 narrowed the arm rather than deleting it.
+        """
         with jax.enable_x64(True):
             graph = trace(_model_factory()[0])
             self._refused(
@@ -250,6 +363,187 @@ class TestWhatItRefuses:
                 task=_evidence_task(reconstruct_posterior=True),
             )
             self._posterior_still_compiles(graph)
+
+    def test_the_same_options_are_admitted_on_a_residual_evidence(self):
+        """The narrowing, asserted by the thing it exists to permit.
+
+        A residual evidence runs an estimator: repeated runs are how its own
+        error bar is checked, and weighted draws are a required output rather
+        than an extra. Refusing them there would leave later work unable to ask
+        for what it needs -- and the module the refusal lives in is not one
+        that later work edits.
+
+        The task gets PAST the option arm, which is what is being tested. It
+        then stops at the capability refusal, because no residual backend is
+        installed; that is a different premise and the assertion says so rather
+        than accepting any refusal at all.
+        """
+        with jax.enable_x64(True):
+            from bayesmith.graph.reduction import as_graph
+            from tests.exact import models
+
+            graph = as_graph(models.diamond_ancestor())
+            for task in (
+                _evidence_task(repeat_count=3),
+                _evidence_task(reconstruct_posterior=True),
+            ):
+                refusal = self._refused(graph, CAPABILITY_UNAVAILABLE_R1, task=task)
+                assert refusal.failed_premise != "task_options_recognised"
+            self._posterior_still_compiles(graph)
+
+
+class TestThePremiseChainsOrder:
+    """The order is asserted, because reading structure off the answer is not.
+
+    Two premises can both hold and the earlier one answers; that is not a bug.
+    Reading a graph's STRUCTURE off which premise it refused under is, and it
+    is the specific mistake that would have passed before R5 widened anything:
+    ``mixed_radiometer`` is a ``gcr+mh`` graph and R4 refused it under
+    ``evidence_prior_proper``, so a test asserting "the method row is what
+    stops it" would have been green for the wrong reason.
+    """
+
+    def _premise(self, graph, task=None):
+        outcome = compile_task(graph, task or _evidence_task(), model_ref=_ref())
+        return outcome.failed_premise if isinstance(outcome, Refusal) else None
+
+    def test_x64_answers_before_anything_about_the_model(self):
+        """First, and decided by OUTCOME rather than by reading a config flag.
+
+        The graph below has an improper prior AND names an unread option, so
+        two later premises are also false of it. Outside an x64 context the
+        dtype answers.
+        """
+        basis = jnp.linspace(-1.0, 1.0, 6) + 0.3
+
+        def model():
+            w = sample("w", lambda: dist.ImproperUniform(dist.constraints.real, (), ()))
+            b = const("basis", basis)
+            mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+            observe("d", lambda m: dist.Normal(m, SIGMA).to_event(1), mu, obs=basis)
+
+        graph = trace(model)
+        assert (
+            self._premise(graph, _evidence_task(repeat_count=3))
+            == "evidence_requires_x64"
+        )
+        with jax.enable_x64(True):
+            assert self._premise(trace(model)) == "evidence_prior_proper"
+
+    def test_the_prior_audit_answers_before_the_structure_gate(self):
+        """``improper_outside_prior`` is an exact-plus-residual graph whose
+        residual root has a genuinely improper prior. Both the prior premise
+        and -- were the prior fixed -- the capability one are false of it, and
+        the prior answers, because a model fault is named before a release
+        limit."""
+        with jax.enable_x64(True):
+            from bayesmith.graph.reduction import as_graph
+            from tests.exact import models
+
+            graph = as_graph(models.improper_outside_prior())
+            assert self._premise(graph) == "evidence_prior_proper"
+
+    def test_the_method_row_answers_before_the_capability(self):
+        """``mixed_radiometer`` is the case the plan warns about by name.
+
+        It is ``gcr+mh`` WITH a sampled block, so before R5 it answered
+        ``evidence_prior_proper`` -- a prior premise on a graph whose real
+        problem is its method. The restatement makes its prior proper, and what
+        answers now is the method row, ahead of the capability refusal that
+        would otherwise claim it.
+        """
+        with jax.enable_x64(True):
+            from bayesmith.dispatch.evidence import PriorVerdict, audit_graph_priors
+            from bayesmith.graph.reduction import as_graph
+            from tests.exact import models
+
+            graph = as_graph(models.mixed_radiometer())
+            assert all(
+                audit.verdict is PriorVerdict.PROPER
+                for audit in audit_graph_priors(graph)
+            ), "its prior no longer stops it, which is what moves the answer"
+            assert self._premise(graph) == "evidence_residual_method_unsupported"
+
+    def test_a_model_fault_answers_before_the_missing_capability(self):
+        """A conditional that degenerates inside the range is a statement about
+        the MODEL, and it is named ahead of the missing sampler. A caller told
+        "come back when the extra is installed" would install it and get the
+        same wrong integral."""
+        with jax.enable_x64(True):
+            graph = trace(_residual_corner_divergent())
+            assert self._premise(graph) == "evidence_conditional_prior_proper"
+            # And the asymmetry, which is what makes it a boundary rather than
+            # a regression: the same graph still plans a posterior.
+            outcome = compile_task(
+                graph, PosteriorTask(meta=new_task_meta(label="p")), model_ref=_ref()
+            )
+            assert not isinstance(outcome, Refusal)
+
+    def test_an_exact_block_conditional_is_already_refused_structurally(self):
+        """Where the same fault lands when the latent is collapsible, measured.
+
+        The R5 plan's section 0.20 worries that the propriety restatement stops
+        auditing the exact block's own priors, and rules that such a latent
+        "still passes R4's one-dimensional rule". Measured, it did not: that
+        rule short-circuits on ``node.parents``. But the hole it was worried
+        about is closed anyway, and by something else -- ``check_gaussian``,
+        which every exact-block member passes through, refuses a scale that is
+        not strictly positive and finite at the same probe points this check
+        would have used.
+
+        So for an exact-block latent the two agree exactly and the earlier one
+        answers. It answers as a raised ``StructureError`` rather than a
+        Refusal, and symmetrically: **the posterior task raises too**, which is
+        what makes it a graph-level structural refusal rather than an evidence
+        boundary, and why Task 7 does not restate it as one.
+        """
+        from bayesmith.errors import StructureError
+
+        with jax.enable_x64(True):
+            graph = trace(_exact_corner_divergent())
+            with pytest.raises(StructureError, match="strictly positive"):
+                compile_task(graph, _evidence_task(), model_ref=_ref())
+            with pytest.raises(StructureError, match="strictly positive"):
+                compile_task(
+                    graph,
+                    PosteriorTask(meta=new_task_meta(label="p")),
+                    model_ref=_ref(),
+                )
+
+    def test_every_refused_graph_still_compiles_a_posterior_task(self):
+        """The asymmetry, over every premise this chain can produce at once.
+
+        Asserting only that the evidence is refused would not tell a boundary
+        apart from a regression wearing one.
+        """
+        from bayesmith.graph.reduction import as_graph
+        from tests.exact import models
+
+        seen: set[str] = set()
+        with jax.enable_x64(True):
+            for name in (
+                "improper_outside_prior",
+                "mixed_radiometer",
+                "radiometer",
+                "diamond_ancestor",
+                "three_latent_chain",
+            ):
+                graph = as_graph(getattr(models, name)())
+                premise = self._premise(graph)
+                assert premise is not None, name
+                seen.add(premise)
+                outcome = compile_task(
+                    graph,
+                    PosteriorTask(meta=new_task_meta(label="p")),
+                    model_ref=_ref(),
+                )
+                assert not isinstance(outcome, Refusal), (
+                    f"{name}'s evidence refusal broke its posterior task"
+                )
+        assert len(seen) >= 3, (
+            f"these five graphs are meant to spread across the chain and only "
+            f"reached {sorted(seen)}"
+        )
 
 
 def test_a_float32_environment_is_refused_by_name():
@@ -339,7 +633,50 @@ def test_every_premise_r4_added_is_reachable_through_the_public_seam():
                 obs=jnp.asarray([0.4, -0.2, 1.1]),
             )
 
-        for factory in (improper, unnormalised, hierarchical, sampled_only):
+        # R5's three. `no_latents` is the only graph still reaching
+        # `evidence_residual_integral_required`; `prediction_dependent_sigma`
+        # is the `gcr+snis` row; `corner_divergent` is a conditional that is a
+        # density at the prior centre and not across the range the residual
+        # integral walks -- the one this test would have called unreachable if
+        # it had only looked at the centre, which is what the old audit did.
+        def no_latents():
+            b = const("basis", basis)
+            mu = det("mu", lambda b_: b_ * 0.9, b)
+            observe("d", lambda m: dist.Normal(m, SIGMA).to_event(1), mu, obs=data)
+
+        def prediction_dependent_sigma():
+            from tests.exact.models import radiometer
+
+            return radiometer()
+
+        def corner_divergent():
+            # `mu` is QUADRATIC in `x` on purpose, so nothing is collapsed and
+            # `x` stays in the residual block. Made linear, `x` joins the exact
+            # block and `check_gaussian` raises a StructureError out of
+            # `compile_plan` before any evidence premise runs -- which is a
+            # graph-level refusal that breaks the posterior task too, and so is
+            # a different boundary rather than this one.
+            xs = const("X", jnp.linspace(1.0, 2.0, 6))
+            tau = sample("tau", lambda: dist.Normal(2.0, 0.5))
+            width = det("width", lambda t: jnp.where(t > 1.0, 1.0, jnp.inf), tau)
+            x = sample("x", lambda w: dist.Normal(0.0, w), width)
+            mu = det("mu", lambda x_, g_: x_ * x_ * g_, x, xs)
+            observe("d", lambda m: dist.Normal(m, 0.5), mu, obs=jnp.zeros(6))
+
+        from bayesmith.graph.reduction import as_graph
+
+        outcome = _compile(as_graph(prediction_dependent_sigma()))
+        if isinstance(outcome, Refusal):
+            reachable.add(outcome.failed_premise)
+
+        for factory in (
+            improper,
+            unnormalised,
+            hierarchical,
+            sampled_only,
+            no_latents,
+            corner_divergent,
+        ):
             outcome = _compile(trace(factory))
             if isinstance(outcome, Refusal):
                 reachable.add(outcome.failed_premise)
@@ -369,10 +706,10 @@ def test_every_premise_r4_added_is_reachable_through_the_public_seam():
         if isinstance(outcome, Refusal):
             reachable.add(outcome.failed_premise)
 
-    r4_premises = {p for p in PREMISES if p.startswith("evidence_")}
-    unreachable = r4_premises - reachable
+    evidence_premises = {p for p in PREMISES if p.startswith("evidence_")}
+    unreachable = evidence_premises - reachable
     assert not unreachable, (
-        f"R4 premises nothing in this test can produce: {sorted(unreachable)}. "
-        f"Either a fixture is missing here or the premise is a second answer "
-        f"to a question that already has one."
+        f"evidence premises nothing in this test can produce: "
+        f"{sorted(unreachable)}. Either a fixture is missing here or the "
+        f"premise is a second answer to a question that already has one."
     )

@@ -624,6 +624,33 @@ Task 7 was told to assert it:**
    precedes another; whichever latent comes first answers first.
 4. Then, and only then, the structure gate.
 
+〔**Execution write-back, red line 11 (Task 7.5/7.6): Task 7 MOVED row 2, and the new order is
+what is asserted.** The chain is now
+
+1. `evidence_requires_x64` — unchanged, still first, still decided by outcome;
+2. the `audit_graph_priors` loop — unchanged, still interleaved by latent;
+3. the **structure** gate — `evidence_residual_method_unsupported` for the two prediction-dependent
+   methods, `evidence_residual_integral_required` for a graph with no latent at all;
+4. `task_options_recognised` — **moved here from position 2**;
+5. `evidence_conditional_prior_proper` — new, residual route only;
+6. `capability_unavailable_r1` — new here, the missing residual backend.
+
+**Why row 2 had to move.** Task 7.6 requires the option arm to refuse both options on an *exact*
+evidence and admit them on a *residual* one. Which route a task takes is a property of the PLAN,
+and at position 2 there is no plan — `_evidence_precompile_refusal` runs before `compile_plan`.
+Narrowing it in place is not possible, so it moved to just after the gate that decides the route.
+
+**What that changes, stated rather than left to be discovered:** a graph with BOTH an improper
+prior and an unread option now answers `evidence_prior_proper` where it used to answer
+`task_options_recognised`. No shipped fixture and no test was in that intersection — both option
+tests use a class-(a) graph — but the ordering is observable and it is now asserted directly in
+`TestThePremiseChainsOrder` rather than inferred.
+
+**Rows 5 and 6 are in that order deliberately**: a model fault is named before a release limit. A
+caller told "come back when the extra is installed" would install it and get the same wrong
+integral. It also keeps row 5 reachable — behind the capability refusal it would be dead code on
+every input the package can build, which is red line 13's fault (a).〕
+
 `evidence_comparability` is **not** a compile premise at all — it is a report kind in
 `evaluation/evidence.py`. R5 leaves it unchanged and asserts separately that the fingerprint rule
 does not silently begin admitting a comparison between a sampled number and an exact one
@@ -896,11 +923,50 @@ latent whose parents lie inside the residual block is admitted through its condi
 whose prior is genuinely improper (`improper_outside_prior`'s `z`) is refused exactly as today.
 `audit_prior`'s per-latent marginal rule is kept unchanged for class (a).
 
+〔**Execution write-back, red line 11 (Task 7.2). "The residual block's" is the wrong half, and
+it is also unavailable where the audit runs. What shipped is THE GRAPH's joint prior**, factorised
+along the graph: each latent's conditional given its own parents, roots through R4's unchanged
+one-dimensional rule, non-roots at the prior centre. Three measurements forced it.
+
+1. **There is no block partition at that point.** The prior audit is a PRE-compile refusal
+   (`_evidence_precompile_refusal`, called before `compile_plan`), so "the residual block" does not
+   exist yet. And it cannot simply be moved: `lying_block_member`'s prior is unnormalised AND its
+   graph does not compile, so after the move its `evidence_prior_normalised` **Refusal becomes a
+   raised `StructureError`** — measured.
+2. **The residual block is the wrong half.** Of the four fixtures §0.15 names as its target,
+   **three carry the offending latent in the EXACT block** — `diamond_ancestor` and
+   `indirect_ancestor` reach `x` through a deterministic node, `shared_ancestor` through `tau`.
+   Only `three_latent_chain`'s `x` is residual. A residual-only audit leaves three of the four
+   unexamined rather than admitted for a reason.
+3. **The graph's own factorisation is strictly stronger and costs nothing**: `p(θ) = Π p(θᵢ |
+   parentsᵢ)` needs no partition, covers both blocks, and subsumes §0.20. Measured over every
+   shipped graph, the only verdicts it moves are the **seven** latents that have parents,
+   spread over **six** graphs -- ``three_latent_chain`` carries two, and an earlier write-back
+   here said "six latents" for both numbers
+   (`diamond_ancestor`, `indirect_ancestor`, `mixed_radiometer`, `orphaned_child_latent`,
+   `shared_ancestor`, `three_latent_chain`); the whole-graph-exact class has none, so R4's census
+   is untouched, and that is asserted rather than argued.〕
+
 **Stop-rule, run at the top of Task 7.** Re-measure this table first. **If widening the structure
 gate alone admits fewer than all seven class-(b) fixtures — it admits exactly one today — stop
 and rule on propriety before writing any adapter wiring.** A plan that widened only the structure
 refusal would pass its own tests on class (c), ship, and silently never admit class (b) at all —
 and class (b) *is* §8 R5's headline work item ("exact collapse 后再调用 nested sampling").
+
+〔**Execution write-back, red line 11 (Task 7.1): the stop-rule FIRED, and the table re-measured
+exactly.** Six of the seven (b) ∪ (b′) graphs answered `evidence_prior_proper` — five
+`unverifiable`, one `improper` — and only `overflowing_outside_latent` reached the structure
+premise. §0.15's ruling was therefore executed rather than re-decided.
+
+**But the class has TWO shapes and this section's framing sees only one.** §0.15 says class (b)
+and "has a hierarchical prior" are very nearly the same set. Measured after Wave B landed a fifth
+class-(b) fixture, they are not: `overflowing_outside_latent` **and** `mixture_prior_residual`
+carry only ROOT latents, so R4's rule answers for them unchanged and the restatement has nothing
+to do with their admission — the structure gate alone is what was blocking them.
+`mixture_prior_residual` is also the first **multimodal** graph the headline class admits. So
+Task 7.2's target is four fixtures for the propriety half and the two above for the structure
+half, and asserting only the four would leave "is the offending latent hierarchical" as a
+dimension the family holds constant.〕
 
 **The conditional-propriety argument has a caveat, and it changes what Task 7 must assert.**
 The identity the restatement rests on is
@@ -920,6 +986,29 @@ inside a traced sampler loop is a **runtime abort**. Three consequences:
 * it **aborts rather than returning a `Refusal`**, so R5's gate gets an exception where §4.4
   requires a statistical boundary to be a filable refusal.
 
+〔**Execution write-back, red line 11 (Task 7.3). The third bullet is wrong, and the correction
+makes the case for the check STRONGER rather than weaker: it does not abort at all.** Built as a
+bypass and run — `x`'s conditional width infinite below a cut in τ, the cut placed inside
+`compile`'s own probe grid — `marginal_log_density` returns **`-inf`**, silently, at every point
+in the corner. The `eqx.error_if` never fires. The reason is in `pivots_constrain_block`: its
+floor is **relative**, `sqrt(eps) · max(pivot)`, over the joint prior-and-data information, so a
+block the DATA constrains passes the guard however improper its prior is. The guard is about an
+unconstrained posterior direction, which is a different thing from an improper prior.
+
+And `-inf` is the value §0.1 records as unrepresentable in `EvidenceResult.log_evidence`, so left
+alone this surfaces as a validator `TypeError` far from its cause, or not at all. So the second
+bullet is also understated: it is not that the firing is sampler-dependent, it is that there is
+no firing.
+
+**Scope correction, measured.** The conditional premise covers **residual** latents. An
+exact-block latent whose conditional scale degenerates at a probe point is already refused by
+`check_gaussian` during `compile_plan` — at the same points, by the same criterion — and
+**symmetrically: the posterior task raises too**. That makes it a graph-level structural refusal
+rather than an evidence boundary, so Task 7 does not restate it as one. Which side a fault lands
+on is decided by whether the latent is collapsible: linear in the prediction it joins the exact
+block and `check_gaussian` answers; quadratic it stays residual and the evidence premise
+answers.〕
+
 〔**Execution write-back, red line 11 (Wave C): no coordinate on τ separates a proper conditional
 from a degenerate one.** At `τ = 0`, `shared_ancestor` is degenerate and `three_latent_chain` is
 ordinary — the same τ, opposite verdicts. A declared *range* therefore cannot be the check, for
@@ -928,10 +1017,27 @@ is not a coordinate for the region.** That is now the second time this plan has 
 and the second time a session running it caught it. What shipped reads the **density** instead,
 and what it cannot see is **recorded rather than gated** — the same resolution Wave B reached.〕
 
-**So Task 7's stop-rule, corrected: conditional propriety is verified by reading the density, and
-what the check cannot see travels with the result**, and
+**So Task 7's stop-rule, corrected twice over: conditional propriety is verified by READING
+THE DENSITY at the probe points, not by declaring a range — no coordinate on τ separates the
+two verdicts — and what the check cannot see travels with the result rather than gating it**, and
 a violation inside that range produces a `Refusal`, not an `eqx.error_if` abort. R4 never met
 this because class (a) has no τ to vary.
+
+〔**Execution write-back, red line 11 (Task 7.3): what the declared range can be indexed BY.**
+The plan does not say, and the obvious answer does not work. **No coordinate on τ separates a
+proper conditional from a degenerate one.** Measured at τ = 0: `shared_ancestor`'s `p(x|τ)` is
+degenerate there while `three_latent_chain`'s and `mixed_radiometer`'s are ordinary, because each
+declares a different function of τ as its width. Any ceiling on τ admits all three or refuses all
+three — the same shape of error as the `|m|/s` ceiling §0.4 retracted, and for the same reason: a
+parameter of one fixture's error law is not a coordinate on the region.
+
+So the check reads the **density**, not a coordinate: it pins the parent at each point of the
+package's existing probe grid and hands the realised conditional to R4's unchanged
+one-dimensional rule. No new number, and the verdict carries the points it was taken at. What it
+cannot see — a degeneracy between the grid's points or outside its ends — is **recorded rather
+than gated**, because closing it needs a claim about the MEASURE of the degenerate set (`Z` is
+finite when that set is null and undefined when it is not), and that is a threshold R5
+pre-authorises none for.〕
 
 **And this is where the ordering has to be asserted rather than assumed.** The premise a graph
 refuses under does not identify its structure: `mixed_radiometer` is `gcr+mh` and refuses under
@@ -1157,6 +1263,30 @@ block, where `evidence_prior_undeclared` still sees it. So no live counterexampl
 module written for a different purpose, and nothing would say so.** R6 widens the exact class;
 that is precisely what opens this. One assertion costs nothing now and is unwritable later, once
 the reason it passes has been forgotten.
+
+〔**Execution write-back, red line 11 (Task 7.2). The ruling above is FALSE of the fixtures it is
+about, and it was written from the density family rather than from the rule.** Measured:
+`diamond_ancestor` and `indirect_ancestor` each carry an exact-block `x` whose only parent is a
+**deterministic** node, so `x` has no residual-block parent and this ruling predicts PROPER.
+R4's rule answered **UNVERIFIABLE** for both — because it short-circuits on `node.parents` being
+non-empty and **never reaches the density at all**. The "Why" paragraph describes what
+`_is_gaussian` guarantees about the declaration; the rule under discussion does not look at the
+declaration. A prediction about a check has to be run against the check.
+
+**The hole is real and it is closed by something else.** What protects an exact-block latent is
+`check_gaussian`, which every block member passes through and which refuses a scale that is not
+strictly positive and finite — at the same probe points a conditional check would use, and by the
+same criterion, since a Gaussian with finite positive scale is proper and normalised. It answers
+earlier and it answers for every task kind alike, which is why Task 7 does not restate it as an
+evidence premise. §0.20's worry that the soundness would rest on a predicate in another module
+with nothing saying so is **correct and now said**: it rests on `check_gaussian`, and the
+assertion naming it is `test_an_exact_block_conditional_is_already_refused_structurally`, which
+also pins the symmetry — the posterior task raises too.
+
+**And the ruling's premise is wrong one level up.** It says §0.15's restatement "audits the
+residual block's joint prior and says nothing about the exact block's own root priors". What
+shipped audits **the graph's** joint prior, factorised along the graph, so every latent in both
+blocks is audited through its own conditional. There is no exact-block gap to put back.〕
 
 ---
 

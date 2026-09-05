@@ -97,6 +97,48 @@ class TestTheNormalizationAudit:
             assert any("improper" in f.code for f in report.findings)
 
     def test_a_prior_the_audit_cannot_decide_abstains(self):
+        """``Gamma(0.5, 1)``'s ``x^-0.5`` pole is still 1.2% unresolved at 64x
+        the panels, so the rule abstains rather than naming either verdict.
+
+        **This test used to use a HIERARCHICAL graph, and R5 Task 7 took that
+        subject away from it.** R4 answered UNVERIFIABLE for any latent with
+        parents -- ``p(w)`` is not a fixed density until ``s`` is integrated
+        out -- and this test read that abstention as its fixture. R5 stopped
+        asking the marginal question: the joint prior factorises as
+        ``p(s) p(w | s)`` and both factors are densities the one-dimensional
+        rule can weigh, so the hierarchical graph now PASSES.
+
+        The ABSTAIN path is still real and still needs a fixture, so it gets a
+        prior the rule genuinely cannot resolve. The old graph is kept below as
+        the companion assertion: the two facts belong next to each other, or
+        the next reader re-derives why this changed.
+        """
+        with jax.enable_x64(True):
+            subject = _evidence(_graph())
+
+            def unresolvable():
+                w = sample("w", lambda: dist.Gamma(0.5, 1.0))
+                b = const("basis", jnp.linspace(-1.0, 1.0, 6) + 0.3)
+                mu = det("mu", lambda b_, w_: b_ * w_, b, w, linear_in=("w",))
+                observe(
+                    "d",
+                    lambda m: dist.Normal(m, SIGMA).to_event(1),
+                    mu,
+                    obs=jnp.zeros(6),
+                )
+
+            report = normalization_audit_report(subject, trace(unresolvable))
+            assert report.conclusion is Conclusion.ABSTAIN
+            assert report.applicability is Applicability.APPLICABLE
+
+    def test_a_hierarchical_prior_now_passes_through_its_conditional(self):
+        """The other half of the change above, asserted rather than implied.
+
+        Written as a PASS on the graph that used to ABSTAIN, so that a
+        regression to R4's answer goes red here as well as in the audit's own
+        tests -- this report is a second consumer of that verdict, and a change
+        that moved only one of them would be a report and an audit disagreeing.
+        """
         with jax.enable_x64(True):
             subject = _evidence(_graph())
 
@@ -113,7 +155,7 @@ class TestTheNormalizationAudit:
                 )
 
             report = normalization_audit_report(subject, trace(hierarchical))
-            assert report.conclusion is Conclusion.ABSTAIN
+            assert report.conclusion is Conclusion.PASS
             assert report.applicability is Applicability.APPLICABLE
 
 
