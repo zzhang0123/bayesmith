@@ -37,6 +37,7 @@ from collections import Counter
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -369,8 +370,12 @@ def test_the_truncation_bound_measures_the_mass_a_short_span_left_out():
     for error, bound in zip(errors, bounds, strict=True):
         assert bound > error, (error, bound)
         assert bound < 1.5 * error, (error, bound)
-    # A statement about the SPAN: eight times the points move it by 0.3 per cent.
-    assert abs(bounds[0] - bounds[1]) < 0.01 * bounds[0], bounds
+    # A statement about the SPAN and not about how finely the span was sampled,
+    # asserted as a comparison between two measured quantities rather than
+    # against a number picked to pass: eight times the grid moves the bound by
+    # LESS than the bound's own conservatism -- 1.95e-05 against 3.39e-04,
+    # seventeen times smaller.
+    assert abs(bounds[0] - bounds[1]) < abs(bounds[0] - errors[0]), (bounds, errors)
     # And the wide span is where the model stops mattering at all.
     assert wide.certificate.truncation < bounds[0] / 1e10
 
@@ -639,3 +644,89 @@ def test_the_band_never_claims_to_be_tighter_than_the_declared_floor():
     assert own < floor / 1e3, (own, floor)
     assert verdict.band == floor, (verdict.band, floor, own)
     assert math.isclose(AGREEMENT_FLOOR, 1e-9)
+
+
+# ------------------------------------------- the two bounds' own failure modes
+
+
+def _inverse_square(values):
+    """``log 1 / (1 + z**2)`` -- a POLYNOMIAL tail whose truncation is exact.
+
+    ``int 1/(1+z**2) dz`` over the whole line is ``pi`` and over ``(-S, S)`` is
+    ``2 arctan(S)``, so the fraction of the mass a span of ``S`` leaves out is
+    ``2 arctan(1/S) / pi`` with no quadrature in it anywhere. That makes it the
+    one integrand here whose edge behaviour can be graded against a TRUTH rather
+    than against another grid.
+    """
+    return -jnp.log1p(values["z"] ** 2)
+
+
+def test_the_edge_bound_covers_a_polynomial_tail():
+    """A geometric model of a ``z**-p`` tail is short by ``p / (p - 1)``.
+
+    For ``C t**-p`` the truth past ``S`` is ``C S**(1-p) / (p - 1)`` while the
+    geometric sum of the cells comes out ``C S**(1-p) / p``, so on this ``p = 2``
+    integrand the geometric bound is exactly HALF the mass it is bounding. A
+    bound that excludes the truth is not a bound, which is what
+    :func:`~tests.dispatch.residual_oracle._power_tail` exists to fix.
+
+    Graded against the closed form, at three spans, so the fix is measured
+    rather than argued.
+    """
+    with jax.enable_x64(True):
+        for span in (200.0, 1000.0, 5000.0):
+            found = quadrature(
+                _inverse_square,
+                (Span("z", -span, span),),
+                resolution=AGREEMENT_FLOOR,
+                start=8001,
+                refinements=4,
+            )
+            assert found.certified, found.describe()
+            exact = 2.0 * math.atan(1.0 / span) / math.pi
+            bound = found.certificate.truncation
+            assert bound >= exact, (span, exact, bound)
+            assert bound < 1.2 * exact, (span, exact, bound)
+            # The geometric half of the same bound, recomputed from the ratio the
+            # certificate reports: it is half the truth, and it is what the
+            # oracle would have published without the power-law term.
+            edge = max(one.ratio for one in found.certificate.edges)
+            assert 0.99 < edge < 1.0, found.certificate.edges
+
+
+def test_a_first_grid_above_the_budget_is_refused_rather_than_allocated():
+    """``start=201`` is a sensible first grid on one axis and 1.63e9 points on
+    four. Allocating it is a quarter of an hour and then a memory death, which
+    says nothing about the model, so the budget is checked before the grid.
+
+    Asserted at a SMALL budget rather than by handing the oracle the 1.63e9
+    grid: with the guard deleted, this way the test fails in a second, and the
+    real way it hangs -- and red line 13 asks whether restoring the old code
+    goes red, which a run that never finishes cannot answer.
+    """
+    with jax.enable_x64(True), pytest.raises(ValueError, match="above the .* budget"):
+        quadrature(
+            lambda values: -sum(value**2 for value in values.values()),
+            tuple(Span(name, -3.0, 3.0) for name in ("a", "b", "c")),
+            resolution=AGREEMENT_FLOOR,
+            start=101,
+            max_points=1000,
+        )
+
+
+def test_the_refinement_abstains_when_the_next_grid_would_exceed_the_budget():
+    """R5 Task 3.2's stop-rule, as a property of the oracle rather than of a
+    script: the dimension at which quadrature stops being an oracle is the
+    dimension at which its next grid stops fitting, and it says which grid."""
+    with jax.enable_x64(True):
+        found = quadrature(
+            _inverse_square,
+            (Span("z", -5.0, 5.0),),
+            resolution=1e-18,  # unreachable, so only the budget can stop it
+            start=101,
+            refinements=8,
+            max_points=1000,
+        )
+    assert not found.certified
+    assert "above the 1.000e+03 budget" in found.certificate.refused
+    assert found.certificate.history[-1][0] == 801

@@ -110,9 +110,17 @@ That came of comparing a bound this module reports for BOTH edges against a
 measurement taken one edge at a time -- 7.45e-04 per side, and there are two.
 The correction is recorded rather than swapped in silently, because the
 direction of a bound's error is the only interesting thing about it.〕
-The claim is measured on an exponentially-cut tail and is not proven for a
-polynomial one; ``tests/exact/residual_models.py``'s Cauchy fixture is where
-that case is put to it.
+**A polynomial tail is the case the geometric model does not cover, and it was
+found by putting an integrand to it rather than by reading.** For a ``t**-p``
+tail the geometric sum comes out ``p - 1`` over ``p`` of the truth, so on
+``1 / (1 + z**2)`` it is exactly HALF -- measured against the closed form
+``2 arctan(1/S) / pi`` at three spans in
+``test_the_edge_bound_covers_a_polynomial_tail``. On a Cauchy pair whose
+integrand goes as ``z**-4`` the shortfall reads 1.3333, 1.3334 and 1.3334 at
+spans of 100, 1000 and 2000, so at ``|z| <= 2000`` the certificate published
+4.09e-11 while the truth sat 5.45e-11 away, outside it. A bound that excludes
+the truth is not a bound, so :func:`_power_tail` adds the power-law alternative
+and the reported figure is the larger of the two.
 
 **A span is a domain, not a claim about the support.** ``shared_ancestor``
 declares ``tau ~ N(2, 0.5)`` and ``x ~ N(0, |tau|)``, so ``p(x | tau)`` is
@@ -167,6 +175,22 @@ EPS = float(np.finfo(np.float64).eps)
 #: certifies; and seven orders BELOW the smallest defect the comparison exists
 #: to catch (scaling ``dense_operator`` by 1.03 moves the gap to ``2e-02``).
 AGREEMENT_FLOOR = 1e-9
+
+#: The largest product grid this oracle will build, in points. **A BUDGET, not
+#: a threshold**: it decides how much arithmetic to spend and never what the
+#: answer is, which is why it carries no D-number (R5 plan 0.7 rules the same way
+#: about the likelihood-evaluation budget).
+#:
+#: It exists because the alternative is a hang. ``start=201`` is a sensible first
+#: grid on one axis and 1.63e9 points on four, which does not fail -- it
+#: allocates for a quarter of an hour and then dies on memory, telling the caller
+#: nothing about their model. Above the budget the refinement ABSTAINS and says
+#: what the next grid would have cost, which is exactly R5 Task 3.2's stop-rule:
+#: the dimension at which quadrature stops being an oracle is the dimension at
+#: which the grid stops fitting. 3e7 points is about 240 MB of float64 per array
+#: and about a second per grid on this machine; a caller measuring the boundary
+#: itself passes a larger one and pays for it.
+MAX_POINTS = 50_000_000
 
 #: How many grid points a single vmapped call evaluates.  Bounds peak memory at
 #: a few megabytes whatever the dimension, so the cost of a high-dimensional
@@ -354,15 +378,22 @@ def _evaluate(
     return np.asarray(jnp.concatenate(pieces), dtype=float).reshape(shape)
 
 
-def _log_trapezoid(log_values: np.ndarray, axes: Sequence[np.ndarray]) -> float:
-    """``log`` of the trapezoid integral of ``exp(log_values)``, peak-shifted."""
-    peak = float(np.max(log_values))
+def _log_trapezoid(
+    density: np.ndarray, peak: float, axes: Sequence[np.ndarray]
+) -> float:
+    """``log`` of the trapezoid integral of ``exp(peak) * density``.
+
+    Takes the peak-shifted density rather than the log values, because at the
+    grids this oracle reaches -- ``6401**2`` on ``overflowing_outside_latent``
+    -- one array of that shape is 328 MB and holding two of them at once was
+    the whole memory cost.
+    """
     if not math.isfinite(peak):
         return peak if peak == -math.inf else math.nan
-    density = np.exp(log_values - peak)
+    reduced = density
     for axis in range(len(axes) - 1, -1, -1):
-        density = np.trapezoid(density, axes[axis], axis=axis)
-    return peak + float(np.log(density))
+        reduced = np.trapezoid(reduced, axes[axis], axis=axis)
+    return peak + float(np.log(reduced))
 
 
 def _marginal(density: np.ndarray, axes: Sequence[np.ndarray], keep: int) -> np.ndarray:
@@ -376,7 +407,7 @@ def _marginal(density: np.ndarray, axes: Sequence[np.ndarray], keep: int) -> np.
 
 
 def _edges(
-    log_values: np.ndarray, axes: Sequence[np.ndarray], names: Sequence[str]
+    density: np.ndarray, peak: float, axes: Sequence[np.ndarray], names: Sequence[str]
 ) -> tuple[EdgeDecay, ...]:
     """The decay of the integrand at both ends of every axis.
 
@@ -384,19 +415,19 @@ def _edges(
     negligible while the edge of the axis as a whole is not, and it is the axis
     that the span is a statement about.
     """
-    peak = float(np.max(log_values))
     if not math.isfinite(peak):
         return tuple(
             EdgeDecay(name, side, math.inf, math.inf)
             for name in names
             for side in ("lower", "upper")
         )
-    density = np.exp(log_values - peak)
     found: list[EdgeDecay] = []
     for axis, name in enumerate(names):
         marginal = np.asarray(_marginal(density, axes, axis), dtype=float)
         grid = np.asarray(axes[axis], dtype=float)
         cells = (marginal[1:] + marginal[:-1]) / 2.0 * np.diff(grid)
+        centres = (grid[1:] + grid[:-1]) / 2.0
+        width = float(grid[1] - grid[0])
         total = float(cells.sum())
         for side, (outer, inner) in (("lower", (0, 1)), ("upper", (-1, -2))):
             edge = float(cells[outer])
@@ -411,10 +442,62 @@ def _edges(
             if ratio >= 1.0:
                 found.append(EdgeDecay(name, side, ratio, math.inf))
                 continue
-            found.append(
-                EdgeDecay(name, side, ratio, edge * ratio / (1.0 - ratio) / total)
+            beyond = max(
+                edge * ratio / (1.0 - ratio),
+                _power_tail(edge, neighbour, centres[outer], centres[inner], width),
             )
+            found.append(EdgeDecay(name, side, ratio, beyond / total))
     return tuple(found)
+
+
+def _power_tail(
+    edge: float, neighbour: float, at: float, before: float, width: float
+) -> float:
+    """The mass past the edge if the tail is a POWER of the distance, not a rate.
+
+    **The geometric model is not a bound on a polynomial tail, and the shortfall
+    is exactly ``p / (p - 1)``.** For a tail going as ``C t**-p`` the truth past
+    ``S`` is ``C S**(1-p) / (p - 1)``; the outermost cell holds about
+    ``C S**-p h``; and the local ratio is
+    ``rho = ((S - h) / S)**p ~= 1 - p h / S``, so the geometric sum
+    ``cell * rho / (1 - rho)`` comes out ``C S**(1-p) / p``. Measured on
+    ``tests/exact/residual_models.py::cauchy_residual_pair``, whose integrand
+    decays as ``z**-4`` and whose excluded mass is known in closed form: the
+    ratio of the truth to the geometric bound reads 1.3333, 1.3334 and 1.3334 at
+    spans of 100, 1000 and 2000 -- ``4 / 3`` to four digits, three times.
+
+    That is not a wide miss and it is the wrong SIGN, which is what makes it
+    worth the code: at ``|z| <= 2000`` the closed form sits 5.45e-11 from the
+    oracle and the geometric bound reads 4.09e-11, so the certificate excluded
+    the true answer. A bound that excludes the truth is not a bound.
+
+    So the exponent is read off the same two cells --
+    ``p = log(neighbour / edge) / log(|at| / |before|)`` -- and the power-law
+    tail ``cell * |S| / (h (p - 1))`` is returned when it is the larger of the
+    two.
+
+    **It does not collapse on an exponentially cut tail, which is what a first
+    draft of this paragraph claimed.** Measured on
+    ``overflowing_outside_latent`` at ``|z| <= 60``: the fitted exponent is about
+    15, the power-law term reads 9 per cent ABOVE the geometric one, and the
+    reported bound moves from 1.485e-03 to 1.608e-03 against an actual error of
+    1.268e-03. Still a bound, and a looser one -- the ``max`` buys soundness on
+    the ``z**-4`` tail at the price of about 8 per cent of tightness on the
+    exponential one, which is the trade this function is, stated rather than
+    implied.
+
+    Returns ``0.0`` -- deferring to the geometric bound -- when the fit has no
+    meaning: an edge closer to the origin than its neighbour is an INNER edge
+    and a power of the distance is not the tail there, and ``p <= 1`` is a tail
+    with no finite mass at all, which the refinement will refuse on its own.
+    """
+    here, prior = abs(at), abs(before)
+    if not (here > prior > 0.0) or width <= 0.0:
+        return 0.0
+    exponent = math.log(neighbour / edge) / math.log(here / prior)
+    if not (exponent > 1.0) or not math.isfinite(exponent):
+        return 0.0
+    return edge * here / (width * (exponent - 1.0))
 
 
 def excluded_prior_mass(graph: Graph, spans: Sequence[Span]) -> dict[str, float | None]:
@@ -468,6 +551,7 @@ def quadrature(
     start: int = 201,
     refinements: int = 8,
     graph: Graph | None = None,
+    max_points: int = MAX_POINTS,
 ) -> Quadrature:
     """Trapezoid over ``spans``, refined until it certifies or abstains.
 
@@ -487,6 +571,14 @@ def quadrature(
             f"resolution={resolution!r}; the refinement needs a positive level "
             "to reach, and a non-positive one is unreachable rather than strict"
         )
+    if start ** len(spans) > max_points:
+        raise ValueError(
+            f"the first grid is {start}**{len(spans)} = {start ** len(spans):.3e} "
+            f"points, above the {max_points:.3e} budget. Pass a smaller `start` "
+            "for this many axes, or a larger `max_points` and the memory to pay "
+            "for it. Refusing here rather than allocating: a first grid too "
+            "large to build is a hang, and a hang says nothing about the model"
+        )
     names = tuple(span.name for span in spans)
     if len(set(names)) != len(names):
         raise ValueError(
@@ -500,6 +592,7 @@ def quadrature(
     floor = math.inf
     demanded = math.inf
     truncation = math.inf
+    reasons: list[str] = []
     for _ in range(refinements):
         axes = [
             np.linspace(span.lower, span.upper, count, dtype=float) for span in spans
@@ -534,9 +627,13 @@ def quadrature(
                     excluded_prior_mass(graph, spans) if graph is not None else {}
                 ),
             )
-        value = _log_trapezoid(log_values, axes)
+        peak = float(np.max(log_values))
+        density = np.exp(log_values - peak) if math.isfinite(peak) else log_values
+        del log_values
+        value = _log_trapezoid(density, peak, axes)
         history.append((count, value))
-        edges = _edges(log_values, axes, names)
+        edges = _edges(density, peak, axes, names)
+        del density
         truncation = sum(edge.fraction for edge in edges)
         cells = int(np.prod([len(axis) for axis in axes]))
         scale = max(1.0, abs(value)) if math.isfinite(value) else math.inf
@@ -555,8 +652,15 @@ def quadrature(
             settled = math.isfinite(tail) and tail <= demanded
             if settled and math.isfinite(truncation):
                 break
+        if (2 * count - 1) ** len(spans) > max_points:
+            over = (2 * count - 1) ** len(spans)
+            reasons.append(
+                f"the next refinement would need {2 * count - 1}**{len(spans)} = "
+                f"{over:.3e} points, above the {max_points:.3e} budget, and the "
+                f"n={count} grid has not certified"
+            )
+            break
         count = 2 * count - 1
-    reasons: list[str] = []
     if not math.isfinite(truncation):
         growing = [str(edge) for edge in edges if not edge.decaying]
         reasons.append(
