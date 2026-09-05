@@ -363,10 +363,14 @@ Measured over every Wave B fixture: the exact block's prior mean is exactly **0*
 class-(b) cases, and 0.5625 for the mixture fixture's `b`. So the hazard region is entered by
 nothing, and the tier-1 comparison grades the route at the ratios actually used.
 
-One further limit, from the same session: a closed-form Cholesky reference **raises
+One further limit, narrowed after this line first overstated it: **the Cholesky-based
+`gaussian_log_evidence` helper in `tests/exact/residual_models.py` raises
 `LinAlgError: Matrix is not positive definite` at `s = 2^60`**, because float64 `slogdet` reports
-`sign = 0` there. So that corner has no usable float64 reference at all and needs the exact
-`Fraction` oracle, not a Cholesky one.〕
+`sign = 0` on that covariance. That is a fact about **one test helper**, not about float64. An
+earlier version of this sentence said "that corner has no usable float64 reference at all", which
+generalises one implementation to a class of them — the same over-wide move this section has now
+made twice. Whether another float64 formulation survives there is **untested**; what is known is
+that this one does not, and that an exact `Fraction` oracle does.〕
 
 **The oracle carries its own convergence certificate, and this is a stop-rule.** A gap between
 two quadratures where one has not converged is indistinguishable from a defect in the other,
@@ -1378,11 +1382,20 @@ for the contract, which is not optional and not a code read.
       class-(b) fixtures pass; assert `improper_outside_prior` still refuses on `z`; assert class
       (a)'s per-latent marginal rule is **unchanged**, by re-running R4's shipped-fixture census
       and getting its recorded verdicts back. The census assertion **states its counting
-      convention** (§0.15). **The target is four fixtures by name** — `diamond_ancestor`,
+      convention** (§0.15). **The target is FIVE fixtures by name.** Four from R4's family —
+      `diamond_ancestor`,
       `indirect_ancestor`, `shared_ancestor`, `three_latent_chain` — because of the seven
       (b) ∪ (b′) graphs, `mixed_radiometer` stays refused by row (d), `improper_outside_prior`
       stays refused on `z`, and `overflowing_outside_latent` is unblocked by the structure
-      widening alone. Also assert §0.20: every exact-block latent with no residual-block parent
+      widening alone. **The fifth is `mixture_prior_residual`** (`tests/exact/residual_models.py`,
+      landed by Wave B at `9ba54c9`): verified class (b) with `method == "gcr"` — exact `('b',)`,
+      sampled `('w',)` — and its residual posterior is **multimodal**, two well-separated modes
+      carrying 0.43 and 0.57 of the mass, closed-form evidence `-13.332624149718965`.
+      **Every class-(b) fixture this task had before it was unimodal**, so modality is a
+      dimension the family held constant and the first multimodal graph R5's headline class
+      admits would otherwise be one nothing here exercised — red line 1's enumeration, applied
+      before the reviewer has to find it. It costs nothing: the fixture exists and its truth is
+      closed-form. Also assert §0.20: every exact-block latent with no residual-block parent
       still passes R4's one-dimensional rule. Expect FAIL.
 - [ ] **7.3 Red, conditional propriety over a declared range.** `p(x | τ)` must be proper across a
       **declared range of τ**, checked before the sampler runs, and a violation inside that range
