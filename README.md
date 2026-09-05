@@ -23,11 +23,10 @@ Those future protocols are not claimed as current API here.
 
 An illustrated overview -- what the package is, where it sits next to NumPyro,
 BlackJAX and ArviZ, what each subpackage owns, and where the roadmap stands --
-is served from this repository at
-[zzhang0123.github.io/bayesmith](https://zzhang0123.github.io/bayesmith/)
-(source: `site/index.html`, deployed by `.github/workflows/pages.yml`; English,
-with a Chinese toggle). It is refreshed by hand and names the release it
-describes in its own footer, so it can lag this file.
+is published as a page:
+[bayesmith Overview](https://claude.ai/code/artifact/e3514ec4-000f-4a59-9e6c-79b12281b83c)
+(English, with a Chinese toggle; generated from the 0.7.2 checkout on
+2026-09-03, so it describes that release rather than tracking this file).
 
 ## What bayesmith is not
 
