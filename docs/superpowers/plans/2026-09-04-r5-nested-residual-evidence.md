@@ -1516,6 +1516,21 @@ question from "is there an adapter", and keeping it in `task.py` also keeps
       candidate importable reddens the suite, stop and rule** before the bake-off scores it — a
       backend that cannot be installed beside the tests is not a backend this package can adopt,
       whatever it scores on correctness, and repairing R4's shipped gate is not an R5 task.
+      〔**Execution write-back, red line 11 (Wave D): the rule as written could not have fired
+      on any input, because the state it names is not the dangerous one.** IMPORTABLE and
+      IMPORTED are two states and only the second flips the flag. Measured 2026-09-05: with
+      blackjax installed, with jaxns installed, and with both, all three environments run both
+      named tests green, exit 0 — and the control says that is a measurement rather than a
+      blind check, because under `JAX_ENABLE_X64=1` both go red and with `import jaxns`
+      executed before pytest both go red. The mechanism, verified independently by the wave
+      coordinator: nothing in `src/` imports either candidate, and `import bayesmith` in a
+      fresh process leaves `jax_enable_x64` at `False`, so an installed-but-never-imported
+      jaxns cannot flip anything. §0.16's "two tests go red" was always conditional on
+      something importing it. **The rule this line should have carried** is the one Task 4.4
+      enforces instead: the capability probe must not be the thing that imports it. That is
+      what makes "importable" safe, and it is a property of THIS package rather than of the
+      candidate — so it needs a guard, not a stop-rule, and
+      `tests/dispatch/test_backend_absent.py` is it.〕
 - [ ] **4.7 Green + lint. 4.8 Commit.** `feat: refuse a residual evidence by name when the optional sampler is absent`
 
 ---
