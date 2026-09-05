@@ -501,7 +501,13 @@ be in. A refusal path that is only ever exercised by monkeypatching is a refusal
 never run.
 
 **And there is no precedent to copy: `pyproject.toml` has no `[project.optional-dependencies]`
-table at all.** R5's would be the first extra this package has ever declared, which means three
+table at all.** 〔**Execution write-back, red line 11 (Wave D): it has one now**, and it has
+**two** rows rather than one — `blackjax` and `jaxns`, an extra per candidate. A single
+`residual-evidence` extra pointing at one package would have been Task 5's decision taken by
+packaging, which red line 3 forbids; an extra with an EMPTY requirement list would have been
+worse, because a caller who ran the install command would get the identical refusal back and
+nothing would say why. Whichever candidate Task 5 names, the loser's extra is removed rather
+than left as a trap.〕 R5's would be the first extra this package has ever declared, which means three
 things have no existing shape — the extra itself, a CI job that runs the suite **without** it,
 and a wheel test that installs it. `publish.yml` builds and tests the wheel; **a wheel that is
 only ever tested with the extra present has never tested the refusal**, and a wheel only ever
@@ -1059,8 +1065,8 @@ question this measurement does not answer.〕
 
 | | blackjax 1.6.2 | jaxns 2.6.9 |
 |---|---|---|
-| packages added | **4** — itself plus absl-py, optax, typing-extensions | **19** (incl. matplotlib, dm-tree, contourpy, pillow) |
-| declared `jax` bound | `>=0.9.0`, no upper cap | no downgrade observed |
+| packages added | **4** — itself plus absl-py, optax, typing-extensions 〔Wave D: **3** here〕 | **19** (incl. matplotlib, dm-tree, contourpy, pillow) 〔Wave D: **16** here〕 |
+| declared `jax` bound | `>=0.9.0`, no upper cap 〔Wave D: confirmed, plus `jaxlib>=0.9.0`〕 | no downgrade observed 〔Wave D: it DECLARES one — `jax>=0.6.0`, and `jaxlib` unbounded. "No downgrade observed" is a statement about a resolution; the bound is a statement about the package, and only the second survives a different base〕 |
 | heavy dependency | none | **`tfp_nightly`, unbounded** |
 | entry point | `blackjax.nss` (nested slice sampling) | its own `Prior`/`Model` DSL over a unit hypercube |
 | termination condition | **none — the caller writes the loop** | 11-field `TerminationCondition`, 12-bit `termination_reason` |
@@ -1107,6 +1113,18 @@ consequence is that a third-party import chooses the caller's precision, and R4'
 stops firing.** Nothing computes a wrong number — the assembly at float64 is right. What breaks
 is the *semantics*: the gate exists so the caller declares the precision explicitly.
 
+〔**Execution write-back, red line 11 (Wave D), and it NARROWS this a second time.**
+Task 4.6's stop-rule ran and did **not** fire. Both candidates were installed into throwaway
+copies of this repository's environment — separately and together — and
+`test_the_run_record_says_what_actually_ran` and
+`test_a_float32_environment_is_refused_by_name` **both pass**, exit 0, in all three
+environments. The control says that is a measurement rather than a blind check: under
+`JAX_ENABLE_X64=1` both go red, and with `import jaxns` executed before pytest both go red.
+So the redness follows the **flip**, not the **install** — nothing in this package imports
+either candidate, and Task 4's capability probe reads installed metadata rather than a module
+body specifically to keep that true. The owner decision below therefore attaches to Task 6's
+ADAPTER, not to the extra: declaring the extra costs R4's gate nothing.〕
+
 > **Owner decision, if Task 5 selects jaxns.** Either that test runs in a subprocess (the shape
 > `test_public_api`'s subprocess assertions already use), or R4's gate needs a criterion a
 > third-party import cannot move. **Both are changes to R4's shipped behaviour and neither
@@ -1127,7 +1145,7 @@ bar degrades as a description of the spread, which is exactly what §0.8's stabi
 Establishing or excluding a bias needs ~100 seeds and is a Task 5 measurement, not an assumption.
 
 **(3) `tfp_nightly` is unbounded and resolves to a same-day build.** 2974 nightly releases exist;
-today's resolution was `0.26.0.dev20260904`. Stable `tensorflow-probability 0.25.0` does **not**
+today's resolution was `0.26.0.dev20260904`. 〔**Execution write-back, red line 11 (Wave D).** Re-resolved on 2026-09-05, one day later, in a throwaway environment: `0.26.0.dev20260905`. The prediction and the measurement agree, which is worth recording because "resolves to a same-day build" is the kind of claim that is usually only argued.〕 Stable `tensorflow-probability 0.25.0` does **not**
 substitute — `import jaxns` then dies with
 `AttributeError: module 'jax.interpreters.xla' has no attribute 'pytype_aval_mappings'`. **An
 optional dependency whose resolution changes daily cannot be pinned in a wheel that `publish.yml`
@@ -1451,7 +1469,14 @@ fixture.
 
 **Files:** Modify `pyproject.toml`, `src/bayesmith/dispatch/task.py`,
 `src/bayesmith/artifacts/refusal.py`; Create `tests/dispatch/test_backend_absent.py`,
-`docs/probes/probe_36_backend_survey.py`.
+`docs/probes/probe_36_backend_survey.py`. 〔**Execution write-back, red line 11 (Wave D).**
+`artifacts/refusal.py` needed no change: Task 7 (wave C) landed `CAPABILITY_UNAVAILABLE_R1`
+and the premise vocabulary there, and Task 4 adds no premise — §0.1's "R5 needs none" holds
+one layer further out than it was written for. `dispatch/evidence.py` is where Task 7 put
+`residual_backend()`, and Task 4 did not touch it either: the capability PROBE is a different
+question from "is there an adapter", and keeping it in `task.py` also keeps
+`dispatch/evidence.py`'s AST census pins from moving for a change with no threshold in it.
+`README.md` moved, for its test count alone — 6279 → 6298 by collection.〕
 
 - [ ] **4.1 Red.** With no backend installed — **the state this checkout is in today** — an
       `EvidenceTask` over a class-(b)/(c) graph returns a capability `Refusal` naming the
@@ -1474,7 +1499,12 @@ fixture.
       while returning a clean-looking negative. Write the probe, run it, and **show** the flag is
       unchanged afterwards. A probe asserted rather than demonstrated is the failure family this
       repository is built around.
-- [ ] **4.5 Stop-rule, run here.** **If a candidate cannot be installed against this repo's
+- [ ] **4.5 Stop-rule, run here.** 〔**Execution write-back, red line 11 (Wave D): it ran
+      and did NOT fire.** Measured 2026-09-05 in throwaway copies of this repository's
+      environment: `blackjax 1.6.2` adds 3 packages, `jaxns 2.6.9` adds 16, both leave `jax`
+      at 0.11.1 and `numpy` at 2.5.2, and both coexist in one environment (18 added, `jax`
+      unmoved). §1.5 condition 2 excludes neither, so Task 5 scores both.〕 **If a candidate
+      cannot be installed against this repo's
       pinned `jax` without moving the pin, it is out** — §1.5 condition 2 — and Task 5 scores it
       as failed rather than pretending the comparison is open. **If neither installs, stop:
       Task 5 becomes a written "no candidate passed" and Task 6 does not run.**
