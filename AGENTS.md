@@ -57,6 +57,39 @@ Full layer (nightly — everything, including the `full` grids):
 .venv/bin/python -m pytest -n 4
 ```
 
+**Three sessions share this checkout, so gate the run rather than eyeball it.**
+`tools/pytest_gate.py` answers "is anyone else running the suite" in its EXIT
+CODE -- `0` clear, `1` at least one in flight, `2` the check itself could not
+run -- so the caller spells it with `&&` and cannot get a run past a refusal:
+
+```bash
+tools/pytest_gate.py && .venv/bin/python -m pytest -n 4 -m "not full"
+```
+
+`2` is separate from `0` because a failed `ps` is not "found nothing": that is
+the zsh-glob disease one layer down, and it fails in the direction that starts
+the run. The habit this replaces joined its verdict to the `ps` with `;`
+instead of `&&`, so the label fired whatever `ps` found -- on 2026-09-05 it
+printed "no other run" on the line directly below another session's run, and
+the suite was started anyway.
+
+**Contention makes false FAILURES, never false passes**, so a green run taken
+during someone else's is still green; what it costs is time. Measured the same
+day: a fast layer that takes ~6 min on a quiet machine was killed at 10 min,
+exit 143 -- which the table below calls killed, not failed. So the refusal is
+advice and not a law, and the tool's own message says so.
+
+**It is a point-in-time check, not a lock.** Nothing stops a peer starting one
+second after it opens: measured, a run that began on a clear verdict still took
+569s against a 357s baseline. And when peers are running a mutation loop --
+short invocations firing continuously -- there may be no quiet instant to
+catch, so queue the run behind the gate rather than polling by hand:
+
+```bash
+until tools/pytest_gate.py --quiet >/dev/null 2>&1; do sleep 30; done
+.venv/bin/python -m pytest -n 4 -m "not full"
+```
+
 A meta-test in `tests/numerical_gates/test_boundary_layering.py` fails if any
 registered gate loses its one fast-layer cell, so "fast" cannot silently
 collapse to "no numerical-gate coverage".
