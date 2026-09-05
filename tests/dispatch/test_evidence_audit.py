@@ -1223,23 +1223,73 @@ class TestWhatTheAdversarialReviewFoundSurviving:
         assert report.degenerate, f"{name}'s corner was not found"
         assert report.unresolved == ()
 
-    def test_an_unsweepable_parent_is_recorded_and_refused_not_passed(self):
-        """The third state, which is the whole repair.
+    def test_an_unsweepable_parent_is_recorded_rather_than_passed(self):
+        """The third state, which is the repair's whole point.
 
-        A conditional the sweep could not cover is not a conditional the sweep
-        found proper. It goes to ``unresolved``, ``covers()`` answers False,
-        and the task is refused -- for the same reason R4 refuses a prior whose
-        mass it cannot resolve. An audit that cannot run is not a pass.
+        A conditional the sweep could not cover is not one the sweep found
+        proper. It goes to ``unresolved``, ``covers()`` answers False, and
+        ``degenerate`` stays empty -- the two absences are different and stay
+        different.
         """
         with jax.enable_x64(True):
-            graph = trace(_hyperprior_corner(lambda: dist.Poisson(3.0)))
-            report = conditional_prior_range_report(graph)
-        assert report.unresolved, "a discrete parent cannot be probed off-lattice"
-        assert not report.covers("x")
-        assert report.degenerate == (), (
-            "nothing was evaluated, so nothing may be reported as degenerate "
-            "either -- the two absences are different and stay different"
-        )
+            discrete = conditional_prior_range_report(
+                trace(_hyperprior_corner(lambda: dist.Poisson(3.0)))
+            )
+            centreless = conditional_prior_range_report(trace(_no_centre()))
+        for report in (discrete, centreless):
+            assert report.unresolved
+            assert not report.covers("x")
+            assert report.degenerate == (), (
+                "nothing was evaluated, so nothing may be reported as "
+                "degenerate either"
+            )
+
+    def test_the_unresolved_refusal_is_shadowed_by_an_earlier_premise_today(self):
+        """Measured, and recorded rather than claimed as coverage.
+
+        ``_evidence_conditional_prior_refusal`` refuses an ``unresolved``
+        conditional under ``evidence_conditional_prior_proper``. **No graph
+        reaches it.** Every way a parent becomes unsweepable also fails the
+        per-latent prior audit, which runs earlier: a discrete parent is
+        ``UNVERIFIABLE`` to R4's own rule, and a graph with no evaluable centre
+        cannot have its conditionals built either, so the child is
+        ``UNVERIFIABLE`` there too. Both answer ``evidence_prior_proper``.
+
+        So a mutant deleting that arm SURVIVES, and this test says so instead
+        of pretending otherwise. The arm stays for two reasons that are about
+        the future rather than the present: ``conditional_prior_range_report``
+        is public and Task 6's adapter and Task 8's gate read it directly, and
+        the shadowing is an accident of which premise happens to run first
+        rather than a property anything enforces.
+
+        If this test ever goes red because a graph DOES reach the arm, that is
+        the interesting event, and the assertion below is what announces it.
+        """
+        from bayesmith import compile_task
+        from bayesmith.artifacts.refusal import Refusal
+        from bayesmith.artifacts.tasks import EvidenceTask, new_task_meta
+        from tests.dispatch.test_task_protocol import model_ref
+
+        with jax.enable_x64(True):
+            for factory in (
+                lambda: trace(_hyperprior_corner(lambda: dist.Poisson(3.0))),
+                lambda: trace(_no_centre()),
+            ):
+                graph = factory()
+                report = conditional_prior_range_report(graph)
+                outcome = compile_task(
+                    graph,
+                    EvidenceTask(meta=new_task_meta(label="z")),
+                    model_ref=model_ref(),
+                )
+                assert report.unresolved, "the report does see it"
+                assert isinstance(outcome, Refusal)
+                assert outcome.failed_premise == "evidence_prior_proper", (
+                    f"an unsweepable parent is expected to be caught by the "
+                    f"EARLIER per-latent audit; this one answered "
+                    f"{outcome.failed_premise!r}, which means the conditional "
+                    f"arm is now reachable and needs a test that exercises it"
+                )
 
     def test_an_IMPROPER_conditional_is_caught_and_not_only_an_UNVERIFIABLE_one(
         self,
@@ -1460,7 +1510,10 @@ class _NoCentre(dist.Distribution):
         raise RuntimeError("this density declares no centre")
 
     def log_prob(self, value):
-        return -0.5 * value**2
+        # Normalised, so that this fixture's subject is the missing CENTRE and
+        # not an unnormalised mass -- an unnormalised one answers
+        # `evidence_prior_normalised` and the test would be about that instead.
+        return -0.5 * value**2 - 0.5 * jnp.log(2.0 * jnp.pi)
 
     def sample(self, key, sample_shape=()):  # pragma: no cover - never drawn
         raise NotImplementedError
