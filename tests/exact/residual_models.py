@@ -231,6 +231,81 @@ def cauchy_tail_mass(*, span, gamma=1.75, sigma=0.4, datum=1.3):
     )
 
 
+# ------------------------------- dimensions the rest of the family holds constant
+
+
+def outside_observation_pair(
+    *, n=6, sigma=0.45, tau_loc=1.6, tau_scale=0.5, outer_sigma=0.7, outer=1.15
+):
+    """An observation the exact block does NOT reach.
+
+    **Written because an adversarial review found the Wave B comparison blind to
+    a whole class of elimination defect.** Every other fixture here and in
+    ``models.py`` has exactly one observed node, and it is always a descendant of
+    the exact block -- so the filter in ``marginal_log_density`` that decides
+    WHICH observations may enter the marginal term (``observed not in
+    absorbed``) has only ever been asked a question with one answer. Reinstating
+    R4's double count by deleting that filter left all 36 Wave B tests green.
+
+    Here ``e`` observes ``tau`` directly, so it is in the block's data and is not
+    a descendant of ``x``: counting it into the marginal term as well as leaving
+    it in the reduced graph counts its density twice, which is exactly the defect
+    ``fb1c21f`` carried and R4 repaired.
+
+    (The full fast layer DOES catch that mutant -- five tests in
+    ``tests/dispatch/test_collapse.py``. So this fixture closes a gap in what the
+    Wave B ORACLE is sensitive to, not a gap in the repository. Both statements
+    are worth having, and only the second one was true before it was measured.)
+    """
+    grid = jnp.linspace(1.0, 2.0, n)
+    data = 1.0 * grid + sigma * jnp.linspace(-0.6, 0.7, n)
+
+    def model():
+        columns = const("X", grid)
+        tau = sample("tau", lambda: dist.Normal(tau_loc, tau_scale))
+        x = sample("x", lambda t: dist.Normal(0.0, jnp.abs(t) + 0.2), tau)
+        prediction = det("mu", lambda x_, g_: x_ * g_, x, columns, linear_in=("x",))
+        observe("d", lambda m_: dist.Normal(m_, sigma), prediction, obs=data)
+        observe(
+            "e", lambda t_: dist.Normal(t_, outer_sigma), tau, obs=jnp.asarray(outer)
+        )
+
+    return trace(model)
+
+
+def shifted_block_prior(
+    *, n=6, sigma=0.4, tau_loc=2.2, tau_scale=0.45, block_width=0.3
+):
+    """The eliminated block's prior MEAN is the residual latent, so ``|m|/s`` moves.
+
+    **Also written from an adversarial review.** ``block_prior_ratio`` reports the
+    largest ``|prior mean| / prior width`` the eliminated block reaches anywhere
+    on the span, probing each axis at its ends and its centre. Three mutants of
+    it survived the whole Wave B suite -- forcing the mean to zero, taking the
+    minimum over the probe points instead of the maximum, and probing only the
+    centre -- for one reason with a count behind it: **the eliminated block's
+    prior mean is exactly 0 in four of the five fixtures and constant in the
+    fifth**, so nothing could tell those three apart from the real thing.
+
+    Here ``x ~ N(tau, block_width)`` puts the residual latent in the block's prior
+    MEAN, so the ratio is ``|tau| / block_width`` and sweeps about an order of
+    magnitude across a declared span. A probe that reads only the centre, or
+    takes a minimum, or ignores the mean, now answers differently from one that
+    does not.
+    """
+    grid = jnp.linspace(1.0, 2.0, n)
+    data = 2.05 * grid + sigma * jnp.linspace(-0.5, 0.65, n)
+
+    def model():
+        columns = const("X", grid)
+        tau = sample("tau", lambda: dist.Normal(tau_loc, tau_scale))
+        x = sample("x", lambda t: dist.Normal(t, block_width), tau)
+        prediction = det("mu", lambda x_, g_: x_ * g_, x, columns, linear_in=("x",))
+        observe("d", lambda m_: dist.Normal(m_, sigma), prediction, obs=data)
+
+    return trace(model)
+
+
 # ------------------------------------------------------- four residual axes
 
 #: Six latents' worth of prior and truth, pairwise distinct. The fixtures below
@@ -413,7 +488,9 @@ __all__ = [
     "gaussian_log_evidence",
     "gaussian_posterior",
     "mixture_prior_residual",
+    "outside_observation_pair",
     "mixture_prior_residual_log_evidence",
+    "shifted_block_prior",
     "undeclared_family",
     "undeclared_family_parts",
     "undeclared_quartet",
