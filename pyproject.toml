@@ -55,10 +55,19 @@ dependencies = [
 # `jaxns` carries one cost this table cannot express and the survey records:
 # importing it writes `jax.config.update('jax_enable_x64', True)`
 # process-globally, which is the opposite of this package's rule that `src/`
-# never touches `jax.config`. INSTALLING it does not do that -- measured, the
-# suite is green with it installed -- because nothing here imports it. The
-# capability probe in `dispatch/task.py` reads the installed metadata and never
-# reaches a module body, which is what keeps that true.
+# never touches `jax.config`. INSTALLING it does not import it -- nothing here
+# does -- so R4's precision gate is untouched by the install: measured, the two
+# tests a global x64 flip reddens both pass with either candidate installed and
+# with both, while the same two go red under `JAX_ENABLE_X64=1`. The capability
+# probe in `dispatch/task.py` reads the installed metadata and never reaches a
+# module body, which is what keeps that true.
+#
+# An earlier version of this comment said "the suite is green with it
+# installed". That was false and an adversarial review measured it: installing
+# `blackjax` turned `tests/dispatch/test_backend_absent.py` red, because those
+# tests took their "the extra is absent" baseline from whatever the checkout
+# happened to have. The defect was the tests' and is repaired; the sentence is
+# narrowed to the claim that was actually measured.
 [project.optional-dependencies]
 blackjax = ["blackjax>=1.6"]
 jaxns = ["jaxns>=2.6"]

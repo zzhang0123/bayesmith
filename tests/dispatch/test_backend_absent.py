@@ -4,12 +4,25 @@ Two halves, and the second is what makes the first a boundary rather than a
 regression: an ``EvidenceTask`` over a class-(b) or class-(c) graph is refused
 by name, and a ``PosteriorTask`` over the **same graph** compiles unchanged.
 
-**The absence path RUNS here.** Nothing below is an ``importorskip`` and nothing
-is monkeypatched into place: neither candidate is installed in this checkout, so
-"absent" is the state the repository is in and the state most consumers will be
-in. R5 plan 0.9.
+**The absence path RUNS here.** Neither candidate is installed in this checkout,
+so "absent" is the state the repository is in and the state most consumers will
+be in, and ``test_the_refusal_reports_whatever_state_this_environment_is_in``
+reads it unforced. Plan §0.9.
 
-**And the capability probe is graded as a BYPASS, not read.** The plan's 0.16
+**But the absence path is not the only state, and the first version of this file
+assumed it was.** An adversarial review installed `blackjax` -- the thing the
+extra exists to install -- and the file went red: every message assertion took
+its "absent" baseline from the machine it was running on. Fast layer without
+blackjax `1 failed, 3548 passed`; with it, `2 failed, 3547 passed`. Task 4.6's
+stop-rule fired, on a test defect rather than a backend defect.
+
+So the states are now BUILT rather than inherited. ``_refuse_with`` forces the
+probe's answer and the table below covers all of them, including **mixed** --
+one extra installed and one absent, which is exactly what
+``pip install "bayesmith[blackjax]"`` produces and which no fixture used to
+build.
+
+**And the capability probe is graded as a BYPASS, not read.** Plan §0.16
 measured that a partially installed ``jaxns`` writes ``jax.config`` at import and
 *then* fails with an ``AttributeError`` -- which ``except ImportError`` does not
 catch -- so the obvious probe
@@ -20,16 +33,10 @@ catch -- so the obvious probe
         pass
 
 flips ``jax_enable_x64`` process-globally while returning a clean-looking
-negative. A flipped flag is not a wrong number; it is R4's own precision gate no
-longer firing, because ``dispatch/task.py`` decides ``evidence_requires_x64`` by
-OUTCOME (``jnp.result_type(float)``) so that the context manager and the
+negative. That is not a wrong number; it is R4's own precision gate no longer
+firing, because ``dispatch/task.py`` decides ``evidence_requires_x64`` by
+OUTCOME (``jnp.result_type(float)``) so the context manager and the
 process-global switch give one answer.
-
-``test_the_naive_probe_poisons_a_fresh_process_and_this_one_does_not`` builds
-that exact module -- writes the flag, then raises ``AttributeError`` -- installs
-it under each candidate's own distribution name, and runs both probes in one
-subprocess. The subprocess is not decoration: demonstrating the poisoning
-in-process would poison this suite.
 """
 
 from __future__ import annotations
@@ -54,10 +61,20 @@ from tests.dispatch.test_task_protocol import model_ref as _model_ref
 
 ROOT = Path(__file__).resolve().parents[2]
 
-#: A module that behaves the way plan 0.16 measured a partially installed
+#: The install commands, written out. **Literals on purpose.** The first
+#: version of this file asserted ``install_command(extra) in message``, which is
+#: the refusal and the guard calling one function: a review replaced that
+#: function's body three ways -- dropping the quoting, returning the wrong
+#: extra, naming no extra at all -- and every one survived, because whatever it
+#: returned appeared on both sides of the ``in``. A literal has no such
+#: symmetry: it comes from a person reading ``pyproject.toml``.
+BLACKJAX_COMMAND = 'pip install "bayesmith[blackjax]"'
+JAXNS_COMMAND = 'pip install "bayesmith[jaxns]"'
+COMMANDS = {"blackjax": BLACKJAX_COMMAND, "jaxns": JAXNS_COMMAND}
+
+#: A module that behaves the way plan §0.16 measured a partially installed
 #: ``jaxns`` behaving: ``jax.config`` is written at module scope, and the import
-#: then fails with the exception a capability probe does NOT catch. The message
-#: is the one 0.16 recorded, so a reader can match them up.
+#: then fails with the exception a capability probe does NOT catch.
 _POISONING_MODULE = (
     "import jax\n"
     "jax.config.update('jax_enable_x64', True)\n"
@@ -74,9 +91,9 @@ def _install_fake(root: Path, distribution: str, source: str, version="9.9.9"):
     """A findable distribution whose module has not been imported.
 
     Both halves matter. The ``.dist-info`` is what ``importlib.metadata`` reads,
-    and the ``.py`` is what an import would execute -- so a probe that answers
-    from the first and never touches the second is the thing under test, and a
-    probe that reaches the second is caught by the module's own side effect.
+    and the ``.py`` is what an import would execute -- so a probe answering from
+    the first and never touching the second is the thing under test, and one
+    that reaches the second is caught by the module's own side effect.
     """
     (root / f"{distribution}.py").write_text(source, encoding="utf-8")
     info = root / f"{distribution}-{version}.dist-info"
@@ -92,32 +109,34 @@ def _install_fake(root: Path, distribution: str, source: str, version="9.9.9"):
 class _RaisingFinder:
     """A ``sys.meta_path`` entry whose distribution lookup cannot answer.
 
-    This is the third state red line 14 requires: the probe did not find the
-    distribution absent, it failed to look. An unreadable path entry, a
-    metadata backend that raises -- the shape does not matter, the DISTINCT
-    ANSWER does.
+    The third state red line 14 requires: the probe did not find the
+    distribution absent, it failed to look.
+
+    ``names`` limits which distributions it refuses to answer about, so the
+    refusal path can be reached with everything else still resolving.
+    ``error`` varies the failure, because a guard that only ever sees one
+    exception type is a guard on that type: a review inserted an
+    ``except ImportError`` arm returning ABSENT *before* the generic handler and
+    the whole suite stayed green, since the only case exercised was ``OSError``.
     """
 
-    def __init__(self, names=None):
-        #: Which distributions this finder refuses to answer about. ``None``
-        #: means all of them; a set lets the refusal path keep working for
-        #: everything that is not the subject of the test.
+    def __init__(self, names=None, error=None):
         self.names = names
+        self.error = error or OSError("the metadata backend could not be read")
 
     def find_distributions(self, context=None):
         wanted = getattr(context, "name", None)
         if self.names is None or wanted in self.names:
-            raise OSError("the metadata backend could not be read")
+            raise self.error
         return ()
 
     def find_spec(self, fullname, path=None, target=None):
         return None
 
 
-#: Wave B's five residual fixtures, with the structural class each one compiles
-#: to. **Measured on this tree** (2026-09-05, at `42d77db` plus this change),
-#: not read off the plan: three are class (b) -- an exact block AND a residual
-#: one -- and two are class (c).
+#: Wave B's five residual fixtures, with the structural class each compiles to.
+#: **Measured on this tree**, not read off the plan: three are class (b) -- an
+#: exact block AND a residual one -- and two are class (c).
 #:
 #:     mixture_prior_residual     (b)  exact=('b',)   gcr  sampled=('w',)
 #:     outside_observation_pair   (b)  exact=('x',)   gcr  sampled=('tau',)
@@ -126,14 +145,16 @@ class _RaisingFinder:
 #:     undeclared_quartet         (c)  exact=()            sampled=4 latents
 #:
 #: Class (b) is the harder half and §8 R5's headline, so the refusal is graded
-#: against it rather than only against the all-residual case. These live in
-#: ``tests/exact/residual_models.py``; ``tests/exact/models.py`` is a census
-#: denominator pinned in three places and gains nothing here.
+#: against it rather than only against the all-residual case.
 #:
-#: ``tests/dispatch/test_residual_fixtures.py`` owns the taxonomy census and
-#: this list is not a second copy of it: that test asserts where each fixture
-#: SITS, and this one asserts what the refusal SAYS. If the routing moves, that
-#: census reddens first and its message names the remedy.
+#: **What records this taxonomy, stated exactly, because an earlier version of
+#: this comment was wrong about it.** It claimed
+#: ``tests/dispatch/test_residual_fixtures.py`` owns the census so that "if the
+#: routing moves, that census reddens first". That census asserts routing for
+#: three of these five; ``outside_observation_pair`` appears in it **zero**
+#: times and ``shifted_block_prior`` only in a closed-form test. For those two
+#: the assertion below is the only thing that reads their routing, which is why
+#: it asserts the class rather than trusting the key's prefix.
 GRAPHS = {
     "b_mixture_prior_residual": "mixture_prior_residual",
     "b_outside_observation_pair": "outside_observation_pair",
@@ -146,9 +167,9 @@ GRAPHS = {
 def _graph(name):
     """One of Wave B's fixtures, built at the precision its closed form assumes.
 
-    Every caller is already inside ``jax.enable_x64(True)``; ``residual_models``
-    raises rather than answering about a float32 model, so a call that drifted
-    out of the block fails loudly instead of quietly.
+    Every caller is inside ``jax.enable_x64(True)``; ``residual_models`` raises
+    rather than answering about a float32 model, so a call that drifted out of
+    the block fails loudly instead of quietly.
     """
     from tests.exact import residual_models
 
@@ -172,28 +193,34 @@ def _normalise(name: str) -> str:
 def _extra_provides(requirements, distribution) -> bool:
     """Does installing this extra install the distribution the probe looks for?
 
-    Extracted so the exploit cases below can reach it. The guard over the real
-    ``pyproject.toml`` calls this, and so does
-    ``test_an_extra_that_installs_a_near_miss_is_not_accepted`` -- which is the
-    fixture this repository does not contain: with two well-formed rows,
-    ``req.startswith(distribution)`` and this function agree on every input the
-    package holds, so restoring the loose version leaves the suite green. That
-    is red line 13's fault (b), and the remedy for (b) is a fixture.
+    Extracted so the near-miss cases below can reach it. ``startswith`` was the
+    first version and it admits ``blackjax-nightly``: the extra installs, the
+    probe still finds no ``blackjax``, and the refusal reports the extra absent
+    forever. A review built exactly that and the suite stayed green.
     """
     return _normalise(distribution) in {
         _normalise(_requirement_name(requirement)) for requirement in requirements
     }
 
 
-def _extras_in(command: str) -> set[str]:
-    """The extras a ``pip install`` command actually asks for.
+def _status(extra, state, version=None, distribution=None, detail="forced"):
+    """One ``ExtraStatus``, built rather than measured.
 
-    Reads the text rather than rebuilding it. ``pip install "bayesmith[a,b]"``
-    -> ``{"a", "b"}``; a command with no bracket -> the empty set, which is the
-    case that matters: it is what a command that forgot the extra looks like.
+    ``distribution`` defaults to something DIFFERENT from ``extra``. In the real
+    table the two are the same string for both rows, so nothing distinguished
+    them: mutants filling ``extra`` with the distribution, filling
+    ``distribution`` with the extra, and swapping the pair at the call site all
+    survived. Here they differ, so the message has to name the right one.
     """
-    inside = re.findall(r"\[([^\]]*)\]", command)
-    return {part.strip() for group in inside for part in group.split(",") if part.strip()}
+    from bayesmith.dispatch.task import ExtraStatus
+
+    return ExtraStatus(
+        extra=extra,
+        distribution=distribution or f"{extra}-dist",
+        state=state,
+        version=version,
+        detail=detail,
+    )
 
 
 def _refuse(graph):
@@ -209,95 +236,339 @@ def _refuse(graph):
     return outcome
 
 
-@pytest.mark.parametrize("name", sorted(GRAPHS))
-def test_the_refusal_names_the_missing_extra_and_how_to_install_it(name):
-    """4.1's first half, at the layer a caller reads.
+def _refuse_with(monkeypatch, statuses, name="c_cauchy_residual_pair"):
+    """The refusal a caller reads, with the PROBE's answer forced.
 
-    Not "a refusal exists": a caller who is told a capability is missing and
-    not told which package supplies it has been given a dead end wearing a
-    schema. The extra's NAME and the COMMAND are both asserted, and both are
-    asserted against the extras table rather than against a literal, so a
-    table that grows is covered without this test being edited.
-
-    **The command is parsed, not compared against itself.** An earlier version
-    asserted ``install_command(extra) in prose``, which is the refusal and the
-    guard reading the same function -- measured: replacing
-    ``install_command``'s body with a bare ``"pip install bayesmith"`` left this
-    green, because the message it is checked against is built from the same
-    call. The assertion now reads the extras OUT of the command text and
-    compares them with the table, so the two sides come from different places.
+    **This is the repair for a stop-rule that fired.** Forcing is the only way
+    to reach three of the four states: this checkout has neither candidate, CI
+    has neither, and a test whose expected value is a property of the machine it
+    runs on is not a test of the code. The unforced ABSENT path still runs in
+    ``test_the_refusal_reports_whatever_state_this_environment_is_in``, which is
+    what §0.9 requires -- that path is built and run, not mocked.
     """
-    from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS, install_command
+    import bayesmith.dispatch.task as task_module
+
+    monkeypatch.setattr(
+        task_module, "residual_evidence_extras", lambda: tuple(statuses)
+    )
+    with jax.enable_x64(True):
+        return _refuse(_graph(name)).grounds[0].message
+
+
+def _clause_for(message: str, extra: str) -> str:
+    """The part of the extras sentence that talks about ``extra``.
+
+    The sentence is a ``; ``-joined list, one part per extra. Matching the part
+    rather than the whole message is what makes "the message says the right
+    thing about the WRONG extra" a failure: a mutant that computed one
+    collective state for all extras printed a jaxns clause reading "the jaxns
+    extra is installed (jaxns None)" and no whole-message assertion saw it.
+    """
+    parts = [part for part in message.split("; ") if f"the {extra} extra" in part]
+    assert len(parts) == 1, (
+        f"expected exactly one clause about the {extra!r} extra, found "
+        f"{len(parts)} in {message!r}"
+    )
+    return parts[0]
+
+
+# ------------------------------------------------------------ the state table
+
+def _states():
+    from bayesmith.dispatch.task import EXTRA_ABSENT, EXTRA_INSTALLED, EXTRA_UNKNOWN
+
+    return {
+        # The state this checkout is in, and CI's default.
+        "both_absent": (
+            _status("blackjax", EXTRA_ABSENT),
+            _status("jaxns", EXTRA_ABSENT),
+        ),
+        # What `pip install "bayesmith[blackjax]"` actually produces. **No
+        # fixture built this before an adversarial review named it**, and it is
+        # the state that turned the first version of this file red.
+        "mixed_blackjax_installed": (
+            _status("blackjax", EXTRA_INSTALLED, version="1.6.2"),
+            _status("jaxns", EXTRA_ABSENT),
+        ),
+        "mixed_jaxns_installed": (
+            _status("blackjax", EXTRA_ABSENT),
+            _status("jaxns", EXTRA_INSTALLED, version="2.6.9"),
+        ),
+        "both_installed": (
+            _status("blackjax", EXTRA_INSTALLED, version="1.6.2"),
+            _status("jaxns", EXTRA_INSTALLED, version="2.6.9"),
+        ),
+        "both_unknown": (
+            _status("blackjax", EXTRA_UNKNOWN, detail="OSError: unreadable"),
+            _status("jaxns", EXTRA_UNKNOWN, detail="OSError: unreadable"),
+        ),
+        # The third state beside a first: red line 14's whole point is that
+        # these do not collapse, so they have to be observed apart.
+        "mixed_unknown_and_absent": (
+            _status("blackjax", EXTRA_UNKNOWN, detail="RuntimeError: no backend"),
+            _status("jaxns", EXTRA_ABSENT),
+        ),
+    }
+
+
+@pytest.mark.parametrize("state", sorted(_states()))
+def test_the_refusal_message_maps_each_extra_state_to_its_own_sentence(
+    monkeypatch, state
+):
+    """Every state, per extra, against literals.
+
+    Three properties per extra, and each one is a mutant that used to live:
+
+    * ABSENT gets the install command -- the literal, not ``install_command``'s
+      own output.
+    * INSTALLED gets the version and **not** the command, because telling a
+      caller to install what they have hands them the same refusal twice.
+    * UNKNOWN gets neither: a lookup that did not complete has not earned an
+      install command, and it must not be reported as an absence.
+    """
+    from bayesmith.dispatch.task import EXTRA_ABSENT, EXTRA_INSTALLED, EXTRA_UNKNOWN
+
+    statuses = _states()[state]
+    message = _refuse_with(monkeypatch, statuses)
+
+    for status in statuses:
+        clause = _clause_for(message, status.extra)
+        command = COMMANDS[status.extra]
+        if status.state == EXTRA_ABSENT:
+            assert command in clause, (
+                f"{state}: {status.extra} is absent and the refusal does not "
+                f"say how to install it"
+            )
+            assert "could not be determined" not in clause
+        elif status.state == EXTRA_INSTALLED:
+            assert status.version in clause, (
+                f"{state}: the refusal cannot name the version of a "
+                f"distribution it never looked up"
+            )
+            assert status.distribution in clause, (
+                f"{state}: the refusal names the extra but not the "
+                f"distribution that supplies it"
+            )
+            assert command not in clause, (
+                f"{state}: the refusal told a caller to install "
+                f"{status.extra}, which is installed"
+            )
+        else:
+            assert status.state == EXTRA_UNKNOWN
+            assert "could not be determined" in clause, (
+                f"{state}: a lookup that did not complete was reported as "
+                f"though it had"
+            )
+            assert status.detail in clause, (
+                f"{state}: a declined lookup that does not say why is a "
+                f"second silence"
+            )
+            assert command not in clause, (
+                f"{state}: the refusal earned an install command from a "
+                f"lookup that never happened"
+            )
+
+    # The other extra's command must never leak into this one's clause.
+    for status in statuses:
+        clause = _clause_for(message, status.extra)
+        for other, command in COMMANDS.items():
+            if other != status.extra:
+                assert command not in clause, (
+                    f"{state}: {status.extra}'s clause carries {other}'s command"
+                )
+
+
+def test_the_refusal_reports_whatever_state_this_environment_is_in():
+    """§0.9's requirement: the absence path RUNS, unforced and unmocked.
+
+    Environment-independent by construction -- it reads the live probe and
+    asserts the mapping rather than a fixed answer -- so it passes in this
+    checkout (both absent), in CI (both absent), and in an environment where
+    somebody has installed one or both. **That last part is the repair.** The
+    version of this test that hard-coded the absent answer went red the moment
+    `blackjax` was installed, which is a stop-rule firing on a test defect.
+    """
+    from bayesmith.dispatch.task import (
+        EXTRA_ABSENT,
+        EXTRA_INSTALLED,
+        EXTRA_UNKNOWN,
+        residual_evidence_extras,
+    )
+
+    statuses = residual_evidence_extras()
+    assert statuses, "the extras table is empty, so this proves nothing"
 
     with jax.enable_x64(True):
-        refusal = _refuse(_graph(name))
+        message = _refuse(_graph("b_mixture_prior_residual")).grounds[0].message
 
-    message = refusal.grounds[0].message
-    assert RESIDUAL_EVIDENCE_EXTRAS, "the extras table is empty, so this proves nothing"
-    for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS:
-        assert extra in message, f"the refusal never names the {extra!r} extra"
-        command = install_command(extra)
-        assert _extras_in(command) == {extra}, (
-            f"{command!r} does not ask pip for the {extra!r} extra, so a caller "
-            f"who runs it installs bayesmith again and gets this refusal twice"
-        )
-        assert command in message, (
-            f"the refusal names {extra!r} without saying how to install it"
-        )
+    for status in statuses:
+        clause = _clause_for(message, status.extra)
+        assert status.state in (EXTRA_ABSENT, EXTRA_INSTALLED, EXTRA_UNKNOWN)
+        if status.state == EXTRA_ABSENT:
+            assert COMMANDS[status.extra] in clause
+        elif status.state == EXTRA_INSTALLED:
+            assert str(status.version) in clause
+            assert COMMANDS[status.extra] not in clause
+        else:
+            assert "could not be determined" in clause
 
 
-def test_the_refusal_carries_a_remedy_a_program_can_act_on():
+def test_the_refusal_says_what_is_true_of_the_graph_and_claims_nothing_more(
+    monkeypatch,
+):
+    """The fields beside the message, and the sentences it must not contain.
+
+    `observed`, `expected`, `scope` and `summary` were read by nothing, so a
+    refusal could swap the exact and residual blocks, or tell the caller the
+    posterior task was refused too -- flatly contradicting the test one function
+    down that proves it is not -- with the suite green.
+    """
+    from bayesmith.artifacts.refusal import ScopeKind
+    from bayesmith.dispatch.plan import compile as compile_plan
+
+    with jax.enable_x64(True):
+        graph = _graph("b_mixture_prior_residual")
+        plan = compile_plan(graph)
+        refusal = _refuse(graph)
+
+    exact = tuple(plan.exact.latents) if plan.exact is not None else ()
+    sampled = tuple(plan.sampled.latents) if plan.sampled is not None else ()
+    assert exact and sampled, "this fixture stopped being class (b)"
+
+    ground = refusal.grounds[0]
+    assert ground.code == "residual_backend_unavailable"
+    assert ground.observed == (exact, sampled), (
+        "the refusal reported the exact and residual blocks as something other "
+        "than what the plan actually built"
+    )
+    assert ground.expected == "an installed residual-evidence backend"
+    assert refusal.scope.kind is ScopeKind.BACKEND
+    assert refusal.scope.name == "residual_evidence"
+    assert "no backend" in refusal.meta.summary
+
+    # The message names the residual block as the thing without a runner, and
+    # the exact block as the thing that collapses -- not the other way round.
+    message = ground.message
+    assert f"integral over {list(sampled)}" in message
+    assert f"{list(exact)} collapses exactly" in message
+    assert "posterior task is unaffected" in message
+    assert "posterior task is also refused" not in message
+
+
+def test_the_refusal_carries_two_remedies_and_only_one_offers_the_extras():
     """The remedy row, asserted as a field rather than as prose in a heap.
 
-    **The first version of this file never graded the remedy at all.** It
-    concatenated ``grounds[0].message`` with every remedy's message and searched
-    the heap, so removing the install remedy entirely left the guard green --
-    measured, 141 passed, exit 0 -- because the same commands appear in the
-    finding's own message. A refusal's ``remedies`` is the field a caller
-    branches on, and a heap that contains the right words is not that field.
-
-    So: exactly one remedy offers the extras, it names every install command,
-    and it carries the extras as a PARAMETER, which is the half a program reads
-    when it is not reading English.
+    The first version concatenated `grounds[0].message` with every remedy's
+    message and searched the heap, so **either** remedy could be deleted, the
+    new one's parameters emptied, or its action renamed to the other's, all
+    green -- the install commands appear in the finding's own message too.
     """
-    from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS, install_command
+    from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS
 
     with jax.enable_x64(True):
         refusal = _refuse(_graph("b_mixture_prior_residual"))
 
+    actions = [remedy.action for remedy in refusal.remedies]
+    assert len(actions) == len(set(actions)), f"two remedies, one action: {actions}"
+    assert len(refusal.remedies) == 2, actions
+
     offering = [
         remedy
         for remedy in refusal.remedies
-        if all(
-            install_command(extra) in remedy.message
-            for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS
-        )
+        if all(command in remedy.message for command in COMMANDS.values())
     ]
     assert len(offering) == 1, (
-        f"expected exactly one remedy offering the extras; the refusal carries "
-        f"{[remedy.action for remedy in refusal.remedies]}"
+        f"expected exactly one remedy offering the extras, got {actions}"
     )
     parameters = dict(offering[0].parameters)
     assert parameters.get("extras") == tuple(
         extra for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS
     ), parameters
 
+    # The other remedy is the premise's own, and it is still there: a caller
+    # whose release cannot answer the task at all needs it.
+    generic = [remedy for remedy in refusal.remedies if remedy not in offering]
+    assert len(generic) == 1
+    assert all(command not in generic[0].message for command in COMMANDS.values())
+
+
+def test_a_refusal_that_is_not_about_the_residual_integral_offers_no_sampler():
+    """The live wrong answer an adversarial review measured.
+
+    `_refusal` reads `_REMEDIES[failed_premise]`, and `capability_unavailable_r1`
+    has two consumers: a task kind this release does not answer, and a residual
+    integral with no sampler. With the install remedy in the premise's row, a
+    **simulation** refusal told the caller to install a nested sampler -- they
+    would install something and come back to the identical refusal.
+
+    Asserted twice: the premise's own row carries no install command, so every
+    consumer that gets only the table row is safe; and the task-kind refusal
+    built directly carries none either.
+    """
+    import bayesmith.dispatch.task as task_module
+    from bayesmith.artifacts.identity import ArtifactKind
+    from bayesmith.artifacts.tasks import TaskKind
+
+    row = task_module._REMEDIES[CAPABILITY_UNAVAILABLE_R1]
+    assert row, "the premise lost its remedy row"
+    for remedy in row:
+        for command in COMMANDS.values():
+            assert command not in remedy.message, (
+                f"the premise's own remedy row offers {command!r}, so every "
+                f"refusal naming this premise offers it -- including the ones "
+                f"that are not about the residual integral at all"
+            )
+
+    # The KIND is what `_capability_refusal` writes into its message and the
+    # subject here is which remedies come back, so the task object only has to
+    # be a valid one -- a `SimulationTask` needs a `ParameterSource` this test
+    # has no opinion about.
+    task = EvidenceTask(meta=new_task_meta(label="e"))
+    with jax.enable_x64(True):
+        graph = _graph("c_cauchy_residual_pair")
+        bundle = task_module.input_fingerprints(graph, task, model_ref=_model_ref())
+    refusal = task_module._capability_refusal(
+        task, TaskKind.SIMULATION, bundle, ArtifactKind.PLAN
+    )
+    assert "simulation" in refusal.grounds[0].message
+    assert refusal.failed_premise == CAPABILITY_UNAVAILABLE_R1
+    assert refusal.grounds[0].code == "task_kind_unavailable"
+    for remedy in refusal.remedies:
+        for command in COMMANDS.values():
+            assert command not in remedy.message, (
+                "a task-kind refusal told the caller to install a nested sampler"
+            )
+
 
 @pytest.mark.parametrize("name", sorted(GRAPHS))
 def test_a_posterior_task_over_the_same_graph_is_unaffected(name):
     """4.1's second half -- the one that separates a boundary from a regression.
 
-    The same graph object, the same call, a different task kind.
+    The same graph object, the same call, a different task kind. It also
+    asserts the structural class each fixture sits in, because for two of the
+    five nothing else in the suite reads their routing.
     """
+    from bayesmith.dispatch.plan import compile as compile_plan
+
     with jax.enable_x64(True):
         graph = _graph(name)
         _refuse(graph)
+        plan = compile_plan(graph)
         outcome = compile_task(
             graph, PosteriorTask(meta=new_task_meta(label="p")), model_ref=_model_ref()
         )
     assert not isinstance(outcome, Refusal), (
         "the capability refusal broke the neighbouring capability, which makes "
         "it a regression wearing a boundary's name"
+    )
+
+    exact = tuple(plan.exact.latents) if plan.exact is not None else ()
+    sampled = tuple(plan.sampled.latents) if plan.sampled is not None else ()
+    assert sampled, f"{name} has no residual block, so it is not (b) or (c)"
+    expected_class = "b" if exact else "c"
+    assert name.startswith(f"{expected_class}_"), (
+        f"{name} compiles to class ({expected_class}): exact={exact} "
+        f"sampled={sampled}. The key records the class, so it moves with it."
     )
 
 
@@ -307,43 +578,46 @@ def test_the_extras_table_is_exactly_what_pyproject_declares():
     **What this counts:** the keys of ``[project.optional-dependencies]`` in
     ``pyproject.toml``, all of them.
 
-    **What it excludes, and why each is not an extra.** The four
-    ``[project].dependencies`` -- jax, equinox, numpy, numpyro -- are hard
-    requirements; the pyproject comment says numpyro is "the last row of the
-    dispatch table, not an optional extra". ``[dependency-groups]`` (``dev``,
-    ``crosscheck``) are a different table with a different meaning: they are
-    never installed by ``pip install bayesmith[...]`` and never reach a wheel.
+    **What it excludes.** The four ``[project].dependencies`` -- jax, equinox,
+    numpy, numpyro -- are hard requirements; the pyproject comment says numpyro
+    is "the last row of the dispatch table, not an optional extra".
+    ``[dependency-groups]`` (``dev``, ``crosscheck``) are a different table:
+    they never reach a wheel and ``pip install bayesmith[...]`` cannot ask for
+    them.
 
-    **It is an allow-list in both directions.** An extra added to
-    ``pyproject.toml`` and not to the table is a capability the refusal cannot
-    name; a table entry with no extra is an install command that does not
-    work. Equality catches both, and neither defaults to admitted.
+    **Compared as an ordered sequence, not as a set.** A review added a
+    duplicate row to the table and the set comparison passed, so the docstring's
+    claim to hold the two lists equal "in both directions" was false about
+    multiplicity. Duplicating a row makes the refusal name an extra twice.
     """
     import tomllib
 
     from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS
 
     declared = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    extras = set(declared["project"].get("optional-dependencies", {}))
-    assert extras == {extra for extra, _dist in RESIDUAL_EVIDENCE_EXTRAS}, {
-        "declared in pyproject.toml": sorted(extras),
-        "named by the refusal": sorted(e for e, _ in RESIDUAL_EVIDENCE_EXTRAS),
-    }
+    extras = declared["project"].get("optional-dependencies", {})
+    named = [extra for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS]
+
     assert extras, "pyproject.toml declares no extras at all"
+    assert len(named) == len(set(named)), f"the table names an extra twice: {named}"
+    assert sorted(named) == sorted(extras), {
+        "declared in pyproject.toml": sorted(extras),
+        "named by the refusal": sorted(named),
+    }
+    assert len(named) == len(extras), {
+        "the table has this many rows": len(named),
+        "pyproject declares this many extras": len(extras),
+    }
+
+    distributions = [d for _extra, d in RESIDUAL_EVIDENCE_EXTRAS]
+    assert len(distributions) == len(set(distributions)), distributions
+
     for extra, distribution in RESIDUAL_EVIDENCE_EXTRAS:
-        requirements = declared["project"]["optional-dependencies"][extra]
-        # The requirement's NAME, parsed and normalised, not a prefix.
-        # `startswith` was the first version of this line and it admits
-        # `blackjax-nightly`: the extra would install successfully, the probe
-        # would still find no `blackjax`, and the refusal would say the extra
-        # is absent with nothing anywhere to say why. PEP 503 normalisation
-        # because `Black_Jax`, `black.jax` and `black-jax` are one project to
-        # pip and three different strings here.
-        assert _extra_provides(requirements, distribution), {
+        assert _extra_provides(extras[extra], distribution), {
             "the extra": extra,
             "the probe looks for": _normalise(distribution),
             "the extra installs": sorted(
-                _normalise(_requirement_name(req)) for req in requirements
+                _normalise(_requirement_name(req)) for req in extras[extra]
             ),
         }
 
@@ -351,30 +625,27 @@ def test_the_extras_table_is_exactly_what_pyproject_declares():
 @pytest.mark.parametrize(
     ("requirements", "distribution", "provides"),
     [
-        # What the table actually declares today.
+        # What the table declares today.
         (["blackjax>=1.6"], "blackjax", True),
         (["jaxns>=2.6"], "jaxns", True),
-        # The near miss `startswith` admits. The extra would install, and the
-        # probe would still report the extra absent -- a refusal that a correct
-        # install cannot clear, with nothing anywhere saying why.
+        # The near miss `startswith` admitted. The extra installs, the probe
+        # still finds no `blackjax`, and the refusal reports it absent forever.
         (["blackjax-nightly>=1.6"], "blackjax", False),
+        (["jaxns-nightly>=2.6"], "jaxns", False),
         (["jaxns2>=2.6"], "jaxns", False),
-        # PEP 503: pip reads each of these pairs as ONE project, so this file
-        # must too -- case folds, and `-` `_` `.` are one separator.
+        # PEP 503: pip reads each pair as ONE project.
         (["BlackJAX>=1.6"], "blackjax", True),
         (["black_jax>=1.6"], "black-jax", True),
         (["black.jax"], "black-jax", True),
         # And it does NOT fold a separator into its absence: `Black_Jax` is
-        # `black-jax`, which is a different project from `blackjax`. This row
-        # was written the other way round and the parametrisation caught it,
-        # which is the whole reason it is a table and not an assertion.
+        # `black-jax`, a different project from `blackjax`. This row was
+        # written the other way round and the parametrisation caught it.
         (["Black_Jax>=1.6"], "blackjax", False),
-        # Shapes the version parser has to survive rather than mistake for a
-        # different name.
+        # Shapes the parser must survive rather than mistake for a name.
         (["jaxns[plot] ; python_version<'3.13'"], "jaxns", True),
         (["blackjax == 1.6.2"], "blackjax", True),
         (["blackjax"], "blackjax", True),
-        # An extra that installs nothing the probe looks for.
+        # Nothing the probe looks for.
         ([], "blackjax", False),
         (["optax"], "blackjax", False),
     ],
@@ -385,8 +656,9 @@ def test_an_extra_that_installs_a_near_miss_is_not_accepted(
     """The fixture the repository does not contain, so the guard has one.
 
     The real table has two well-formed rows, and on those the loose check
-    (`req.startswith(distribution)`) and the parsed one agree -- measured, the
-    suite stays green either way. These are the inputs on which they differ.
+    (`req.startswith(distribution)`) and the parsed one agree -- restoring
+    `startswith` leaves the suite green. These are the inputs on which they
+    differ. Red line 13's fault (b), and (b) needs a fixture.
     """
     assert _extra_provides(requirements, distribution) is provides
 
@@ -402,13 +674,7 @@ def test_the_probe_reports_absent_when_the_distribution_is_not_installed():
 
 
 def test_the_probe_reports_installed_without_importing_the_distribution(tmp_path):
-    """The present state, and the assertion is about what did NOT happen.
-
-    A probe that answers "installed" by importing is correct and unusable: the
-    import is the side effect the extra exists to avoid paying for. So the
-    check is that ``sys.modules`` did not gain the module and that the version
-    came back anyway.
-    """
+    """The present state, and the assertion is about what did NOT happen."""
     from bayesmith.dispatch.task import EXTRA_INSTALLED, optional_extra_status
 
     name = "bayesmith_probe_quiet"
@@ -420,6 +686,8 @@ def test_the_probe_reports_installed_without_importing_the_distribution(tmp_path
         status = optional_extra_status("quiet", name)
         assert status.state == EXTRA_INSTALLED
         assert status.version == version
+        assert status.extra == "quiet", "the probe filled `extra` with something else"
+        assert status.distribution == name
         assert name not in sys.modules, (
             "the probe imported the distribution it was asked about"
         )
@@ -430,11 +698,7 @@ def test_the_probe_reports_installed_without_importing_the_distribution(tmp_path
 
 
 def test_a_poisoning_distribution_is_reported_installed_and_never_executed(tmp_path):
-    """The broken state, in-process, and the flag is SHOWN unchanged.
-
-    The module here writes ``jax_enable_x64`` and then raises. If the probe
-    touches it at all, this test flips the process flag and says so.
-    """
+    """The broken state, in-process, and the flag is SHOWN unchanged."""
     from bayesmith.dispatch.task import EXTRA_INSTALLED, optional_extra_status
 
     name = "bayesmith_probe_poison"
@@ -456,21 +720,91 @@ def test_a_poisoning_distribution_is_reported_installed_and_never_executed(tmp_p
         jax.config.update("jax_enable_x64", before)
 
 
+def test_an_absent_distribution_whose_module_is_importable_is_not_imported(tmp_path):
+    """The bypass that survived: importing on the way to answering ABSENT.
+
+    A review inserted ``__import__(distribution)`` inside the
+    ``PackageNotFoundError`` arm -- the answer stays correct in all three
+    states, the versions stay right, and the module body runs anyway. Every
+    fixture planted a ``.dist-info`` beside the module, so the absent arm never
+    had a module to reach.
+
+    Here the module exists with **no** metadata, so ABSENT is the answer and the
+    module is the poisoning one: an import shows up in the flag.
+    """
+    from bayesmith.dispatch.task import EXTRA_ABSENT, optional_extra_status
+
+    name = "bayesmith_probe_orphan"
+    (tmp_path / f"{name}.py").write_text(_POISONING_MODULE, encoding="utf-8")
+    sys.path.insert(0, str(tmp_path))
+    importlib.invalidate_caches()
+    before = jax.config.jax_enable_x64
+    try:
+        status = optional_extra_status("orphan", name)
+        assert status.state == EXTRA_ABSENT
+        assert name not in sys.modules, (
+            "the probe imported a module on its way to reporting it absent"
+        )
+        assert jax.config.jax_enable_x64 == before, (
+            "the probe executed the module and it moved jax.config"
+        )
+    finally:
+        sys.path.remove(str(tmp_path))
+        sys.modules.pop(name, None)
+        importlib.invalidate_caches()
+        jax.config.update("jax_enable_x64", before)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        OSError("the metadata backend could not be read"),
+        RuntimeError("the metadata backend is not available"),
+        ValueError("a dist-info directory could not be parsed"),
+    ],
+    ids=["OSError", "RuntimeError", "ValueError"],
+)
+def test_a_probe_that_could_not_look_says_so_rather_than_saying_absent(error):
+    """Red line 14, as a value rather than as a promise, on more than one shape.
+
+    ``absent`` and ``could not tell`` are different facts and a consumer acts
+    differently on each. **One exception type is not the rule**: a review
+    inserted an ``except ImportError`` arm returning ABSENT ahead of the generic
+    handler, and because the only case exercised was ``OSError`` the whole suite
+    stayed green while every other lookup failure started reporting an absence.
+    """
+    from bayesmith.dispatch.task import (
+        EXTRA_ABSENT,
+        EXTRA_UNKNOWN,
+        optional_extra_status,
+    )
+
+    finder = _RaisingFinder(error=error)
+    sys.meta_path.insert(0, finder)
+    try:
+        status = optional_extra_status("blocked", "bayesmith-no-such-distribution")
+    finally:
+        sys.meta_path.remove(finder)
+
+    assert status.state == EXTRA_UNKNOWN
+    assert status.state != EXTRA_ABSENT
+    assert type(error).__name__ in status.detail, (
+        "a declined lookup that does not say why is a second silence"
+    )
+
+
 def test_the_refusal_itself_says_the_lookup_declined_rather_than_saying_absent():
     """Red line 15: the same three states, asked at the layer a caller reads.
 
-    **This test exists because its absence was measured.** The sibling below
-    calls ``optional_extra_status`` directly, and with only that one,
-    ``_extras_sentence``'s UNKNOWN branch was reachable by nothing: a mutant
-    rewriting that branch to print the ABSENT text survived the whole file --
-    142 passed, exit 0. A report is an intermediate value, and a test on an
-    intermediate value grades the calculation rather than the decision.
+    **This test exists because its absence was measured.** With only the probe
+    asserted directly, ``_extras_sentence``'s UNKNOWN branch was reachable by
+    nothing: mutants folding it into the ABSENT text and into the INSTALLED text
+    both survived the whole fast layer.
 
-    So the metadata backend is broken for exactly the residual-evidence
-    distributions -- everything else still resolves, so `compile_task` runs
-    normally -- and the REFUSAL is read.
+    The metadata backend is broken for exactly the residual-evidence
+    distributions -- everything else still resolves, so `compile_task` runs.
     """
-    from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS, install_command
+    from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS
 
     subjects = {distribution for _extra, distribution in RESIDUAL_EVIDENCE_EXTRAS}
     finder = _RaisingFinder(subjects)
@@ -482,67 +816,43 @@ def test_the_refusal_itself_says_the_lookup_declined_rather_than_saying_absent()
         sys.meta_path.remove(finder)
 
     for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS:
-        assert f"whether the {extra} extra is installed could not be" in message, (
-            f"the refusal reported {extra!r} as though the lookup had happened"
-        )
-        assert install_command(extra) not in message, (
-            f"the refusal told a caller to install {extra!r} on the strength of "
+        clause = _clause_for(message, extra)
+        assert "could not be determined" in clause
+        assert COMMANDS[extra] not in clause, (
+            f"the refusal told a caller to install {extra} on the strength of "
             f"a lookup that never completed"
         )
-    assert "OSError" in message, (
-        "a declined lookup that does not say why is a second silence"
-    )
-
-
-def test_a_probe_that_could_not_look_says_so_rather_than_saying_absent():
-    """Red line 14, as a value rather than as a promise.
-
-    ``absent`` and ``could not tell`` are different facts about the world and a
-    consumer branches differently on them: the first is answered by installing
-    the extra, the second by finding out why the lookup failed. Reporting the
-    second as the first is this repository's founding disease -- a result that
-    cannot distinguish the thing it names from a thing resembling it.
-    """
-    from bayesmith.dispatch.task import (
-        EXTRA_ABSENT,
-        EXTRA_UNKNOWN,
-        optional_extra_status,
-    )
-
-    finder = _RaisingFinder()
-    sys.meta_path.insert(0, finder)
-    try:
-        status = optional_extra_status("blocked", "bayesmith-no-such-distribution")
-    finally:
-        sys.meta_path.remove(finder)
-
-    assert status.state == EXTRA_UNKNOWN
-    assert status.state != EXTRA_ABSENT
-    assert "OSError" in status.detail, (
-        "a declined lookup that does not say why is a second silence"
-    )
+    assert "OSError" in message
 
 
 def test_the_naive_probe_poisons_a_fresh_process_and_this_one_does_not(tmp_path):
     """4.4 -- run in all three states, and the flag SHOWN rather than asserted.
 
-    One subprocess, four measurements in order, so that the poisoning is
-    demonstrated on the same interpreter that had just been shown clean:
+    One subprocess, four measurements in order, so the poisoning is demonstrated
+    on the same interpreter that had just been shown clean:
 
     1.  ``jax_enable_x64`` on a fresh process.
     2.  after ``residual_evidence_extras()`` -- this package's probe, over the
         real extras table, with a poisoning module installed under every one of
         those distribution names.
-    3.  after the whole refusal path (``compile_task`` on a class-(c) graph),
-        which is what a consumer actually runs.
+    3.  after the whole refusal path, which is what a consumer runs.
     4.  after ``try: import <candidate> except ImportError: pass`` -- the probe
         this package does not write.
 
-    (4) is the control. If it did not flip the flag the fake would not be
-    modelling 0.16's hazard and (2) and (3) would prove nothing.
+    (4) is the control, and the control was itself checked: a review broke the
+    planted module so it no longer wrote the flag, and this test went red on the
+    right line.
+
+    **The probe assertions carry a denominator**, computed in the parent. The
+    first version compared against ``["installed"] * len(out["probe"])``, whose
+    right side is built from its left, and asserted emptiness of a list that is
+    empty when nothing was probed at all -- so with the probe returning nothing
+    this test passed alone, exit 0.
     """
     from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS
 
+    expected = len(RESIDUAL_EVIDENCE_EXTRAS)
+    assert expected >= 2, "the mixed case needs at least two extras"
     for _extra, distribution in RESIDUAL_EVIDENCE_EXTRAS:
         _install_fake(tmp_path, distribution, _POISONING_MODULE)
 
@@ -583,7 +893,7 @@ def test_the_naive_probe_poisons_a_fresh_process_and_this_one_does_not(tmp_path)
             try:
                 __import__(distribution)
                 naive[distribution] = "imported"
-            except ImportError as error:
+            except ImportError:
                 naive[distribution] = "ImportError"
             except BaseException as error:
                 naive[distribution] = type(error).__name__
@@ -608,55 +918,22 @@ def test_the_naive_probe_poisons_a_fresh_process_and_this_one_does_not(tmp_path)
     assert proc.returncode == 0, (proc.returncode, proc.stderr[-3000:])
     out = json.loads(proc.stdout.strip().splitlines()[-1])
 
-    # (4) the control: the fake really is 0.16's hazard, and the exception it
+    # (4) the control: the fake really is §0.16's hazard, and the exception it
     # raises is not the one the naive probe catches.
     assert set(out["naive"].values()) == {"AttributeError"}, out["naive"]
+    assert len(out["naive"]) == expected
     assert out["after_naive"] is True, (
         "the fake did not poison the process, so this test grades nothing"
     )
 
-    # (1)-(3) what this package does instead.
+    # (1)-(3) what this package does instead, against a denominator.
     assert out["start"] is False
-    assert out["probe"] == ["installed"] * len(out["probe"])
+    assert len(out["probe"]) == expected, (
+        f"the probe answered about {len(out['probe'])} extras and the table "
+        f"has {expected}"
+    )
+    assert out["probe"] == ["installed"] * expected
     assert out["imported_after_probe"] == []
     assert out["after_probe"] is False, "the probe moved jax.config"
     assert out["premise"] == CAPABILITY_UNAVAILABLE_R1
     assert out["after_refusal"] is False, "the refusal path moved jax.config"
-
-
-def test_an_installed_extra_is_not_reported_as_a_missing_one(tmp_path):
-    """The refusal's message follows the probe rather than a constant.
-
-    With the extra present and no adapter behind it -- which is exactly where
-    R5 stands until Task 6 -- "install the extra" is false advice: the caller
-    would install what they already have and get the same refusal. The two
-    states have to produce two messages, and the premise stays the same because
-    the missing capability is still what is true.
-    """
-    from bayesmith.dispatch.task import RESIDUAL_EVIDENCE_EXTRAS, install_command
-
-    with jax.enable_x64(True):
-        absent = _refuse(_graph("c_cauchy_residual_pair")).grounds[0].message
-
-        for _extra, distribution in RESIDUAL_EVIDENCE_EXTRAS:
-            _install_fake(tmp_path, distribution, _QUIET_MODULE)
-        sys.path.insert(0, str(tmp_path))
-        importlib.invalidate_caches()
-        try:
-            present = _refuse(_graph("c_cauchy_residual_pair")).grounds[0].message
-        finally:
-            sys.path.remove(str(tmp_path))
-            importlib.invalidate_caches()
-
-    assert "9.9.9" in present, (
-        "the refusal did not read the probe: it cannot name the version of a "
-        "distribution it never looked up"
-    )
-    for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS:
-        assert install_command(extra) in absent, (
-            "the absent state stopped naming the install command"
-        )
-        assert install_command(extra) not in present, (
-            f"the refusal told a caller to install {extra}, which is installed"
-        )
-    assert present != absent

@@ -19,8 +19,13 @@ where sections 2, 5 and 6 report ABSENT and section 3 still runs in full, and
 once in an environment carrying both candidates.
 
     1.  This package's own capability probe, in the environment you ran it in.
-    2.  The install survey: version, declared `jax` bound, and whether that
-        bound admits the `jax` already installed here.
+    2.  The install survey: version, declared `jax` bound, **whether that bound
+        actually admits the `jax` installed here** (evaluated, not printed side
+        by side and left to the reader -- an earlier version of this docstring
+        claimed the comparison and the code only printed the two numbers), and
+        whether the two candidates coexist in one environment.
+    2b. The nested-sampling entry point's real signature, which Task 4.3 asks
+        for and the first version of this script omitted.
     3.  The three states -- absent, broken, present -- each in a fresh
         subprocess, with `jax_enable_x64` printed before and after. The BROKEN
         state is built here rather than waited for: a module that writes the
@@ -38,7 +43,9 @@ once in an environment carrying both candidates.
 from __future__ import annotations
 
 import datetime
+import importlib
 import importlib.metadata
+import inspect
 import json
 import re
 import subprocess
@@ -116,6 +123,35 @@ print(
     "INSTALLED, not what is pinned -- 1.5 condition 2 is a question about this "
     "stack, and a future jax is a different question."
 )
+def _admits(requirement: str, version: str) -> str:
+    """Does a PEP 508 requirement admit this version? Answered, not displayed.
+
+    Compares release segments as integers, so `0.11.1` sorts above `0.9.0` --
+    a string comparison says the opposite and would have reported blackjax's
+    `jax>=0.9.0` as excluding the installed 0.11.1.
+    """
+    match = re.search(r"(>=|>|==|<=|<|~=)\s*([0-9][0-9.]*)", requirement)
+    if match is None:
+        return f"{requirement}: no version bound, so anything is admitted"
+    operator, bound = match.group(1), match.group(2)
+
+    def parts(text):
+        return tuple(int(piece) for piece in text.split(".") if piece.isdigit())
+
+    have, want = parts(version), parts(bound)
+    verdicts = {
+        ">=": have >= want,
+        ">": have > want,
+        "==": have == want,
+        "<=": have <= want,
+        "<": have < want,
+        "~=": have >= want,
+    }
+    return f"{requirement}: {'ADMITS' if verdicts[operator] else 'EXCLUDES'} {version}"
+
+
+present: list[str] = []
+
 for extra, distribution in RESIDUAL_EVIDENCE_EXTRAS:
     try:
         version = importlib.metadata.version(distribution)
@@ -134,10 +170,47 @@ for extra, distribution in RESIDUAL_EVIDENCE_EXTRAS:
         if re.split(r"[^A-Za-z0-9._-]", requirement, maxsplit=1)[0].lower()
         in ("jax", "jaxlib")
     ]
+    admits = [_admits(bound, installed_jax) for bound in jax_bounds]
     print(
         f"  {distribution:>10}: {MEASURED} {version}, requires {jax_bounds}, "
         f"{len(requires)} requirements in all"
     )
+    print(f"  {'':>10}  does that admit jax {installed_jax}? {admits}")
+    present.append(distribution)
+
+if len(present) == len([d for _e, d in RESIDUAL_EVIDENCE_EXTRAS]):
+    print(f"  COEXIST: {MEASURED} -- all of {present} resolve in ONE environment, ")
+    print(f"           and jax is {installed_jax} with all of them installed")
+elif present:
+    print(f"  COEXIST: {ABSENT} -- only {present} installed here; run this script ")
+    print("           again in an environment carrying every candidate")
+else:
+    print(f"  COEXIST: {ABSENT} -- no candidate installed in this environment")
+
+rule("2b. the nested-sampling entry point's real signature")
+ENTRY_POINTS = {
+    "blackjax": [("blackjax", "nss"), ("blackjax.ns.nss", "as_top_level_api")],
+    "jaxns": [("jaxns", "NestedSampler"), ("jaxns", "Model"), ("jaxns", "Prior")],
+}
+for _extra, distribution in RESIDUAL_EVIDENCE_EXTRAS:
+    try:
+        importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        print(f"  {distribution:>10}: {ABSENT} -- not installed in this environment")
+        continue
+    for module_name, attribute in ENTRY_POINTS.get(distribution, []):
+        # Imported deliberately, in THIS process, and only in the section whose
+        # subject is the API. Everything above answers without importing; that
+        # is the probe's contract, not this script's.
+        try:
+            module = importlib.import_module(module_name)
+            obj = getattr(module, attribute)
+            target = obj.__init__ if isinstance(obj, type) else obj
+            print(f"  {distribution:>10}: {MEASURED} {module_name}.{attribute}"
+                  f"{inspect.signature(target)}")
+        except BaseException as error:  # noqa: BLE001 -- the failure IS the finding
+            print(f"  {distribution:>10}: {DECLINED} {module_name}.{attribute} -- "
+                  f"{type(error).__name__}: {error}")
 
 # ------------------------------------------------- 3. the three states, shown
 

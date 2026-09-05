@@ -193,12 +193,15 @@ SUPPORTED_BACKENDS: frozenset[str] = frozenset({"auto"})
 #:
 #: **The enumeration and its denominator (red line 16).** This is every key of
 #: ``[project.optional-dependencies]``, all of them, and
-#: ``tests/dispatch/test_backend_absent.py`` holds the two lists equal in BOTH
-#: directions -- so an extra declared in the packaging metadata and not here is
-#: a capability the refusal cannot name, and an entry here with no extra is an
-#: install command that does not work. It is an allow-list: a candidate nobody
-#: has considered is outside it and therefore not offered, rather than admitted
-#: by default.
+#: ``tests/dispatch/test_backend_absent.py`` holds the two lists equal in both
+#: directions **and at the same multiplicity** -- so an extra declared in the
+#: packaging metadata and not here is a capability the refusal cannot name, an
+#: entry here with no extra is an install command that does not work, and a row
+#: written twice is caught rather than absorbed. The multiplicity is not a
+#: flourish: the first version of that guard compared two ``set``s, and an
+#: adversarial review added a duplicate row and watched it pass. It is an
+#: allow-list: a candidate nobody has considered is outside it and therefore not
+#: offered, rather than admitted by default.
 #:
 #: **What it excludes.** The four ``[project].dependencies`` -- jax, equinox,
 #: numpy, numpyro -- are hard requirements, not extras; the pyproject comment
@@ -627,28 +630,6 @@ _REMEDIES: dict[str, tuple[Remedy, ...]] = {
             "against a later release that answers it.",
             parameters=(("supported", ("point_estimate", "posterior")),),
         ),
-        # R5 Task 4. The second consumer of this premise is the residual
-        # integral with no sampler behind it, and a caller told a capability is
-        # missing without being told which package supplies it has been handed
-        # a dead end wearing a schema (§0 ruling 3). The commands are built from
-        # RESIDUAL_EVIDENCE_EXTRAS rather than written out, so an extra added to
-        # the table cannot be added without its install command.
-        Remedy(
-            action="install_the_residual_evidence_extra",
-            message="The residual integral needs a nested sampler, which is an "
-            "optional extra: "
-            + "; ".join(
-                f"{extra} with `{install_command(extra)}`"
-                for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS
-            )
-            + ". Both candidates are declared because R5's bake-off has not "
-            "chosen between them, and installing one is necessary rather than "
-            "sufficient -- this release ships no adapter for either yet, so the "
-            "refusal will name that instead.",
-            parameters=(
-                ("extras", tuple(extra for extra, _dist in RESIDUAL_EVIDENCE_EXTRAS)),
-            ),
-        ),
     ),
     "backend_supported": (
         Remedy(
@@ -956,7 +937,21 @@ def _refusal(
     grounds: tuple[Finding, ...],
     scope: ScopeRef,
     summary: str,
+    extra_remedies: tuple[Remedy, ...] = (),
 ) -> Refusal:
+    """One refusal, with the remedies its PREMISE owns and any its GROUND does.
+
+    ``_REMEDIES`` is keyed by premise, and ``capability_unavailable_r1`` has two
+    consumers that need different advice: a task kind this release does not
+    answer, and a residual integral with no sampler behind it. **Measured by an
+    adversarial review**: with the install remedy in the premise's row, a
+    ``simulation`` refusal told the caller to install a nested sampler -- a
+    wrong answer, not merely an ungraded one, because the caller would install
+    something and come back to the identical refusal.
+
+    So the table keeps exactly what is true of the premise, and a call site with
+    something more specific to offer passes it here.
+    """
     return Refusal(
         meta=new_artifact_meta(
             artifact_type=artifact_type,
@@ -968,7 +963,7 @@ def _refusal(
         failed_premise=failed_premise,
         grounds=grounds,
         scope=scope,
-        remedies=_REMEDIES[failed_premise],
+        remedies=_REMEDIES[failed_premise] + extra_remedies,
     )
 
 
@@ -1650,6 +1645,33 @@ def _evidence_capability_refusal(
         ),
         scope=_scope(ScopeKind.BACKEND, "residual_evidence"),
         summary="the residual integral has no backend in this installation",
+        extra_remedies=(_install_the_extra_remedy(),),
+    )
+
+
+def _install_the_extra_remedy() -> Remedy:
+    """Where to get the missing capability, offered by the GROUND not the premise.
+
+    Attached at this call site rather than in ``_REMEDIES`` because the premise
+    ``capability_unavailable_r1`` is also what a task kind this release cannot
+    answer names, and a ``simulation`` refusal advising a nested-sampler install
+    is a wrong answer rather than a useless one.
+    """
+    return Remedy(
+        action="install_the_residual_evidence_extra",
+        message="The residual integral needs a nested sampler, which is an "
+        "optional extra: "
+        + "; ".join(
+            f"{extra} with `{install_command(extra)}`"
+            for extra, _distribution in RESIDUAL_EVIDENCE_EXTRAS
+        )
+        + ". Both candidates are declared because R5's bake-off has not chosen "
+        "between them, and installing one is necessary rather than sufficient "
+        "-- this release ships no adapter for either yet, so the refusal will "
+        "name that instead.",
+        parameters=(
+            ("extras", tuple(extra for extra, _dist in RESIDUAL_EVIDENCE_EXTRAS)),
+        ),
     )
 
 
