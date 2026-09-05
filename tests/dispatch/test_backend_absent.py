@@ -155,6 +155,36 @@ def _graph(name):
     return getattr(residual_models, GRAPHS[name])()
 
 
+def _requirement_name(requirement: str) -> str:
+    """The distribution a PEP 508 requirement names, without its version.
+
+    ``blackjax>=1.6`` -> ``blackjax``; ``jaxns[plot] ; python_version<'3.13'``
+    -> ``jaxns``. Cut at the first character a distribution name cannot hold.
+    """
+    return re.split(r"[^A-Za-z0-9._-]", requirement.strip(), maxsplit=1)[0]
+
+
+def _normalise(name: str) -> str:
+    """PEP 503: one project, one string. ``Black_Jax`` -> ``black-jax``."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _extra_provides(requirements, distribution) -> bool:
+    """Does installing this extra install the distribution the probe looks for?
+
+    Extracted so the exploit cases below can reach it. The guard over the real
+    ``pyproject.toml`` calls this, and so does
+    ``test_an_extra_that_installs_a_near_miss_is_not_accepted`` -- which is the
+    fixture this repository does not contain: with two well-formed rows,
+    ``req.startswith(distribution)`` and this function agree on every input the
+    package holds, so restoring the loose version leaves the suite green. That
+    is red line 13's fault (b), and the remedy for (b) is a fixture.
+    """
+    return _normalise(distribution) in {
+        _normalise(_requirement_name(requirement)) for requirement in requirements
+    }
+
+
 def _extras_in(command: str) -> set[str]:
     """The extras a ``pip install`` command actually asks for.
 
@@ -302,10 +332,63 @@ def test_the_extras_table_is_exactly_what_pyproject_declares():
     assert extras, "pyproject.toml declares no extras at all"
     for extra, distribution in RESIDUAL_EVIDENCE_EXTRAS:
         requirements = declared["project"]["optional-dependencies"][extra]
-        assert any(req.startswith(distribution) for req in requirements), (
-            f"the {extra!r} extra does not require {distribution!r}, so the "
-            f"probe would look for a distribution the install never provides"
-        )
+        # The requirement's NAME, parsed and normalised, not a prefix.
+        # `startswith` was the first version of this line and it admits
+        # `blackjax-nightly`: the extra would install successfully, the probe
+        # would still find no `blackjax`, and the refusal would say the extra
+        # is absent with nothing anywhere to say why. PEP 503 normalisation
+        # because `Black_Jax`, `black.jax` and `black-jax` are one project to
+        # pip and three different strings here.
+        assert _extra_provides(requirements, distribution), {
+            "the extra": extra,
+            "the probe looks for": _normalise(distribution),
+            "the extra installs": sorted(
+                _normalise(_requirement_name(req)) for req in requirements
+            ),
+        }
+
+
+@pytest.mark.parametrize(
+    ("requirements", "distribution", "provides"),
+    [
+        # What the table actually declares today.
+        (["blackjax>=1.6"], "blackjax", True),
+        (["jaxns>=2.6"], "jaxns", True),
+        # The near miss `startswith` admits. The extra would install, and the
+        # probe would still report the extra absent -- a refusal that a correct
+        # install cannot clear, with nothing anywhere saying why.
+        (["blackjax-nightly>=1.6"], "blackjax", False),
+        (["jaxns2>=2.6"], "jaxns", False),
+        # PEP 503: pip reads each of these pairs as ONE project, so this file
+        # must too -- case folds, and `-` `_` `.` are one separator.
+        (["BlackJAX>=1.6"], "blackjax", True),
+        (["black_jax>=1.6"], "black-jax", True),
+        (["black.jax"], "black-jax", True),
+        # And it does NOT fold a separator into its absence: `Black_Jax` is
+        # `black-jax`, which is a different project from `blackjax`. This row
+        # was written the other way round and the parametrisation caught it,
+        # which is the whole reason it is a table and not an assertion.
+        (["Black_Jax>=1.6"], "blackjax", False),
+        # Shapes the version parser has to survive rather than mistake for a
+        # different name.
+        (["jaxns[plot] ; python_version<'3.13'"], "jaxns", True),
+        (["blackjax == 1.6.2"], "blackjax", True),
+        (["blackjax"], "blackjax", True),
+        # An extra that installs nothing the probe looks for.
+        ([], "blackjax", False),
+        (["optax"], "blackjax", False),
+    ],
+)
+def test_an_extra_that_installs_a_near_miss_is_not_accepted(
+    requirements, distribution, provides
+):
+    """The fixture the repository does not contain, so the guard has one.
+
+    The real table has two well-formed rows, and on those the loose check
+    (`req.startswith(distribution)`) and the parsed one agree -- measured, the
+    suite stays green either way. These are the inputs on which they differ.
+    """
+    assert _extra_provides(requirements, distribution) is provides
 
 
 def test_the_probe_reports_absent_when_the_distribution_is_not_installed():
