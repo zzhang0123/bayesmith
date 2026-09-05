@@ -1719,6 +1719,30 @@ rather than quoted.
 13. **Put the old bug back and re-run. If the suite is still green, the repair is not
 demonstrated.** Executable, not a maxim.
 
+14. **A check that can decline to run must RECORD that it declined, in a value distinct from
+"ran and found nothing".** Otherwise its silence is indistinguishable from its pass, and every
+consumer downstream reads the second when the first is true.
+
+〔Added during Wave C, whose review found the rule's own subject in the guard written to enforce
+§0.15. `conditional_prior_range_report` reports `degenerate == ()` in two different situations:
+it swept the grid and found no degenerate cell, and **`_probe_values` returned `None` so there
+was no grid at all** — which it does for a StudentT, Laplace, Uniform, LogNormal or Cauchy
+hyperprior. An identical `inf`-width conditional is refused under a `Normal` parent and
+**admitted** under a StudentT one, where the corner carries **0.058** of the prior mass. The
+refusal message then asserts "its conditionals are densities across the range the integral
+covers", which is not merely optimistic but false: there was no range.
+
+**The repair is not more probe points.** More points close the holes where the grid missed
+something and leave this class untouched, because the failure is that the grid did not exist.
+The two states have to be different values.
+
+This is `CLAUDE.md`'s founding disease — a result that cannot distinguish the thing it names from
+a thing resembling it — reaching the guard layer, and it is the eleventh instance in this batch.
+The nine before it were checks that could not tell "absent" from "did not run"; the tenth was a
+repair that could not tell itself from the bug. This one is a check that **reports the same value
+whether or not it ran**, which is the same disease with the evidence deliberately discarded
+rather than merely unavailable.〕
+
 **It catches two different faults and cannot tell them apart, which is why the check is stated
 before the diagnosis.** A green suite with the bug restored means either (a) **no input exists**
 on which the fix and the bug differ — the fix is a rewrite, dead on everything the package can
