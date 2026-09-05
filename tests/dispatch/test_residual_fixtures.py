@@ -435,21 +435,33 @@ def test_where_each_new_fixture_sits_in_the_structural_taxonomy():
                 tuple(plan.sampled.latents) if plan.sampled is not None else (),
                 out.failed_premise if isinstance(out, Refusal) else "(ADMITTED)",
             )
+    # The failure message names its own remedy. A red test that says only
+    # "expected to change" costs its reader the whole investigation; one that
+    # says what to change it to costs them a diff.
+    after_task_7 = (
+        "Task 7 widened the gates: replace the premise column with the widened "
+        "gate's own answer -- '(ADMITTED)' where an adapter exists, and the "
+        "capability refusal Task 7.4 routes to where none does -- and keep the "
+        "assertion. Do not delete it: it is the before-state census."
+    )
     assert seen["mixture_prior_residual"] == (
         ("b",),
         "gcr",
         ("w",),
         "evidence_residual_integral_required",
-    )
+    ), (seen["mixture_prior_residual"], after_task_7)
     assert seen["cauchy_residual_pair"] == (
         (),
         None,
         ("z",),
         "evidence_residual_integral_required",
-    )
+    ), (seen["cauchy_residual_pair"], after_task_7)
     assert seen["undeclared_quartet"][:3] == (
         (),
         None,
         ("alpha", "beta", "delta", "gamma"),
     )
-    assert seen["undeclared_quartet"][3] == "evidence_residual_integral_required"
+    assert seen["undeclared_quartet"][3] == "evidence_residual_integral_required", (
+        seen["undeclared_quartet"],
+        after_task_7,
+    )

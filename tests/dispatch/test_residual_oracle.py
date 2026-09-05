@@ -39,6 +39,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import pytest
 
 import bayesmith
@@ -49,13 +50,14 @@ from bayesmith.graph.reduction import as_graph
 from tests.dispatch import residual_oracle
 from tests.dispatch.residual_oracle import (
     AGREEMENT_FLOOR,
+    EPS,
     Span,
     agreement,
     oracle_collapsed,
     oracle_joint,
     quadrature,
 )
-from tests.exact import models
+from tests.exact import models, residual_models
 
 #: The four ``gcr`` class-(b) fixtures: one exact latent, one residual latent,
 #: and a span per axis.  **The spans are part of the fixture, not of the
@@ -730,3 +732,112 @@ def test_the_refinement_abstains_when_the_next_grid_would_exceed_the_budget():
     assert not found.certified
     assert "above the 1.000e+03 budget" in found.certificate.refused
     assert found.certificate.history[-1][0] == 801
+
+
+# ------------------------- the exact route's error law, and who shares it
+
+
+def _scaled_prior_pair(mean, width, *, n=4, sigma=0.5):
+    """``w ~ N(mean, width)``, ``mu = w X``, ``d ~ N(mu, sigma)``.
+
+    One latent, one observed node, and a prior whose mean and width are the
+    dial. The closed form is ``N(d ; A mean, width**2 A A^T + sigma**2 I)``, so
+    all three routes -- shipped, closed form, quadrature -- can be put side by
+    side at any point of the ``(mean, width)`` plane.
+    """
+    grid = np.linspace(1.0, 2.0, n)
+    data = np.array([1.05, 1.35, 1.62, 1.94])[:n]
+
+    def model():
+        columns = bayesmith.const("X", jnp.asarray(grid))
+        latent = bayesmith.sample("w", lambda: dist.Normal(mean, width))
+        prediction = bayesmith.det(
+            "mu", lambda w_, x_: w_ * x_, latent, columns, linear_in=("w",)
+        )
+        bayesmith.observe(
+            "d", lambda mu_: dist.Normal(mu_, sigma), prediction, obs=jnp.asarray(data)
+        )
+
+    return as_graph(bayesmith.trace(model)), grid, data, sigma
+
+
+def test_the_oracle_detects_the_exact_routes_error_law_rather_than_sharing_it():
+    """Why ``oracle_joint`` is tier 1, asserted as a mechanism and not a label.
+
+    The exact linear-Gaussian route carries an error law ``eps * |m| / s`` driven
+    by the eliminated block's PRIOR MEAN. ``oracle_joint`` does not share it, and
+    the reason is structural rather than lucky: ``log_joint`` evaluates each
+    node's own ``log_prob`` and never reaches ``nuisance_prior``, so there is no
+    ``m / s`` entry to cancel in a QR.
+
+    Measured here at ``|m| / s = 4e15``: the shipped route is **0.28 nats** from
+    the closed form and this oracle is **exactly** on it. That row is the reason
+    the R5 plan's 0.4 no longer asks the oracle to abstain in this region -- an
+    abstain would have deleted the detection -- and why the block's ratio is
+    recorded instead.
+    """
+    with jax.enable_x64(True):
+        rows = []
+        for mean, width in ((0.4, 1.0), (0.4, 1e-8), (0.4, 1e-16)):
+            graph, grid, data, sigma = _scaled_prior_pair(mean, width)
+            shipped = float(collapse_module.marginal_log_density(graph, ("w",), {}))
+            closed = residual_models.gaussian_log_evidence(
+                grid.reshape(-1, 1),
+                np.zeros(grid.size),
+                data,
+                np.array([mean]),
+                np.array([width]),
+                sigma,
+            )
+            found = oracle_joint(
+                graph,
+                (Span("w", mean - 9.0 * width, mean + 9.0 * width),),
+                resolution=AGREEMENT_FLOOR,
+                start=401,
+                refinements=6,
+            )
+            assert found.certified, found.describe()
+            rows.append((abs(mean) / width, shipped - closed, found.value - closed))
+
+    benign, middling, extreme = rows
+    # At |m|/s = 0.4 the two routes are indistinguishable.
+    assert abs(benign[1]) < 1e-12 and abs(benign[2]) < 1e-12, rows
+    # By 4e15 the shipped route is a quarter of a nat out...
+    assert abs(extreme[1]) > 0.2, rows
+    # ...and the quadrature is still on the closed form, by twelve orders more
+    # than the route it grades. That ordering is the whole claim.
+    assert abs(extreme[2]) < 1e-12, rows
+    assert abs(extreme[1]) > 1e11 * max(abs(extreme[2]), EPS)
+    # And the degradation is monotone in |m|/s, so it is one law and not noise.
+    assert abs(benign[1]) <= abs(middling[1]) <= abs(extreme[1]), rows
+
+
+def test_the_eliminated_blocks_ratio_travels_with_the_collapsed_value():
+    """R5 plan 0.4, in its corrected form: record the ratio, gate nothing.
+
+    A number without its domain is the defect 0.15 exists to prevent, and this
+    is the domain a COLLAPSED value depends on -- the region of the exact
+    route's two error laws. Measured over every fixture Wave B grades: the
+    eliminated block's prior mean is exactly zero in all four class-(b) cases,
+    and 0.5625 for the mixture fixture's ``b``. So nothing Wave B integrates
+    goes near the region, and the record says so rather than a comment.
+    """
+    with jax.enable_x64(True):
+        seen = {}
+        for name in sorted(CLASS_B):
+            collapsed, _joint = _sides(name)
+            seen[name] = collapsed.exact_block_ratio
+        joint = oracle_joint(
+            as_graph(models.diamond_ancestor()),
+            (Span("tau", -4.0, 8.0), Span("x", -6.0, 6.0)),
+            resolution=AGREEMENT_FLOOR,
+            start=101,
+            refinements=3,
+        )
+        shared = _sides("shared_ancestor")[0]
+    assert set(seen.values()) == {0.0}, seen
+    # oracle_joint eliminates nothing, so it has no such domain to declare and
+    # says None rather than zero -- "not asked" and "asked, and it is zero" are
+    # the distinction this repository has paid for most often.
+    assert joint.exact_block_ratio is None
+    assert "eliminated block |m|/s" in shared.describe()

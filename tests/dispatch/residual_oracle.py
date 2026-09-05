@@ -275,6 +275,21 @@ class Quadrature:
     spans: tuple[Span, ...]
     certificate: Certificate
     excluded_prior_mass: Mapping[str, float | None]
+    #: For :func:`oracle_collapsed` only: the largest ``|prior mean| / prior
+    #: width`` the eliminated block takes anywhere on the declared span.
+    #:
+    #: **Recorded, and gating nothing.** The exact linear-Gaussian route carries
+    #: two unbounded error laws -- measured, it is 0.28 nats out at
+    #: ``|m| / s = 4e15`` -- and the R5 plan's 0.4 first asked this oracle to
+    #: declare a covered range and abstain outside it. Measured, that remedy is
+    #: wrong twice over: ``oracle_joint`` does NOT share the law (it reaches the
+    #: model's own ``log_prob`` and never ``nuisance_prior``, so there is no
+    #: ``m / s`` entry to cancel in a QR), so an abstain would DELETE a
+    #: detection; and both corners the plan named sit at ``m = s``, where
+    #: ``|m| / s`` is 1.0 either way, so a ceiling on it could not refuse the
+    #: cells it was written about. 0.4 now says record and gate nothing, and
+    #: this is the record. ``None`` where no block was eliminated.
+    exact_block_ratio: float | None = None
 
     @property
     def certified(self) -> bool:
@@ -289,7 +304,8 @@ class Quadrature:
             f"(refinement {self.certificate.refinement_tail:.3e}, float "
             f"{self.certificate.float_floor:.3e}, truncation "
             f"{self.certificate.truncation:.3e}), excluded prior mass "
-            f"{dict(self.excluded_prior_mass)}"
+            f"{dict(self.excluded_prior_mass)}, eliminated block |m|/s "
+            f"{self.exact_block_ratio!r}"
         )
 
 
@@ -543,6 +559,65 @@ def _ancestors(graph: Graph, name: str) -> frozenset[str]:
     return frozenset(seen)
 
 
+def block_prior_ratio(
+    graph: Graph, exact_names: Sequence[str], spans: Sequence[Span]
+) -> float | None:
+    """The largest ``|prior mean| / prior width`` the eliminated block reaches.
+
+    Probed ACROSS the span rather than at one point, because the eliminated
+    block's prior is conditional on the residual parameters and moves with them
+    -- ``shared_ancestor`` declares ``x ~ N(0, |tau|)``, so its width is a
+    function of the very axis being integrated. Each axis is walked at its two
+    ends and its centre with the others held at centre, which is linear in the
+    dimension and enough to catch a ratio that runs away toward an edge.
+
+    Returns ``None`` when the block cannot be built at those points, which is a
+    fact about the span and is reported rather than raised: a span whose
+    interior holds a degenerate conditional is exactly where this cannot be
+    asked, and :func:`quadrature` will refuse it for its own reasons.
+    """
+    from bayesmith.exact.block import unchecked_operator
+
+    names = tuple(exact_names)
+    if not names:
+        return None
+    centre = {span.name: (span.lower + span.upper) / 2.0 for span in spans}
+    points = [dict(centre)]
+    for span in spans:
+        for edge in (span.lower, span.upper):
+            points.append({**centre, span.name: edge})
+
+    def built(at):
+        """The block at one probe point, or ``None`` if it cannot be built there.
+
+        Separated from the loop so the failure is a VALUE rather than an
+        ``except: continue``. This repository has paid for that difference more
+        than once -- a swallowed exception reports "nothing to see" and "never
+        looked" as the same silence -- and the loop below counts the points it
+        could not reach.
+        """
+        try:
+            return unchecked_operator(graph, names, at=at, probe_gaussian=False)
+        except Exception:  # noqa: BLE001 - any failure here is "not askable"
+            return None
+
+    worst: float | None = None
+    unreachable = 0
+    for at in points:
+        block = built(at)
+        if block is None:
+            unreachable += 1
+            continue
+        for member in block.names:
+            mean = float(np.max(np.abs(np.asarray(block.prior_mean[member]))))
+            width = float(np.min(np.abs(np.asarray(block.prior_std[member]))))
+            ratio = math.inf if width == 0.0 else mean / width
+            worst = ratio if worst is None else max(worst, ratio)
+    if worst is None and unreachable:
+        return None
+    return worst
+
+
 def quadrature(
     log_density: Callable[[dict[str, Any]], Any],
     spans: Sequence[Span],
@@ -747,8 +822,11 @@ def oracle_collapsed(
             f"{sorted(names)} for residual {sorted(residual)}"
         )
     reduced = collapse_graph(graph, exact, residual)
-    return quadrature(
+    found = quadrature(
         lambda values: log_joint(reduced, dict(values)), spans, graph=graph, **options
+    )
+    return dataclasses.replace(
+        found, exact_block_ratio=block_prior_ratio(graph, exact, spans)
     )
 
 
@@ -776,6 +854,7 @@ __all__ = [
     "Quadrature",
     "Span",
     "agreement",
+    "block_prior_ratio",
     "excluded_prior_mass",
     "oracle_collapsed",
     "oracle_joint",
