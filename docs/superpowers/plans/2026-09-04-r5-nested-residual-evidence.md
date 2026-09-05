@@ -1742,19 +1742,6 @@ entirely in `evaluation/evidence.py`. `test_evidence_report.py` is in the list b
       with what the adversarial reviews found, as R4's does. Nothing is borrowed from R4's green.
 ---
 
-17. **A hand-off separates what was MEASURED from what is PREDICTED, in the message itself.**
-
-〔Added after this session sent one message carrying "3602 passed, exit 0" (measured, true) and
-"your census test is now red" (predicted from the plan, **false** — the executing wave had already
-updated it). Nothing in the message separated them, so the unmeasured half read with the authority
-of the measured half, and the recipient was about to write a fix for a test that did not need one.
-The failure was not predicting instead of measuring; it was **shipping both in one breath**.
-
-**Corollary, from the same message:** it also said "I have not touched it", which was true of this
-session and **not of the wave it was merging** — Task 7's executor had. *"I have not touched it"*
-and *"nothing in the branch I am merging has touched it"* are different claims, and after a merge
-only the second one is useful.〕
-
 ---
 
 **A note on how this plan was reviewed, because it is the shape every wave must copy.** Before
@@ -1972,6 +1959,20 @@ cannot raise `KeyError`: measured with `method="gcr+newthing"`, the structure re
 exists. Replaced with `_RESIDUAL_METHODS_ADMITTED = {"gcr"}`, which also repaired a second false
 message for free. The general form: a deny-list is a claim to have enumerated every bad case, and
 this project has now been wrong about an enumeration in every wave.〕
+
+17. **A hand-off separates what was MEASURED from what is PREDICTED, in the message itself.**
+
+〔Added after this session sent one message carrying "3602 passed, exit 0" (measured, true) and
+"your census test is now red" (predicted from the plan, **false** — the executing wave had already
+updated it). Nothing in the message separated them, so the unmeasured half read with the authority
+of the measured half, and the recipient was about to write a fix for a test that did not need one.
+The failure was not predicting instead of measuring; it was **shipping both in one breath**.
+
+**Corollary, from the same message:** it also said "I have not touched it", which was true of this
+session and **not of the wave it was merging** — Task 7's executor had. *"I have not touched it"*
+and *"nothing in the branch I am merging has touched it"* are different claims, and after a merge
+only the second one is useful.〕
+
 
 ---
 
