@@ -623,7 +623,7 @@ def test_the_base_resolution_does_not_decide_a_verdict():
 
 
 def _shipped_graphs():
-    """Every shipped GRAPH, with the counting convention stated.
+    """Every shipped GRAPH, from BOTH fixture modules, convention stated.
 
     **Graphs, not fixture functions.** ``flagged_line`` returns three objects,
     two of which are graphs, so it contributes 2. Counting fixture functions
@@ -631,11 +631,20 @@ def _shipped_graphs():
     fall into an ``except: continue`` gives a third; all three describe the
     same set, and the R5 plan records that two independent censuses of it
     differed because neither said which it meant.
+
+    **Both modules, and that is not cosmetic.** This walked only
+    ``tests/exact/models.py`` while its own docstring said "every shipped
+    graph". ``tests/exact/residual_models.py`` ships class-(b) graphs too, and
+    two of them -- ``outside_observation_pair`` and ``shifted_block_prior`` --
+    carry a latent with a parent, which is exactly the population the census
+    below is about. A denominator that excludes part of its own subject is the
+    hazard the plan names twice: a count whose denominator is unstated is one
+    the next reader re-derives differently.
     """
     import inspect
 
     from bayesmith.graph.reduction import as_graph
-    from tests.exact import models
+    from tests.exact import models, residual_models
 
     parameterised = {
         "cancelling_sum": {"cancel": 1e2},
@@ -644,23 +653,30 @@ def _shipped_graphs():
         "sigma_functional_block": {"weights": (1.0, 0.0, -1.0)},
         "wide_plate": {"size": 4},
     }
-    for name, fn in sorted(vars(models).items()):
-        if not inspect.isfunction(fn) or name.startswith("_"):
-            continue
-        if fn.__module__ != models.__name__:
-            continue
-        built = fn(**parameterised.get(name, {}))
-        for index, candidate in enumerate(
-            built if isinstance(built, tuple) else (built,)
-        ):
-            try:
-                graph = as_graph(candidate)
-                graph.nodes  # noqa: B018 - reading it is the check
-            except (AttributeError, TypeError):
+    for module in (models, residual_models):
+        for name, fn in sorted(vars(module).items()):
+            if not inspect.isfunction(fn) or name.startswith("_"):
                 continue
-            yield (
-                name if not isinstance(built, tuple) else f"{name}[{index}]"
-            ), graph
+            if fn.__module__ != module.__name__:
+                continue
+            try:
+                built = fn(**parameterised.get(name, {}))
+            except TypeError:
+                # A helper that needs arguments this census does not declare.
+                # NAMED by being skipped here rather than swallowed as a graph
+                # that failed to build -- the two are different silences.
+                continue
+            for index, candidate in enumerate(
+                built if isinstance(built, tuple) else (built,)
+            ):
+                try:
+                    graph = as_graph(candidate)
+                    graph.nodes  # noqa: B018 - reading it is the check
+                except (AttributeError, TypeError):
+                    continue
+                yield (
+                    name if not isinstance(built, tuple) else f"{name}[{index}]"
+                ), graph
 
 
 def _fixture(name, **kw):
@@ -808,12 +824,16 @@ class TestTheJointPriorIsAuditedFactorisedAlongTheGraph:
                         f"UNVERIFIABLE, so the restatement did not reach it"
                     )
         assert set(moved) == {
+            # tests/exact/models.py
             "diamond_ancestor",
             "indirect_ancestor",
             "mixed_radiometer",
             "orphaned_child_latent",
             "shared_ancestor",
             "three_latent_chain",
+            # tests/exact/residual_models.py -- both from Wave B's review
+            "outside_observation_pair",
+            "shifted_block_prior",
         }, (
             "the set of shipped graphs carrying a latent with parents is the "
             f"set this widening can move, and it is not what was measured: "
