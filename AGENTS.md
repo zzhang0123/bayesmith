@@ -134,24 +134,47 @@ not `rhino_cal`; checking the wrong name reads exactly like "never installed".
 
 ## Linting
 
-**Pass `--no-cache`, or the check can report on a run it did not make.**
-Measured 2026-09-03: `ruff check src/ tests/` printed `All checks passed!` in
-this checkout while the identical command, same binary, in a fresh worktree of
-the same commit found an `I001` in `tests/dispatch/test_predictive_seam.py`.
-The difference was `.ruff_cache/`, which is gitignored and therefore exists
-only where someone has run ruff before. `ruff check --no-cache src/ tests/`
-finds it in both. Three separate agents reported the error and this checkout
-denied it, which is how long a stale cache can hold a lie.
+**Say `.venv/bin/ruff check --no-cache src/ tests/`.** Both halves are
+load-bearing; the binary half is the one whose symptom is green.
 
-Same family as the zsh glob and the PyPI index below: a result that cannot
-distinguish "clean" from "the check did not really run". And take the exit code
+**The binary.** A bare `ruff` here is
+`/opt/homebrew/Caskroom/miniconda/base/bin/ruff`, **0.15.12**; the project's is
+`.venv/bin/ruff`, **0.16.4**. Measured 2026-09-06, both with `--no-cache`: the
+first reports **39 errors** on `src/ tests/` and exits 1, the second reports
+none and exits 0.
+
+**The two do not disagree about the code.** `.venv/bin/ruff check --no-cache
+--select E402,E731,E741,F403 src/ tests/` finds **the same 39**, and
+`--show-settings` lists E402, E731 and E741 among 0.15.12's enabled defaults and
+not among 0.16.4's. `[tool.ruff.lint]` declares only `ignore = ["RUF022"]` and
+**no `select`**, so what gets enforced is whatever the installed ruff defaults
+to. The newer binary is the narrower check, not the cleaner tree. The 39 are
+E731 x18, E741 x12, E402 x6 and F403 x3; most read as deliberate, and declaring
+a `select` and ruling on each is **open, not done**.
+
+**The cache.** Measured 2026-09-03: `ruff check src/ tests/` printed `All checks
+passed!` in this checkout while the identical command, same binary, in a fresh
+worktree of the same commit found an `I001` in
+`tests/dispatch/test_predictive_seam.py`. The difference was `.ruff_cache/`,
+which is gitignored and therefore exists only where someone has run ruff before.
+`--no-cache` finds it in both. Three separate agents reported the error and this
+checkout denied it, which is how long a stale cache can hold a lie.
+
+Both belong to the family the zsh glob and the PyPI index below belong to: a
+result that cannot distinguish "clean" from "the check did not really run". The
+binary adds a third reading -- "the check ran and covers less than it did" --
+and it is the only one of the three that reports success. And take the exit code
 from ruff itself -- `ruff check ... | tail -3; echo $?` reports on `tail`.
 
-`ruff check --no-cache src/ tests/` is clean. `ruff format` reports **31 files / 517
-lines** of drift, left there on purpose: nothing enforces it (no CI, no
-pre-commit), and `c2a0605` shows formatting here has been applied per file
-behind a waiver rather than swept. If it is ever swept, **pass the 31 file
-names, not `src/ tests/`** — `ruff format --check` prints them.
+`.venv/bin/ruff check --no-cache src/ tests/` is clean. **`ruff format` reports
+149 files and 5977 added-or-removed lines of drift, not the 31 / 517 this file carried
+until 2026-09-06.** Both binaries agree on 149, so that number is not a version
+split; whether the earlier figure was wrong when written or the tree moved under
+it was **not** established. The drift is left there on purpose: nothing enforces
+it (no CI, no pre-commit), and `c2a0605` shows formatting here has been applied
+per file behind a waiver rather than swept. If it is ever swept, **pass the file
+names, not `src/ tests/`** -- `--check` prints them, as `Would reformat: <path>`
+under 0.15.12 and as an `--> <path>:line:col` arrow under 0.16.4.
 
 ## A numerical fixture that pins one machine's arithmetic will burn a release tag
 
