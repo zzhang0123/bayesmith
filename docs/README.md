@@ -116,3 +116,4 @@
 | `docs/superpowers/specs/2026-09-04-amortized-calibration.md` | `record` | Amortized calibration: the reference NPE's number, and the candidate protocol |
 | `docs/superpowers/specs/2026-09-04-r3-close-out.md` | `record` | R3 close-out — the model-checking layer |
 | `docs/superpowers/specs/2026-09-04-r4-close-out.md` | `record` | R4 close-out — the evidence foundation |
+| `docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md` | `record` | R5 backend evaluation — BlackJAX NSS and JAXNS, scored on measured runs |

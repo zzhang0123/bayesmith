@@ -401,9 +401,32 @@ whatever it scores on the other five.**
 | 5 | adapter 足够薄，不需要复制一套上游内部状态机，也不把 backend 对象变成核心 API | adapter is one module; no backend type appears in any artifact field; measured as a line count and an import-direction assertion | `tests/test_layering.py` + a public-API assertion |
 | 6 | optional dependency 缺失或升级时能明确 Refuse，并有 contract test 与独立 oracle | with the package uninstalled, an `EvidenceTask` returns a capability `Refusal` and the core suite is green; the independent oracle is §0.4's quadrature | Task 3's built-and-run absence test |
 
+〔**Execution write-back, red line 11 (Wave E, Task 5). Row 1's "20 today" is 18, and the
+bake-off's set is 21.** Asked of the dispatcher rather than counted by hand: of the 57 graphs
+the two fixture modules ship, **18** reach `capability_unavailable_r1` — 5 class (b) and 13
+class (c). The two exact+residual graphs that do not are refused about themselves rather than
+about the backend: `improper_outside_prior` under `evidence_prior_proper`, and
+`mixed_radiometer` under `evidence_residual_method_unsupported`. Task 3's three join them, so
+the table runs 21 rows. `docs/probes/probe_37_backend_bakeoff.py::census` prints the whole
+census with its denominator.〕
+
 **§7.3's nine questions are answered in the same table**, not separately: 1–2 and 7 by
 `CompiledEvidenceProblem`'s contract, 3 by gate 6, 4 by gate 3's oracle, 5 by gate 5, 6 by a
 pinned-version drift test, 8 by §0.6's second-backend rule, 9 by the six above.
+
+〔**Execution write-back, red line 11 (Wave E, Task 5): the answer is "no candidate passed",
+and the reason both fail is condition 5.** BlackJAX fails condition 1 -- it does not answer
+`overflowing_outside_latent`, where 800 of 816 live particles initialise at `nan` and blackjax
+reports none of it -- and JAXNS fails nothing else. **Condition 5's countable form names an
+artefact only Task 6 can produce**, and Task 6 is gated on this verdict, so it is scored NOT
+MET for both under 5.3 and the circularity is recorded rather than worked around. Two owner
+decisions follow, and their implications are set out in
+`docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md` 9.
+
+**And 0.6's first retention condition is met, in JAXNS's favour**: `overflowing_outside_latent`
+is an admitted fixture blackjax does not answer and jaxns answers at z = +1.30 against a
+certified oracle. Its bounded box -- the cost this evaluation charges it everywhere else --
+is what keeps it out of the region where the collapsed density overflows.〕
 
 **No winner is presumed.** BlackJAX nested sampling and JAXNS enter on identical terms. If
 neither passes all six, **the plan's answer is "no candidate passed", recorded with the table
@@ -467,6 +490,26 @@ nothing, because the two backends do not mean the same thing by a live point.
 2. **If a backend cannot be driven to within ±10% of the target evaluation count** on the
    calibration fixture, stop and rule before running the table.
 
+〔**Execution write-back, red line 11 (Wave E, Task 5). NEITHER STOP-RULE FIRED**, and the
+audits are the reason the first one may be reported as not firing rather than as not checked.
+
+* **blackjax's count is derived and confirmed exactly**: `num_live + Σ_steps (Σ num_expansions
+  + Σ num_shrink + 2·num_delete·num_inner_steps)`, audited against an `io_callback` ground
+  truth at **457 derived / 457 true**. The `+2` is the pair of terminating `in_slice` calls
+  `stepping_out`'s two `lax.while_loop` conditions make and do not count.
+* **jaxns's own report is confirmed exactly** — 45 639 reported, 45 639 true — **when the
+  sample cap does not bind**, and is short by the interrupted shell's work when it does
+  (12 792 against 13 993 at `max_samples=300`). So the report is admissible only with
+  `reached-max-samples` absent from the termination bits, and the probe records the bits.
+* Calibration settled in two trials each: blackjax `num_live=816` → 202 667; jaxns
+  `num_live_points=304` → 198 217. Both inside ±10 % of 200 000.
+
+**The instrument needed its own repair, and it is this section's problem restated.**
+`io_callback` is refused inside a `lax.while_loop` with a batched predicate, which blackjax's
+`jax.vmap(mcmc_kernel)` makes it; and a Python counter under `jax.disable_jit()` does not help,
+because `vmap` traces regardless — an audit taken that way reported exactly 6 calls per slice
+step at three different step counts, a trace count wearing an evaluation count's clothes.〕
+
 ### 0.8 Repeated-run stability is the gate's business, and it is declared before it is measured
 
 **Ruling.** `EvidenceTask.repeat_count` — read and refused by R4 — is honoured. `n ≥ 3`
@@ -486,6 +529,19 @@ bar misleads no one about the evidence.
 than an estimate — a constant, or a value that does not move with the budget — **stop and rule
 before the bake-off scores it**. Feeding a placeholder into a stability gate produces a PASS
 that means nothing, and §1.5 condition 4 requires the diagnostic be exposed for real.
+
+〔**Execution write-back, red line 11 (Wave E, Task 5). It did not fire for either candidate**,
+and the evidence is stronger than "the number changed": over a ×0.25 / ×1 / ×4 budget ladder on
+`student_t_likelihood` both error bars shrink monotonically and both approximately HALVE as the
+budget quadruples, which is the `1/√N` scaling nested sampling predicts. The numbers are in
+`docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md` §4.
+
+**One thing this section does not say and the bake-off had to decide:** blackjax reports no
+`log Z` at all, so the error bar scored here is one bayesmith writes from
+`blackjax.ns.utils.log_weights`' volume ensemble. A stop-rule about "the backend's reported
+`standard_error`" has no subject for a backend that reports none, and scoring bayesmith's own
+estimator against it is the right reading only because §1.5 condition 5 separately counts what
+the adapter had to own.〕
 ### 0.9 The optional dependency is absent by default, and the absence path is built and run
 
 **Ruling.** The backend is an **optional extra**. `pip install bayesmith` does not pull it. With
@@ -1224,6 +1280,21 @@ environments. Task 5 scores this against §1.5 condition 4 with the dates read.
    condition nor a `log Z` uncertainty, so both become bayesmith code with their own tests and
    mutation coverage. That is real scope, it lands on §1.5 condition 5 (adapter thinness) in the
    opposite direction from the dependency count, and Task 5 scores both rather than one.
+
+〔**Execution write-back, red line 11 (Wave E, Task 5). All four are now measured**, in
+`docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md`. Item 3's answer inverts this
+section's own reading: **the 90 s is not intrinsic and it is not even blackjax's.** It is
+`finalise(..., update_info=True)` concatenating one `update_info` tensor per NS step; passing
+`update_info=False` and accumulating the expansion and shrink counts per step in Python instead
+puts a 200 000-evaluation run at **≈3 s wall**. Scoring the naive number as a library property
+would have been the mistake this item predicted, one order of magnitude larger than it
+predicted it.
+
+And item 4 gained a third entry the section did not have: blackjax supplies no **evidence**
+either, only dead particles, so `log Z` itself is bayesmith code alongside the termination rule
+and the error bar. The consequence is stated in the evaluation's §5.1a: for blackjax the
+correctness column grades bayesmith's estimator running on blackjax's samples, and for jaxns it
+grades jaxns.〕
 ### 0.17 `CompiledProblem` does not exist, so `CompiledEvidenceProblem` cannot be its variant, and that is said out loud
 
 **Ruling.** R5 builds `CompiledEvidenceProblem` **standalone**, and records that the parent §8 R5
@@ -1501,7 +1572,29 @@ fixture.
       exact, so a residual of four beside ANY exact block is five axes and is already outside the
       gradeable domain at a test-affordable budget. **Task 5's correctness column depends on
       this.** Task 10 carries it into `docs/residual-evidence.md`; until that page exists this
-      line is its home.〕
+      line is its home.
+
+      **Execution write-back, red line 11 (Wave E, Task 5): the boundary is not a dimension.**
+      Measured over the 21 fixtures the bake-off runs rather than over this sweep's own model,
+      `three_latent_chain` at **three** total axes is already ungradeable at the declared budget,
+      and `undeclared_quartet` at four is too — with the suite's own posterior-placed spans. Both
+      abstain on the refinement budget, not on the arithmetic. So "the boundary is FOUR" is a
+      statement about the integrand this table swept, and what transfers is the instruction,
+      not the number: decide per fixture, filled or withheld, and say which.
+
+      **And a second write-back, which is larger: the certificate can pass on a value that
+      missed the mass.** `high_snr_curvature` was certified at **-2376535.508689067** with a
+      bound of `9.54e-09`, while both candidates answered ≈ **+131.3** and a Laplace estimate
+      from the integrand's own peak height and curvature says **+131.6**. The fixture's
+      `sigma = 2e-6` puts the integrand 150 nats down within `1e-5` of its maximum, and the
+      finest grid the point budget affords on the declared span is spaced `7.0e-4` — so the
+      trapezoid never sampled the peak, refining changed nothing, and BOTH the increment-ratio
+      test and the geometric-tail test passed on the integral of everything except the mass.
+      The bake-off's repair is a declared rule -- admit a quadrature only if its finest grid
+      puts a point within one curvature width of the peak, and add a peak-placed last rung to
+      the span ladder -- and on that rung the oracle certifies `+131.56930589624307`.
+      **`tests/dispatch/residual_oracle.py`'s certificate has three conditions and needs a
+      fourth**; Task 10 carries it.〕
 - [ ] **3.3 Green + lint. 3.4 Commit.** `test: a multimodal, a heavy-tailed and a four-dimensional residual fixture with closed-form evidence`
 
 ---
@@ -1674,7 +1767,16 @@ re-measured at each commit and again after this merge, never carried forward.〕
       retention** under §0.6; or **"no candidate passed"**, with the table that says so and the
       list of which condition each failed. **The third branch closes R5 legitimately** — §8 R5
       asks for a reproducible decision, not for a backend.
-- [ ] **5.6 Commit.** `docs: the R5 backend evaluation, six conditions scored on measured runs`
+- [x] **5.6 Commit.** `docs: the R5 backend evaluation, six conditions scored on measured runs`
+
+〔**Execution write-back, red line 11 (Wave E).** 5.1 through 5.6 are done and the verdict is in
+`docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md`. Four things this task learned that
+the checkboxes did not anticipate, each recorded on the line it belongs to above: the fixture
+set is 21 and not 20 (§0.5); neither §0.7 stop-rule fired and the audit is why the counts are
+admissible (§0.7); the §0.8 stop-rule did not fire for either candidate (§0.8); and the oracle
+certified a value that had missed the mass on `high_snr_curvature`, which is a defect in Task
+2's certificate rather than in a backend (§3.2). 5.2b's Linux re-run is recorded in the
+evaluation's §6; Task 5 consumed no D-number (§D-numbering).〕
 
 > **Owner gate.** **Task 6** does not start until the owner has read 5.5. A backend adapter
 > written before the decision is a decision made by whoever wrote it first. 〔Execution write-back,
@@ -1697,6 +1799,20 @@ re-measured at each commit and again after this merge, never carried forward.〕
       whose `backend` is the real name (never `"auto"`) and whose `termination` maps through
       §0.1's declared total table. Assert the exact components R4 already computes survive
       unchanged beside the residual one. Expect FAIL.
+- [ ] **6.2a Measured by Task 5, before 6.2 is reached: R5's route (b) does not compile.**
+      `collapse_graph` returns a `ReducedGraph`, whose `.latents` raises `GraphError:
+      ReducedGraph is NUTS-only`, and `compile_evidence_problem` reads `graph.latents` on its
+      first line. **5 of the bake-off's 21 rows crashed there on the probe's first run.** The
+      route through it is `as_graph(reduced)`, which the wrapper documents as "expose the
+      underlying graph to explicitly evidence-aware code" — and `compile_evidence_problem` is
+      exactly that consumer, because it reads `evidence_terms` and files every one of them on
+      the likelihood side, which is what the guard exists to protect. Verified before use: on
+      `diamond_ancestor` the split recomposes to `log_joint(reduced)` exactly
+      (`-7.7026887405721585` both ways at `tau = 1.0`) and the collapsed block arrives as
+      `evidence_terms[0]`. **Task 6 must decide whether the adapter goes through `as_graph` or
+      whether `ReducedGraph` gains a fourth safe route** — and either way the guard's message,
+      which names "log_joint, to_numpyro, or nuts" as the safe list, is a list R5 makes
+      incomplete.
 - [ ] **6.2 Stop-rule, run BEFORE implementing: where does `CompiledEvidenceProblem` live?**
       `dispatch/execute.py:32` already carries a module-scope
       `from bayesmith.bridge.numpyro_bridge import nuts`, so the declared direction is
@@ -2194,6 +2310,14 @@ precisely what a source-tree run cannot check. See §0.9.
     prose beside the enum, the way D107's "derived form, measured coefficient" does. §0.10's
     stop-rule applies to the NEXT one, not this one.〕
   - **D112 — free.** Reserved for the repeated-run stability factor, form per §0.10's ruling.
+    〔**Execution write-back, red line 11 (Wave E): Task 5 did NOT consume it, and consumed no
+    number at all.** The bake-off declares one comparison level — the gap is read against
+    `3·σ_reported + oracle bound`, whose form is derived and whose factor 3 is borrowed from
+    statistics' conventional two-sided ≈0.27 % level, D104's provenance one column over. It
+    lives in a document and in `docs/probes/`, not in `SOURCE_PATHS`, so on D107's and D111's
+    precedent it takes no registry entry and no D-number. **That ruling does not transfer to
+    Task 9**: a repeated-run stability factor that lands in `src/` is D109's kind and needs
+    D112 with a boundary grid and a named fast-layer cell.〕
 
   〔**Execution write-back, red line 11 (Wave B close-out): D111 needs no registry entry, and
   the definition of done's item 6 is over-broad as written.** It says D111 "is registered with
