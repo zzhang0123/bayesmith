@@ -717,6 +717,27 @@ Task 6 is gated on. If the owner rules condition 5 **deferred to Task 6** rather
 * jaxns passes all five scorable conditions.
 * blackjax still fails condition 1.
 
+〔**Resolved 2026-09-06. Condition 5 is deferred to Task 6 and re-homed there as an acceptance
+gate.** The owner returned both decisions to the executing session.
+
+The ground is narrower than §14's circularity. Condition 5's countable form — *"adapter is one
+module; no backend type appears in any artifact field; measured as a line count and an
+import-direction assertion"* — names three properties of the adapter bayesmith writes, and none
+of the three reads the backend. Conditions 1, 2, 3, 4 and 6 score a candidate; condition 5
+scores code that does not exist yet. It therefore takes the same value for both candidates
+whatever that value is, and separates nothing. Scoring it here files a fact about the instrument
+as a fact about the candidates.
+
+Condition 5 keeps its countable form, its artefact and its power to fail; what changes is what
+it fails. An adapter that spans two modules, or that puts a backend type in an artifact field,
+is blocked by it in Task 6. §5.3 is not weakened either: the condition is deferred unanswered,
+not answered by argument.
+
+**Obligation created**: Task 6 scores condition 5 against the adapter it writes, and Task 10's
+close-out records the score. G1's first branch then holds. G1's second branch — *"or a written
+'no candidate passed' with the same table"* — held before this ruling and holds after it, so no
+completion gate depended on the change.〕
+
 **Decision B — is `overflowing_outside_latent`'s degeneracy a backend failure or a fixture
 pathology?** The fixture's Cauchy prior reaches `|z| ~ 1e6`, where the *collapsed* density
 overflows; blackjax meets it because it samples the declared prior, and jaxns does not because
@@ -725,6 +746,42 @@ the oracle grades. If the owner rules it a **fixture pathology** and excludes th
 
 * blackjax passes conditions 1–4 and 6.
 * Both then stand or fall together on Decision A.
+
+〔**Resolved 2026-09-06: backend failure. blackjax fails condition 1.** Ruled on a measurement,
+because the framing above — jaxns "answers the truncated integral" — describes the same
+integral.
+
+The model's algebra was rebuilt independently of `oracle_joint`: `w` marginalised in closed form
+against `N(0, sigma^2 I + x x^T)`, `z` by log-sum-exp on a uniform grid, scipy rather than this
+package. It was a throwaway and no probe number was spent on it.
+
+| quantity | value |
+|---|---|
+| independent quadrature on `\|z\| <= 100` | **−17.469404845849** |
+| `oracle_joint` on the same row (§10's Linux table) | −17.4694048411445 ± 4.74e−09 |
+| difference | **4.70e−09** |
+| widening `\|z\|` from 100 to 200 | Δ log Z = 1.5e−13 |
+| widening `\|z\|` from 100 to 35 000, the float64 overflow edge | Δ log Z = **5.5e−09** |
+| log integrand at z = 100 / 150 / 300, peak-relative | −32.8 / −289 / −127 803 nats |
+| `P(\|z\| <= 100)` under `Cauchy(0, 1e6)` | 6.37e−05, or 1 draw in 15 708 |
+| expected live points in that region, out of 816 | **0.052** |
+
+**The truncation is not an approximation.** The bounded and the declared integral agree to nine
+decimals, because the integrand is 33 nats below its peak at `\|z\| = 100` and 127 803 below it
+at 300. Both candidates were asked the same question.
+
+**The `nan` is the symptom.** blackjax's only entry to the problem is a prior draw, and the
+prior's mass sits 15 708 : 1 away from where the evidence is. A `nan` guard leaves it
+oversampling by rejection at about 44x, which is jaxns's box reached implicitly. So "blackjax
+samples the declared prior and jaxns does not" does not survive the measurement: the region
+carrying the integral is the only region either one can work in, and only one has a mechanism
+that starts there.
+
+Recorded against the ruling: this scores blackjax's initialisation, not its accuracy — it was in
+band on every gradeable row, at max |z| 1.50 against jaxns's 1.92 (§6, condition 3). And the
+overflow is a float64 fact, not the float32 one the fixture's docstring names: `exp(\|z\|/50)`
+overflows above `\|z\| = 35 489`, beyond which a `Cauchy(0, 1e6)` puts **97.74%** of its mass,
+against the 98.04% (800 of 816) this bake-off observed.〕
 
 **Neither decision makes both candidates pass, and neither makes both fail.** They are stated
 as decisions rather than resolved here because §0.5 froze the six conditions as the instrument
@@ -740,6 +797,12 @@ and neither question is a measurement.
 The bottom-right corner is the only one that admits blackjax, and it is also the only one that
 would put §0.6's second-backend rule into play — where §9's last subsection has already found
 retention condition 1 met in jaxns's favour and condition 2 not shown.
+
+〔**Resolved 2026-09-06: A deferred, B backend failure — the bottom-left cell.** **jaxns is the
+winner and Task 6 writes a jaxns adapter.** blackjax is dropped under §0.6's default: retention
+requires an admitted fixture blackjax answers and jaxns does not — there is none, jaxns answers
+21 of 21 — or a demonstrated independent cross-check value, which the subsection below finds not
+shown. Both resolutions are recorded on the lines that state the questions, above.〕
 
 ### The applicable domain, if an adapter is ever written
 

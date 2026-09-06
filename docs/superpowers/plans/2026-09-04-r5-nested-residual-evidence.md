@@ -428,6 +428,19 @@ is an admitted fixture blackjax does not answer and jaxns answers at z = +1.30 a
 certified oracle. Its bounded box -- the cost this evaluation charges it everywhere else --
 is what keeps it out of the region where the collapsed density overflows.〕
 
+〔**Execution write-back, red line 11 (Wave F, 2026-09-06). Both owner decisions are resolved,
+and condition 5 moves.** The owner returned them to the executing session. **Decision B:
+backend failure.** `overflowing_outside_latent`'s evidence integral is well posed, and the
+bounded and the declared integral agree to nine decimals, so both candidates were asked the same
+question and one answered it; the measurement is in the evaluation's §9. **Decision A: condition
+5 is deferred to Task 6 and re-homed there as an acceptance gate.** Its countable form names
+three properties of the adapter bayesmith writes and none that reads a backend, so it took the
+same value for both candidates whatever that value was — a selection condition that selects
+nothing. It keeps its countable form, its artefact and its power to fail, and **Task 6 scores it
+against the adapter while Task 10 records the score**. Row 5 of the table above is therefore an
+acceptance condition rather than one of the five that choose. The result: **jaxns is the
+winner**, blackjax fails condition 1, and §0.6's default drops the second backend.〕
+
 **No winner is presumed.** BlackJAX nested sampling and JAXNS enter on identical terms. If
 neither passes all six, **the plan's answer is "no candidate passed", recorded with the table
 that says so**, and R5 ships the compiler, the eligibility, the oracle and the refusal without
@@ -1783,10 +1796,26 @@ evaluation's §6; Task 5 consumed no D-number (§D-numbering).〕
 > red line 11: this line said "Tasks 6 **and 7**" until the wave reorder moved Task 7 ahead of
 > Task 5 — Task 4's refusal is unreachable until the gates widen (§0.3, Task 4.1). Task 7 gates
 > nothing on the backend decision and runs in wave C; only Task 6 waits.〕
+>
+> 〔**Resolved 2026-09-06.** The owner read 5.5 and returned both decisions to the executing
+> session; they are ruled and recorded in the evaluation's §9 and in §0.5 above. **Task 6 is
+> unblocked and its backend is jaxns.**〕
 
 ---
 
 ### Task 6: the production adapter — only if Task 5 named a winner
+
+〔**Execution write-back, red line 11 (Wave F, 2026-09-06). Task 5 named one: jaxns.** Two
+obligations this task inherits that the checkboxes below do not carry:
+
+* **Score §1.5 condition 5 against the adapter written here** — one module, no backend type in
+  any artifact field, a line count and an import-direction assertion in
+  `tests/test_layering.py`. It was deferred from Task 5 because its artefact could not exist
+  there (§0.5, §14 of the evaluation), and it can fail this task. Task 10 records the score;
+  without that, completion gate G1's first branch is unmet.
+* **§0.16's owner decision on jaxns's process-global `jax_enable_x64` write at import now
+  attaches**, because it was conditional on jaxns being chosen. And the adapter passes
+  `term_cond=None`: `jaxns.TerminationCondition()` disables every stopping rule.〕
 
 **Files:** Create `src/bayesmith/bridge/<backend>_bridge.py`,
 `tests/bridge/test_<backend>_bridge.py`; Modify `src/bayesmith/dispatch/evidence.py`,
