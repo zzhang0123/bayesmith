@@ -31,6 +31,7 @@ pivots, no offset arithmetic, and no ``SqrtInfo``.
 from __future__ import annotations
 
 import math
+import pathlib
 import traceback
 
 import jax
@@ -39,6 +40,7 @@ import numpy as np
 import numpyro.distributions as dist
 import pytest
 
+import bayesmith
 from bayesmith import det, observe, plate, sample, trace
 from bayesmith.marginal import compress_campaign
 
@@ -287,10 +289,22 @@ def test_a_scalar_mean_beside_a_vector_width_is_refused():
             compress_campaign(trace(model), "epoch")
 
         frames = traceback.extract_tb(caught.value.__traceback__)
+        # Which frames are OURS is asked of the package's own location, not of
+        # how a path is spelled. The spelled version --
+        # ``"bayesmith" in frame.filename and ".venv" not in frame.filename`` --
+        # was walked past by a rename, and CI is where it happened: the wheel
+        # job installs into ``.testenv``, not ``.venv``, and checks out to
+        # ``/home/runner/work/bayesmith/bayesmith/``, so EVERY path under it
+        # contains "bayesmith" and the exclusion matched nothing. jax's own
+        # ``lax.py`` was then counted as ours and became "the deepest frame",
+        # failing this assertion with ``broadcast_to``. Measured in run
+        # 34049524335: the wheel job red, the source job -- same commit, same
+        # OS, a venv named ``.venv`` -- green.
+        package_root = pathlib.Path(bayesmith.__file__).resolve().parent
         ours = [
             frame
             for frame in frames
-            if "bayesmith" in frame.filename and ".venv" not in frame.filename
+            if package_root in pathlib.Path(frame.filename).resolve().parents
         ]
         assert ours, "the refusal must pass through this package"
         assert ours[-1].name == "gaussian_parts", (
