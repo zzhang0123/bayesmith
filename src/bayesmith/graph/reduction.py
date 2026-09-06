@@ -30,6 +30,20 @@ class ReducedGraph(eqx.Module):
     ``nodes`` and ``evidence_terms`` remain inspectable as the two atomic
     products. The ``latents`` query that starts generic dispatch instead raises
     with the safe route, because those consumers do not read ``evidence_terms``.
+
+    **The safe list is four, not three, and the fourth is not a new capability.**
+    :func:`as_graph` has always been the documented route for "explicitly
+    evidence-aware code"; what R5 found was that the refusal's own message named
+    ``log_joint``, ``to_numpyro`` and ``nuts`` and not that, so a caller with
+    exactly the consumer the escape hatch exists for was misdirected by it. Five
+    of the R5 bake-off's twenty-one rows crashed here.
+    ``compile_evidence_problem`` reads ``graph.latents`` on its first line and
+    files every ``evidence_terms`` entry on the likelihood side, so it is the
+    consumer this guard is protecting rather than one it should stop -- and the
+    protection is real on its side, where a test asserts each term is filed
+    exactly once. The guard is therefore left as it stands and the message is
+    completed; ``ReducedGraph`` gains no fourth property, because a guard that
+    special-cases one caller by name is a guard read by its spelling.
     """
 
     _graph: Graph
@@ -39,9 +53,14 @@ class ReducedGraph(eqx.Module):
         raise GraphError(
             f"ReducedGraph is NUTS-only: generic compile tried to read "
             f"{attribute}. Pass this result directly to log_joint, "
-            "to_numpyro, or nuts; do not pass it to generic compile, whose "
-            "exact and conditional paths do not read graph-level evidence "
-            "terms."
+            "to_numpyro, or nuts. A consumer that DOES read evidence_terms "
+            "and files every one of them unwraps with as_graph() instead -- "
+            "that is what the method is for, and compile_evidence_problem is "
+            "the one such consumer in this package. What is refused is a "
+            "consumer that reads latents and then ignores evidence_terms, "
+            "because generic compile's exact and conditional paths do not "
+            "read graph-level evidence terms and would silently omit the "
+            "collapsed likelihood."
         )
 
     @property

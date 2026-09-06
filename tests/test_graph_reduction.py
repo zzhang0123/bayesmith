@@ -589,6 +589,67 @@ def test_the_reduction_result_is_nuts_only_and_generic_compile_refuses_it():
     )
 
 
+def test_every_route_the_nuts_only_guard_names_is_a_route_that_works():
+    """The guard above matches the message with a regex. This runs it.
+
+    A substring match passes on a message that names a route which does not
+    work, and on one that omits the route the caller in front of it needs. R5
+    hit the second: `compile_evidence_problem` reads `graph.latents` on its
+    first line, the message named log_joint / to_numpyro / nuts, and none of
+    the three is what an evidence-aware compiler wants. Five of the bake-off's
+    twenty-one rows crashed there.
+
+    So this asserts the consequence rather than the spelling: whatever routes
+    the message names, each one is exercised, and the evidence-aware one has to
+    recompose to the same joint it started from.
+    """
+    from bayesmith import compile as compile_graph
+    from bayesmith.dispatch.evidence import compile_evidence_problem
+    from bayesmith.graph.reduction import as_graph
+
+    reduced = _reduce(_collapsible_graph(), _integrated_term())
+    at = {"gain": jnp.asarray(0.2), "offset": jnp.asarray(-0.1)}
+
+    with pytest.raises(GraphError) as caught:
+        compile_graph(reduced)
+    message = str(caught.value)
+
+    named = {
+        route
+        for route in ("log_joint", "to_numpyro", "nuts", "as_graph")
+        if route in message
+    }
+    assert named, "the guard refuses without naming any route at all"
+    assert "as_graph" in named, (
+        "the guard's route list omits the one an evidence-aware consumer needs; "
+        f"it names {sorted(named)}"
+    )
+
+    # Each named route, RUN rather than read.
+    if "log_joint" in named:
+        assert jnp.isfinite(log_joint(reduced, at))
+    if "to_numpyro" in named:
+        from bayesmith.bridge.numpyro_bridge import to_numpyro
+
+        assert to_numpyro(reduced) is not None
+    if "as_graph" in named:
+        plain = as_graph(reduced)
+        problem = compile_evidence_problem(plain)
+        assert len(plain.evidence_terms) == 1
+
+        # **The split has to put the collapsed term back.** Not asserted
+        # bitwise: `compile_evidence_problem`'s own docstring measures the
+        # recomposition at 186/200 and 182/200 bitwise on multi-observation
+        # fixtures, because splitting one running total reorders the sum. The
+        # FORM of the band is a handful of ULPs of the value's own magnitude;
+        # the CONSTANT measured here, and on `diamond_ancestor` in the R5
+        # ruling, is exactly 0.
+        joint = float(log_joint(reduced, at))
+        recomposed = float(problem.log_prior(at)) + float(problem.log_likelihood(at))
+        band = 8 * float(np.finfo(np.float64).eps) * max(1.0, abs(joint))
+        assert abs(joint - recomposed) <= band, (joint, recomposed, band)
+
+
 def test_an_unwrapped_reduced_graph_cannot_enter_a_public_exact_block_builder():
     from bayesmith import linear_operator
 

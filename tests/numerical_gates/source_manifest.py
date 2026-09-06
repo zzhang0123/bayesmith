@@ -7997,9 +7997,9 @@ EXPECTED_SOURCE_MANIFEST = (
         "largest > absolute_curvature_floor",
     ),
     ManifestEntry(
-        "src/bayesmith/graph/reduction.py::<module>.ReducedGraph._refuse_generic::raise::bbe995f7dce11e31::0",
+        "src/bayesmith/graph/reduction.py::<module>.ReducedGraph._refuse_generic::raise::bce3b0bb9f800802::0",
         CandidateClassification.STRUCTURAL_CONTROL,
-        "raise GraphError(f'ReducedGraph is NUTS-only: generic compile tried to read {attribute}. Pass this result directly to log_joint, to_numpyro, or nuts; do not pass it to generic compile, whose exact and conditional paths do not read graph-level evidence terms.')",
+        "raise GraphError(f\"ReducedGraph is NUTS-only: generic compile tried to read {attribute}. Pass this result directly to log_joint, to_numpyro, or nuts. A consumer that DOES read evidence_terms and files every one of them unwraps with as_graph() instead -- that is what the method is for, and compile_evidence_problem is the one such consumer in this package. What is refused is a consumer that reads latents and then ignores evidence_terms, because generic compile's exact and conditional paths do not read graph-level evidence terms and would silently omit the collapsed likelihood.\")",
     ),
     ManifestEntry(
         "src/bayesmith/graph/reduction.py::<module>.as_graph::decision_predicate::588e58d3b48cdd4f::0",
