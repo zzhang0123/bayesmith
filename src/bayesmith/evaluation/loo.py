@@ -48,10 +48,31 @@ divergence.
 **ArviZ stays optional.** It is imported inside :func:`loo_report`, never at
 module scope, so a clone without the dev extra gets an UNVERIFIABLE report
 (§7.3) rather than an ImportError at import time.
+
+**The version a report records is the ESTIMATOR's, and ``arviz`` is not it.**
+``az.loo`` is a re-export: ``az.loo.__module__`` is ``arviz_stats.loo.loo``,
+so the elpd, ``se``, ``p_loo`` and Pareto k above are ``arviz-stats``'s
+numbers and ``az.__version__`` is a fact about the umbrella. Measured
+2026-09-06: arviz-stats 1.3.1 -> 1.3.2 changed ``se`` by ``sqrt(n / (n - 1))``
+-- a ddof 0->1 change that broke two pinned constants in
+``tests/evaluation/test_loo.py`` -- while ``az.__version__`` read ``1.3.0`` on
+both sides. A report stored before that release and one stored after were
+therefore indistinguishable by their own provenance, on exactly the number
+that moved. So ``loo_estimator_version`` names the distribution that provides
+the callable that ran, and ``arviz_version`` stays beside it recording what it
+actually is.
+
+**That provenance is READ off the callable, not spelled.** A constant
+``"arviz-stats"`` here would be a claim about today's arviz, and this finding
+exists because the last such claim went stale; a later arviz that computes
+``loo`` in-house again would walk straight past it. :func:`_estimator_origin`
+asks ``az.loo`` where it lives instead, so the finding is true by
+construction rather than by maintenance.
 """
 
 from __future__ import annotations
 
+import importlib.metadata
 from typing import Any
 
 import numpy as np
@@ -151,6 +172,64 @@ def _finite(value: Any) -> float | None:
         return None
     number = float(value)
     return number if np.isfinite(number) else None
+
+
+#: The module maps to exactly one installed distribution, and it has a version.
+ORIGIN_FOUND = "found"
+#: More than one distribution provides the module, so no single version is its
+#: version. Recording either one would be a coin toss written down as a fact.
+ORIGIN_AMBIGUOUS = "ambiguous"
+#: Nothing installed claims the module, or the lookup did not complete. The
+#: module IMPORTED -- the estimate above is its output -- so this is never
+#: "the package is absent"; it is "this run could not say which package it is",
+#: and ``dispatch/task.py``'s ``EXTRA_UNKNOWN`` is the same ruling one layer
+#: down: a probe that reports "I could not look" as "I looked and found
+#: nothing" has made its silence indistinguishable from its answer.
+ORIGIN_UNMAPPED = "unmapped"
+
+
+def _estimator_origin(estimator: Any) -> tuple[tuple[str, object], ...]:
+    """Which distribution, at which version, provides the callable that ran.
+
+    ``__module__`` says where the function that produced the estimate lives and
+    :func:`importlib.metadata.packages_distributions` maps that top-level
+    package back to the distribution that installed it, so the answer is a
+    property of the object rather than of this line. ``az.loo`` is patched or
+    wrapped in some environments; ``__module__`` then names the wrapper, which
+    is still the honest answer to "what computed this".
+
+    Three outcomes, not two, for the reason :data:`ORIGIN_UNMAPPED` gives.
+    ``distribution`` and ``version`` are None on both of the other two, so a
+    consumer reads ``lookup`` before it reads a version rather than mistaking
+    an absent one for a measurement.
+    """
+    module = getattr(estimator, "__module__", None) or ""
+    qualname = getattr(estimator, "__qualname__", None) or repr(estimator)
+    called = f"{module}.{qualname}" if module else qualname
+    top = module.split(".", 1)[0]
+
+    def origin(
+        distribution: str | None, version: str | None, lookup: str
+    ) -> tuple[tuple[str, object], ...]:
+        return (
+            ("callable", called),
+            ("distribution", distribution),
+            ("version", version),
+            ("lookup", lookup),
+        )
+
+    try:
+        providers = sorted(importlib.metadata.packages_distributions().get(top, ()))
+        installed = (
+            importlib.metadata.version(providers[0]) if len(providers) == 1 else None
+        )
+    except Exception:  # noqa: BLE001 -- any failure is "could not look"
+        return origin(None, None, ORIGIN_UNMAPPED)
+    if len(providers) == 1:
+        return origin(providers[0], installed, ORIGIN_FOUND)
+    if providers:
+        return origin(", ".join(providers), None, ORIGIN_AMBIGUOUS)
+    return origin(None, None, ORIGIN_UNMAPPED)
 
 
 def _report(
@@ -338,8 +417,16 @@ def loo_report(
             ),
         ),
         Finding(
+            code="loo_estimator_version",
+            message="the distribution whose loo computed the estimate above",
+            observed=_estimator_origin(az.loo),
+        ),
+        Finding(
             code="arviz_version",
-            message="the upstream that computed the estimate above",
+            message=(
+                "the arviz umbrella this module imported; it re-exports loo "
+                "rather than computing it"
+            ),
             observed=az.__version__,
         ),
     )
