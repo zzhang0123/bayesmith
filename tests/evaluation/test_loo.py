@@ -261,10 +261,9 @@ NUTS_PIN_ATOL = 1e-3
 #: rather than an absorbed difference, because none was observed.
 CONSTRUCTED_K_ATOL = 1e-6
 
-#: The version the two ``se`` constants above were measured against. Read from
-#: ``pyproject.toml`` rather than written here, so there is exactly one place to
-#: change and the test below is what compares them.
-_PINNED_ARVIZ_STATS = "arviz-stats=="
+#: The distribution whose output the two ``se`` constants above are, compared
+#: against ``pyproject.toml`` by the test below rather than written twice.
+_SE_IS_COMPUTED_BY = "arviz-stats"
 
 
 @requires_arviz
@@ -282,27 +281,45 @@ def test_the_pinned_arviz_stats_is_what_the_se_constants_were_measured_against()
     two files and a hope, is the defect this repository has spent the most time
     repairing.
 
+    **The row is PARSED, not string-matched**, and that is not a refinement --
+    a first version compared the row to the literal ``"arviz-stats==1.3.2"``
+    and went red the moment the pin grew the ``python_version >= '3.12'``
+    marker it needs (``requires-python`` here is ``>=3.11`` and arviz 1.x is
+    not). A guard that reads a spelling is walked past by a rename, and this
+    one was walked past by an addition within the hour.
+
     Raising the pin turns this red, which is the point: the same commit has to
     re-measure the constants.
     """
     import tomllib
     from importlib.metadata import version
 
+    from packaging.requirements import Requirement
+
     root = pathlib.Path(__file__).resolve().parents[2]
     declared = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    dev = declared["dependency-groups"]["dev"]
+    rows = [Requirement(row) for row in declared["dependency-groups"]["dev"]]
 
-    pinned = [row for row in dev if row.startswith(_PINNED_ARVIZ_STATS)]
-    assert pinned == ["arviz-stats==1.3.2"], (
-        "pyproject.toml's dev group must pin arviz-stats exactly; the two `se` "
-        f"constants in this file are measured against one version. Found: {pinned}"
+    pinned = [
+        row for row in rows if row.name.replace("_", "-").lower() == _SE_IS_COMPUTED_BY
+    ]
+    assert len(pinned) == 1, (
+        f"pyproject.toml's dev group must name {_SE_IS_COMPUTED_BY} exactly once; "
+        f"the two `se` constants in this file belong to one version of it. "
+        f"Found: {[str(row) for row in pinned]}"
+    )
+    clauses = [(clause.operator, clause.version) for clause in pinned[0].specifier]
+    assert clauses == [("==", "1.3.2")], (
+        f"{_SE_IS_COMPUTED_BY} must be pinned with `==`, not bounded: a range "
+        f"admits the next release, and the next release is what moved `se` the "
+        f"last time. Found: {clauses}"
     )
 
     installed = version("arviz_stats")
-    assert installed == pinned[0].removeprefix(_PINNED_ARVIZ_STATS), (
-        f"arviz-stats {installed} is installed but pyproject pins "
-        f"{pinned[0]}; the `se` constants in this file belong to the pinned "
-        "version, so one of the two has to move -- together with them."
+    assert installed == "1.3.2", (
+        f"arviz-stats {installed} is installed but pyproject pins 1.3.2; the "
+        "`se` constants in this file belong to the pinned version, so one of "
+        "the two has to move -- together with them."
     )
 
 

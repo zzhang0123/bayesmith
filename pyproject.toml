@@ -114,8 +114,18 @@ dev = [
     # is the run that binds this pin to those constants. Before it existed,
     # deleting this line left 81 tests passing and nothing noticed -- which is
     # this repository's most-repaired defect, two files and a hope.
-    "arviz==1.3.0",
-    "arviz-stats==1.3.2",
+    #
+    # The marker is not decoration. `requires-python` here is `>=3.11` and both
+    # of these need `>=3.12`, so an unmarked pin makes the project's
+    # requirements unsatisfiable on 3.11 -- measured: it left the suite jobs
+    # green, because `uv pip install` resolves for the active interpreter only,
+    # and turned crosscheck.yml red, because `uv run` resolves across the whole
+    # declared range. On 3.11 the dev group therefore carries no arviz at all
+    # and the `requires_arviz` tests skip, which is the honest outcome: the
+    # newest arviz supporting 3.11 is 0.23.4, a different major line whose
+    # output these constants were never measured against.
+    "arviz==1.3.0; python_version >= '3.12'",
+    "arviz-stats==1.3.2; python_version >= '3.12'",
 ]
 # The cross-check harness, and the only place rheplicant is ever named. It is a
 # LOCAL PATH dependency, it is not in the wheel, and it is not in `dev` -- so a
