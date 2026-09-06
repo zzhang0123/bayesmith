@@ -52,6 +52,7 @@ rather than restated here, so a default cannot drift into a second home.
 from __future__ import annotations
 
 import dataclasses
+import importlib.metadata
 import inspect
 import math
 import platform
@@ -178,6 +179,147 @@ PRODUCER = ProducerRef(package="bayesmith", version=__version__)
 #: asking for something R1 cannot honour. Refusing it is the alternative to
 #: honouring it silently, which is what a field nobody reads amounts to.
 SUPPORTED_BACKENDS: frozenset[str] = frozenset({"auto"})
+
+# ------------------------------------------- the residual-evidence extras
+#
+# R5 §0.9: the sampler that runs a residual evidence integral is an OPTIONAL
+# EXTRA. `pip install bayesmith` does not pull it, the core suite is green
+# without it, and that is CI's default state.
+
+#: The extras ``pyproject.toml`` declares, as ``(extra name, distribution
+#: name)``. The two are spelled separately because an extra is a key in
+#: ``[project.optional-dependencies]`` and a distribution is what
+#: :mod:`importlib.metadata` looks up, and nothing makes them the same word.
+#:
+#: **The enumeration and its denominator (red line 16).** This is every key of
+#: ``[project.optional-dependencies]``, all of them, and
+#: ``tests/dispatch/test_backend_absent.py`` holds the two lists equal in both
+#: directions **and at the same multiplicity** -- so an extra declared in the
+#: packaging metadata and not here is a capability the refusal cannot name, an
+#: entry here with no extra is an install command that does not work, and a row
+#: written twice is caught rather than absorbed. The multiplicity is not a
+#: flourish: the first version of that guard compared two ``set``s, and an
+#: adversarial review added a duplicate row and watched it pass. It is an
+#: allow-list: a candidate nobody has considered is outside it and therefore not
+#: offered, rather than admitted by default.
+#:
+#: **What it excludes.** The four ``[project].dependencies`` -- jax, equinox,
+#: numpy, numpyro -- are hard requirements, not extras; the pyproject comment
+#: says numpyro is "the last row of the dispatch table, not an optional extra".
+#: ``[dependency-groups]`` (``dev``, ``crosscheck``) are a different table with
+#: a different meaning: they never reach a wheel and ``pip install
+#: bayesmith[...]`` cannot ask for them.
+#:
+#: **Two entries and no winner.** R5 Task 5's bake-off has not run, and its
+#: legal answers include "no candidate passed" (red line 3). Declaring one
+#: extra pointing at one package would be that decision taken by whoever wrote
+#: this line first, so both candidates are declared and the refusal names both.
+RESIDUAL_EVIDENCE_EXTRAS: tuple[tuple[str, str], ...] = (
+    ("blackjax", "blackjax"),
+    ("jaxns", "jaxns"),
+)
+
+#: The probe looked and the distribution is there.
+EXTRA_INSTALLED = "installed"
+#: The probe looked and the distribution is not there.
+EXTRA_ABSENT = "absent"
+#: The probe could not look, which is neither of the above (red line 14). A
+#: metadata backend that raises, an unreadable path entry: the reason varies
+#: and the point does not. "I did not find it" and "I could not look" are
+#: different facts about the world, a caller acts differently on each, and a
+#: probe that reports the second as the first has made its silence
+#: indistinguishable from its pass.
+EXTRA_UNKNOWN = "unknown"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ExtraStatus:
+    """What one optional extra's distribution is doing in this installation."""
+
+    extra: str
+    distribution: str
+    state: str
+    version: str | None
+    detail: str
+
+
+def install_command(extra: str) -> str:
+    """How a caller installs one extra, spelled once."""
+    return f'pip install "bayesmith[{extra}]"'
+
+
+def optional_extra_status(extra: str, distribution: str) -> ExtraStatus:
+    """Whether ``distribution`` is installed, WITHOUT importing it.
+
+    **This is a bypass, and the thing it bypasses is measured.** R5 §0.16
+    measured that ``jaxns`` writes ``jax.config.update('jax_enable_x64', True)``
+    at module scope, process-globally, and that a partially installed one --
+    present, its ``tfp_nightly`` dependency broken -- writes the flag and *then*
+    fails with an ``AttributeError``, which is not the exception a capability
+    probe catches. So::
+
+        try:
+            import jaxns
+        except ImportError:
+            pass
+
+    flips the caller's precision while returning a clean-looking negative. That
+    is not a wrong number; it is R4's own ``evidence_requires_x64`` gate no
+    longer firing, because :func:`_x64_refusal` decides by OUTCOME
+    (``jnp.result_type(float)``) so that the context manager and the
+    process-global switch give one answer. This package's rule is that ``src/``
+    never touches ``jax.config``; a probe that lets a dependency touch it has
+    broken the rule at one remove.
+
+    :mod:`importlib.metadata` answers from the installed ``.dist-info`` and
+    never reaches the module's loader, so no candidate's module body runs here.
+    ``tests/dispatch/test_backend_absent.py`` grades that by INSTALLING a module
+    that writes the flag and then raises, and showing the flag unchanged
+    afterwards -- in a subprocess that also runs the naive probe above, so the
+    control and the claim are measured on one interpreter.
+    """
+    try:
+        version = importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return ExtraStatus(
+            extra=extra,
+            distribution=distribution,
+            state=EXTRA_ABSENT,
+            version=None,
+            detail=f"no {distribution} distribution is installed",
+        )
+    except Exception as error:  # noqa: BLE001 -- any failure is "could not look"
+        return ExtraStatus(
+            extra=extra,
+            distribution=distribution,
+            state=EXTRA_UNKNOWN,
+            version=None,
+            detail=(
+                f"the lookup for {distribution} did not complete: "
+                f"{type(error).__name__}: {error}"
+            ),
+        )
+    return ExtraStatus(
+        extra=extra,
+        distribution=distribution,
+        state=EXTRA_INSTALLED,
+        version=version,
+        detail=f"{distribution} {version} is installed",
+    )
+
+
+def residual_evidence_extras() -> tuple[ExtraStatus, ...]:
+    """:data:`RESIDUAL_EVIDENCE_EXTRAS`, each asked about at the time of asking.
+
+    A function rather than a module constant for the reason
+    :func:`~bayesmith.dispatch.evidence.residual_backend`'s docstring gives one
+    module across: a value read at import cannot answer a question about the
+    environment the caller is standing in when they ask it.
+    """
+    return tuple(
+        optional_extra_status(extra, distribution)
+        for extra, distribution in RESIDUAL_EVIDENCE_EXTRAS
+    )
 
 #: The four of §0 ruling 1's five questions this release answers. The fifth
 #: (evidence) is refused with
@@ -795,7 +937,21 @@ def _refusal(
     grounds: tuple[Finding, ...],
     scope: ScopeRef,
     summary: str,
+    extra_remedies: tuple[Remedy, ...] = (),
 ) -> Refusal:
+    """One refusal, with the remedies its PREMISE owns and any its GROUND does.
+
+    ``_REMEDIES`` is keyed by premise, and ``capability_unavailable_r1`` has two
+    consumers that need different advice: a task kind this release does not
+    answer, and a residual integral with no sampler behind it. **Measured by an
+    adversarial review**: with the install remedy in the premise's row, a
+    ``simulation`` refusal told the caller to install a nested sampler -- a
+    wrong answer, not merely an ungraded one, because the caller would install
+    something and come back to the identical refusal.
+
+    So the table keeps exactly what is true of the premise, and a call site with
+    something more specific to offer passes it here.
+    """
     return Refusal(
         meta=new_artifact_meta(
             artifact_type=artifact_type,
@@ -807,7 +963,7 @@ def _refusal(
         failed_premise=failed_premise,
         grounds=grounds,
         scope=scope,
-        remedies=_REMEDIES[failed_premise],
+        remedies=_REMEDIES[failed_premise] + extra_remedies,
     )
 
 
@@ -1455,6 +1611,13 @@ def _evidence_capability_refusal(
     model and there is nothing to run it, so it is refused for the reason that
     is true of it -- a capability this release does not have -- rather than
     admitted into an assembly written for a different structure class.
+
+    **The message follows the probe, and the two states it can be in are two
+    sentences.** With the extras absent the caller is told which package to
+    install and how; with one installed the caller is told that the missing
+    piece is this release's adapter, because "install the extra" said to someone
+    who already has it is advice that produces the same refusal a second time.
+    R5 Task 4.
     """
     from bayesmith.dispatch.evidence import residual_backend
 
@@ -1462,6 +1625,11 @@ def _evidence_capability_refusal(
         return None
     sampled = () if runtime.sampled is None else tuple(runtime.sampled.latents)
     exact = () if runtime.exact is None else tuple(runtime.exact.latents)
+    # Read ONCE. The message and the remedy have to describe the same world,
+    # and two calls to a function that reads the environment can return two
+    # answers -- a refusal whose prose says "installed" while its remedy says
+    # "install it" is a third way to be wrong, on top of the two below.
+    statuses = residual_evidence_extras()
     return _refusal(
         task,
         artifact_type=ArtifactKind.PLAN,
@@ -1473,17 +1641,120 @@ def _evidence_capability_refusal(
                 message=f"this graph's evidence is admitted: every premise "
                 f"about the model holds, and {list(exact)} collapses exactly. "
                 f"What is missing is the sampler that runs the residual "
-                f"integral over {list(sampled)}, which is an optional extra "
-                f"this installation does not have. The question is held and "
-                f"nothing was computed for it; the posterior task is "
-                f"unaffected.",
+                f"integral over {list(sampled)}. {_extras_sentence(statuses)} The "
+                f"question is held and nothing was computed for it; the "
+                f"posterior task is unaffected.",
                 observed=(exact, sampled),
                 expected="an installed residual-evidence backend",
             ),
         ),
         scope=_scope(ScopeKind.BACKEND, "residual_evidence"),
         summary="the residual integral has no backend in this installation",
+        extra_remedies=(_install_the_extra_remedy(statuses),),
     )
+
+
+def _install_the_extra_remedy(statuses: tuple[ExtraStatus, ...]) -> Remedy:
+    """Where to get the missing capability, offered by the GROUND not the premise
+    and reading the STATE rather than the table.
+
+    Two separate rulings live here, and they were made a day apart because the
+    second is the first one layer down.
+
+    **Offered by the ground.** ``_REMEDIES`` is keyed by premise, and
+    ``capability_unavailable_r1`` is also what a task kind this release cannot
+    answer names. With this remedy in that row, a ``simulation`` refusal
+    advised a nested-sampler install -- the wrong KIND of question.
+
+    **Reading the state.** The first version of this function then built its
+    text from :data:`RESIDUAL_EVIDENCE_EXTRAS` alone, so with an extra already
+    installed the MESSAGE correctly dropped the install command and the remedy
+    still carried it -- the wrong STATE of the right question. The remedy is
+    the machine-actionable half: a program acting on it was told to install
+    what it has. Milder than the first, because the prose hedged ("necessary
+    rather than sufficient"), and the same family: a remedy that does not read
+    what it is remedying.
+
+    So there are three remedies, one per state of the world, and which one a
+    caller gets is a fact about their installation:
+
+    * something is absent -- install exactly that, and nothing else;
+    * nothing is absent but a lookup failed -- find out why before installing,
+      because an install chosen on a failed lookup is a guess;
+    * everything is installed -- the missing piece is this release's adapter,
+      and no install clears it.
+    """
+    missing = [status for status in statuses if status.state == EXTRA_ABSENT]
+    unknown = [status for status in statuses if status.state == EXTRA_UNKNOWN]
+
+    if missing:
+        return Remedy(
+            action="install_the_residual_evidence_extra",
+            message="The residual integral needs a nested sampler, which is an "
+            "optional extra: "
+            + "; ".join(
+                f"{status.extra} with `{install_command(status.extra)}`"
+                for status in missing
+            )
+            + ". Both candidates are declared because R5's bake-off has not "
+            "chosen between them, and installing one is necessary rather than "
+            "sufficient -- this release ships no adapter for either yet, so "
+            "the refusal will name that instead.",
+            parameters=(("extras", tuple(status.extra for status in missing)),),
+        )
+
+    if unknown:
+        return Remedy(
+            action="repair_the_distribution_metadata",
+            message="Whether the residual-evidence extra is installed could "
+            "not be determined here, so there is nothing to install ON: "
+            + "; ".join(f"{status.extra} -- {status.detail}" for status in unknown)
+            + ". Find out why the lookup failed before installing anything, "
+            "because an install chosen on the strength of a failed lookup is a "
+            "guess about which package was missing.",
+            parameters=(("extras", tuple(status.extra for status in unknown)),),
+        )
+
+    return Remedy(
+        action="wait_for_a_residual_evidence_adapter",
+        message="Every declared extra is already installed here, so there is "
+        "nothing to install: what is missing is this release's adapter for "
+        "one of them, which R5 Task 6 supplies once the bake-off has named a "
+        "winner. Running an install again would change nothing and return this "
+        "same refusal.",
+        parameters=(("extras", ()),),
+    )
+
+
+def _extras_sentence(statuses: tuple[ExtraStatus, ...]) -> str:
+    """What the optional extras are doing here, read rather than assumed.
+
+    Three states per extra and they do not collapse into two.
+    :data:`EXTRA_UNKNOWN` is not folded into "absent": a caller whose metadata
+    lookup failed is told that it failed, because the action that fixes it is
+    not the action that fixes an absence.
+    """
+    parts = []
+    for status in statuses:
+        if status.state == EXTRA_INSTALLED:
+            parts.append(
+                f"the {status.extra} extra is installed "
+                f"({status.distribution} {status.version}) and this release "
+                f"ships no adapter for it, so installing it again changes "
+                f"nothing"
+            )
+        elif status.state == EXTRA_UNKNOWN:
+            parts.append(
+                f"whether the {status.extra} extra is installed could not be "
+                f"determined -- {status.detail} -- which is not the same as "
+                f"finding it absent"
+            )
+        else:
+            parts.append(
+                f"the {status.extra} extra is not installed in this "
+                f"installation ({install_command(status.extra)})"
+            )
+    return "That sampler is an optional extra: " + "; ".join(parts) + "."
 
 
 def _estimate_refusal(

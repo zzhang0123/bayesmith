@@ -29,6 +29,49 @@ dependencies = [
     "numpyro>=0.15",
 ]
 
+# The first extras this package has ever declared (R5 Task 4). They carry the
+# nested sampler that runs a RESIDUAL evidence integral -- the part of
+# `log p(d)` that does not collapse in closed form. `pip install bayesmith`
+# pulls neither, the suite is green with both absent, and that absence is what
+# CI's fast layer runs: with no sampler an `EvidenceTask` over an admitted
+# residual graph returns a `Refusal` naming these extras and the command above,
+# and every other task on the same graph is unaffected.
+#
+# TWO extras and no default, on purpose. R5's bake-off (Task 5) has not run and
+# its legal answers include "no candidate passed", so a single
+# `residual-evidence` extra pointing at one of these would be that decision
+# taken by packaging rather than by measurement. Whichever wins, the loser's
+# extra is removed rather than left as a trap.
+#
+# Measured in throwaway copies of this repository's environment on 2026-09-05,
+# against the jax it already had (0.11.1) -- see
+# `docs/probes/probe_36_backend_survey.py`, which re-runs all of it:
+#
+#   blackjax 1.6.2  adds 3 packages, declares `jax>=0.9.0`, jax unmoved
+#   jaxns 2.6.9     adds 16 packages, declares `jax>=0.6.0`, jax unmoved
+#
+# and both coexist in one environment (18 packages added, jax still 0.11.1).
+#
+# `jaxns` carries one cost this table cannot express and the survey records:
+# importing it writes `jax.config.update('jax_enable_x64', True)`
+# process-globally, which is the opposite of this package's rule that `src/`
+# never touches `jax.config`. INSTALLING it does not import it -- nothing here
+# does -- so R4's precision gate is untouched by the install: measured, the two
+# tests a global x64 flip reddens both pass with either candidate installed and
+# with both, while the same two go red under `JAX_ENABLE_X64=1`. The capability
+# probe in `dispatch/task.py` reads the installed metadata and never reaches a
+# module body, which is what keeps that true.
+#
+# An earlier version of this comment said "the suite is green with it
+# installed". That was false and an adversarial review measured it: installing
+# `blackjax` turned `tests/dispatch/test_backend_absent.py` red, because those
+# tests took their "the extra is absent" baseline from whatever the checkout
+# happened to have. The defect was the tests' and is repaired; the sentence is
+# narrowed to the claim that was actually measured.
+[project.optional-dependencies]
+blackjax = ["blackjax>=1.6"]
+jaxns = ["jaxns>=2.6"]
+
 [project.urls]
 Repository = "https://github.com/zzhang0123/bayesmith"
 

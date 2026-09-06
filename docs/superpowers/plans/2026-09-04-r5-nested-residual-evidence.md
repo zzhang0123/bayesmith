@@ -501,7 +501,13 @@ be in. A refusal path that is only ever exercised by monkeypatching is a refusal
 never run.
 
 **And there is no precedent to copy: `pyproject.toml` has no `[project.optional-dependencies]`
-table at all.** R5's would be the first extra this package has ever declared, which means three
+table at all.** 〔**Execution write-back, red line 11 (Wave D): it has one now**, and it has
+**two** rows rather than one — `blackjax` and `jaxns`, an extra per candidate. A single
+`residual-evidence` extra pointing at one package would have been Task 5's decision taken by
+packaging, which red line 3 forbids; an extra with an EMPTY requirement list would have been
+worse, because a caller who ran the install command would get the identical refusal back and
+nothing would say why. Whichever candidate Task 5 names, the loser's extra is removed rather
+than left as a trap.〕 R5's would be the first extra this package has ever declared, which means three
 things have no existing shape — the extra itself, a CI job that runs the suite **without** it,
 and a wheel test that installs it. `publish.yml` builds and tests the wheel; **a wheel that is
 only ever tested with the extra present has never tested the refusal**, and a wheel only ever
@@ -1100,8 +1106,8 @@ question this measurement does not answer.〕
 
 | | blackjax 1.6.2 | jaxns 2.6.9 |
 |---|---|---|
-| packages added | **3** (4 in the planning environment) | **16** (19 in the planning environment) |
-| declared `jax` bound | `>=0.9.0`, no upper cap | **`>=0.6.0`** — §0.16 first recorded none |
+| packages added | **3** (4 in the planning environment) — itself plus absl-py, optax, typing-extensions | **16** (19 in the planning environment) — incl. matplotlib, dm-tree, contourpy, pillow |
+| declared `jax` bound | `>=0.9.0`, no upper cap; also `jaxlib>=0.9.0` | **`>=0.6.0`**, `jaxlib` unbounded — §0.16 first recorded "no downgrade observed", which is a statement about one RESOLUTION; the declared bound is a statement about the PACKAGE, and only the second survives a different base |
 | heavy dependency | none | **`tfp_nightly`, unbounded** |
 | entry point | `blackjax.nss` (nested slice sampling) | its own `Prior`/`Model` DSL over a unit hypercube |
 | termination condition | **none — the caller writes the loop** | 11-field `TerminationCondition`, 12-bit `termination_reason` |
@@ -1148,6 +1154,18 @@ consequence is that a third-party import chooses the caller's precision, and R4'
 stops firing.** Nothing computes a wrong number — the assembly at float64 is right. What breaks
 is the *semantics*: the gate exists so the caller declares the precision explicitly.
 
+〔**Execution write-back, red line 11 (Wave D), and it NARROWS this a second time.**
+Task 4.6's stop-rule ran and did **not** fire. Both candidates were installed into throwaway
+copies of this repository's environment — separately and together — and
+`test_the_run_record_says_what_actually_ran` and
+`test_a_float32_environment_is_refused_by_name` **both pass**, exit 0, in all three
+environments. The control says that is a measurement rather than a blind check: under
+`JAX_ENABLE_X64=1` both go red, and with `import jaxns` executed before pytest both go red.
+So the redness follows the **flip**, not the **install** — nothing in this package imports
+either candidate, and Task 4's capability probe reads installed metadata rather than a module
+body specifically to keep that true. The owner decision below therefore attaches to Task 6's
+ADAPTER, not to the extra: declaring the extra costs R4's gate nothing.〕
+
 > **Owner decision, if Task 5 selects jaxns.** Either that test runs in a subprocess (the shape
 > `test_public_api`'s subprocess assertions already use), or R4's gate needs a criterion a
 > third-party import cannot move. **Both are changes to R4's shipped behaviour and neither
@@ -1168,7 +1186,7 @@ bar degrades as a description of the spread, which is exactly what §0.8's stabi
 Establishing or excluding a bias needs ~100 seeds and is a Task 5 measurement, not an assumption.
 
 **(3) `tfp_nightly` is unbounded and resolves to a same-day build.** 2974 nightly releases exist;
-today's resolution was `0.26.0.dev20260904`. Stable `tensorflow-probability 0.25.0` does **not**
+today's resolution was `0.26.0.dev20260904`. 〔**Execution write-back, red line 11 (Wave D).** Re-resolved on 2026-09-05, one day later, in a throwaway environment: `0.26.0.dev20260905`. The prediction and the measurement agree, which is worth recording because "resolves to a same-day build" is the kind of claim that is usually only argued.〕 Stable `tensorflow-probability 0.25.0` does **not**
 substitute — `import jaxns` then dies with
 `AttributeError: module 'jax.interpreters.xla' has no attribute 'pytype_aval_mappings'`. **An
 optional dependency whose resolution changes daily cannot be pinned in a wheel that `publish.yml`
@@ -1493,11 +1511,20 @@ fixture.
 **Files:** Modify `pyproject.toml`, `src/bayesmith/dispatch/task.py`, **`README.md`**; Create
 `tests/dispatch/test_backend_absent.py`, `docs/probes/probe_36_backend_survey.py`.
 
-〔Execution write-back, red line 11 (Wave D). This list named
+〔**Execution write-back, red line 11 (Wave D).** This list named
 `src/bayesmith/artifacts/refusal.py`, which the task correctly did **not** need to modify, and
 omitted `README.md`, which it must — `tests/test_readme_count.py` pins the count by equality and
 any new test moves it. A file list that names a file the work does not touch and omits one red
-line 10 forces is worse than no list: it makes the executor choose between two rules.〕
+line 10 forces is worse than no list: it makes the executor choose between two rules.
+
+Why the two named files needed no change, from the executing session: `artifacts/refusal.py` —
+Task 7 (Wave C) landed `CAPABILITY_UNAVAILABLE_R1` and the premise vocabulary there, and Task 4
+adds no premise, so §0.1's "R5 needs none" holds one layer further out than it was written for.
+`dispatch/evidence.py` — Task 7 put `residual_backend()` there, and Task 4 did not touch it
+either: the capability PROBE is a different question from "is there an adapter", and keeping the
+probe in `task.py` also keeps `dispatch/evidence.py`'s AST census pins from moving for a change
+that introduces no threshold. `README.md` moved for its test count alone; the count is
+re-measured at each commit and again after this merge, never carried forward.〕
 
 - [ ] **4.1 Red.** With no backend installed — **the state this checkout is in today** — an
       `EvidenceTask` over a class-(b)/(c) graph returns a capability `Refusal` naming the
@@ -1524,7 +1551,12 @@ line 10 forces is worse than no list: it makes the executor choose between two r
       while returning a clean-looking negative. Write the probe, run it, and **show** the flag is
       unchanged afterwards. A probe asserted rather than demonstrated is the failure family this
       repository is built around.
-- [ ] **4.5 Stop-rule, run here.** **If a candidate cannot be installed against this repo's
+- [ ] **4.5 Stop-rule, run here.** 〔**Execution write-back, red line 11 (Wave D): it ran
+      and did NOT fire.** Measured 2026-09-05 in throwaway copies of this repository's
+      environment: `blackjax 1.6.2` adds 3 packages, `jaxns 2.6.9` adds 16, both leave `jax`
+      at 0.11.1 and `numpy` at 2.5.2, and both coexist in one environment (18 added, `jax`
+      unmoved). §1.5 condition 2 excludes neither, so Task 5 scores both.〕 **If a candidate
+      cannot be installed against this repo's
       pinned `jax` without moving the pin, it is out** — §1.5 condition 2 — and Task 5 scores it
       as failed rather than pretending the comparison is open. **If neither installs, stop:
       Task 5 becomes a written "no candidate passed" and Task 6 does not run.**
@@ -1537,27 +1569,58 @@ line 10 forces is worse than no list: it makes the executor choose between two r
       candidate importable reddens the suite, stop and rule** before the bake-off scores it — a
       backend that cannot be installed beside the tests is not a backend this package can adopt,
       whatever it scores on correctness, and repairing R4's shipped gate is not an R5 task.
+      〔**Execution write-back, red line 11 (Wave D), SECOND PASS — this rule FIRED, and the
+      first write-back below is superseded.** The adversarial review installed `blackjax` into an
+      isolated venv and ran the SUITE, not two tests:
+      `1 failed, 3548 passed` control against `2 failed, 3547 passed` with it, the extra failure
+      being `test_an_installed_extra_is_not_reported_as_a_missing_one`. At the wave's later HEAD
+      the same install turned **six** tests red. The condition this line states — a candidate
+      made installable reddens the suite — HELD.
 
-      〔**Execution write-back, red line 11 (Wave D): the rule FIRED, and was reported as not
-      firing.** Measured on a `git archive` snapshot in isolated venvs — control without
-      blackjax, `1 failed, 3548 passed`; with blackjax 1.6.2 and nothing else changed,
-      `2 failed, 3547 passed`. **Installing the thing the extra exists to install reddens the
-      suite.** The executing session reported "neither fired" because the check it ran was two
-      NAMED TESTS rather than the suite — a check narrower than the claim it was asked to
-      support, which is this batch's founding failure in the instrument that was supposed to
-      catch it.
+      **"Did not fire" and "fired for a reason that turned out to be ours" are different
+      facts, and only the second is true.**
 
-      **The ruling, given by the plan's owner: repair, do not stop.** This rule exists to catch
-      *a backend this package cannot adopt*, and that is not what fired. The cause is Task 4's own
-      new test deriving its "absent" baseline from the checkout's package set — a test defect. The
-      packaging is confirmed correct independently: the wheel carries both `Provides-Extra` rows,
-      the probe reads the extra back out of an installed wheel, and the two §0.16 tests pass with
-      the candidates installed while the `JAX_ENABLE_X64=1` control reddens them.
+      **The cause was a test defect, not a backend defect**, so the owner ruling was repair and
+      continue rather than stop R5: the packaging is correct (the built wheel carries both
+      `Provides-Extra` rows and the probe reads the extra back out of an installed wheel), and
+      the two tests §0.16 names pass with either candidate installed while `JAX_ENABLE_X64=1`
+      reddens them. Every message assertion in `tests/dispatch/test_backend_absent.py` took its
+      "the extra is absent" baseline from whatever the checkout happened to have; the states are
+      now BUILT, including the **mixed** one that `pip install "bayesmith[blackjax]"` actually
+      produces. Repaired in `9c1ef72`, graded in `docs/mutation/2026-09-05-r5-wave-d.md`.
 
-      **But it is recorded as FIRED.** "Did not fire" and "fired for a reason that turned out to
-      be ours" are different facts and only the second is true. This also corrects the write-back
-      that argued the rule *could not fire on any input*: it could and did — what could not fire
-      was the narrower reading that was checked.〕
+      **Why the first write-back was wrong, since the error is the one this plan is about.** It
+      reasoned from two named tests and concluded the rule could not fire on any input. The
+      rule's denominator is the SUITE. A check narrower than the claim it supports is the defect
+      this batch has paid for most often, and it produced a false "did not fire" here — this batch's
+      founding failure, appearing in the instrument that existed to catch it. What could not
+      fire was the narrower reading that was checked, not the rule.
+
+      What survives of that first pass is the narrower true claim: IMPORTABLE and IMPORTED are
+      different states, only the second flips `jax_enable_x64`, and nothing in `src/` imports
+      either candidate — verified independently by the wave coordinator, `import bayesmith` in a
+      fresh process leaves the flag `False`. So R4's precision gate is untouched by an install,
+      and what makes "importable" safe is a property of THIS package — that its capability probe
+      is not the thing that imports the candidate — which is a guard (Task 4.4's), not a
+      stop-rule.〕
+
+      〔**SUPERSEDED — Wave D, first pass.** Kept because red line 11 says a resolution goes on
+      the line that asked the question, and a resolution that was later found wrong is part of
+      the answer. **The rule as written could not have fired
+      on any input, because the state it names is not the dangerous one.** IMPORTABLE and
+      IMPORTED are two states and only the second flips the flag. Measured 2026-09-05: with
+      blackjax installed, with jaxns installed, and with both, all three environments run both
+      named tests green, exit 0 — and the control says that is a measurement rather than a
+      blind check, because under `JAX_ENABLE_X64=1` both go red and with `import jaxns`
+      executed before pytest both go red. The mechanism, verified independently by the wave
+      coordinator: nothing in `src/` imports either candidate, and `import bayesmith` in a
+      fresh process leaves `jax_enable_x64` at `False`, so an installed-but-never-imported
+      jaxns cannot flip anything. §0.16's "two tests go red" was always conditional on
+      something importing it. **The rule this line should have carried** is the one Task 4.4
+      enforces instead: the capability probe must not be the thing that imports it. That is
+      what makes "importable" safe, and it is a property of THIS package rather than of the
+      candidate — so it needs a guard, not a stop-rule, and
+      `tests/dispatch/test_backend_absent.py` is it.〕
 - [ ] **4.7 Green + lint. 4.8 Commit.** `feat: refuse a residual evidence by name when the optional sampler is absent`
 
 ---
