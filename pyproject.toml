@@ -87,7 +87,35 @@ dev = [
     # RUN rather than importorskip. Kept out of [project].dependencies for the
     # same reason rheplicant stays out of dev -- a test-only weight no runtime
     # consumer should pay.
-    "arviz",
+    # BOTH PINNED, and the second pin is why the first one is a pin at all.
+    # `se` on a LOO report is arviz-stats's number, and 1.3.2 changed it by
+    # `sqrt(n / (n - 1))` -- a ddof 0->1 change. Commit `a5ab3a3` passed the
+    # 2026-09-05 nightly and failed the 2026-09-06 one with the repository
+    # byte-identical, because 1.3.2 was uploaded between the two runs and this
+    # group resolves fresh on every CI run.
+    #
+    # Pinning `arviz` alone would not have caught it: `arviz==1.3.0` requires
+    # `arviz_stats>=1.3.0,<1.4.0`, which 1.3.2 satisfies. So the component that
+    # produces the constant is pinned. But pinning only that component freezes
+    # the umbrella anyway and says nothing -- measured, `uv pip install "arviz"
+    # "arviz-stats==1.2.0"` backtracks arviz to 1.2.0 with no error and no
+    # warning. `arviz` is pinned beside it so the ceiling is a declaration
+    # rather than a side effect.
+    #
+    # The cost, stated because it is real: two tests in
+    # tests/evaluation/test_loo.py exist to notice upstream MOVEMENT --
+    # `test_the_upstream_still_has_no_top_level_waic` and
+    # `test_a_flat_export_is_what_arviz_refuses` -- and while these pins hold
+    # both pass without being able to see a newer arviz. Raising the pins is
+    # what re-arms them, and raising them means re-measuring the two `se`
+    # constants in the same commit.
+    #
+    # `test_the_pinned_arviz_stats_is_what_the_se_constants_were_measured_against`
+    # is the run that binds this pin to those constants. Before it existed,
+    # deleting this line left 81 tests passing and nothing noticed -- which is
+    # this repository's most-repaired defect, two files and a hope.
+    "arviz==1.3.0",
+    "arviz-stats==1.3.2",
 ]
 # The cross-check harness, and the only place rheplicant is ever named. It is a
 # LOCAL PATH dependency, it is not in the wheel, and it is not in `dev` -- so a

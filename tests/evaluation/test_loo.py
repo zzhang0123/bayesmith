@@ -52,6 +52,7 @@ environment. The class-level ``skipif`` below keeps them collected.
 from __future__ import annotations
 
 import dataclasses
+import pathlib
 import subprocess
 import sys
 
@@ -196,6 +197,28 @@ def measurements(report: EvaluationReport) -> dict:
 # recipe). What the two platforms differ by, and what a CHANGED SEAM moves the
 # same quantity by, are in the commit message; the two numbers below sit
 # between them.
+#
+# A THIRD axis, added after it fired, which the paragraph above does not have:
+# the arviz-stats VERSION. ``se`` is arviz-stats's number, not this package's,
+# and 1.3.2 moved it by exactly ``sqrt(n / (n - 1))`` on both fixtures below --
+# a ddof 0->1 change. Identified on ONE machine with only arviz-stats moved:
+# the ratio matches ``sqrt(n / (n - 1))`` to **0.0 and 2.2e-16** for n = 8 and
+# n = 10 respectively. The two CI nightlies say the same thing 10 and 6 orders
+# of magnitude more weakly -- 1.1e-10 and 1.6e-07 -- because that comparison
+# crosses the platform as well as the version, and, measured, the CPU: the
+# 2026-09-05 job drew an AMD EPYC 7763 and the 2026-09-06 one an Intel Xeon
+# 6973P-C. Quote the same-machine pair; the cross-run pair cannot separate the
+# factor from the factor plus something else small. Commit ``a5ab3a3`` PASSED
+# the first nightly and FAILED the second with the repository byte-identical,
+# and 1.3.2 was uploaded between them. ``elpd``, ``p_loo`` and ``max_pareto_k``
+# did not move; only ``se`` did.
+#
+# The scales are not comparable, which is why one axis was easy to miss while
+# the other was reasoned about at length: the VERSION moved ``se`` by +6.90%
+# and +5.41%, the two PLATFORMS move it by 2.13e-10 and 1.31e-07 -- 4691x and
+# 7612x inside the two bands below. So the ``se`` constants are measured
+# against ``arviz-stats==1.3.2`` and ``pyproject.toml`` pins that version for
+# this reason; the pin and these two numbers move together or not at all.
 
 #: The ``gcr`` fixture: exact linear algebra at a fixed key, so the run is
 #: reproducible and only the arithmetic differs.
@@ -238,6 +261,50 @@ NUTS_PIN_ATOL = 1e-3
 #: rather than an absorbed difference, because none was observed.
 CONSTRUCTED_K_ATOL = 1e-6
 
+#: The version the two ``se`` constants above were measured against. Read from
+#: ``pyproject.toml`` rather than written here, so there is exactly one place to
+#: change and the test below is what compares them.
+_PINNED_ARVIZ_STATS = "arviz-stats=="
+
+
+@requires_arviz
+def test_the_pinned_arviz_stats_is_what_the_se_constants_were_measured_against():
+    """The two ``se`` pins are arviz-stats's output, and arviz-stats moved it.
+
+    1.3.2 changed ``se`` by ``sqrt(n / (n - 1))`` -- a ddof 0->1 change -- and
+    turned a byte-identical commit from green to red overnight. ``pyproject``
+    pins the version for that reason, and this is the run that holds the pin
+    and the two constants together.
+
+    Without it the coupling was a paragraph: measured 2026-09-06, deleting the
+    pin line from ``pyproject.toml`` and running every test that reads that
+    file left **81 passed, 0 failed** -- nothing anywhere noticed. That shape,
+    two files and a hope, is the defect this repository has spent the most time
+    repairing.
+
+    Raising the pin turns this red, which is the point: the same commit has to
+    re-measure the constants.
+    """
+    import tomllib
+    from importlib.metadata import version
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    declared = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    dev = declared["dependency-groups"]["dev"]
+
+    pinned = [row for row in dev if row.startswith(_PINNED_ARVIZ_STATS)]
+    assert pinned == ["arviz-stats==1.3.2"], (
+        "pyproject.toml's dev group must pin arviz-stats exactly; the two `se` "
+        f"constants in this file are measured against one version. Found: {pinned}"
+    )
+
+    installed = version("arviz_stats")
+    assert installed == pinned[0].removeprefix(_PINNED_ARVIZ_STATS), (
+        f"arviz-stats {installed} is installed but pyproject pins "
+        f"{pinned[0]}; the `se` constants in this file belong to the pinned "
+        "version, so one of the two has to move -- together with them."
+    )
+
 
 @requires_arviz
 class TestAnIidResultGetsTheChainAxisArviZRequires:
@@ -251,7 +318,7 @@ class TestAnIidResultGetsTheChainAxisArviZRequires:
         assert report.conclusion is Conclusion.PASS
         found = measurements(report)
         assert found["elpd"] == pytest.approx(-6.913729558630095, abs=IID_PIN_ATOL)
-        assert found["se"] == pytest.approx(1.937490864323723, abs=IID_PIN_ATOL)
+        assert found["se"] == pytest.approx(2.071264858372539, abs=IID_PIN_ATOL)
         assert found["p_loo"] == pytest.approx(0.6659671467972856, abs=IID_PIN_ATOL)
         assert found["max_pareto_k"] == pytest.approx(
             0.5525405453952401, abs=IID_PIN_ATOL
@@ -339,7 +406,7 @@ class TestAChainedPosteriorKeepsItsOwnChainShape:
         assert found["n_samples"] == 800
         assert found["n_data_points"] == 10
         assert found["elpd"] == pytest.approx(-1.3121380017602773, abs=NUTS_PIN_ATOL)
-        assert found["se"] == pytest.approx(0.8345653474153597, abs=NUTS_PIN_ATOL)
+        assert found["se"] == pytest.approx(0.879709118027418, abs=NUTS_PIN_ATOL)
         assert found["p_loo"] == pytest.approx(0.6786355183923574, abs=NUTS_PIN_ATOL)
         assert found["max_pareto_k"] == pytest.approx(
             0.4263811057858868, abs=NUTS_PIN_ATOL
