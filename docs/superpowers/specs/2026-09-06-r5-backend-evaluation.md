@@ -1093,7 +1093,7 @@ also the fixer, which is how a bake-off turns into a refactor.
 
 | finding | owner |
 |---|---|
-| `oracle_joint`'s certificate can pass on a value whose grid missed the peak (§5.0). It has three conditions and needs a fourth. | Task 10, and `tests/dispatch/residual_oracle.py` |
+| ~~`oracle_joint`'s certificate can pass on a value whose grid missed the peak (§5.0). It has three conditions and needs a fourth.~~ **Done 2026-09-06.** The certificate now has five conditions and the fifth is the peak; `oracle_joint` on `high_snr_curvature` returns ABSTAIN naming the spacing where it returned a certified −2 376 535.5. The prose said "three" while enumerating four, and a test now counts them. | was Task 10 |
 | R5's route (b) does not compile: `collapse_graph` returns a `ReducedGraph` whose `.latents` raises, and `compile_evidence_problem` reads it on its first line. `as_graph` is the documented route for an evidence-aware consumer; the guard's message names three safe routes and R5 makes that list incomplete. | Task 6 (plan §6.2a) |
 | plan §3.2's "the boundary is FOUR" is a statement about one sweep model; three axes is already ungradeable on a shipped fixture. | Task 10, and `docs/residual-evidence.md` when it exists |
 | §0.16's owner decision on jaxns's process-global x64 write attaches to the ADAPTER, not to the extra. | Task 6, and only if jaxns is chosen |

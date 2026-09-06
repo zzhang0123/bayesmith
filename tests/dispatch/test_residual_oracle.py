@@ -44,6 +44,7 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 import pytest
+import scipy.optimize as scipy_optimize
 
 import bayesmith
 from bayesmith.artifacts.refusal import Refusal
@@ -54,6 +55,7 @@ from tests.dispatch import residual_oracle
 from tests.dispatch.residual_oracle import (
     AGREEMENT_FLOOR,
     EPS,
+    PeakResolution,
     Span,
     agreement,
     oracle_collapsed,
@@ -1555,3 +1557,652 @@ def test_the_certificate_says_did_not_run_apart_from_ran_and_found_nothing():
     assert growing.certificate.truncation == math.inf
     assert growing.certificate.edges != ()
     assert not growing.certified
+
+
+# --------------------------------------------------------- condition 5: the peak
+#
+# Red line 13 for this condition, stated so the next reader can re-run it: before
+# it existed, `oracle_joint` on `high_snr_curvature` at the span the bake-off's
+# own rule derives returned -2376535.508689067 with `refused=None` and a bound of
+# 9.541e-09, against a Laplace estimate from the peak's own height and curvature
+# of +131.57. The whole suite was green. Nothing in the certificate's other four
+# conditions can see a 2.4-million-nat error, because all four ask whether the
+# trapezoid agrees with itself and a grid that steps over a narrow peak agrees
+# with itself perfectly.
+
+
+def _high_snr_at_the_rule_span():
+    """`high_snr_curvature` over the span the bake-off's own K rule derives."""
+    graph = models.high_snr_curvature()
+    return graph, (Span("w", -9.0, 9.0),)
+
+
+def test_a_grid_that_steps_over_the_peak_is_refused_by_name():
+    with jax.enable_x64(True):
+        graph, spans = _high_snr_at_the_rule_span()
+        found = oracle_joint(
+            graph, spans, resolution=AGREEMENT_FLOOR, start=201, refinements=18
+        )
+
+    assert not found.certified, found.describe()
+    assert "does not resolve the peak" in (found.certificate.refused or "")
+    assert found.value is None
+
+    # **The condition is load-bearing, not decorative.** The trapezoid still
+    # COMPUTED the wrong number -- this pins it, so deleting the condition
+    # returns a certified -2.4e6 rather than a quietly different failure.
+    assert found.certificate.history[-1][1] == pytest.approx(-2376535.5, abs=1.0)
+
+    peak = found.certificate.peak
+    assert isinstance(peak, PeakResolution)
+    assert peak.resolved is False
+    assert peak.location is not None
+    assert peak.location["w"] == pytest.approx(1.0, abs=1e-6)
+    # The Laplace estimate the certified value should have been near.
+    laplace = peak.height + math.log(math.sqrt(2 * math.pi) * peak.widths["w"])
+    assert laplace == pytest.approx(131.57, abs=0.1)
+
+
+def test_a_bogus_peak_is_refused_through_the_public_oracle(monkeypatch):
+    """The bypass, built and run through `oracle_joint` rather than beside it.
+
+    **This test exists because the one below it was not enough.** That one calls
+    `_stationary` directly, so it proves the function works and says nothing
+    about whether `_peak_resolution` consults it: a mutant replacing the call
+    with `complaint = None` left it green -- measured, 5 passed. An audit that
+    reads the formula rather than the caller is the defect this repository has
+    the most scars from, and this is the caller.
+
+    The bypass is the one an adversarial review of the probe actually built: a
+    peak finder returning the prior centre with a unit width. Unit width passes
+    every spacing test trivially, so without the gradient check the oracle
+    certifies -2376535.5 again.
+    """
+    with jax.enable_x64(True):
+        graph, spans = _high_snr_at_the_rule_span()
+        monkeypatch.setattr(
+            residual_oracle,
+            "_ascend",
+            lambda log_density, names, starts, bounds=None: (
+                {name: 0.0 for name in names},
+                {name: 1.0 for name in names},
+                0.0,
+                "located",
+            ),
+        )
+        found = oracle_joint(
+            graph, spans, resolution=AGREEMENT_FLOOR, start=201, refinements=18
+        )
+
+    assert not found.certified, found.describe()
+    assert "not stationary" in (found.certificate.refused or "")
+    assert found.value is None
+
+
+def test_the_ascent_refuses_a_result_lower_than_its_own_starts(monkeypatch):
+    """A multi-start where the BEST start's own optimisation raised.
+
+    L-BFGS-B does not increase the objective, so a returned point always beats
+    the start it came from -- which makes this guard look unreachable, and is
+    why a mutant deleting it survived the first mutation set. It is reachable
+    through a different door: a start whose `minimize` RAISES is skipped
+    entirely, and skipping the highest start silently reports a lower mode as
+    the peak, with a curvature width belonging to that lower mode.
+
+    Built rather than argued. The first start -- always the grid's own argmax --
+    is made to raise, and every later one returns a fixed point far down the
+    tail. Measured while writing this: a no-op optimiser does NOT reach the
+    guard, because `maxiter=0` does not stop L-BFGS-B and it climbs anyway.
+    """
+    import numpy
+    from scipy.optimize import OptimizeResult
+
+    real = scipy_optimize.minimize
+    seen = {"calls": 0}
+
+    def fake(fun, x0, **kwargs):
+        seen["calls"] += 1
+        if seen["calls"] == 1:  # the grid argmax, the highest start there is
+            raise ValueError("this start's optimisation failed")
+        far_down_the_tail = numpy.full_like(numpy.asarray(x0, dtype=float), -8.5)
+        return OptimizeResult(
+            x=far_down_the_tail, fun=float(fun(far_down_the_tail)), success=True
+        )
+
+    monkeypatch.setattr(scipy_optimize, "minimize", fake)
+    with jax.enable_x64(True):
+        graph, spans = _high_snr_at_the_rule_span()
+        found = oracle_joint(
+            graph, spans, resolution=AGREEMENT_FLOOR, start=201, refinements=18
+        )
+    assert real is not fake
+
+    # A PRECONDITION, not the assertion. A review pointed out that a mutant
+    # dropping the prior starts dies on this line -- that is, on a call count
+    # rather than on an outcome, which is the guard-reads-a-spelling shape one
+    # level up. Said plainly rather than dressed up: the multi-start's value is
+    # NOT demonstrated by any fixture here (see `_prior_starts`), so no test in
+    # this file can honestly claim it changes an answer. What is asserted is
+    # below.
+    assert seen["calls"] > 1, "the multi-start did not run"
+    assert not found.certified, found.describe()
+    assert "lower than one of its own starts" in (found.certificate.refused or "")
+    assert found.certificate.peak is not None
+    assert found.certificate.peak.resolved is False
+
+
+def test_the_peak_is_verified_by_its_gradient_and_not_by_its_own_claim():
+    """The bypass an adversarial review of the probe built, kept resident.
+
+    Replacing the ascent with one that returns a plausible-looking point is the
+    obvious way to defeat a peak test, and two weaker verifications let it
+    through: trusting the returned height trusts the liar, and comparing the
+    height against a scan of the prior fails when the claimed peak IS the prior
+    centre. The gradient does not care what the finder claims -- at a real
+    optimum it vanishes, and here it does not.
+    """
+    with jax.enable_x64(True):
+        graph, _spans = _high_snr_at_the_rule_span()
+
+        def log_density(values):
+            return bayesmith.log_joint(graph, dict(values))
+
+        # The bypass, built and run: a "peak" at the prior centre with a unit
+        # width, which every spacing test passes trivially.
+        complaint = residual_oracle._stationary(
+            log_density, ("w",), {"w": 0.0}, {"w": 1.0}
+        )
+    assert complaint is not None
+    assert "not stationary" in complaint
+
+    # And the real peak passes the same check.
+    with jax.enable_x64(True):
+        location, widths, _height, note = residual_oracle._ascend(
+            log_density, ("w",), [{"w": 0.0}], [(-9.0, 9.0)]
+        )
+        assert note == "located", note
+        assert residual_oracle._stationary(log_density, ("w",), location, widths) is None
+
+
+def test_a_resolved_peak_still_certifies_and_says_so():
+    """The condition must not be "always refuse", which would also go green."""
+    from tests.dispatch.test_residual_fixtures import _quartet_spans
+
+    with jax.enable_x64(True):
+        graph = as_graph(residual_models.undeclared_quartet())
+        parts = residual_models.undeclared_quartet_parts(graph)
+        found = oracle_joint(
+            graph,
+            _quartet_spans(parts),
+            resolution=AGREEMENT_FLOOR,
+            start=9,
+            refinements=5,
+        )
+    assert found.certified, found.describe()
+    assert found.certificate.peak is not None
+    assert found.certificate.peak.resolved is True
+
+    # **The half-spacing is the geometry, and this fixture is what measured it.**
+    # A rule reading `spacing <= width` rather than `spacing / 2 <= width`
+    # refuses this row at a ratio of 1.34 -- while the assertion above and
+    # `test_the_quartet_closed_form_agrees_with_the_four_dimensional_oracle`
+    # show the value agreeing with a CONSTRUCTED closed form.
+    worst = max(
+        ((span.upper - span.lower) / (found.certificate.history[-1][0] - 1))
+        / found.certificate.peak.widths[span.name]
+        for span in found.spans
+        if math.isfinite(found.certificate.peak.widths[span.name])
+    )
+    assert 1.0 < worst < 2.0, worst
+
+
+def test_the_peak_field_has_the_three_states_red_line_14_asks_for():
+    with jax.enable_x64(True):
+        # DID NOT RUN: no grid was measured, so there is no spacing to compare.
+        not_a_number = quadrature(
+            lambda values: jnp.asarray(float("nan")),
+            (Span("x", -1.0, 1.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=5,
+            refinements=2,
+        )
+        graph, spans = _high_snr_at_the_rule_span()
+        unresolved = oracle_joint(
+            graph, spans, resolution=AGREEMENT_FLOOR, start=201, refinements=18
+        )
+        resolved = oracle_joint(
+            models.straight_line(),
+            (Span("w", -8.0, 8.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=6,
+        )
+
+    assert not_a_number.certificate.peak is None
+    assert unresolved.certificate.peak is not None
+    assert unresolved.certificate.peak.resolved is False
+    assert resolved.certificate.peak is not None
+    assert resolved.certificate.peak.resolved is True
+
+
+def test_the_conditions_this_modules_docstring_lists_are_counted_not_typed():
+    """The prose said "three" while enumerating four, for six weeks.
+
+    A count written as a word in a docstring is a claim no run checks, which is
+    the defect one file over in `README.md` has a test for. This is that test.
+
+    **And this is as far as it goes, demonstrated rather than left implied.** A
+    review added a sixth enumerated item reading "Not implemented anywhere in
+    this module", changed ``**five**`` to ``**six**``, touched no code, and this
+    passed. It counts prose against prose in one docstring and never consults
+    the certificate. It catches the drift that actually happened here -- a
+    number and a list disagreeing -- and nothing else.
+    """
+    import re
+
+    doc = residual_oracle.__doc__ or ""
+    words = {"three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+    match = re.search(r"unless \*\*(\w+)\*\*\s+conditions", doc)
+    assert match, "the docstring no longer states its condition count in the pinned form"
+    stated = words[match.group(1)]
+    enumerated = len(re.findall(r"^\d+\. \*\*", doc, flags=re.MULTILINE))
+    assert stated == enumerated, (
+        f"the docstring says {match.group(1)} ({stated}) conditions and "
+        f"enumerates {enumerated}"
+    )
+
+
+# ---------------------------------------- condition 5: the DECLINING branches
+#
+# An adversarial review ran eighteen mutants against the block above and ten
+# survived. Every one of the ten flipped a REASON FOR DECLINING into a quiet
+# `resolved=True`, which is the one thing `PeakResolution`'s docstring promises
+# in bold cannot happen. The tests above pin that the condition fires on
+# `high_snr_curvature` and does not fire on the quartet; they pinned nothing
+# about what happens when the check cannot run. These do.
+
+
+def _gaussian_density(sd: float):
+    """A 1-D Gaussian whose curvature width is exactly ``sd``."""
+
+    def log_density(values):
+        return -0.5 * (values["x"] / sd) ** 2
+
+    return log_density
+
+
+@pytest.mark.parametrize(
+    ("sd", "why"),
+    [
+        # h = 12/4 = 3. h/2 = 1.5 > 1.0 refuses; a rule reading h/4 would pass.
+        (1.0, "pins the threshold's LOOSE side: only 'too strict' was caught"),
+        # h/2 = 1.5 > 1.3 refuses; spacing computed as h/count (2.4/2 = 1.2)
+        # would pass, so this pins the off-by-one in the spacing itself.
+        (1.3, "pins `(count - 1)` against `count` in the spacing"),
+    ],
+)
+def test_a_grid_that_undersamples_by_between_two_and_four_is_still_refused(sd, why):
+    with jax.enable_x64(True):
+        found = quadrature(
+            _gaussian_density(sd),
+            (Span("x", -6.0, 6.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=5,
+            refinements=1,
+        )
+    peak = found.certificate.peak
+    assert isinstance(peak, PeakResolution), why
+    assert peak.resolved is False, (why, peak.note)
+    assert "the finest grid is spaced" in peak.note
+
+
+def test_a_moderately_non_stationary_point_is_refused_and_not_only_an_absurd_one(
+    monkeypatch,
+):
+    """The stationarity bar is one nat per curvature width, and it is a BAR.
+
+    The bogus peak the probe's review built sits at the prior centre, where the
+    gradient is 3.0e12 curvature widths -- so a mutant raising the threshold to
+    1e12 survived it. This claims a point at 867, which is absurd for a peak and
+    unremarkable for a threshold, so the bar has to be near 1 to catch it.
+    """
+    with jax.enable_x64(True):
+        graph, spans = _high_snr_at_the_rule_span()
+        monkeypatch.setattr(
+            residual_oracle,
+            "_ascend",
+            lambda log_density, names, starts, bounds=None: (
+                {"w": 1.0005},
+                {"w": 5.7e-07},
+                0.0,
+                "located",
+            ),
+        )
+        found = oracle_joint(
+            graph, spans, resolution=AGREEMENT_FLOOR, start=201, refinements=18
+        )
+    assert not found.certified
+    assert "not stationary" in (found.certificate.refused or "")
+
+
+def test_an_infinite_curvature_width_skips_that_axis_and_does_not_certify_the_rest():
+    """A flat direction is not a resolved one; it is a direction with no peak.
+
+    ``y`` is absent from the integrand, so its curvature is zero and its width
+    infinite; ``x`` is 1e-5 wide against a spacing of 3. The infinite axis comes
+    FIRST, so a rule that returns "resolved" on reaching it never looks at
+    ``x``. A mutant doing exactly that survived.
+    """
+
+    def log_density(values):
+        return -0.5 * (values["x"] / 1e-5) ** 2 + 0.0 * values["y"]
+
+    with jax.enable_x64(True):
+        found = quadrature(
+            log_density,
+            (Span("y", -6.0, 6.0), Span("x", -6.0, 6.0)),
+            resolution=AGREEMENT_FLOOR,
+            start=5,
+            refinements=1,
+        )
+    peak = found.certificate.peak
+    assert isinstance(peak, PeakResolution)
+    assert peak.widths is not None
+    assert not math.isfinite(peak.widths["y"]), peak.widths
+    assert peak.resolved is False, peak.note
+    assert "on x" in peak.note, peak.note
+
+
+def test_an_integrand_with_no_finite_curvature_width_declines_rather_than_passes():
+    """Flat everywhere: there is no peak to resolve, and that is not a pass."""
+    with jax.enable_x64(True):
+        found = quadrature(
+            lambda values: 0.0 * values["x"],
+            (Span("x", -6.0, 6.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=5,
+            refinements=1,
+        )
+    peak = found.certificate.peak
+    assert isinstance(peak, PeakResolution)
+    assert peak.resolved is False, peak.note
+    assert "no axis has a finite curvature width" in peak.note
+
+
+def test_an_ascent_that_finds_nothing_declines_rather_than_inventing_a_peak(
+    monkeypatch,
+):
+    def always_raises(*args, **kwargs):
+        raise ValueError("no start survives")
+
+    monkeypatch.setattr(scipy_optimize, "minimize", always_raises)
+    with jax.enable_x64(True):
+        found = quadrature(
+            _gaussian_density(1.0),
+            (Span("x", -6.0, 6.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=3,
+        )
+    peak = found.certificate.peak
+    assert isinstance(peak, PeakResolution)
+    assert peak.resolved is False, peak.note
+    assert peak.location is None
+    assert "found no finite point" in peak.note
+
+
+def test_the_condition_runs_on_a_call_that_carries_no_graph():
+    """`graph` is optional and the prior starts need it; the condition does not.
+
+    A mutant skipping the whole block when `graph is None` survived, because
+    every test that reached it went through `oracle_joint`. The grid's own
+    argmax is always a start, so there is nothing to skip.
+    """
+    with jax.enable_x64(True):
+        found = quadrature(
+            _gaussian_density(1.0),
+            (Span("x", -6.0, 6.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=4,
+        )
+    assert found.certificate.peak is not None
+    assert found.certificate.peak.resolved is True
+
+
+def _fixed_result(x_value):
+    from scipy.optimize import OptimizeResult
+
+    def result(fun, x0, **kwargs):
+        point = np.full_like(np.asarray(x0, dtype=float), x_value)
+        return OptimizeResult(x=point, fun=float(fun(point)), success=True)
+
+    return result
+
+
+def test_the_ascent_keeps_the_best_start_and_not_the_first(monkeypatch):
+    """Two mutants lived here, and both are about WHICH result is kept.
+
+    Returning the first optimisation instead of the best changed nothing in the
+    suite, which made the multi-start decorative. Here the first start's
+    optimisation lands below the peak and the second lands on it: keeping the
+    best certifies the located peak and fails on SPACING, keeping the first
+    trips the beats-its-own-starts guard instead. The two refusals are different
+    sentences, so the choice is pinned.
+    """
+    calls = {"n": 0}
+
+    def per_call(fun, x0, **kwargs):
+        calls["n"] += 1
+        target = 0.999 if calls["n"] == 1 else 1.0
+        return _fixed_result(target)(fun, x0, **kwargs)
+
+    monkeypatch.setattr(residual_oracle, "_prior_starts", lambda *a, **k: [{"w": 1.0}])
+    monkeypatch.setattr(scipy_optimize, "minimize", per_call)
+    with jax.enable_x64(True):
+        graph, spans = _high_snr_at_the_rule_span()
+        found = oracle_joint(
+            graph, spans, resolution=AGREEMENT_FLOOR, start=201, refinements=18
+        )
+    refused = found.certificate.refused or ""
+    assert calls["n"] == 2, calls
+    assert "the finest grid is spaced" in refused, refused
+    assert "lower than one of its own starts" not in refused, refused
+
+
+def test_the_beats_its_own_starts_guard_reads_the_best_start_and_not_the_worst(
+    monkeypatch,
+):
+    """`max(heights)` against `min(heights)`: a mutant swapping them survived.
+
+    The ascent is made to return a point BELOW the best start and ABOVE the
+    worst. Against the best it is refused as not-a-maximum; against the worst it
+    would be accepted and then refused for a different reason, so the two are
+    told apart by which sentence comes back.
+    """
+    monkeypatch.setattr(residual_oracle, "_prior_starts", lambda *a, **k: [{"w": 1.0}])
+    monkeypatch.setattr(scipy_optimize, "minimize", _fixed_result(0.999))
+    with jax.enable_x64(True):
+        graph, spans = _high_snr_at_the_rule_span()
+        found = oracle_joint(
+            graph, spans, resolution=AGREEMENT_FLOOR, start=201, refinements=18
+        )
+    assert "lower than one of its own starts" in (found.certificate.refused or "")
+
+
+def _poisoned_gradient_density(values):
+    """Finite everywhere, with a NaN GRADIENT at ``x = 5``.
+
+    ``0.0 * sqrt(|x - 5|)`` is identically zero, so the integrand this
+    quadrature sees is exactly ``-(x**2)``; the poison lives only in the
+    derivative, where ``0 * inf`` at the kink is ``nan``.
+    """
+    return -(values["x"] ** 2) + 0.0 * jnp.sqrt(jnp.abs(values["x"] - 5.0))
+
+
+@pytest.mark.parametrize(
+    ("claimed", "phrase"),
+    [
+        # NaN gradient: the branch a mutant deleting the finiteness check
+        # SURVIVED, because the repair shipped without a test.
+        (5.0, "so stationarity could not be tested"),
+        # Finite gradient at a point that is equally not the peak: the ordinary
+        # refusal, here to show the two are told apart rather than merged.
+        (4.0, "not stationary"),
+    ],
+)
+def test_a_gradient_that_is_not_a_number_declines_instead_of_reading_as_stationary(
+    monkeypatch, claimed, phrase
+):
+    """`worst` starts at 0.0 and `nan > 0.0` is False.
+
+    So a NaN step never becomes `worst`, leaves it at 0.0, and a finiteness
+    test applied to `worst` AFTER the loop passes: the claimed peak reads as
+    stationary because its gradient was poison. The test has to be on the step,
+    inside the loop, and this is the run that says so.
+    """
+    monkeypatch.setattr(
+        residual_oracle,
+        "_ascend",
+        lambda log_density, names, starts, bounds=None: (
+            {"x": claimed},
+            {"x": 1.0},
+            -(claimed**2),
+            "located",
+        ),
+    )
+    with jax.enable_x64(True):
+        found = quadrature(
+            _poisoned_gradient_density,
+            (Span("x", -6.0, 6.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=4,
+        )
+    assert not found.certified, found.describe()
+    assert found.certificate.peak is not None
+    assert found.certificate.peak.resolved is False
+    assert phrase in found.certificate.peak.note, found.certificate.peak.note
+
+
+def test_the_ascent_is_bounded_to_the_spans_it_is_asked_about():
+    """The B3 repair, held by a run instead of by a diff.
+
+    A review reverted `bounds=bounds` to `bounds=None` and the suite stayed
+    green -- the same failure as the NaN-gradient repair one commit earlier,
+    which also shipped without a test. Twice in one change is a pattern, not an
+    oversight, so this is the run.
+
+    The integrand's maximum is at ``x = 10`` and the span stops at 2. Bounded,
+    the ascent clamps to the edge, the gradient there is 8 curvature widths, and
+    the condition says so: there is no peak inside this span. Unbounded, it
+    walks to ``x = 10`` -- **two span-widths outside the region the grid covers**
+    -- and reports ``resolved=True`` with a curvature width measured somewhere
+    the quadrature never looks.
+    """
+    with jax.enable_x64(True):
+        found = quadrature(
+            lambda values: -0.5 * (values["x"] - 10.0) ** 2,
+            (Span("x", -2.0, 2.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=13,
+            refinements=2,
+        )
+    peak = found.certificate.peak
+    assert isinstance(peak, PeakResolution)
+    assert peak.resolved is False, peak.note
+    assert "not stationary" in peak.note, peak.note
+
+    # And the general form of the same property: wherever a peak IS located,
+    # it lies inside the span whose spacing it is about to be compared against.
+    with jax.enable_x64(True):
+        case = quadrature(
+            _gaussian_density(1.0),
+            (Span("x", -6.0, 6.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=4,
+        )
+    located = case.certificate.peak
+    assert located is not None and located.location is not None
+    for span in case.spans:
+        assert span.lower <= located.location[span.name] <= span.upper
+
+
+def test_a_start_whose_density_is_infinite_does_not_refuse_every_ascent(monkeypatch):
+    """`heights` is filtered on the HEIGHT, not on the start's coordinates.
+
+    A start at a finite position whose log-density is ``+inf`` used to put
+    ``inf`` into `heights`, make ``max(heights)`` infinite, and refuse every
+    ascent unconditionally -- the same non-finite poison the NaN gradient
+    carried one function over, arriving through the other argument.
+    """
+    spike = 3.0000001
+
+    def log_density(values):
+        x = values["x"]
+        return jnp.where(jnp.abs(x - spike) < 1e-12, jnp.inf, -0.5 * x**2)
+
+    monkeypatch.setattr(
+        residual_oracle, "_prior_starts", lambda *a, **k: [{"x": spike}]
+    )
+    with jax.enable_x64(True):
+        found = quadrature(
+            log_density,
+            (Span("x", -5.0, 5.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=4,
+        )
+    peak = found.certificate.peak
+    assert peak is not None
+    assert peak.resolved is True, peak.note
+    assert "lower than one of its own starts" not in peak.note
+
+
+def test_a_narrow_mode_between_grid_nodes_is_what_this_condition_cannot_see():
+    """The limitation, pinned rather than only described.
+
+    `PeakResolution`'s docstring says `resolved=True` means the grid resolves
+    the highest point THE ASCENT REACHED, not the integrand's maximum. This is
+    the run behind that sentence: a spike 1e-4 wide placed between grid nodes,
+    a hundred times the background's height, certifies with `refused=None` and
+    a note naming the wrong location -- and the value is wrong by far more than
+    its own bound.
+
+    It is a test so that the limitation cannot be quietly closed or quietly
+    widened: if someone makes the condition catch this, this test fails and the
+    docstring has to change with it.
+    """
+    spike_at, narrow, amplitude = 7.313725490196078, 1e-4, 100.0
+
+    def log_density(values):
+        x = values["x"]
+        return jnp.log(
+            jnp.exp(-0.5 * x**2)
+            + amplitude * jnp.exp(-0.5 * ((x - spike_at) / narrow) ** 2)
+        )
+
+    with jax.enable_x64(True):
+        found = quadrature(
+            log_density,
+            (Span("x", -12.0, 12.0),),
+            resolution=AGREEMENT_FLOOR,
+            start=201,
+            refinements=12,
+        )
+    assert found.certified, found.describe()
+    peak = found.certificate.peak
+    assert peak is not None and peak.resolved is True
+    assert peak.location is not None
+    # The located "peak" is the background's, not the spike's.
+    assert abs(peak.location["x"]) < 1e-6, peak.location
+    assert abs(peak.location["x"] - spike_at) > 1.0
+
+    # And the certified value is wrong by orders of magnitude more than the
+    # bound it carries. `log(1 + amplitude * narrow * sqrt(2 pi))` is what the
+    # spike adds to a background of `log(sqrt(2 pi))`.
+    missing = math.log1p(
+        amplitude * narrow * math.sqrt(2 * math.pi) / math.sqrt(2 * math.pi)
+    )
+    assert missing > 1e3 * found.certificate.bound, (missing, found.certificate.bound)

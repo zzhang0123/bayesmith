@@ -536,6 +536,20 @@ def resolves_the_peak(found, widths) -> tuple[bool, str]:
     The test is the weakest one that catches it: at least one grid point within
     one curvature width of the peak on every axis, i.e. spacing <= width. It
     introduces no tunable factor.
+
+    **This condition now lives in `tests/dispatch/residual_oracle.py` as the
+    certificate's fifth condition, and the resident one differs by a factor of
+    two.** On a uniform grid of spacing `h` the nearest point to any location is
+    at most `h / 2` away, so "within one curvature width" is `h / 2 <= width`;
+    the form here is twice as strict. The difference was found by
+    `undeclared_quartet`, which has a constructed closed-form evidence and sits
+    at `h / width = 1.34`: strict refuses it, and the closed form says the value
+    is right.
+
+    This copy is left as it stands because the evaluation of record ran against
+    it, and a stricter rule only escalated to the peak-placed rung more often
+    than it needed to. Do not read the two as disagreeing about the physics; the
+    resident one is the one to change.
     """
     if widths is None:
         # **Declining is not passing.** Red line 14: a check that cannot run

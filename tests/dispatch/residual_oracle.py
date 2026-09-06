@@ -27,9 +27,12 @@ plan walked into exactly that: a first grid on ``shared_ancestor`` reported a
 gap of 6.55 nats and the uncollapsed side was simply drifting, not wrong.
 ``test_residual_oracle.py`` pins that span as a regression and requires an
 ABSTAIN. So :func:`quadrature` never returns a bare number. It returns a
-:class:`Quadrature` whose ``value`` is ``None`` unless three conditions hold,
-each of which is a bound this module computes rather than a level it was
-handed:
+:class:`Quadrature` whose ``value`` is ``None`` unless **five** conditions
+hold, each of which is a bound this module computes rather than a level it was
+handed. (This sentence said "three" while listing four, from 2026-08 until
+2026-09-06; the count is now asserted by
+``test_residual_oracle.py::test_the_conditions_this_modules_docstring_lists_are_counted_not_typed``
+rather than typed.)
 
 1. **The increments shrink.** With the interval count doubled at each step, the
    last two movements give ``ratio = |delta_k| / |delta_(k-1)|``. ``ratio >= 1``
@@ -68,8 +71,25 @@ handed:
    the span and the number is an integral over the wrong region. ``rho < 1``
    models the tail past the edge as geometric and bounds the mass it holds at
    ``cell * rho / (1 - rho)``.
+5. **The grid samples the integrand's own peak.** The only condition here that
+   is not a statement about the refinement sequence, and the only one that
+   could catch what it was added for. Conditions 1, 2 and 4 all ask whether the
+   trapezoid is consistent with ITSELF, and a grid that steps over a narrow
+   peak is perfectly consistent with itself: refining it keeps giving the same
+   answer, so the increments look converged, the edges decay, and the value is
+   wrong by whatever the peak was worth. Measured on ``high_snr_curvature``:
+   ``sigma = 2e-6`` puts the curvature width at ``5.73e-07`` while the finest
+   grid the budget affords is spaced ``5.63e-03``. This function returned
+   **-2376535.508689067** with ``refused=None`` and a bound of ``9.54e-09``,
+   against a Laplace estimate from the peak's own height and curvature of
+   **+131.57** -- certified, and wrong by 2.4 million nats. The condition
+   ascends THE INTEGRAND (not the graph's ``log_joint``: ``oracle_collapsed``
+   integrates a different function over fewer axes), verifies the result is
+   stationary by its gradient rather than by its claimed height, and requires
+   the peak to sit within one curvature width of a grid point.
 
-The three bounds are also the AGREEMENT BAND (**D111**): two quadratures agree
+The three ERROR bounds -- refinement tail, float floor, truncation -- are also
+the AGREEMENT BAND (**D111**): two quadratures agree
 when the gap between them is no larger than the sum, over both sides, of
 ``refinement tail + float floor + truncation``, **and never less than**
 :data:`AGREEMENT_FLOOR` ``* max(1, |log Z|)``. The FORM is derived -- each
@@ -237,6 +257,403 @@ class EdgeDecay:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class PeakResolution:
+    """Whether the finest grid resolves the highest point the ascent reached.
+
+    **Read that sentence rather than "the integrand's own maximum", which is
+    what an earlier draft claimed and what this cannot deliver.** The starts are
+    the grid's own argmax plus prior draws, so a feature the grid never sampled
+    AND no start lands near is invisible to this condition as it is to the
+    trapezoid. Built and measured: a background Gaussian with a spike of width
+    1e-4 at ``x = 7.3137``, placed deliberately between grid nodes, certifies at
+    ``resolved=True`` with the note naming ``x=0`` as the peak, and the value is
+    9.95e-03 nats wrong -- **4.27e12 times its own bound**. Move the same spike
+    onto a grid node and the ascent finds it and the condition fires. So this is
+    sampling-luck dependent at the sub-spacing scale, which is the honest
+    statement of what one grid can know.
+
+    The one condition here that is not a statement about the refinement
+    sequence, and the only one that could have caught what it was written for.
+    A trapezoid that steps over a narrow peak converges beautifully -- to the
+    integral of everything except the mass -- so every increment is tiny, every
+    edge decays, the integrand is finite everywhere, and the certificate reads
+    perfect. Measured on ``high_snr_curvature``: ``sigma = 2e-6`` puts the
+    curvature width at ``5.73e-07`` while the finest grid the budget affords on
+    the declared span is spaced ``5.63e-03``, 9811 times coarser.
+    ``oracle_joint`` returned **-2376535.508689067** with ``refused=None`` and a
+    bound of ``9.54e-09``, against a Laplace estimate from the peak's own height
+    and curvature of **+131.57**. Nothing else in this certificate can see a
+    2.4-million-nat error, because refining a grid that keeps missing the peak
+    keeps giving the same answer.
+
+    ``resolved`` is the verdict; ``note`` says which of the four ways it was
+    reached -- located and resolved, located and too coarse, not located, or not
+    stationary. **Declining is not passing** (red line 14): every way of failing
+    to run is ``resolved=False`` with its own sentence, never a quiet True.
+    """
+
+    resolved: bool
+    location: Mapping[str, float] | None
+    widths: Mapping[str, float] | None
+    height: float | None
+    note: str
+
+    def __str__(self) -> str:
+        return f"{'resolved' if self.resolved else 'UNRESOLVED'}: {self.note}"
+
+
+def _ascend(
+    log_density: Callable[[dict[str, Any]], Any],
+    names: Sequence[str],
+    starts: Sequence[dict[str, float]],
+    bounds: Sequence[tuple[float, float]],
+) -> tuple[dict[str, float] | None, dict[str, float] | None, float | None, str]:
+    """Gradient ascent on THE INTEGRAND, not on the graph's ``log_joint``.
+
+    **Which function is ascended is the whole correctness of this check.**
+    ``oracle_collapsed`` integrates ``log_joint(reduced, ...)`` over the
+    residual latents only, so the peak of the full graph's ``log_joint`` is a
+    different point with different curvature -- narrower, because collapsing a
+    Gaussian block widens the residual marginal. Ascending the callable
+    ``quadrature`` was actually handed makes the check right for both oracles
+    and for any other integrand this module is ever pointed at.
+
+    The starts come from the caller, and the grid's own argmax is always among
+    them: whatever the grid found is within one spacing of the best point the
+    grid can see, and it is free.
+
+    **What is NOT claimed, because a mutant refuted it**: that starting from the
+    argmax rather than anywhere else is load-bearing. Replacing it with the
+    grid's ARGMIN -- the worst point on the grid -- changes no outcome anywhere
+    in this suite. On the integrands here the optimiser reaches the peak from
+    either end, which says the trapezoid is what fails on a narrow peak and the
+    ascent is not close to its limits. It also means this start is coverage
+    against integrands the suite does not contain.
+    """
+    from scipy import optimize
+
+    def negative(x):
+        return -log_density({name: value for name, value in zip(names, x, strict=True)})
+
+    gradient = jax.jit(jax.grad(negative))
+    best = None
+    for start in starts:
+        vector = np.array([start[name] for name in names], dtype=float)
+        if not np.all(np.isfinite(vector)):
+            continue
+        try:
+            found = optimize.minimize(
+                lambda x: float(negative(jnp.asarray(x))),
+                vector,
+                jac=lambda x: np.asarray(gradient(jnp.asarray(x)), dtype=float),
+                method="L-BFGS-B",
+                # **Bounded to the spans.** Unbounded, L-BFGS-B walks off the
+                # grid: measured, three fixtures in this suite located a peak
+                # 1.81 SPAN-WIDTHS outside the span and still reported "every
+                # axis has a grid point within one curvature width of the
+                # peak". No wrong number shipped -- condition 4 catches those
+                # spans -- but the field said something false, and a spacing
+                # compared against a curvature width measured somewhere the
+                # grid does not reach is not a statement about this grid.
+                bounds=bounds,
+            )
+        except (ValueError, FloatingPointError, TypeError):
+            continue
+        if not np.isfinite(found.fun):
+            continue
+        if best is None or found.fun < best.fun:
+            best = found
+    if best is None:
+        return None, None, None, "the ascent found no finite point from any start"
+    # **The located peak must beat every start, or it is not a peak.**
+    #
+    # What this does NOT catch, corrected after a review measured it: a replaced
+    # peak finder. That bypass -- returning the prior centre with a unit width --
+    # is caught by `_stationary`, and only by it: with `complaint = None`
+    # applied, `test_a_bogus_peak_is_refused_through_the_public_oracle` fails
+    # and this guard says nothing. It could not be otherwise, since a guard
+    # inside the function that gets replaced is replaced with it, which is the
+    # design rule `_stationary`'s own docstring states and this comment used to
+    # contradict.
+    #
+    # What it does catch is narrower and real: a multi-start whose BEST start's
+    # optimisation raised and was skipped, leaving a lower mode reported as the
+    # peak with that mode's curvature width.
+    # `test_the_ascent_refuses_a_result_lower_than_its_own_starts` builds it.
+    # **Filtered on the HEIGHT, not on the coordinates.** The finiteness test
+    # used to read the start's position, so a start at a finite coordinate
+    # whose log-density is `+inf` put `inf` into `heights`, made `max(heights)`
+    # infinite, and refused every ascent unconditionally. Same non-finite-poison
+    # shape as the NaN gradient one function down, one argument over.
+    heights = [
+        height
+        for start in starts
+        if np.all(np.isfinite([start[name] for name in names]))
+        and np.isfinite(
+            height := float(
+                -negative(jnp.asarray([start[name] for name in names], dtype=float))
+            )
+        )
+    ]
+    # The slack is RELATIVE. An absolute `1e-9` is scale-blind, and this module
+    # meets values where it means nothing: on `high_snr_curvature`,
+    # `log_joint(w=0)` is -1.52e12, where one ULP is 2.44e-4 -- 244 000 times
+    # the old slack. CLAUDE.md names a scale-blind absolute tolerance as one of
+    # the sixteen repairs a Linux run forced.
+    #
+    # **This line and the finiteness filter above are REDUNDANT against the one
+    # test that covers either, and that is measured rather than suspected.**
+    # Mutating each alone SURVIVES; mutating both together is killed by
+    # `test_a_start_whose_density_is_infinite_does_not_refuse_every_ascent`.
+    # The reason is arithmetic: with an unfiltered `+inf` in `heights`, the
+    # relative slack computes `inf - 1e-9 * inf = nan` and `x < nan` is False,
+    # so the guard silently stops firing -- the absolute form gave `inf - 1e-9
+    # = inf` and fired on everything. Neither is kept for that accident. The
+    # filter is right because `heights` should hold heights; the slack is right
+    # because a tolerance on a log-density cannot be absolute. Recorded so the
+    # next reader does not delete one on the grounds that its mutant lives.
+    if heights and -float(best.fun) < max(heights) - 1e-9 * max(
+        1.0, abs(max(heights))
+    ):
+        return None, None, None, (
+            "the ascent returned a point lower than one of its own starts, so "
+            "it is not a maximum"
+        )
+    try:
+        hessian = np.atleast_2d(
+            np.asarray(
+                jax.hessian(
+                    lambda x: log_density(
+                        {name: value for name, value in zip(names, x, strict=True)}
+                    )
+                )(jnp.asarray(best.x)),
+                dtype=float,
+            )
+        )
+    except Exception as error:  # noqa: BLE001 - a peak outside the integrand's domain
+        return None, None, None, f"the Hessian raised {type(error).__name__}"
+    with np.errstate(all="ignore"):
+        curvature = -np.diag(hessian)
+        widths = np.where(curvature > 0, 1.0 / np.sqrt(np.abs(curvature)), np.inf)
+    return (
+        dict(zip(names, np.asarray(best.x, dtype=float), strict=True)),
+        dict(zip(names, np.asarray(widths, dtype=float), strict=True)),
+        float(-best.fun),
+        "located",
+    )
+
+
+def _stationary(
+    log_density: Callable[[dict[str, Any]], Any],
+    names: Sequence[str],
+    location: Mapping[str, float],
+    widths: Mapping[str, float],
+) -> str | None:
+    """Is the claimed peak a stationary point? Returns a complaint or ``None``.
+
+    **Separate from :func:`_ascend` on purpose.** A guard living inside the
+    function it guards goes with that function when the function is replaced,
+    which is exactly how the probe's version was bypassed.
+
+    **And it reads the GRADIENT, not the height.** Two weaker checks were tried
+    in the probe and both let the bypass through: trusting the returned height
+    trusts the liar, and comparing against a scan of the prior fails when the
+    claimed peak IS the prior centre. At a real optimum the gradient vanishes;
+    at ``high_snr_curvature``'s prior centre it is of order ``1e12``. The test
+    is dimensionless -- one curvature width along the gradient must change the
+    integrand by at most one nat -- so it introduces no tuned number.
+    """
+    finite = [name for name in names if np.isfinite(widths[name])]
+    if not finite:
+        return "no axis has a finite curvature width, so there is no peak to resolve"
+    try:
+        gradient = jax.grad(
+            lambda values: log_density({name: values[name] for name in names})
+        )({name: float(location[name]) for name in names})
+    except Exception as error:  # noqa: BLE001 - a peak outside the integrand's domain
+        return f"the gradient at the claimed peak raised {type(error).__name__}"
+    worst, where = 0.0, ""
+    for name in finite:
+        step = abs(float(gradient[name]) * widths[name])
+        # **A non-finite step must refuse HERE, not fall through.** `worst`
+        # starts at 0.0 and `nan > 0.0` is False, so a NaN gradient never
+        # becomes `worst`, leaves it at 0.0, and the `isfinite(worst)` clause
+        # below then passes: a point that is not stationary reads as
+        # stationary because its gradient was poison. Measured on
+        # `-(x**2) + 0*nan`-style poisoning at x=5: the claimed peak passed
+        # while x=4, whose gradient is finite, was correctly refused.
+        if not np.isfinite(step):
+            return (
+                f"the gradient at the claimed peak is {gradient[name]!r} on "
+                f"{name}, so stationarity could not be tested"
+            )
+        if step > worst:
+            worst, where = step, name
+    # No `isfinite(worst)` conjunct: the loop above returns on the first
+    # non-finite step, so `worst` is finite here by construction. A mutant
+    # deleting such a conjunct SURVIVES, which is the signature of a condition
+    # with no consequence -- the same reading that removed one from the
+    # refinement loop above.
+    if worst > 1.0:
+        return (
+            f"the claimed peak is not stationary: one curvature width along the "
+            f"gradient changes the integrand by {worst:.3g} nats on {where}, so "
+            "it is a point the ascent did not reach rather than a peak"
+        )
+    return None
+
+
+def _prior_starts(
+    graph: Graph | None, names: Sequence[str], *, draws: int = 8
+) -> list[dict[str, float]]:
+    """Extra ascent starts from the prior, beyond the grid's own argmax.
+
+    **What these are measured to buy on a real fixture, so far, is nothing.**
+    No fixture in this suite has a prior start that beats the grid's argmax;
+    what pins the best-not-first choice is a constructed test
+    (``test_the_ascent_keeps_the_best_start_and_not_the_first``) rather than a
+    fixture. They are kept because the
+    grid argmax alone cannot see a mode the grid stepped over (see
+    :class:`PeakResolution`), and a prior draw is the only other place a start
+    can come from; they are a small fraction of what this check spends. Do not read
+    the multi-start as demonstrated multimodality handling -- it is coverage
+    whose value is not yet exercised by a fixture.
+
+    Restricted to ``names`` on purpose: ``oracle_collapsed``'s spans are the
+    RESIDUAL latents only, and a start carrying the exact block's coordinates
+    would not be a point in the integrand's domain at all.
+
+    Returns ``[]`` rather than raising when there is no sampler -- an improper
+    prior has none -- because the grid's own argmax is always in the start set
+    and this is coverage on top of it, not the thing being relied on.
+    """
+    if graph is None:
+        return []
+    try:
+        from bayesmith.dispatch.evidence import compile_evidence_problem
+
+        problem = compile_evidence_problem(graph)
+    except Exception:  # noqa: BLE001 - no sampler, or not an evidence problem
+        return []
+    starts: list[dict[str, float]] = []
+    for seed in range(draws):
+        try:
+            drawn = problem.prior_sample(jax.random.key(1000 + seed))
+        except Exception:  # noqa: BLE001
+            break
+        if not all(name in drawn for name in names):
+            break
+        starts.append({name: float(np.ravel(np.asarray(drawn[name]))[0]) for name in names})
+    return starts
+
+
+def _peak_resolution(
+    log_density: Callable[[dict[str, Any]], Any],
+    spans: Sequence[Span],
+    names: Sequence[str],
+    starts: Sequence[dict[str, float]],
+    count: int,
+) -> PeakResolution:
+    """Condition 5: does the finest grid sample the integrand's own peak?
+
+    The rule is ``h / 2 <= width`` per axis: on a uniform grid of spacing ``h``
+    the nearest point to any location is at most ``h / 2`` away, so that is
+    "one grid point within one curvature width of the peak".
+
+    **The half is the nearest-point geometry, and nearest-point distance is NOT
+    what controls the trapezoid's error.** Aliasing is, and it falls as
+    ``exp(-2 pi**2 (width / h)**2)``. Measured against an exact Gaussian with
+    this module's own ``_log_trapezoid``, the dispatcher bypassed:
+
+    ========  ==============
+    h/width   error (nats)
+    ========  ==============
+    1.00      5.4e-09
+    1.25      6.5e-06
+    1.60      9.0e-04
+    2.00      1.43e-02
+    2.50      8.2e-02
+    ========  ==============
+
+    ``AGREEMENT_FLOOR`` is 1e-9, so **at its own threshold this rule admits
+    about 1.4e7 band-widths**. It is a screen for the catastrophic case, not a
+    bound on the error, and it must not be read as one.
+
+    What keeps that from mattering here is measured, and the measurement is
+    this file's own: instrumenting every one of the **117** calls the two
+    dispatch test files make, the worst PASSING ratio is **1.3395** and the
+    smallest REFUSING one is **2.3077**, with **no** passing row above 2.0. The
+    threshold sits in that gap rather than on a cliff. Both sides are pinned by
+    runs rather than by this paragraph:
+    ``test_a_resolved_peak_still_certifies_and_says_so`` holds the passing side
+    at 1.34 and
+    ``test_a_grid_that_undersamples_by_between_two_and_four_is_still_refused``
+    holds the refusing side at 3.00 and 2.31.
+
+    〔Two numbers here were wrong until 2026-09-07, and the way they were wrong
+    is the lesson: they were **copied from a review report rather than measured**
+    -- 106 calls and a smallest-refusing ratio of 2.7955. The real figures are
+    above, and the 2.3077 comes from a test added in the same commit that
+    quoted 2.7955, so the commit refuted its own sentence. A borrowed number
+    presented as a measurement is the defect this repository spends the most
+    prose on, arriving through a door nobody had nailed shut.〕
+
+    **Why not the stricter ``h <= width`` the probe this came from used?**
+    ``undeclared_quartet`` has a closed-form Gaussian evidence computed by
+    ``residual_models.gaussian_log_evidence`` -- pure numpy, one Cholesky,
+    sharing no line with this module -- and the strict form refused a value
+    that sits ``3.65e-10`` from it, inside its own band by 18.7x. That refusal
+    was false. Its ``h/width = 1.34`` is itself inflated 6.6x, because the
+    width reported here is the CONDITIONAL scale while aliasing depends on the
+    MARGINAL: at ``h/marginal = 0.2031`` the quartet's true aliasing error is
+    ``3.4e-208``. The threshold was calibrated against a ratio that overstates
+    the risk, which is worth knowing before anyone moves it again.
+    """
+    location, widths, height, note = _ascend(
+        log_density,
+        names,
+        starts,
+        bounds=[(span.lower, span.upper) for span in spans],
+    )
+    if location is None or widths is None:
+        return PeakResolution(False, None, None, None, note)
+    complaint = _stationary(log_density, names, location, widths)
+    if complaint is not None:
+        return PeakResolution(False, None, None, height, complaint)
+    for span in spans:
+        width = widths[span.name]
+        if not np.isfinite(width):
+            continue
+        spacing = (span.upper - span.lower) / (count - 1)
+        if spacing / 2.0 > width:
+            return PeakResolution(
+                False,
+                location,
+                widths,
+                height,
+                f"the finest grid is spaced {spacing:.3e} on {span.name}, so the "
+                f"peak can sit {spacing / 2.0:.3e} from the nearest point, and "
+                f"the integrand's curvature width there is only {width:.3e}; a "
+                "trapezoid that never samples the peak converges to the "
+                "integral of everything except the mass",
+            )
+    return PeakResolution(
+        True,
+        location,
+        widths,
+        height,
+        f"every axis has a grid point within one curvature width of the "
+        f"highest point the ascent reached, {_at(location)}, height "
+        f"{height:.6g}",
+    )
+
+
+def _at(values: Mapping[str, float]) -> str:
+    """One-line coordinate, for a certificate sentence a reader has to act on."""
+    return "{" + ", ".join(f"{name}={value:.6g}" for name, value in values.items()) + "}"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class Certificate:
     """Everything the quadrature knows about its own error, reported always.
 
@@ -262,6 +679,12 @@ class Certificate:
     #: anything is exactly the indirection the rule exists to remove.
     truncation: float | None
     edges: tuple[EdgeDecay, ...]
+    #: ``None`` means the peak test DID NOT RUN -- no grid was measured, so
+    #: there is no finest spacing to compare a curvature width against. A
+    #: :class:`PeakResolution` means it ran, and carries its own verdict.
+    #: Three states in the field a consumer reads, as red line 14 asks, and for
+    #: the same reason ``truncation`` has them one field up.
+    peak: PeakResolution | None
     refused: str | None
 
     @property
@@ -765,6 +1188,9 @@ def quadrature(
     #: ``None`` until the first grid is measured, so a refinement budget of zero
     #: reports "did not run" rather than "ran and found an unbounded edge".
     truncation: float | None = None
+    #: ``None`` until the first grid is measured, so a refinement budget of zero
+    #: reports a peak test that did not run rather than one that passed.
+    grid_argmax: dict[str, float] | None = None
     reasons: list[str] = []
     for _ in range(refinements):
         axes = [
@@ -788,6 +1214,7 @@ def quadrature(
                     float_floor=math.inf,
                     truncation=None,
                     edges=(),
+                    peak=None,
                     refused=(
                         f"the integrand is not a number at {unusable} of "
                         f"{log_values.size} grid points on the n={count} grid, "
@@ -801,6 +1228,15 @@ def quadrature(
                 ),
             )
         peak = float(np.max(log_values))
+        # The grid's own best point, kept before the array is freed. It is the
+        # start the peak condition ascends from, and it costs nothing: the
+        # values are already computed, and whatever the grid found is within one
+        # spacing of the best point the grid can see.
+        best_cell = np.unravel_index(int(np.argmax(log_values)), log_values.shape)
+        grid_argmax = {
+            name: float(axes[axis][best_cell[axis]])
+            for axis, name in enumerate(names)
+        }
         density = np.exp(log_values - peak) if math.isfinite(peak) else log_values
         del log_values
         value = _log_trapezoid(density, peak, axes)
@@ -869,6 +1305,22 @@ def quadrature(
             f"{steps} (ratio {ratio!r}), whose geometric tail is {tail:.3e} "
             f"against a demanded {demanded:.3e}"
         )
+    # **The one condition that is not about the refinement sequence**, and it
+    # runs LAST because it needs the finest grid's spacing. The three above ask
+    # whether the trapezoid is consistent with itself; a grid that steps over a
+    # narrow peak is perfectly consistent with itself and wrong by 2.4 million
+    # nats, so consistency was never going to catch it. Starts: the grid's own
+    # argmax always, plus prior draws when a graph is available, because a
+    # single start finds one mode of a multimodal integrand and reports its
+    # width as the integrand's.
+    peak_check: PeakResolution | None = None
+    if grid_argmax is not None and history:
+        starts = [grid_argmax, *_prior_starts(graph, names)]
+        peak_check = _peak_resolution(
+            log_density, spans, names, starts, history[-1][0]
+        )
+        if not peak_check.resolved:
+            reasons.append(f"the grid does not resolve the peak: {peak_check.note}")
     certificate = Certificate(
         history=tuple(history),
         increment_ratio=ratio,
@@ -876,6 +1328,7 @@ def quadrature(
         float_floor=floor,
         truncation=truncation,
         edges=edges,
+        peak=peak_check,
         refused="; ".join(reasons) if reasons else None,
     )
     return Quadrature(
@@ -958,6 +1411,7 @@ __all__ = [
     "Agreement",
     "Certificate",
     "EdgeDecay",
+    "PeakResolution",
     "Quadrature",
     "Span",
     "agreement",
