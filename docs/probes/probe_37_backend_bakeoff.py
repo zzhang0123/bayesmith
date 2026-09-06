@@ -429,6 +429,16 @@ def peak_and_widths(graph, *, restarts: int = 8):
             best = found
     if best is None:
         return None, None, None
+    # **The located peak must beat the prior centre, or it is not a peak.**
+    # An adversarial review replaced this function's return with the prior
+    # centre and a unit width: the resolution test then passed trivially,
+    # printed "every axis has a grid point within one curvature width of the
+    # peak", and put `high_snr_curvature` back at -2 376 535.5 with
+    # `resolved: True`. Nothing checked the ascent's own output. This does,
+    # against the one point the ascent is guaranteed to have started from.
+    centre_value = float(-negative(starts[0])) if np.all(np.isfinite(starts[0])) else -np.inf
+    if -best.fun < centre_value - 1e-9:
+        return None, None, None
     hessian = np.asarray(
         jax.hessian(lambda x: log_joint(graph, unflatten(x)))(jnp.asarray(best.x)),
         dtype=float,
@@ -455,6 +465,60 @@ def _flat_axis_names(names, shapes) -> list[str]:
     return out
 
 
+def verify_the_peak(graph, peak, widths, height):
+    """Is the claimed peak a stationary point of the model's own `log_joint`?
+
+    **This lives in the caller and not inside `peak_and_widths`, and that
+    placement is the point.** An adversarial review replaced the whole peak
+    finder with one returning the prior centre and a unit width; a guard inside
+    the replaced function goes with it.
+
+    **And it reads the GRADIENT, not the height.** Two weaker checks were tried
+    and both let the bypass through: trusting the returned `height` trusts the
+    liar, and comparing the height against a scan of the prior fails when the
+    claimed peak IS the prior centre, which is what the bypass returns. At a
+    real optimum the gradient vanishes; at `high_snr_curvature`'s prior centre
+    it is of order `1e12`. The test is dimensionless -- moving one curvature
+    width along the gradient must change `log_joint` by at most one nat -- so
+    it introduces no tuned number.
+    """
+    import jax
+    import jax.numpy as jnp
+    import numpy as np
+
+    from bayesmith.graph.evaluate import log_joint
+
+    if peak is None or widths is None or height is None:
+        return None, None, "no peak was located"
+    names = list(peak)
+    finite = [name for name in names if np.isfinite(widths[name])]
+    if not finite:
+        return None, None, "no axis has a finite curvature width"
+
+    def at(values):
+        return log_joint(graph, {name: jnp.asarray(values[name]) for name in names})
+
+    try:
+        gradient = jax.grad(at)({name: float(peak[name]) for name in names})
+    except Exception as error:  # noqa: BLE001 - a peak outside the model's domain
+        return None, None, f"the gradient at the claimed peak raised {type(error).__name__}"
+    worst = 0.0
+    where = ""
+    for name in finite:
+        step = abs(float(gradient[name]) * widths[name])
+        if step > worst:
+            worst, where = step, name
+    if not np.isfinite(worst) or worst > 1.0:
+        return None, None, (
+            f"the claimed peak is not stationary: one curvature width along "
+            f"the gradient changes log_joint by {worst:.3g} nats on {where}, "
+            "so it is a point the ascent did not reach rather than a peak"
+        )
+    return peak, widths, (
+        f"stationary to {worst:.3g} nats per curvature width; height {height:.6g}"
+    )
+
+
 def resolves_the_peak(found, widths) -> tuple[bool, str]:
     """Does the grid this quadrature actually ran put a point near the peak?
 
@@ -474,7 +538,11 @@ def resolves_the_peak(found, widths) -> tuple[bool, str]:
     introduces no tunable factor.
     """
     if widths is None:
-        return True, "no peak located; the resolution test did not run"
+        # **Declining is not passing.** Red line 14: a check that cannot run
+        # must say so in a value distinct from its pass. A first version
+        # returned True here, so a fixture whose peak could not be located --
+        # or whose peak finder had been replaced -- inherited a clean bill.
+        return False, "no peak located, so the resolution test could not run"
     history = found.certificate.history
     if not history:
         return True, "no grid ran"
@@ -504,10 +572,17 @@ def oracle_for(label: str, graph):
     from tests.dispatch.residual_oracle import AGREEMENT_FLOOR, Span, oracle_joint
 
     peak, widths, height = peak_and_widths(graph)
+    peak, widths, verdict = verify_the_peak(graph, peak, widths, height)
+    fallbacks: tuple[str, ...] = ()
     if label in DECLARED_SPANS:
         attempts = [("suite", tuple(Span(*entry) for entry in DECLARED_SPANS[label]))]
     else:
-        attempts = [(f"rule@{k:g}", spans_for(graph, k=k)[0]) for k in K_LADDER]
+        attempts = []
+        fallbacks: tuple[str, ...] = ()
+        for k in K_LADDER:
+            rung, used_fallback = spans_for(graph, k=k)
+            attempts.append((f"rule@{k:g}", rung))
+            fallbacks = fallbacks or used_fallback
     if peak is not None:
         # The last rung: a span placed ON the integrand's own peak, at the same
         # `K_SPAN` half-width the rule uses everywhere else. Reached only when
@@ -538,9 +613,23 @@ def oracle_for(label: str, graph):
     #: -- is given no such thing. Measured on `high_snr_curvature`: with the
     #: peak span as its box jaxns integrates a domain `1e-5` wide around the
     #: mass; with the prior-shaped span it must find a `6e-7` peak inside a
-    #: span 18 wide, which is the same problem blackjax is set.
+    #: span **50 wide** -- the rule escalates to K = 25 on that row, so the box
+    #: is (-25, 25) and not the (-9, 9) an earlier version of this comment and
+    #: of the evaluation claimed -- which is the same problem blackjax is set.
     box = attempts[0][1]
-    for source, spans in attempts:
+    #: **Two different questions, and the first version conflated them.** One
+    #: is whether to widen K; the other is whether to fall through to the
+    #: peak-placed rung. An adversarial review implemented the rule this
+    #: probe's own prose STATED -- "it does not escalate on a refinement-budget
+    #: abstain" -- and found `high_snr_curvature` becoming WITHHELD, because
+    #: that reading stops the peak rung too. The rule below separates them:
+    #: widening K is refused except on the one abstain a wider span answers,
+    #: and the peak rung is always reached, because it is not a wider span but
+    #: a differently PLACED one.
+    index = 0
+    while index < len(attempts):
+        source, spans = attempts[index]
+        index += 1
         if len(spans) != len(peak or spans):
             continue  # a peak span is only usable when every axis has a width
         start, refinements = grid_for(len(spans))
@@ -556,20 +645,29 @@ def oracle_for(label: str, graph):
         resolved, note = resolves_the_peak(found, widths)
         if found.certified and resolved:
             break
-        if found.certified and not resolved:
-            continue  # a certified value whose grid missed the peak is not one
-        # Escalate only on the abstain a WIDER span can answer. The oracle's
-        # `rho >= 1` says the mass is still growing where the span runs out; a
-        # refinement-budget abstain says the opposite -- the span already holds
-        # the mass and the grid over it is too coarse -- and widening it makes
-        # that strictly worse. Retrying every abstain at every rung is how a
-        # ladder becomes a search for green.
-        if "not decaying" not in (found.certificate.refused or ""):
-            if source != "peak":
-                continue
-            break
+        if source == "peak":
+            break  # the last rung; there is nothing after it to try
+        widen_would_help = (
+            not found.certified
+            and "not decaying" in (found.certificate.refused or "")
+        )
+        if not widen_would_help:
+            # Either the value certified on a grid that missed the peak, which
+            # a wider span makes worse, or the refinement budget ran out, which
+            # a wider span also makes worse. Skip the remaining K rungs and go
+            # straight to the peak-placed one.
+            index = len(attempts) - 1 if attempts[-1][0] == "peak" else len(attempts)
     resolved, note = resolves_the_peak(found, widths)
     return found, source, spans, {
+        # **Carried, not discarded.** `spans_for` returns which axes fell back
+        # to `FALLBACK_HALF_WIDTH`, and the first version of this function
+        # threw that away with a `[0]` subscript at every call site -- red line
+        # 14's shape, with the evidence dropped where it was produced.
+        # Measured: the branch fires on the rule for the two Cauchy fixtures
+        # and BOTH are overridden by `DECLARED_SPANS`, so no row of the table
+        # reaches it. That is now visible instead of inferable.
+        "fallback_axes": list(fallbacks),
+        "peak_verdict": verdict,
         "box": box,
         "peak": peak,
         "widths": widths,
@@ -784,10 +882,10 @@ def run_blackjax(
             first_call_seconds = time.perf_counter() - started
         dead.append(info)
         update = info.update_info
-        evaluations += (
-            int(jnp.sum(update.num_expansions))
-            + int(jnp.sum(update.num_shrink))
-            + 2 * num_delete * num_inner_steps
+        evaluations += slice_step_evaluations(
+            int(jnp.sum(update.num_expansions)),
+            int(jnp.sum(update.num_shrink)),
+            num_delete * num_inner_steps,
         )
         logx = -(iteration + 1) * num_delete / num_live
         log_dx = logx_prev + float(np.log1p(-np.exp(logx - logx_prev)))
@@ -1062,8 +1160,40 @@ EVALUATION_FORMULA = {
 }
 
 
+def slice_step_evaluations(expansions: int, shrinks: int, slice_steps: int) -> int:
+    """Likelihood evaluations for `slice_steps` blackjax slice steps.
+
+    **The run and the audit call THIS, and that is the whole point of it being
+    a function.** An adversarial review of the first version found the constant
+    written out twice -- once in `run_blackjax`'s loop and once in
+    `audit_blackjax_formula` -- and mutated the run-side copy: every evaluation
+    count in the table moved by 20 per cent (202 667 to 162 102) and the audit
+    went on reporting `derived 457 / truth 457 / exact True`. Two constants,
+    two functions, disjoint effects, one claimed relationship. That is
+    `CLAUDE.md`'s founding defect -- six copies of one measurement -- in the
+    one place this probe calls audited.
+
+    The `+2` per slice step is the pair of terminating `in_slice` calls
+    `stepping_out`'s two `lax.while_loop` conditions make and do not count:
+    `in_slice(left) & (n > 0)` is not short-circuiting, so the condition
+    evaluates the likelihood on the iteration that ends the loop as well, once
+    on each side. `num_expansions` counts BODY executions. `_shrink`'s
+    condition reads no likelihood, so `num_shrink` is exact.
+    """
+    return expansions + shrinks + 2 * slice_steps
+
+
 def counted_likelihood(fn):
     """`(wrapped, read)` -- a likelihood that counts its own calls for real.
+
+    **UNREACHED, and recorded as such.** An adversarial review found this
+    function has exactly one occurrence in the file -- this `def` -- and that
+    `counter_control` shares no code with it, so no control can catch a defect
+    in it even in principle. The audits use `io_callback` directly. It is kept
+    because it documents the instrument plan 0.7 sanctions, and it is labelled
+    because an unreached helper that reads as a live one is the same defect as
+    an unread flag.
+
 
     Used ONLY inside `jax.disable_jit()`, on a deliberately tiny problem, which
     is plan 0.7's second sanctioned instrument. Under `jit` a Python closure
@@ -1240,17 +1370,33 @@ def audit_blackjax_formula(*, iterations: int = 30, num_live: int = 20) -> dict[
 
     plain = drive(loglike, False)
     shimmed = drive(loglike, True)
+    inert = (
+        plain[0] == shimmed[0]
+        and plain[1] == shimmed[1]
+        and np.allclose(plain[2], shimmed[2])
+    )
+    if not inert:
+        # **The audit refuses rather than reporting.** A first version computed
+        # this flag and printed it beside `exact: True`; forcing it False left
+        # the run at exit 0 with the audit's verdict intact, so the check could
+        # not distinguish "the shim is inert" from "nobody read the answer".
+        return {
+            "shim_is_inert": False,
+            "verdict": "DECLINED",
+            "why": (
+                "the vmap shim changed the computation, so a count taken "
+                "through it is not a count of the unshimmed run: expansions "
+                f"{plain[0]} vs {shimmed[0]}, shrinks {plain[1]} vs "
+                f"{shimmed[1]}"
+            ),
+        }
     total[0] = 0
     counted_run = drive(counted, True)
     slice_steps = iterations * num_delete * num_inner_steps
     truth = total[0]
-    derived = counted_run[0] + counted_run[1] + 2 * slice_steps
+    derived = slice_step_evaluations(counted_run[0], counted_run[1], slice_steps)
     return {
-        "shim_is_inert": (
-            plain[0] == shimmed[0]
-            and plain[1] == shimmed[1]
-            and np.allclose(plain[2], shimmed[2])
-        ),
+        "shim_is_inert": True,
         "expansions": counted_run[0],
         "shrinks": counted_run[1],
         "slice_steps": slice_steps,
@@ -1529,6 +1675,20 @@ def spawn(request: dict[str, Any], *, timeout: float = 1800.0) -> dict[str, Any]
         if line.startswith("{"):
             payload = json.loads(line)
             payload["subprocess_seconds"] = elapsed
+            payload["returncode"] = proc.returncode
+            if proc.returncode != 0:
+                # **A payload is not a success.** An adversarial review built a
+                # cell that printed its JSON, flushed, and then `os._exit(3)`;
+                # the parent reported MEASURED. A child that dies after the
+                # print -- an XLA abort at teardown, an OOM, a failing
+                # `atexit` -- has not run cleanly, and the row says so rather
+                # than inheriting the payload's optimism.
+                payload["verdict"] = "CRASH"
+                payload["error"] = (
+                    f"the cell printed a payload and then exited "
+                    f"{proc.returncode}: "
+                    + (proc.stderr.strip().splitlines() or ["no stderr"])[-1][:200]
+                )
             return payload
     return {
         **request,
@@ -1640,38 +1800,74 @@ def section_2_what_each_backend_needs(fixtures, graphs) -> dict[str, Any]:
 
 
 def _consumption(candidate: str) -> str:
-    """What the backend's own entry point asks for, read from its signature."""
+    """What the backend's entry point does when handed the compiled problem.
+
+    **This RUNS the attempt.** A first version read signatures and returned
+    prose, while the module docstring above claimed it drove each backend from
+    the compiled problem and recorded what raised; an adversarial review found
+    the gap and supplied the missing run, which happened to confirm the
+    conclusion. The instrument now does what its own sentence says.
+    """
     import inspect
 
+    from bayesmith.dispatch.evidence import compile_evidence_problem
+    from bayesmith.graph.reduction import as_graph
+    from tests.exact import models
+
+    problem = compile_evidence_problem(as_graph(models.student_t_likelihood()))
     if candidate == "blackjax":
         import blackjax
 
         signature = inspect.signature(blackjax.nss.differentiable)
         required = [
-            p.name
-            for p in signature.parameters.values()
-            if p.default is inspect.Parameter.empty
+            name
+            for name, parameter in signature.parameters.items()
+            if parameter.default is inspect.Parameter.empty
         ]
+        logprior, loglike, _dim, _unflatten = flatten(problem)
+        try:
+            blackjax.nss(
+                logprior_fn=logprior,
+                loglikelihood_fn=loglike,
+                num_inner_steps=2,
+            )
+            built = "accepted"
+        except Exception as error:  # noqa: BLE001 - the refusal is the answer
+            built = f"{type(error).__name__}: {str(error)[:120]}"
         return (
-            f"blackjax.nss requires {required}; `log_prior` and `log_likelihood` "
-            "are two of the compiled problem's own fields and the initial live "
-            "set comes from `prior_sample`. NOTHING ELSE IS NEEDED -- and "
-            "nothing is supplied either: no termination rule, no log Z, no "
-            "uncertainty."
+            f"blackjax.nss requires {required}; handed the compiled problem's "
+            f"own `log_prior` and `log_likelihood`, constructing the sampler "
+            f"is {built}. The initial live set comes from `prior_sample`. "
+            "NOTHING ELSE IS NEEDED -- and nothing else is supplied either: no "
+            "termination rule, no log Z, no uncertainty."
         )
+
+    from jaxns import Prior
     from jaxns.framework import bases
 
+    attempts = {}
+    for label, argument in (
+        ("the compiled problem itself", problem),
+        ("its log_prior", problem.log_prior),
+        ("its prior_sample", problem.prior_sample),
+    ):
+        try:
+            Prior(argument, name="x")
+            attempts[label] = "accepted"
+        except Exception as error:  # noqa: BLE001 - the refusal is the answer
+            attempts[label] = f"{type(error).__name__}"
     abstract = [
         name
         for name in ("_forward", "_inverse", "_log_prob", "_base_shape", "_shape")
         if hasattr(bases.BaseAbstractPrior, name)
     ]
     return (
-        f"jaxns.Prior takes a tfp distribution, or a BaseAbstractPrior implementing "
-        f"{abstract} -- a QUANTILE map U -> X and its inverse. A compiled problem "
-        "carries log_prior, log_likelihood and prior_sample, and none of the three "
-        "yields a quantile map: a density is not invertible by inspection and a "
-        "sampler is not a transform. The generic route is a bounded box plus "
+        f"jaxns.Prior handed {attempts}. It takes a tfp distribution, or a "
+        f"BaseAbstractPrior implementing {abstract} -- a QUANTILE map U -> X "
+        "and its inverse. A compiled problem carries log_prior, log_likelihood "
+        "and prior_sample, and none of the three yields a quantile map: a "
+        "density is not invertible by inspection and a sampler is not a "
+        "transform. The generic route is a bounded box plus "
         "log L' = log pi + log L + log|B|, which needs a DOMAIN bayesmith must "
         "supply and returns the evidence truncated to it."
     )
@@ -1928,6 +2124,13 @@ def oracle_table(fixtures, graphs) -> dict[str, Any]:
             "peak": peak["peak"],
             "peak_widths": peak["widths"],
             "peak_height": peak["height"],
+            # Carried into the record, not computed and dropped. Both of these
+            # were produced by `oracle_for` and discarded here in a first
+            # version -- the same defect as the `fallbacks` flag one line down,
+            # which an adversarial review found being thrown away at every call
+            # site.
+            "peak_verdict": peak["peak_verdict"],
+            "fallback_axes": peak["fallback_axes"],
             "uncertified_value": None if usable else found.value,
         }
         state = (
@@ -2043,11 +2246,56 @@ def section_8_maintenance() -> dict[str, Any]:
             "releases_total": len(dated),
             "releases_last_365_days": in_year,
         }
+        repo = GITHUB_REPOS.get(name)
+        if repo:
+            out[name].update(_github(repo))
         print(
             f"  {name:<13} latest {latest[1]} on {latest[0]}; "
             f"{len(dated)} releases, {in_year} in the last 365 days; "
             f"installed {_installed(name)}"
+            + (
+                f"; {out[name].get('open_issues')} open issues, repo pushed "
+                f"{out[name].get('pushed_at')}"
+                if repo
+                else ""
+            )
         )
+    return out
+
+
+#: The repositories the open-issue and last-push numbers come from. Recorded
+#: here because an adversarial review found those two numbers in the evaluation
+#: and in no run: they had been queried by hand. A number the document quotes
+#: has to come from the instrument the document names.
+GITHUB_REPOS = {
+    "blackjax": "blackjax-devs/blackjax",
+    "jaxns": "Joshuaalbert/jaxns",
+}
+
+
+def _github(repo: str) -> dict[str, Any]:
+    """Open issues and the last push, or DECLINED with the reason."""
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    out: dict[str, Any] = {}
+    try:
+        with urllib.request.urlopen(
+            f"https://api.github.com/search/issues?q=repo:{repo}"
+            "+type:issue+state:open&per_page=1",
+            timeout=20,
+        ) as response:
+            out["open_issues"] = _json.load(response).get("total_count")
+        with urllib.request.urlopen(
+            f"https://api.github.com/repos/{repo}", timeout=20
+        ) as response:
+            meta = _json.load(response)
+        out["pushed_at"] = meta.get("pushed_at")
+        out["archived"] = meta.get("archived")
+        out["repo"] = repo
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
+        out["github"] = f"DECLINED: {type(error).__name__}"
     return out
 
 

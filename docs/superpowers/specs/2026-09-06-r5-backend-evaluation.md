@@ -92,14 +92,27 @@ short-circuiting, so the condition evaluates the likelihood on the iteration tha
 loop as well, once on each side. `num_expansions` counts body executions; `_shrink`'s
 condition reads no likelihood, so `num_shrink` is exact. Audited: **derived 457, truth 457**.
 
+**The run and the audit call the same function**, `slice_step_evaluations`, and that is not a
+tidiness point. An adversarial review found the constant written out twice — once in
+`run_blackjax`'s loop, once in the audit — and mutated the run-side copy: every evaluation
+count in the table moved by 20 % (202 667 → 162 102) and the audit went on reporting
+`derived 457 / truth 457 / exact True`. Two constants, two functions, disjoint effects, one
+claimed relationship — `CLAUDE.md`'s founding defect in the one place this page calls audited.
+With the single function, the same mutation gives **`derived 367, truth 457, exact False`**.
+Red line 13: the old bug was put back and the check turned red.
+
 Taking that audit needed one more step, and it is the section's own instance of §0.7's
 problem. `io_callback` is refused inside a `lax.while_loop` with a batched predicate, which
 `blackjax.ns.from_mcmc`'s `jax.vmap(mcmc_kernel)` makes it; and a Python counter under
 `jax.disable_jit()` does not help, because `vmap` traces regardless — an audit taken that way
 reported **exactly 6 calls per slice step at three different step counts**, a trace count
 wearing an evaluation count's clothes. So the `vmap` is replaced by an index-and-restore for
-`num_delete == 1`, and the probe asserts that shim is inert by running the same seed both
-ways and comparing expansion counts, shrink counts and every dead particle's log-likelihood.
+`num_delete == 1`, and the probe **refuses to report a count** unless that shim is inert —
+measured by running the same seed both ways and comparing expansion counts, shrink counts and
+every dead particle's log-likelihood. A non-inert shim returns `DECLINED` with the mismatch,
+and no `derived`/`truth` pair is printed. (A first version computed the flag and printed it
+beside `exact: True`; forcing it `False` left the run at exit 0 with the verdict intact, so the
+check could not distinguish "the shim is inert" from "nobody read the answer".)
 
 **JAXNS — its own report, admissible because the audit confirms it.** The audit runs at two
 sample caps, because the answer is not the same at both:
@@ -181,10 +194,22 @@ already declares one — `test_residual_oracle.py::CLASS_B`, `CAUCHY_SPAN`, `_qu
 the bake-off uses that, with its committed reasons. Otherwise: **K = 9** prior standard
 deviations either side of the prior mean, read off the latent's own distribution at the prior
 centre. If the oracle then abstains **because the mass is still growing at the span edge** — its
-`rho >= 1` test, the one a wider span can answer — the rule escalates once to K = 25 and records
-which rung was used. It does not escalate on a refinement-budget abstain, which a wider span
-makes strictly worse. The refinement count is arithmetic: the largest ladder of `n -> 2n - 1`
-doublings whose last grid still fits the oracle's own `MAX_POINTS`.
+`rho >= 1` test, the one a wider span can answer — the rule escalates once to K = 25. It does
+not escalate on any other abstain: a refinement-budget abstain says the span already holds the
+mass and the grid over it is too coarse, and a certified-but-unresolved value says the grid
+missed a peak inside it; a wider span makes both strictly worse. **Widening K and falling
+through to the peak-placed rung are two different decisions**, and the rung is always reached,
+because it is not a wider span but a differently placed one. Which rung was used is recorded
+per row. The refinement count is arithmetic: the largest ladder of `n -> 2n - 1` doublings whose
+last grid still fits the oracle's own `MAX_POINTS`.
+
+> 〔An adversarial review implemented what this paragraph said in its first version — "it does
+> not escalate on a refinement-budget abstain" — and found four of six rows changing and
+> `high_snr_curvature` becoming WITHHELD, because that reading stops the peak rung too. The
+> code had always separated the two decisions; the prose had not, and the gate it described was
+> a no-op that could be inverted without changing any output. The code now separates them
+> explicitly and this paragraph describes it. The oracle table is unchanged: 17 filled, 4
+> withheld, every value identical.〕
 
 #### The certificate is not sufficient, and this bake-off found out the expensive way
 
@@ -232,10 +257,28 @@ candidates' answers.
 **The span the oracle grades on is NOT the domain handed to jaxns.** A peak-placed span tells
 the reader where the mass is; handing it to a backend tells the backend. blackjax draws from
 the prior and is told nothing, so jaxns's box is always the prior-shaped rung — the declared or
-K-rule span — never the peak one. Measured on `high_snr_curvature`: with the peak span as its
-box jaxns integrates a domain `1e-5` wide around the mass and spends 131 k evaluations; with
-the prior-shaped span it must find a `6e-7` peak inside a span 18 wide, spends **613 k**, and
-lands at `+131.613 ± 0.272`. The second is the comparison; the first would have been a gift.
+K-rule span — never the peak one. On `high_snr_curvature` that box is `w ∈ (−9, 9)`, **18
+wide**, and jaxns must find a `6e-7` peak inside it: it spends **613 247** evaluations and
+lands at **+131.61279792040003 ± 0.27181519890754496**. With the peak span as its box instead
+it spends 130 612 — so the fairness rule costs a factor of **4.7** in evaluations on this row,
+which is the price of having to find the answer rather than being told where it is.
+
+> 〔**These three numbers have a history worth recording, because it cuts against the reader's
+> instinct.** An adversarial review found this paragraph quoting 613 k, +131.613 and ±0.272
+> against a span 18 wide, and reported — correctly, at the time — that none of them appeared in
+> any run and that they contradicted §5.2's own row, which then read 685 351 and +131.687. They
+> had come from a hand-run whose box was `(−9, 9)` while the shipped ladder was producing
+> `(−25, 25)`.
+>
+> They were then *restored* by a repair made for an unrelated reason. §5.0's escalation rule was
+> rewritten because the prose and the code disagreed, and the rewrite stops the ladder widening
+> K on a certified-but-unresolved abstain — which is exactly what `high_snr_curvature` produces
+> at K = 9. So the box is `(−9, 9)` again and the figures above are the run of record's,
+> verified in `runs/probe37-20260906T145540/bakeoff.json`.
+>
+> **The reviewer was right and the number is right, and those are not in conflict.** An
+> unsupported number is unsupported whatever it later turns out to equal; what makes it usable
+> now is a run, not the coincidence.〕
 
 **17 of 21 correctness cells are fillable. 4 are WITHHELD, and they say why.**
 
@@ -349,9 +392,10 @@ Per-candidate totals over the run: blackjax spends **146 267 – 856 895** evalu
 #### Three things the row-by-row view hides
 
 **1. `overflowing_outside_latent` — blackjax does not answer it, and jaxns does.** Its Cauchy
-prior draws reach `|z| ~ 1e6`, where the collapsed evidence density overflows: **800 of 816
-initial live particles have a `nan` log-likelihood**, the remaining 8 sit at `−8.8e+125`, and
-blackjax reports none of it. The consequence is not a wrong number but a run that cannot end —
+prior draws reach `|z| ~ 1e6`, where the collapsed evidence density overflows: of 816 initial
+live particles, **800 are `nan`, 8 are `−inf` and 8 are finite** at `−8.8e+125`, and blackjax
+reports none of it. (`−inf` is not degenerate — it is what a point outside the support is
+worth — so 808 of 816 are unusable and 800 of them trip the check.) The consequence is not a wrong number but a run that cannot end —
 every termination rule that reads `max(loglikelihood)` reads `nan`, so the comparison is False
 forever. Measured before the probe learned to refuse it: the loop ran to its 100 000-iteration
 cap and `finalise` then sat in `CompileCpuExecutableInternal` for seven minutes without
@@ -651,8 +695,8 @@ without a production adapter unless the owner rules otherwise below.**
 The two candidates did not fail the same way, and the difference is the useful part:
 
 * **BlackJAX fails condition 1 and condition 5.** It does not answer `overflowing_outside_latent`
-  — 800 of 816 live particles initialise at `nan` and blackjax does not say so — and condition
-  5's artefact does not exist yet.
+  — 800 of 816 live particles initialise at `nan` (8 more at `−inf`) and blackjax does not say
+  so — and condition 5's artefact does not exist yet.
 * **JAXNS fails condition 5 only.** It answers all 21 rows, is in band on all 17 gradeable
   ones, shows no detectable bias over the seeded subset, and reports a `log Z` uncertainty that
   scales correctly.
@@ -730,22 +774,30 @@ here demonstrates a fault one catches and the other does not.
 
 ## 10. Provenance
 
-Every number in this document comes from one run of one file. The file is
-`docs/probes/probe_37_backend_bakeoff.py` at blob `1f97305bbfecf83849c91a625c80278df1ea34a7`, and the run is
-`runs/probe37-20260906T111626/` — `log` for the printed sections, `bakeoff.json` for every cell's full record.
+Every number in this document comes from the run below or from the Linux run beside it, both
+of one file, **except** the census counts in §1 and §5.0's `log_joint` table, which are
+separate probe invocations named where they appear. An adversarial review found the first
+version of this sentence false in three places — a hand-run's figures in §5.0, a Linux table
+with no artifact, and two GitHub numbers queried by hand. All three are now produced by the
+probe and recorded in the run directory; the sentence is narrowed anyway, because a blanket
+warranty is the kind of claim that goes stale without anyone editing it.
+
+The file is
+`docs/probes/probe_37_backend_bakeoff.py` at blob `82b8a771e487f885fe0fc1773f128bf2ce2bf4d6`, and the run is
+`runs/probe37-20260906T145540/` — `log` for the printed sections, `bakeoff.json` for every cell's full record.
 `runs/` is gitignored, so the JSON does not travel with the commit; the probe does, and it
 reproduces the run.
 
 | item | value |
 |---|---|
-| `sha` (before) | `4b690f79ab37bdc8bc78a88939fa2b56b7616667` |
-| `sha_after` | `4b690f79ab37bdc8bc78a88939fa2b56b7616667` |
-| `tree_before` | `46558a4c179893912c3950391b9bd9355afbdd78` |
-| `tree_after` | `46558a4c179893912c3950391b9bd9355afbdd78` |
+| `sha` (before) | `bffb2f1504822f5ed85b5a17d97c814eed355cb8` |
+| `sha_after` | `bffb2f1504822f5ed85b5a17d97c814eed355cb8` |
+| `tree_before` | `5a3bc8e87924b9872dd7fc1bc34ee5c280fb1f5e` |
+| `tree_after` | `5a3bc8e87924b9872dd7fc1bc34ee5c280fb1f5e` |
 | `git merge-base --is-ancestor` | `yes` |
 | suite | exit `0`; `tests=3692 failures=0 errors=0 skipped=4` |
-| probe blob | `1f97305bbfecf83849c91a625c80278df1ea34a7` |
-| run directory | `runs/probe37-20260906T111626` |
+| probe blob | `82b8a771e487f885fe0fc1773f128bf2ce2bf4d6` |
+| run directory | `runs/probe37-20260906T145540` |
 
 **The gate ran on the staged tree, and one thing changed after it**: this provenance table,
 which cannot record a run that has not happened. `tree_before` and `tree_after` are `46558a4c`
@@ -770,7 +822,8 @@ Neither discarded run's numbers appear here.
 | jax / jaxlib | 0.11.1 | 0.11.1 |
 | blackjax / jaxns | 1.6.2 / 2.6.9 | 1.6.2 / 2.6.9 |
 
-The Linux side is a `linux/amd64` container under colima. Its flag set matches the AMD EPYC
+The Linux run is `linux.log` in the same run directory. It is a `linux/amd64` container under
+colima. Its flag set matches the AMD EPYC
 7763 that `ubuntu-latest` served in one of three measured runs — and **there is no such thing
 as "the runner"**: the same pool has also served an EPYC 9V74 and a Xeon 8370C, both with
 AVX-512. So this reproduces one machine, not the pool, and it is quoted for **correctness and
@@ -872,6 +925,67 @@ stronger than the run behind it.
   table is 113 699 against a `num_live` of 816 and 304, so every run took thousands of
   iterations. It is a hole in the probe and it is named here because a hole the author found
   and left is worth more than one a reader finds first.
+
+### 11.1 What the fixture family holds constant — enumerated by grep, not by the author
+
+Red line 1's stronger form: asking the author which axes they varied returns a list isomorphic
+to the change they made, so this was enumerated by an adversarial reviewer against the
+dispatcher, over all 21 rows.
+
+| dimension | distribution | constant? |
+|---|---|---|
+| every latent axis is a **scalar** latent | 21/21 | **CONSTANT** |
+| any **vector** latent (size > 1) | 0/21 | **CONSTANT** |
+| exact-block size, class (b) | 6/6 exactly one latent | **CONSTANT within (b)** |
+| observed node depends on the exact block | 6/6 | **CONSTANT within (b)** |
+| residual dimension | 1×10, 2×9, 3×1, 4×1 | **no scored row exceeds 2** |
+| latent prior family | Normal ×17; StudentT, Cauchy ×2, MixtureSameFamily | 4 exceptions |
+| number of observed nodes | 1 ×20, 2 ×1 | effectively constant |
+| every latent prior mean is 0 | 10 true / 11 false | **NOT constant — covered** |
+| `FALLBACK_HALF_WIDTH` reached | 0/21 | **dead branch** |
+
+**What a defect confined to the other value would look like, and whether this bake-off could
+have seen it:**
+
+* **No vector latent anywhere.** `flatten`/`unflatten` is exercised only on 1–4 scalars laid
+  end to end, so its shape-driven offsets never meet a non-trivial shape. A transposition, a
+  per-component step-size bug or a reshape-ordering error would be wrong on every vector
+  fixture and **could not be seen here**.
+* **The exact block is always exactly one latent.** A `collapse_graph` defect that needs a
+  two-latent block — elimination ordering, a Schur complement across a block — is unreachable.
+  **Could not be seen.**
+* **The observed node always descends from the exact block.** A graph whose observation depends
+  only on the residual exercises `evidence_terms` differently. **Could not be seen.**
+* **No scored row above two axes.** `max(5, 2·dim)` — the one per-fixture knob §3 calls derived
+  rather than tuned — never binds on a scored row; changing it to `max(5, 1·dim)` is
+  byte-identical. A dimension-dependent backend defect above two axes appears here only as an
+  abstain.
+* **No Uniform, LogNormal, HalfNormal, Beta, Gamma, bounded, half-line or discrete latent
+  prior.** Two consequences neither the probe nor this page reaches: `spans_for` reads
+  `.mean`/`.variance` and would place a span outside a bounded prior's own support, where
+  `log_prob` is `−inf`; and §2's reparametrisation `log π + log L + log|B|` assumes the box lies
+  inside the support, so a LogNormal latent with a box straddling 0 is `−inf` over half its
+  domain. **Neither could be seen.**
+* **`FALLBACK_HALF_WIDTH` is dead.** It fires on the rule only for the two Cauchy fixtures, and
+  both are overridden by `DECLARED_SPANS`. The probe now carries the flag into the record as
+  `fallback_axes` rather than discarding it at the call site.
+
+### 11.2 Multimodality is not confined to the fixture named for it
+
+Measured by multi-start ascent: **9 of 21 rows have two or more optima within 10 nats.** Most
+are symmetries, but two are genuinely separated — **`bilinear_pair`** (−2.656 against −5.986,
+3.3 nats apart) and **`bright_and_faint_pair`** (−29.87 against −32.82).
+
+Two consequences this page did not draw and now does. `bilinear_pair` is a **scored** row, and
+`peak_and_widths` reported one mode's width there as the integrand's, so its resolution test
+was taken against a partial picture. And `bright_and_faint_pair` carries the largest candidate
+disagreement in the table (0.79 nats, §5.2); multimodality is a candidate explanation for that
+disagreement which §5.2 does not consider, and with the oracle withheld nothing here can decide
+between them.
+
+§6's multimodal axis is scored on `mixture_prior_residual` alone, which is the fixture Task 3
+built with a constructed closed form. That remains the only row where the multimodal claim is
+graded against a known answer.
 
 ---
 
