@@ -292,6 +292,13 @@ _LAZY_SUBMODULES = (
     # commit that gives the layer its first real function would leave the
     # suite red for every commit in between.
     "evaluation",
+    # The compiled residual problem (R5 Task 6). A leaf module rather than a
+    # subpackage, and registered in the commit that creates it for the reason
+    # two entries above give -- which was re-measured here: the class moved out
+    # of `dispatch/evidence.py` and this table was not touched, and
+    # `test_every_submodule_is_reachable_after_a_bare_import` went red naming
+    # `compiled` within one run.
+    "compiled",
 )
 
 

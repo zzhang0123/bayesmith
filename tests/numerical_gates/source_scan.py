@@ -40,6 +40,14 @@ SOURCE_PATHS = (
     # to be.
     "src/bayesmith/dispatch/evidence.py",
     "src/bayesmith/evaluation/evidence.py",
+    # R5 Task 6. `CompiledEvidenceProblem` moved out of `dispatch/evidence.py`
+    # to a leaf so `bridge/` may import it at module scope without closing a
+    # cycle (see `bayesmith/compiled.py`). Its six `__post_init__` candidates
+    # moved with it, and a file this list does not name is a validator with no
+    # boundary grid and no mutation -- which is the arrangement the comment
+    # above about `evidence.py` was written for. The class did not change; only
+    # its address did, so the six carried their ORDINARY_VALIDATION forward.
+    "src/bayesmith/compiled.py",
 )
 
 

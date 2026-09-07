@@ -1240,6 +1240,30 @@ ADAPTER, not to the extra: declaring the extra costs R4's gate nothing.〕
 > third-party import cannot move. **Both are changes to R4's shipped behaviour and neither
 > belongs inside an R5 task.** Task 5's verdict must name this as a cost of choosing jaxns, and
 > Task 6 does not start until it is ruled on.
+>
+> 〔**Ruled 2026-09-07: it stays OUTSIDE R5, which is what the paragraph above already
+> says.** The owner returned it. Neither shape is taken: subprocessing R4's own gate tests
+> would leave the gate equally dead for a caller who installs the extra and merely stop the
+> suite noticing -- a result that cannot distinguish "the gate works" from "nothing is
+> watching it" -- and changing the criterion alters shipped R4 behaviour for every caller,
+> against a design whose outcome-based reading is deliberate.
+>
+> **What R5 owes is not the repair but the containment**, and that half is done. The harm is
+> not jaxns being installed -- the Wave D write-back above measured that declaring the extra
+> costs the gate nothing -- it is *this package's own code importing it in the suite's
+> process*. So every test in `tests/bridge/test_jaxns_bridge.py` that touches jaxns runs in a
+> subprocess, the shape `tests/test_public_api.py` already uses for a process-global fact.
+>
+> Measured 2026-09-07 in an environment carrying jaxns 2.6.9, with the adapter's file running
+> FIRST: `tests/bridge/test_jaxns_bridge.py` plus the two tests §0.16 names -- **46 passed**.
+> Control, the same two with `import jaxns` executed in-process beforehand: **2 failed**. So
+> the isolation is what holds them, not luck about ordering.
+>
+> **Task 6 is therefore not complete**, and the reason is recorded rather than the fact hidden:
+> `residual_backend()` still returns `None`, so the adapter ships as a module with its tests
+> and nothing routes to it. Flipping that seam is what makes a jaxns import happen inside a
+> USER's process, and that is exactly the decision this note defers. The remaining work is
+> named in Task 6 below.〕
 
 **(2) The x64 contract differs qualitatively, and it is a selection criterion rather than a
 detail.** jaxns REFUSES without x64 — which agrees with R4's `evidence_requires_x64`. blackjax

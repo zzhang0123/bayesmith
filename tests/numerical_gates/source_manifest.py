@@ -10458,36 +10458,6 @@ EXPECTED_SOURCE_MANIFEST = (
         "conditioned",
     ),
     ManifestEntry(
-        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::cd39392a08c7074b::0",
-        CandidateClassification.ORDINARY_VALIDATION,
-        "sorted(set(self.exact_elimination) & set(self.residual_parameters))",
-    ),
-    ManifestEntry(
-        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::aeaab01445bcfade::0",
-        CandidateClassification.ORDINARY_VALIDATION,
-        "both",
-    ),
-    ManifestEntry(
-        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::raise::696276f670dd342c::0",
-        CandidateClassification.ORDINARY_VALIDATION,
-        "raise ValueError(f'{both} are named as both eliminated and residual; an eliminated parameter is precisely one the problem does not carry')",
-    ),
-    ManifestEntry(
-        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::d9b80001e5d59c48::0",
-        CandidateClassification.ORDINARY_VALIDATION,
-        "sorted(set(self.prior_terms) & set(self.likelihood_terms))",
-    ),
-    ManifestEntry(
-        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::b70b70c746217918::0",
-        CandidateClassification.ORDINARY_VALIDATION,
-        "shared",
-    ),
-    ManifestEntry(
-        "src/bayesmith/dispatch/evidence.py::<module>.CompiledEvidenceProblem.__post_init__::raise::5aa1f67ca225f013::0",
-        CandidateClassification.ORDINARY_VALIDATION,
-        "raise ValueError(f'{shared} are filed on both the prior and the likelihood side; a term counted twice is the failure an evidence layer exists to prevent')",
-    ),
-    ManifestEntry(
         "src/bayesmith/dispatch/evidence.py::<module>._latent_shape::decision_predicate::050ccb975ffbedb4::0",
         CandidateClassification.STRUCTURAL_CONTROL,
         "node.plate",
@@ -10791,6 +10761,36 @@ EXPECTED_SOURCE_MANIFEST = (
         "src/bayesmith/evaluation/evidence.py::<module>.comparability_report::decision_predicate::18db16f534d15c5b::0",
         CandidateClassification.ORDINARY_VALIDATION,
         "FingerprintKind.DATA in changed",
+    ),
+    ManifestEntry(
+        "src/bayesmith/compiled.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::cd39392a08c7074b::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sorted(set(self.exact_elimination) & set(self.residual_parameters))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/compiled.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::aeaab01445bcfade::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "both",
+    ),
+    ManifestEntry(
+        "src/bayesmith/compiled.py::<module>.CompiledEvidenceProblem.__post_init__::raise::696276f670dd342c::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'{both} are named as both eliminated and residual; an eliminated parameter is precisely one the problem does not carry')",
+    ),
+    ManifestEntry(
+        "src/bayesmith/compiled.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::d9b80001e5d59c48::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "sorted(set(self.prior_terms) & set(self.likelihood_terms))",
+    ),
+    ManifestEntry(
+        "src/bayesmith/compiled.py::<module>.CompiledEvidenceProblem.__post_init__::decision_predicate::b70b70c746217918::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "shared",
+    ),
+    ManifestEntry(
+        "src/bayesmith/compiled.py::<module>.CompiledEvidenceProblem.__post_init__::raise::5aa1f67ca225f013::0",
+        CandidateClassification.ORDINARY_VALIDATION,
+        "raise ValueError(f'{shared} are filed on both the prior and the likelihood side; a term counted twice is the failure an evidence layer exists to prevent')",
     ),
 )
 

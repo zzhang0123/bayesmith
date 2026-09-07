@@ -85,6 +85,7 @@ import numpy as np
 from bayesmith.artifacts._codec import register_artifact_type
 from bayesmith.artifacts.results import EvidenceComponent
 from bayesmith.bridge.numpyro_bridge import to_numpyro as _to_numpyro
+from bayesmith.compiled import CompiledEvidenceProblem
 from bayesmith.dispatch.classify import prior_environment
 from bayesmith.dispatch.collapse import observed_descendants
 from bayesmith.exact.block import unchecked_operator
@@ -1358,93 +1359,10 @@ def audit_graph_priors(graph: Graph) -> tuple[PriorAudit, ...]:
     return tuple(audits)
 
 
-# ------------------------------------------------- the compiled residual problem
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class CompiledEvidenceProblem:
-    """A residual evidence problem, with its prior and likelihood separated.
-
-    Nested sampling needs ``log L(theta)`` apart from ``log pi(theta)``, and
-    nothing else in this package produces that separation:
-    :func:`~bayesmith.graph.evaluate.log_joint` sums every ``Probabilistic``
-    node into ONE running total and then adds ``joint_prior`` and every
-    ``evidence_terms`` entry in the same loop. Building the split is a compiler
-    pass and bayesmith owns it -- design section 1.5's first clause is graph
-    semantics, structure discovery, premise validation and task-aware
-    compilation.
-
-    **No FIELD is a Graph, and the densities close over one.** Both halves are
-    asserted, because stating only the first is how a guard that reads a
-    spelling gets written: an earlier test here walked the field values for a
-    ``.nodes`` attribute, and they are functions, so it passed while the graph
-    was reachable through every one of the three closures.
-
-    Design line 192 says a compiled problem may contain the residual log
-    density, transforms, constant terms and a reconstruction map, "but it may
-    not re-interpret the Graph". What that forbids is a BACKEND doing the
-    re-interpreting. bayesmith compiling the densities itself, by closing over
-    the graph, is the contract kept rather than broken -- the adapter receives
-    callables and cannot reach a graph without walking closure internals. The
-    half that binds an adapter is asserted where an adapter exists: its module
-    imports no ``Graph`` and its signature takes only a compiled problem.
-
-    The parent type design line 482 names, ``CompiledProblem``, does not exist
-    in this package -- the name appears six times in the design and nowhere in
-    the source -- so this is built standalone and to line 192's contract, in
-    order that the variant relation is a refactor rather than a redesign when
-    the parent is written.
-
-    Attributes:
-        log_prior: ``theta -> log pi(theta)``, the latent nodes' own densities
-            plus the graph-level ``joint_prior``.
-        log_likelihood: ``theta -> log L(theta)``, the observed nodes' densities
-            (honouring ``observed_mask``) plus every graph-level
-            ``evidence_terms`` entry. Those hold graph-level LIKELIHOOD factors
-            despite the field's name, which the R4 PLAN records and declines to
-            rename (`2026-09-04-r4-evidence.md:650`; the close-out does not
-            mention the field at all, and an earlier version of this line cited
-            it). The assignment is asserted by consequence -- the prior side
-            integrates to one -- and never by the name.
-        prior_sample: ``key -> theta``, a draw from the prior. Strictly
-            stronger than a prior that integrates to one, and it is what a
-            nested sampler actually needs: ``improper_outside_prior`` raises
-            here rather than returning a number.
-        exact_elimination: latents already integrated in closed form.
-        residual_parameters: latents the backend must integrate. Disjoint from
-            ``exact_elimination`` -- ``InferencePlanRecord`` already refuses a
-            name in both, and the two would otherwise disagree about which
-            parameters a backend was handed.
-        shapes: the parameter layout, ``(name, shape)`` per residual parameter.
-        prior_terms, likelihood_terms: which term went to which side. Carried
-            as data so that a test can assert every term is filed exactly once
-            without re-deriving the partition it is grading.
-    """
-
-    log_prior: Any
-    log_likelihood: Any
-    prior_sample: Any
-    exact_elimination: tuple[str, ...]
-    residual_parameters: tuple[str, ...]
-    shapes: tuple[tuple[str, tuple[int, ...]], ...]
-    prior_terms: tuple[str, ...]
-    likelihood_terms: tuple[str, ...]
-
-    def __post_init__(self) -> None:
-        both = sorted(set(self.exact_elimination) & set(self.residual_parameters))
-        if both:
-            raise ValueError(
-                f"{both} are named as both eliminated and residual; an "
-                "eliminated parameter is precisely one the problem does not "
-                "carry"
-            )
-        shared = sorted(set(self.prior_terms) & set(self.likelihood_terms))
-        if shared:
-            raise ValueError(
-                f"{shared} are filed on both the prior and the likelihood "
-                "side; a term counted twice is the failure an evidence layer "
-                "exists to prevent"
-            )
+# The compiled residual problem lives at the leaf, in `bayesmith.compiled`, so
+# `bridge/` can import it at module scope without closing a
+# `bridge -> dispatch -> bridge` cycle. Re-exported here, where it was written
+# and where callers look for it; that module carries the ruling.
 
 
 def _graph_term_value(
