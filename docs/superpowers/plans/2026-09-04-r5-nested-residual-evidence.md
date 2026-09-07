@@ -1241,8 +1241,8 @@ ADAPTER, not to the extra: declaring the extra costs R4's gate nothing.〕
 > belongs inside an R5 task.** Task 5's verdict must name this as a cost of choosing jaxns, and
 > Task 6 does not start until it is ruled on.
 >
-> 〔**Ruled 2026-09-07: it stays OUTSIDE R5, which is what the paragraph above already
-> says.** The owner returned it. Neither shape is taken: subprocessing R4's own gate tests
+> 〔**Ruled 2026-09-07 BY THE OWNER: it stays OUTSIDE R5, which is what the paragraph above
+> already says.** Neither of the two shapes this paragraph offers is taken: subprocessing R4's own gate tests
 > would leave the gate equally dead for a caller who installs the extra and merely stop the
 > suite noticing -- a result that cannot distinguish "the gate works" from "nothing is
 > watching it" -- and changing the criterion alters shipped R4 behaviour for every caller,
@@ -1259,11 +1259,26 @@ ADAPTER, not to the extra: declaring the extra costs R4's gate nothing.〕
 > Control, the same two with `import jaxns` executed in-process beforehand: **2 failed**. So
 > the isolation is what holds them, not luck about ordering.
 >
-> **Task 6 is therefore not complete**, and the reason is recorded rather than the fact hidden:
-> `residual_backend()` still returns `None`, so the adapter ships as a module with its tests
-> and nothing routes to it. Flipping that seam is what makes a jaxns import happen inside a
-> USER's process, and that is exactly the decision this note defers. The remaining work is
-> named in Task 6 below.〕
+> **What the ruling authorises, and what it obliges.** It UNBLOCKS the wiring: Task 6 may flip
+> `residual_backend()` and give `_run_evidence` its residual branch. It does not make the
+> remaining leak disappear, and the obligation is to NAME it rather than to fix it here:
+>
+> > **Known limitation, R5, for R4 maintenance.** Once a process has run one residual evidence
+> > through jaxns, `jax_enable_x64` is true for the rest of that process, so a LATER
+> > `EvidenceTask` in the same process passes `evidence_requires_x64` without its caller having
+> > declared anything. The task that ran jaxns was itself gated correctly -- the gate runs
+> > before compilation, and the adapter requires x64 anyway, so x64 being on is right FOR THAT
+> > CALL. What leaks is the state afterwards. Reproduce: assert
+> > `jnp.result_type(float) == 'float32'`, run one residual `EvidenceTask`, assert it again.
+> > The repair is this paragraph's second shape -- a criterion a third-party import cannot move
+> > -- and it belongs to R4 maintenance, not to R5.
+>
+> Two things the ruling explicitly does NOT authorise. **Not** a save-and-restore of
+> `jax.config` around the adapter's call: `src/` never touches `jax.config` in this package,
+> and pulling x64 out from under a running jaxns is untested behaviour used to patch a known
+> one. **Not** running jaxns in a subprocess in production: the cost is a process per
+> evidence plus moving the sample arrays across it, to close a leak that a one-line change to
+> R4's criterion closes properly.〕
 
 **(2) The x64 contract differs qualitatively, and it is a selection criterion rather than a
 detail.** jaxns REFUSES without x64 — which agrees with R4's `evidence_requires_x64`. blackjax
@@ -1840,6 +1855,41 @@ obligations this task inherits that the checkboxes below do not carry:
 * **§0.16's owner decision on jaxns's process-global `jax_enable_x64` write at import now
   attaches**, because it was conditional on jaxns being chosen. And the adapter passes
   `term_cond=None`: `jaxns.TerminationCondition()` disables every stopping rule.〕
+
+〔**Execution write-back, red line 11 (2026-09-07). What Task 6 shipped, and what flipping the
+seam costs -- measured before it was declined.**
+
+Shipped in `cb28044`: `bayesmith/compiled.py`, `bridge/jaxns_bridge.py` and its tests. The
+adapter consumes a `CompiledEvidenceProblem` by type, integrates over a declared box, maps
+jaxns's 12-bit termination through a total table worst-first, and agrees with a closed form at
+0.34 sigma. `dispatch/evidence.py::residual_backend` still returns `None`.
+
+**The flip is not the work.** Returning `nested_evidence` when `importlib.metadata` finds
+jaxns is four lines, and asking is free: measured, it imports no jaxns and leaves
+`jax_enable_x64` alone, because the adapter defers its own import into the call. With those
+four lines in place and jaxns installed, `tests/dispatch/test_backend_absent.py` +
+`tests/dispatch/test_evidence_task.py` go **27 failed / 50 passed**, and **two fail with jaxns
+absent too** -- they construct an installed-looking environment and assert the capability
+refusal still arrives.
+
+Those assertions are R4's shipped semantics rather than an oversight, so the remaining work is
+one coherent change, not a one-liner:
+
+1. `_run_evidence` gains a residual branch. It handles the whole-graph-exact case only today.
+2. The box reaches the adapter from `EvidenceTask.backend_options`, whose `CanonicalValue`
+   admits nested tuples, so `(("box", (("z", -8.0, 8.0),)),)` is expressible -- with its own
+   refusal when it is absent or malformed, because a span chosen by the adapter would be a
+   silent truncation.
+3. `_backend_ref` answers `numpyro` or `bayesmith` from one bool and now needs a third name;
+   `BackendRef` refuses `"auto"` and 6.1 wants the real one. Widening a bool to carry a third
+   case is the shape this repository keeps repairing -- pass the ref.
+4. The refusal tests above are re-read as "refuses when absent, runs when present".
+5. **Condition 5's line count and score**, which decision A's own ruling made Task 6's debt.
+
+**Testable in CI without the extra**, which is the reason to do it as one change rather than
+in pieces: everything from the box to the assembled `EvidenceResult` can run against a stub
+returning a `NestedEvidence`. Only the jaxns call itself needs jaxns, and that half is already
+covered by `tests/bridge/test_jaxns_bridge.py` in a subprocess.〕
 
 **Files:** Create `src/bayesmith/bridge/<backend>_bridge.py`,
 `tests/bridge/test_<backend>_bridge.py`; Modify `src/bayesmith/dispatch/evidence.py`,

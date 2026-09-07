@@ -926,6 +926,34 @@ def residual_backend() -> Any | None:
     time cannot answer "is the optional extra installed" without importing it,
     and importing an optional dependency to find out whether it is optional is
     the failure the extra exists to avoid.
+
+    **R5 Task 6 does NOT flip this, and the flip was measured before it was
+    declined.** The backend evaluation's answer is jaxns
+    (``docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md`` §9, both
+    owner decisions ruled), and the adapter exists at
+    ``bayesmith.bridge.jaxns_bridge``. What is missing is not the sampler.
+
+    Returning it would be four lines -- ask ``importlib.metadata`` whether
+    ``jaxns`` is installed, and hand back ``nested_evidence`` -- and that much
+    is safe on its own: measured 2026-09-07, asking imports no jaxns and leaves
+    ``jax_enable_x64`` alone, because the adapter defers its own import to
+    inside the call.
+
+    **What is missing is everything downstream of the answer.** With the flip
+    in place and jaxns installed: ``tests/dispatch/test_backend_absent.py`` and
+    ``tests/dispatch/test_evidence_task.py`` go **27 failed / 50 passed**, and
+    **two of those fail with jaxns ABSENT** as well, because they construct an
+    installed-looking environment and assert the capability refusal still
+    comes. That assertion is R4's shipped semantics, not an accident: this
+    function returning ``None`` is what makes a widened structure class refuse
+    for a MISSING CAPABILITY rather than for a defect in the model. Flipping it
+    rewrites what the package promises on that path, and ``_run_evidence`` has
+    no residual branch to promise anything else -- it handles the whole-graph
+    exact case only.
+
+    So the flip belongs with the branch, the box plumbing and a pass over those
+    tests, in one change that can be argued about as a whole. Task 6 below
+    names it.
     """
     return None
 
