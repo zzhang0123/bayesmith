@@ -71,7 +71,7 @@ from bayesmith.artifacts.reports import Applicability, Conclusion, EvaluationRep
 from bayesmith.artifacts.results import LogDensityAvailability
 from bayesmith.artifacts.tasks import PosteriorTask, PredictiveTask, new_task_meta
 from bayesmith.dispatch.task import compile_task, execute_task
-from bayesmith.evaluation.loo import REPORT_KIND, loo_report
+from bayesmith.evaluation.loo import REPORT_KIND, _estimator_origin, loo_report
 from tests.dispatch.test_task_protocol import model_ref
 from tests.exact.models import bilinear_pair, radiometer, straight_line
 
@@ -183,6 +183,22 @@ def measurements(report: EvaluationReport) -> dict:
         if finding.code == "loo_psis_estimate":
             return dict(finding.observed)
     raise AssertionError(f"no estimate finding in {[f.code for f in report.findings]}")
+
+
+def origin_of(report: EvaluationReport) -> tuple[tuple[str, object], ...]:
+    """The estimator-provenance finding's ``observed``, or a named failure.
+
+    Raising here rather than returning an empty mapping is what makes the
+    tests below kill a DELETION: ``dict(...)`` over a missing finding would
+    give ``{}``, and ``{}.get("version")`` is None, which several of them
+    would read as "absent" and pass.
+    """
+    for finding in report.findings:
+        if finding.code == "loo_estimator_version":
+            return finding.observed
+    raise AssertionError(
+        f"no estimator-provenance finding in {[f.code for f in report.findings]}"
+    )
 
 
 # ------------------------------------------------------- the two pin bands
@@ -639,7 +655,13 @@ class TestTheVerdictCanBeRecomputedFromTheFindings:
             )
             assert recomputed is report.conclusion is expected
 
-    def test_the_report_names_the_arviz_that_produced_it(self):
+    def test_the_report_names_the_arviz_umbrella_it_imported(self):
+        """The umbrella, and it is only that -- see the class below.
+
+        This finding said "the upstream that computed the estimate above"
+        until 2026-09-06, and that was false: ``az.loo`` is a re-export.
+        The claim it makes now is the one it can keep.
+        """
         import arviz as az
 
         graph, predictive = iid_predictive()
@@ -648,6 +670,198 @@ class TestTheVerdictCanBeRecomputedFromTheFindings:
 
         (finding,) = [f for f in report.findings if f.code == "arviz_version"]
         assert finding.observed == az.__version__
+
+
+@requires_arviz
+class TestTheVersionRecordedIsTheOneThatComputedTheEstimate:
+    """Two provenance findings, because ``arviz`` did not compute the estimate.
+
+    ``az.loo`` is a re-export -- ``az.loo.__module__`` is
+    ``arviz_stats.loo.loo`` -- and the difference is not academic. arviz-stats
+    1.3.1 -> 1.3.2 changed ``se`` by ``sqrt(n / (n - 1))``, a ddof 0->1 change
+    that broke the two ``se`` constants in this file, while ``az.__version__``
+    read ``1.3.0`` on both sides. So a report stored before that release and
+    one stored after carried identical provenance and different numbers, which
+    is the failure a provenance field exists to prevent.
+
+    :data:`_SE_IS_COMPUTED_BY` is the distribution those constants belong to,
+    and it is the same constant
+    :func:`test_the_pinned_arviz_stats_is_what_the_se_constants_were_measured_against`
+    reads, so the pin, the constants and what a stored report says about them
+    are one name in three places rather than three names.
+    """
+
+    def test_the_estimate_names_the_distribution_that_produced_it(self):
+        from importlib.metadata import version
+
+        graph, predictive = cheap_predictive()
+
+        report = loo_report(predictive, graph=graph)
+
+        origin = dict(origin_of(report))
+        assert origin["distribution"] == _SE_IS_COMPUTED_BY
+        assert origin["lookup"] == "found"
+        assert origin["version"] == version(_SE_IS_COMPUTED_BY)
+
+    def test_the_recorded_version_is_the_one_the_se_constants_are_pinned_to(self):
+        """The whole point, stated as the coupling it restores.
+
+        Before this finding existed the report's only version was the
+        umbrella's, so the number below -- the one that MOVED -- was not
+        recoverable from a stored report at all. Pinned against the same
+        literal ``pyproject.toml`` pins and
+        :func:`test_the_pinned_arviz_stats_is_what_the_se_constants_were_measured_against`
+        holds it, so raising the pin turns this red in the same commit that
+        re-measures the constants.
+        """
+        graph, predictive = cheap_predictive()
+
+        report = loo_report(predictive, graph=graph)
+
+        assert dict(origin_of(report))["version"] == "1.3.2"
+
+    def test_the_umbrella_is_still_not_the_thing_that_computes_it(self):
+        """The premise, re-measured rather than assumed.
+
+        ``test_a_flat_export_is_what_arviz_refuses`` is the pattern: an
+        upstream fact this module works around is checked on every run, so a
+        later arviz that brings ``loo`` back in-house is NEWS rather than a
+        second finding quietly restating the first. If this goes red, the two
+        provenance findings have converged and ``arviz_version``'s message is
+        the thing to re-rule.
+        """
+        import arviz as az
+
+        assert az.loo.__module__.split(".")[0] != "arviz"
+
+    def test_the_two_findings_are_two_facts_and_not_one_written_twice(self):
+        import arviz as az
+
+        graph, predictive = cheap_predictive()
+
+        report = loo_report(predictive, graph=graph)
+
+        (umbrella,) = [f for f in report.findings if f.code == "arviz_version"]
+        assert umbrella.observed == az.__version__
+        assert dict(origin_of(report))["distribution"] != "arviz"
+
+    def test_the_origin_follows_the_callable_rather_than_a_constant(
+        self, monkeypatch
+    ):
+        """Build the bypass: a hardcoded ``"arviz-stats"`` passes everything above.
+
+        Every assertion in this class is satisfied by a
+        ``Finding(observed=("distribution", "arviz-stats"), ...)`` that never
+        looks at anything -- which is the defect being repaired, moved one
+        line down. So ``az.loo`` is replaced by a callable belonging to a
+        DIFFERENT installed distribution, and the finding has to follow it.
+
+        ``numpy`` is used because it is a hard dependency of this package, so
+        the version this asserts against is present wherever the suite runs.
+        """
+        from importlib.metadata import version
+
+        import arviz as az
+
+        graph, predictive = cheap_predictive()
+        stub = StubElpd(warning=False, pareto_k=(0.95,))
+
+        def loo_from_somewhere_else(idata):
+            return stub
+
+        loo_from_somewhere_else.__module__ = "numpy.linalg"
+        loo_from_somewhere_else.__qualname__ = "loo_from_somewhere_else"
+        monkeypatch.setattr(az, "loo", loo_from_somewhere_else)
+
+        origin = dict(origin_of(loo_report(predictive, graph=graph)))
+
+        assert origin["callable"] == "numpy.linalg.loo_from_somewhere_else"
+        assert origin["distribution"] == "numpy"
+        assert origin["version"] == version("numpy")
+        assert origin["lookup"] == "found"
+
+
+class TestWhatTheOriginLookupWillNotGuess:
+    """A lookup that did not complete is its own answer, and never a version.
+
+    ``dispatch/task.py``'s ``EXTRA_UNKNOWN`` made this ruling one layer down:
+    a probe that reports "the lookup did not complete" as "here is the answer"
+    has made its silence indistinguishable from a measurement. The two
+    not-found states below are that ruling applied to a provenance field,
+    where the wrong shape is worse -- a stored report carrying a confident,
+    wrong version is unfalsifiable later.
+
+    No arviz needed: the helper reads a callable and the installed metadata,
+    and neither is arviz's.
+    """
+
+    def test_a_callable_no_distribution_claims_is_unmapped_not_versioned(self):
+        import json
+
+        origin = dict(_estimator_origin(json.dumps))
+
+        assert origin["callable"] == "json.dumps"
+        assert origin["lookup"] == "unmapped"
+        assert origin["distribution"] is None
+        assert origin["version"] is None
+
+    def test_two_providers_are_ambiguous_rather_than_a_coin_toss(self, monkeypatch):
+        """A namespace package split across distributions has no one version.
+
+        Recording either provider's would be a coin toss written down as a
+        fact, so both are named and the version stays absent.
+        """
+        import importlib.metadata
+
+        monkeypatch.setattr(
+            importlib.metadata,
+            "packages_distributions",
+            lambda: {"json": ["second-half", "first-half"]},
+        )
+        import json
+
+        origin = dict(_estimator_origin(json.dumps))
+
+        assert origin["lookup"] == "ambiguous"
+        assert origin["distribution"] == "first-half, second-half"
+        assert origin["version"] is None
+
+    def test_a_lookup_that_raises_is_unmapped_rather_than_an_exception(
+        self, monkeypatch
+    ):
+        """A report is not the place to discover that metadata is unreadable.
+
+        ``loo_report``'s job is to file a verdict about a RESULT; a broken
+        metadata backend is not that verdict, and letting it propagate would
+        turn a filed ABSTAIN into a traceback.
+        """
+        import importlib.metadata
+
+        def unreadable():
+            raise OSError("the metadata directory is not readable")
+
+        monkeypatch.setattr(
+            importlib.metadata, "packages_distributions", unreadable
+        )
+        import json
+
+        origin = dict(_estimator_origin(json.dumps))
+
+        assert origin["lookup"] == "unmapped"
+        assert origin["version"] is None
+
+    def test_a_builtin_is_named_rather_than_dropped(self):
+        """``len`` lives in ``builtins``, which no distribution installs.
+
+        The finding still says WHAT ran, because "no provenance" and "no
+        callable" are different reports and a consumer holding a stored report
+        cannot tell them apart from a blank.
+        """
+        origin = dict(_estimator_origin(len))
+
+        assert origin["callable"] == "builtins.len"
+        assert origin["lookup"] == "unmapped"
+        assert origin["distribution"] is None
 
 
 class TestAWeightedSampleIsMoreThanThisExportCanCarry:

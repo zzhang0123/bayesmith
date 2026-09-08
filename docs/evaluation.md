@@ -167,11 +167,27 @@ comparison is not in this release. The verdict comes from the PIT alone.
 | ArviZ is not installed | `UNVERIFIABLE` | `ABSTAIN` | `arviz_unavailable` |
 
 The first two rows are one finding read two ways, not two codes: whenever
-`arviz.loo` ran, the report carries all three of `psis_reliability`,
+`arviz.loo` ran, the report carries all four of `psis_reliability`,
 `loo_psis_estimate` (elpd, se, p_loo, `n_data_points`, `n_samples`,
-`max_pareto_k`, `good_k`, scale) and `arviz_version`, and it is
-`psis_reliability`'s `observed` that decided the conclusion. So the verdict is
-recomputable from the findings rather than only reported beside them.
+`max_pareto_k`, `good_k`, scale), `loo_estimator_version` and `arviz_version`,
+and it is `psis_reliability`'s `observed` that decided the conclusion. So the
+verdict is recomputable from the findings rather than only reported beside
+them.
+
+**Two version findings, because `arviz` does not compute the estimate.**
+`az.loo` is a re-export — `az.loo.__module__` is `arviz_stats.loo.loo` — so
+the numbers in `loo_psis_estimate` are `arviz-stats`'s. arviz-stats 1.3.1 →
+1.3.2 changed `se` by `sqrt(n / (n - 1))`, a ddof 0→1 change, while
+`az.__version__` read `1.3.0` on both sides; a report stored before that
+release and one stored after therefore carried identical provenance and
+different numbers. `loo_estimator_version` records
+`(callable, distribution, version, lookup)` read off the callable that ran
+rather than a constant, so a later arviz that computes `loo` in-house is
+followed rather than misreported. `lookup` is `found`, `ambiguous` (more than
+one distribution provides the module) or `unmapped` (none does, or the
+metadata lookup did not complete); `version` is `None` on both of the latter,
+because "I could not look" is not a measurement. `arviz_version` stays beside
+it and records what it is — the umbrella this module imported.
 
 **`loo_psis` has no `FAIL` arm, and that is deliberate rather than an
 omission.** A high Pareto k says the importance-sampling *estimate* is
