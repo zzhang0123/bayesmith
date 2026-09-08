@@ -11,8 +11,15 @@ pass:
 * GCR's mean **and covariance** within MC error, against a dense oracle
   rather than against each other;
 * ``condition_estimate`` "同键同数" -- and this is where the row does not
-  survive contact: bayesmith has no ``condition_estimate``, deliberately,
-  and rheplicant's own docstring for it contradicts its implementation. §5;
+  survive contact, though no longer for the reason first written here. This
+  paragraph said "bayesmith has no ``condition_estimate``, deliberately" on
+  2026-08-25; ``9044934`` added :func:`bayesmith.exact.solve.condition_estimate`
+  on 2026-08-27 and updated ``exact/conditioning.py``'s copy of that sentence,
+  pinning the repair with
+  ``tests/exact/test_condition_estimate.py::test_the_conditioning_module_no_longer_claims_it_was_not_ported``
+  -- and missed this copy, which then read as a live ruling for a week. What
+  survives is the SECOND clause: rheplicant's own docstring for it contradicts
+  its implementation, so the two are not compared here. §5;
 * the guards "全部守卫同形": the ``kappa*residual`` criterion, the separate
   ``kappa*eps`` verdict, the 1-D sigma axis ambiguity, and the NoiseModel
   refusal at the conjugate seam. Three of the four map; the fourth cannot be

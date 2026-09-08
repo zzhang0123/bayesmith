@@ -475,6 +475,69 @@ class TestAChainedPosteriorKeepsItsOwnChainShape:
         assert recorded["elpd"] != flattened["elpd"]
 
 
+    def test_a_predictive_result_does_not_borrow_its_sources_chain_shape(self):
+        """The ruling in ``loo_report``'s ``source_posterior`` doc, made to fail.
+
+        A ``PredictiveResult`` has no ``representation`` at all, so it records
+        no chain shape and the export falls back to ``(1, n)``. The caller may
+        hand in the source posterior -- for the weights -- and that argument
+        deliberately does not also supply ``chain_shape``. Until this fixture
+        nothing reached the case: every other predictive test here builds its
+        source at ``chains=1``, where the source's ``(1, n)`` and the fallback
+        ``(1, n)`` are the same tuple and the two rulings are indistinguishable.
+        Measured by threading ``source_posterior`` into ``_chain_shape`` and
+        putting a ``raise`` in the new branch -- this file stayed green, exit 0.
+
+        ``bilinear_pair`` at ``chains=2`` is what separates them: the source
+        recorded ``(2, 400)`` and the export must still be ``(1, 800)``. Both
+        are 800 draws, so ``n_samples`` cannot see it; what does is arviz's
+        relative-efficiency correction, in the differential form
+        :func:`test_the_recorded_chain_shape_is_what_reached_arviz` uses.
+
+        Three calls on ONE machine and no band. The first equality is the same
+        computation twice, so it is exact; the inequality is the correction
+        doing something, measured here as max Pareto k 0.3939931441365429 at
+        ``(1, 800)`` against 0.4263811057858868 at ``(2, 400)``.
+        """
+        graph = bilinear_pair()
+        posterior = posterior_of(
+            graph, key=jax.random.key(4), draws=400, warmup=400, chains=2
+        )
+        assert posterior.representation.chain_shape == (2, 400)
+        predictive = predictive_of(
+            graph, posterior, key=jax.random.key(5), latent_sites=("gain", "t_ant")
+        )
+        assert not hasattr(predictive, "representation")
+
+        silent = measurements(
+            loo_report(predictive, graph=graph, source_posterior=posterior)
+        )
+        flattened = measurements(
+            loo_report(
+                predictive,
+                graph=graph,
+                source_posterior=posterior,
+                chain_shape=(1, 800),
+            )
+        )
+        inherited = measurements(
+            loo_report(
+                predictive,
+                graph=graph,
+                source_posterior=posterior,
+                chain_shape=(2, 400),
+            )
+        )
+
+        assert silent["n_samples"] == inherited["n_samples"] == 800
+        # The ruling: the fallback, not the source's layout.
+        assert silent == flattened
+        # And the two layouts are distinguishable, so the line above is a claim
+        # about which one ran rather than a comparison that could not fail.
+        assert silent["max_pareto_k"] != inherited["max_pareto_k"]
+        assert silent["elpd"] != inherited["elpd"]
+
+
 @requires_arviz
 class TestAnUnreliableEstimateAbstainsRatherThanFails:
     """§0.2's row for ``loo_psis``: a warning is about the ESTIMATE."""
