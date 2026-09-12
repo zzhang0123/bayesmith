@@ -103,3 +103,5 @@ def test_comparison_renderer_explains_predictive_limit():
     }, "tris_haslam_rsb_comparison")
     assert "ARCADE 2" in html and "LWA" in html
     assert "Bayes factor" in html and "physical origin" in html
+    assert html.count('data-stage=') == 5
+    assert 'class="previous"' in html and 'class="next"' in html
