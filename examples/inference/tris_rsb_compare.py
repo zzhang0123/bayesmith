@@ -88,7 +88,11 @@ def assemble_comparison(parent_output: Path) -> dict:
         "kind": "real_observations",
         "title": "TRIS + Haslam + RSB: predictive comparison",
         "passed": bool(reports["no_rsb"].get("passed") and reports["rsb"].get("passed")),
-        "comparison_status": "available" if reports["no_rsb"].get("passed") and reports["rsb"].get("passed") else "blocked_nonconverged_chains",
+        # This implementation intentionally does not fabricate a cross-survey
+        # ranking from full-data posterior draws. A future implementation must
+        # persist and validate both directional held-out refits before this can
+        # become ``available``.
+        "comparison_status": "blocked_nonconverged_chains" if not (reports["no_rsb"].get("passed") and reports["rsb"].get("passed")) else "missing_heldout_refits",
         "data_manifest": {"common_input_sha256": left, "source_result_sha256": source_hashes},
         "models": {key: {name: report.get(name) for name in ("case", "title", "passed", "parameters", "checks", "priors", "execution", "note")} for key, report in reports.items()},
         "comparison_policy": "Directional held-out posterior predictive scoring is reserved for converged refits; no Bayes factor and no two-survey PSIS-LOO.",

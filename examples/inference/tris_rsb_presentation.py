@@ -20,10 +20,13 @@ def render_case(report, folder, index=0):
         for row in parameter_rows
     ) or "<tr><td colspan=\"3\">Saved posterior summaries are required for the final comparison.</td></tr>"
     status = "Validated comparison / 已验证的比较" if available else "Blocked: chains did not converge / 阻塞：链未收敛"
+    status_reason = report.get("comparison_status")
     finding = (
         "Directional held-out prediction is available only after converged refits."
         if available else
         "Both full-data chains failed the registered convergence criteria; posterior intervals and cross-survey scores are intentionally withheld."
+        if status_reason == "blocked_nonconverged_chains" else
+        "Full-data chains passed, but the directional held-out refits and scores have not been produced; posterior intervals and cross-survey scores are intentionally withheld."
     )
     return (
         '<article class="case methodology tris-case" id="tris_haslam_rsb_comparison" data-case="tris_haslam_rsb_comparison" data-case-kind="real_observations">'

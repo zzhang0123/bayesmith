@@ -464,7 +464,7 @@ def write_gallery(reports, directory):
         for name in (
             "plot_results.py", "presentation.py", "case_content.py", "case_panels.py", "comparison_policy.py", "noise_scale_reference.py", "observation_count_reference.py", "repeated_panels.py", "repeated_summary.py", "plot_repeated.py", "symbols.py", "gallery.css", "gallery.js",
             "methodology.py", "methodology.html", "methodology.css", "methodology.js",
-            "methodology_guide.py", "tris_presentation.py",
+            "methodology_guide.py", "tris_presentation.py", "tris_rsb_presentation.py",
             "requirements-presentation.txt",
         )
     ]
