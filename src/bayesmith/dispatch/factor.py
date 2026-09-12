@@ -53,7 +53,6 @@ import jax.numpy as jnp
 
 from bayesmith.dispatch.classify import (
     SIGMA_RTOL,
-    _declares_linear_in,
     _is_gaussian,
     _sigma_needs_rebuild,
     prior_environment,
@@ -191,17 +190,18 @@ def factor_partition(
     scales: Sequence[float] = DEFAULT_SCALES,
     log_scales: Sequence[float] = LOG_DEFAULT_SCALES,
     rtol: float | None = None,
+    _discovery=None,
+    _linear_only: bool = False,
 ) -> FactorPlan:
-    """Derive the factor partition: exact blocks by pairwise probe, NUTS rest.
+    """Derive the factor partition: exact blocks by structural discovery, NUTS rest.
 
-    The linear pass takes the latents that qualify exactly as
-    :func:`~bayesmith.dispatch.classify.partition` counts qualification --
-    Gaussian prior, ``linear_in`` declared along every path, not an ancestor
-    of another latent -- verifies each ALONE, then groups by the pairwise
-    joint check. The log pass takes what remains, transforms the graph once,
-    and repeats the same two steps on it; nothing is declared for it, which
-    is the point -- there is no ``log_linear_in`` field, deliberately, because
-    the probe answers the question the declaration would merely assert.
+    The linear pass uses shared automatic affinity discovery: Gaussian prior
+    eligibility, latent ancestry, a primal symbolic-complement certificate,
+    and independent numerical probes. Final candidate groups are certified
+    jointly rather than inferred from pairwise probes. The log pass takes what
+    remains, transforms the graph once, and repeats its numerical checks;
+    nothing is declared for it because the probe answers the question a
+    declaration would merely assert.
 
     Args:
         graph: the model.
@@ -236,21 +236,11 @@ def factor_partition(
     for name in ejected:
         why_not[name] = f"{name!r} is an ancestor of another latent's distribution"
 
-    linear_candidates = []
-    for name in latents:
-        if name in ejected:
-            continue
-        ok, why = _is_gaussian(graph, name, env)
-        if not ok:
-            why_not[name] = why
-            continue
-        ok, why = _declares_linear_in(graph, name)
-        if not ok:
-            why_not[name] = why
-            continue
-        linear_candidates.append(name)
+    from bayesmith.dispatch.affinity import discover_affinity
 
-    linearity: dict[str, dict] = {}
+    discovery = (_discovery if _discovery is not None else
+                 discover_affinity(graph, env, key, scales=scales, rtol=rtol))
+    why_not.update(discovery.reasons)
 
     def outside(source: Graph, group: tuple[str, ...]) -> dict[str, Any]:
         """`at` for a probe: every latent outside ``group``, at its prior centre."""
@@ -260,31 +250,9 @@ def factor_partition(
             if name not in set(group) and name in env
         }
 
-    def linear_alone(name: str) -> bool:
-        try:
-            linearity[name] = check_linearity(
-                graph, (name,), outside(graph, (name,)),
-                scales=scales, rtol=rtol, key=key,
-            )
-        except (StructureError, NotGaussian) as refused:
-            why_not[name] = f"not affine alone: {refused}"
-            return False
-        return True
+    linear_groups = discovery.groups
 
-    def linear_pair(one: str, two: str) -> bool:
-        try:
-            check_linearity(
-                graph, (one, two), outside(graph, (one, two)),
-                scales=scales, rtol=rtol, key=key,
-            )
-        except (StructureError, NotGaussian):
-            return False
-        return True
-
-    verified = [name for name in linear_candidates if linear_alone(name)]
-    linear_groups = [tuple(g) for g in first_fit(verified, linear_pair)]
-
-    remaining = [
+    remaining = [] if _linear_only else [
         name
         for name in latents
         if name not in ejected and name not in {m for g in linear_groups for m in g}
@@ -367,7 +335,8 @@ def factor_partition(
     for group in linear_groups:
         operator = _partition_probe_operator(graph, group, at=outside(graph, group))
         movement = _movement_of(graph, operator, env, group, key)
-        if movement > SIGMA_RTOL:
+        structure = discovery.evidence[group]
+        if movement > SIGMA_RTOL or not structure["covariance_independent"]:
             for name in group:
                 why_not[name] = (
                     f"sigma moves with block {group} (relative movement "
@@ -383,8 +352,9 @@ def factor_partition(
             Block(
                 latents=tuple(sorted(group)),
                 method="gcr",
-                reason="factor block: jointly affine, sigma frozen exactly",
-                linearity=linearity.get(group[0]),
+                reason="factor block: structurally certified joint affinity and block-independent covariance",
+                linearity=discovery.linearity[group],
+                structure=structure,
                 kappa=kappa,
                 tol=tol,
                 epsilon=epsilon,
@@ -424,6 +394,7 @@ def factor_partition(
                     f"{name!r}: {why_not.get(name, 'no exact structure found')}"
                     for name in leftovers
                 ),
+                structure={"candidates": tuple(discovery.evidence[(n,)] for n in leftovers)},
             )
         )
     plan = FactorPlan(
@@ -680,6 +651,63 @@ class SweepReport(NamedTuple):
     residuals: dict[tuple[str, ...], jax.Array]
 
 
+def factor_sweep(graph, plan, *, maxiter=None):
+    """Build the shared conditional sweep; each block reads the latest complement."""
+    exact = plan.exact
+    sources = {block.latents: _source_of(graph, plan, block) for block in exact}
+    env = prior_environment(graph)
+    centres = {name: env[name] for name in graph.latents if name in env}
+    # Hoisted per block where the covariance cannot move with ANY latent;
+    # rebuilt inside the sweep otherwise. For a log-gcr block the transformed
+    # scale is constant by construction, so it always hoists.
+    hoisted: dict[tuple[str, ...], Any] = {}
+    rebuild: set[tuple[str, ...]] = set()
+    for block in exact:
+        source = sources[block.latents]
+        if block.method == "log-gcr" or not _sigma_needs_rebuild(
+            source, block.latents
+        ):
+            hoisted[block.latents] = precision_at(source, centres)
+        else:
+            rebuild.add(block.latents)
+
+    def sweep(
+        values: dict[str, Any], sweep_key: jax.Array
+    ) -> tuple[dict[str, Any], dict[tuple[str, ...], jax.Array]]:
+        current = dict(values)
+        residuals: dict[tuple[str, ...], jax.Array] = {}
+        for index, block in enumerate(exact):
+            source = sources[block.latents]
+            at = {
+                name: current[name]
+                for name in graph.latents
+                if name not in set(block.latents)
+            }
+            operator = unchecked_operator(
+                source,
+                block.latents,
+                at=at,
+                probe_gaussian=False,
+                nuts_latents=plan.nuts,
+            )
+            if block.latents in rebuild:
+                noise = precision_at(source, current)
+            else:
+                noise = hoisted[block.latents]
+            drawn, residual = gcr_sample(
+                operator,
+                precision=noise,
+                key=jax.random.fold_in(sweep_key, index),
+                tol=block.tol if block.tol is not None else 1e-6,
+                maxiter=maxiter,
+            )
+            current.update(drawn)
+            residuals[block.latents] = residual
+        return current, residuals
+
+    return sweep, centres
+
+
 def sample_factors(
     graph: Graph,
     plan: FactorPlan,
@@ -756,56 +784,7 @@ def sample_factors(
                 f"which sample_factors does not sweep; it runs {FACTOR_METHODS[:2]}."
             )
 
-    sources = {block.latents: _source_of(graph, plan, block) for block in exact}
-    env = prior_environment(graph)
-    centres = {name: env[name] for name in graph.latents if name in env}
-    # Hoisted per block where the covariance cannot move with ANY latent;
-    # rebuilt inside the sweep otherwise. For a log-gcr block the transformed
-    # scale is constant by construction, so it always hoists.
-    hoisted: dict[tuple[str, ...], Any] = {}
-    rebuild: set[tuple[str, ...]] = set()
-    for block in exact:
-        source = sources[block.latents]
-        if block.method == "log-gcr" or not _sigma_needs_rebuild(
-            source, block.latents
-        ):
-            hoisted[block.latents] = precision_at(source, centres)
-        else:
-            rebuild.add(block.latents)
-
-    def sweep(
-        values: dict[str, Any], sweep_key: jax.Array
-    ) -> tuple[dict[str, Any], dict[tuple[str, ...], jax.Array]]:
-        current = dict(values)
-        residuals: dict[tuple[str, ...], jax.Array] = {}
-        for index, block in enumerate(exact):
-            source = sources[block.latents]
-            at = {
-                name: current[name]
-                for name in graph.latents
-                if name not in set(block.latents)
-            }
-            operator = unchecked_operator(
-                source,
-                block.latents,
-                at=at,
-                probe_gaussian=False,
-                nuts_latents=plan.nuts,
-            )
-            if block.latents in rebuild:
-                noise = precision_at(source, current)
-            else:
-                noise = hoisted[block.latents]
-            drawn, residual = gcr_sample(
-                operator,
-                precision=noise,
-                key=jax.random.fold_in(sweep_key, index),
-                tol=block.tol if block.tol is not None else 1e-6,
-                maxiter=maxiter,
-            )
-            current.update(drawn)
-            residuals[block.latents] = residual
-        return current, residuals
+    sweep, centres = factor_sweep(graph, plan, maxiter=maxiter)
 
     nuts_latents = plan.nuts
     if not nuts_latents:

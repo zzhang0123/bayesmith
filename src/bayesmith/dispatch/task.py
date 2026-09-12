@@ -59,12 +59,15 @@ import platform
 import time
 import uuid
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import numpyro
+
+if TYPE_CHECKING:
+    from bayesmith.dispatch.proposal_plan import ProposalRuntimePlan
 
 from bayesmith import __version__
 from bayesmith.artifacts.base import (
@@ -353,7 +356,7 @@ SUPPORTED_TASK_KINDS: frozenset[TaskKind] = frozenset(
 #: decision taken inside an adapter that is meant to take none.
 MAP_METHODS: tuple[str, ...] = ("newton", "adam", "gradient")
 
-_POSTERIOR_OPTIONS = frozenset({"collapse", "progress_bar"})
+_POSTERIOR_OPTIONS = frozenset({"collapse", "progress_bar", "proposals", "auto_proposals"})
 _MAP_OPTIONS = frozenset({"method", "learning_rate"})
 _POSTERIOR_MEAN_OPTIONS = frozenset({"tolerance"})
 
@@ -984,7 +987,7 @@ class PlannedTask:
     task: Task
     analysis: AnalysisReport
     record: InferencePlanRecord
-    runtime_plan: InferencePlan = dataclasses.field(compare=False, repr=False)
+    runtime_plan: InferencePlan | ProposalRuntimePlan = dataclasses.field(compare=False, repr=False)
 
 
 def _map_method(task: Task) -> Any:
@@ -1440,6 +1443,15 @@ def _evidence_route_refusal(
     boundaries were each checked against a graph on which both premises are
     false, and those checks are in ``TestThePremiseChainsOrder``.
     """
+    if _is_factor_plan(runtime):
+        return _refusal(
+            task, artifact_type=ArtifactKind.PLAN, fingerprints=bundle,
+            failed_premise="evidence_residual_method_unsupported",
+            grounds=(Finding(code="conditional_blocks_not_joint_gaussian",
+                             message="multiple affine conditional blocks do not provide a joint Gaussian evidence integral"),),
+            scope=_scope(ScopeKind.MODEL, "evidence"),
+            summary="evidence integration for multiple conditional blocks is not supported",
+        )
     refusal = _evidence_structure_refusal(runtime, task, bundle)
     if refusal is not None:
         return refusal
@@ -1814,6 +1826,16 @@ def _reason_codes(runtime: InferencePlan, block: Block) -> tuple[str, ...]:
     linearity check ran, whether a conditioning bound exists, and whether the
     tolerance derived from it is reachable at this dtype.
     """
+    if _is_proposal_plan(runtime):
+        if block.method == "nuts":
+            return ("unselected_nuts_remainder",)
+        proposal = next(p for p in runtime.compiled.blocks if p.names == block.latents)
+        selection = "automatic_proposal_selection" if runtime.selection == "automatic" else "explicit_proposal_policy"
+        if proposal.policy.mh_correction:
+            return (selection, "original_target_mh",
+                    "normalized_forward_reverse", "dense_budget_checked")
+        return ("explicit_proposal_policy", "mh_correction_disabled",
+                "approximate_proposal_update", "dense_budget_checked")
     if block.method == "nuts":
         return (
             ("outside_exact_block",)
@@ -1821,7 +1843,8 @@ def _reason_codes(runtime: InferencePlan, block: Block) -> tuple[str, ...]:
             else ("no_exact_structure",)
         )
     return (
-        "linear_in_checked" if block.linearity else "linear_in_vacuous",
+        ("affinity_structurally_certified" if block.structure and block.structure.get("certified")
+         else "affinity_numerically_validated" if block.linearity else "affinity_unresolved"),
         "condition_bound_measured"
         if block.kappa is not None
         else "condition_unmeasured",
@@ -1854,10 +1877,20 @@ def _kappa_ends(block: Block) -> tuple[float | None, float | None]:
 
 
 def _block_finding(runtime: InferencePlan, index: int, block: Block) -> AnalysisFinding:
+    from bayesmith.dispatch.preflight import _certificate_value
+
     low, high = _kappa_ends(block)
     at_points, worst = _linearity_evidence(block)
+    structure = block.structure
+    if structure and "candidates" in structure:
+        # Preserve each verdict and its scope within the artifact depth limit.
+        fields = ("members", "certified", "gaussian_priors", "covariance_independent",
+                  "scope", "complement", "numerical_status", "reason", "numerical_detail")
+        structure = {"candidates": tuple(tuple((key, row.get(key)) for key in fields)
+                                         for row in structure["candidates"])}
     return AnalysisFinding(
-        code="exact_block" if block.method != "nuts" else "sampled_block",
+        code=("sampled_block" if block.method == "nuts" else
+              "proposal_block" if _is_proposal_plan(runtime) else "exact_block"),
         conclusion=block.method,
         scope=_scope(ScopeKind.BLOCK, f"block_{index}"),
         measurements=(
@@ -1869,12 +1902,13 @@ def _block_finding(runtime: InferencePlan, index: int, block: Block) -> Analysis
             ("tol_attainable", block.tol_attainable),
             ("linearity_at_points", at_points),
             ("linearity_worst_departure", worst),
+            ("structural_evidence", _certificate_value(structure)),
         ),
         grounds=_reason_codes(runtime, block),
     )
 
 
-def _block_approximation(task: Task, method: str) -> ApproximationRecord | None:
+def _block_approximation(task: Task, method: str, names=(), policies=None) -> ApproximationRecord | None:
     """How this block's answer is produced, on the two axes of §0.2.
 
     A posterior task draws: iid exact-linear draws and NUTS are both
@@ -1886,10 +1920,21 @@ def _block_approximation(task: Task, method: str) -> ApproximationRecord | None:
     """
     kind = task_kind(task)
     if kind is TaskKind.POSTERIOR:
+        details = (("method", method),)
+        fidelity = TargetFidelity.EXACT
+        policy = next((p for p in (task.proposals if policies is None else policies)
+                       if p.names == tuple(names)), None)
+        if policy is not None:
+            corrected = policy.mh_correction
+            details += tuple(("proposal_" + k, v) for k, v in policy.as_options()
+                             if k != "names") + (("correction", "original_target_mh"
+                                                  if corrected else "none_approximate"),)
+            if not corrected:
+                fidelity = TargetFidelity.APPROXIMATE
         return ApproximationRecord(
             representation_class=ApproximationClass.MONTE_CARLO,
-            target_fidelity=TargetFidelity.EXACT,
-            details=(("method", method),),
+            target_fidelity=fidelity,
+            details=details,
         )
     if kind is TaskKind.POINT_ESTIMATE and task.estimand is Estimand.POSTERIOR_MEAN:
         return ApproximationRecord(
@@ -1909,7 +1954,10 @@ def _block_record(runtime: InferencePlan, task: Task, block: Block) -> PlanBlock
             None if block.kappa is None else kappa_upper(block.kappa)
         ),
         tolerance=_finite_positive(block.tol),
-        approximation=_block_approximation(task, block.method),
+        approximation=_block_approximation(
+            task, block.method, block.latents,
+            tuple(b.policy for b in runtime.compiled.blocks) if _is_proposal_plan(runtime) else None,
+        ),
     )
 
 
@@ -1940,12 +1988,29 @@ def _fallback_policy(task: Task, kind: TaskKind) -> str | None:
     """What happens if the route collapses, as a code rather than as a habit."""
     if kind is not TaskKind.POSTERIOR:
         return None
+    if task.proposals:
+        return None
     return "nuts_on_collapse" if task.nuts_on_collapse else "annotate_on_collapse"
 
 
 def _analysis_report(
-    runtime: InferencePlan, task: Task, model_ref: ModelRef, bundle: FingerprintBundle
+    runtime: InferencePlan, task: Task, model_ref: ModelRef, bundle: FingerprintBundle,
+    selection_decisions=(),
 ) -> AnalysisReport:
+    from bayesmith.dispatch.preflight import analyze_preflight
+
+    preflight = analyze_preflight(runtime, task) if task_kind(task) is TaskKind.POSTERIOR else ()
+    if selection_decisions:
+        preflight += (AnalysisFinding(
+            code="automatic_proposals", conclusion="passed",
+            scope=_scope(ScopeKind.MODEL, "model"),
+            measurements=(("decisions", tuple(selection_decisions)),
+                          ("selection", "automatic"),
+                          ("fallback", "legacy_plan_or_nuts_remainder"),
+                          ("selected_blocks", tuple((b.latents, b.method) for b in runtime.blocks)),
+                          ("prior_action", "unchanged")),
+            grounds=("local_applicability_not_global_gaussian_certificate",),
+        ),)
     return AnalysisReport(
         meta=new_artifact_meta(
             artifact_type=ArtifactKind.PLAN,
@@ -1958,8 +2023,8 @@ def _analysis_report(
         findings=tuple(
             _block_finding(runtime, index, block)
             for index, block in enumerate(runtime.blocks)
-        ),
-        candidate_routes=tuple(block.method for block in runtime.blocks),
+        ) + preflight,
+        candidate_routes=tuple(dict.fromkeys(block.method for block in runtime.blocks)),
     )
 
 
@@ -1972,7 +2037,7 @@ def _plan_record(
     analysis: AnalysisReport,
 ) -> InferencePlanRecord:
     blocks = tuple(_block_record(runtime, task, block) for block in runtime.blocks)
-    policy = _fallback_policy(task, kind)
+    policy = None if _is_proposal_plan(runtime) else _fallback_policy(task, kind)
     compiled = dataclasses.replace(
         bundle,
         compilation=fingerprint(
@@ -2011,6 +2076,64 @@ def _plan_record(
         quality_gate=None if kind is TaskKind.SIMULATION else task.quality_gate,
         fallback_policy=policy,
     )
+
+
+def _is_proposal_plan(runtime):
+    from bayesmith.dispatch.proposal_plan import ProposalRuntimePlan
+
+    return isinstance(runtime, ProposalRuntimePlan)
+
+
+def _is_factor_plan(runtime):
+    from bayesmith.dispatch.factor_runtime import FactorRuntimePlan
+    return isinstance(runtime, FactorRuntimePlan)
+
+
+def _posterior_policy_refusal(runtime, task, analysis, bundle):
+    if task_kind(task) is not TaskKind.POSTERIOR:
+        return None
+    message = None
+    collapse_runtime = runtime.collapse_plan if _is_factor_plan(runtime) else runtime
+    collapsed = (
+        dict(task.backend_options).get("collapse", False)
+        and collapse_runtime.sampled is not None
+        and collapse_runtime.exact is not None
+    )
+    expected_order = ((tuple(collapse_runtime.sampled.latents),) if collapsed else
+                      tuple(tuple(block.latents) for block in runtime.blocks))
+    if task.block_order is not None and task.block_order != expected_order:
+        message = (f"this executor supports the fixed order {expected_order}; requested "
+                   f"{task.block_order}. Each active block must appear once in that order.")
+    checks = {f.code: f.conclusion for f in analysis.findings}
+    missing = tuple(code for code in task.diagnostics.required if checks.get(code) not in {"passed", "flat", "nonflat"})
+    if missing:
+        message = f"required diagnostics are not passed: {missing}; inspect AnalysisReport findings"
+    if dict(task.backend_options).get("collapse", False):
+        if task.stopping.mode == "checkpoints":
+            message = "checkpoint stopping for collapsed/reconstructed chains is not yet supported; use collapse=False"
+        elif task.initialization is not None and task.initialization.values:
+            message = "explicit initial values for collapsed chains are not yet supported; use collapse=False"
+    if task.budget.max_wall_clock_seconds is not None and task.budget.max_wall_clock_seconds <= 0:
+        message = "max_wall_clock_seconds must be positive for a posterior run"
+    if not _is_proposal_plan(runtime) and not _is_factor_plan(runtime) and runtime.sampled is None and (
+        task.stopping.mode == "checkpoints" or task.budget.max_wall_clock_seconds is not None
+        or any(getattr(task.stopping, name) is not None for name in ("ess_min", "rhat_max", "mcse_mean"))
+        or task.stopping.max_divergences != 0
+    ):
+        message = "independent exact/SNIS routes use a fixed draw budget; chain stopping/diagnostic criteria do not apply"
+    if task.initialization is not None and task.initialization.values:
+        from bayesmith.dispatch.initialization import complete_initial_values
+        try:
+            complete_initial_values(runtime.graph, jax.random.key(193), task.initialization,
+                                    task.budget.chains or 1)
+        except (ValueError, TypeError, NotImplementedError) as error:
+            message = f"invalid explicit initialization: {error}"
+    if message is None:
+        return None
+    return _refusal(task, artifact_type=ArtifactKind.PLAN, fingerprints=bundle,
+        failed_premise="task_options_recognised",
+        grounds=(Finding(code="sampling_policy_unavailable", message=message),),
+        scope=_scope(ScopeKind.TASK, "posterior"), summary=message)
 
 
 def compile_task(
@@ -2053,7 +2176,30 @@ def compile_task(
     if refusal is not None:
         return refusal
 
-    runtime = compile_plan(graph) if key is None else compile_plan(graph, key=key)
+    selection_decisions = ()
+    if kind is TaskKind.POSTERIOR and not isinstance(dict(task.backend_options).get("auto_proposals", True), bool):
+        return _refusal(
+            task, artifact_type=ArtifactKind.PLAN, fingerprints=bundle,
+            failed_premise="task_options_recognised",
+            grounds=(Finding(code="invalid_auto_proposals", message="auto_proposals must be bool"),),
+            scope=_scope(ScopeKind.TASK, "posterior"), summary="auto_proposals must be bool",
+        )
+    if kind is TaskKind.POSTERIOR and task.proposals:
+        from bayesmith.dispatch.proposal_plan import compile_proposal_plan
+        try:
+            runtime = compile_proposal_plan(graph, task)
+        except (ValueError, TypeError, NotImplementedError, NotGaussian) as error:
+            return _refusal(
+                task, artifact_type=ArtifactKind.PLAN, fingerprints=bundle,
+                failed_premise="task_options_recognised",
+                grounds=(Finding(code="proposal_schedule_unavailable", message=str(error)),),
+                scope=_scope(ScopeKind.TASK, "posterior"), summary=str(error),
+            )
+    else:
+        runtime = compile_plan(graph) if key is None else compile_plan(graph, key=key)
+        if kind is TaskKind.POSTERIOR and dict(task.backend_options).get("auto_proposals", True):
+            from bayesmith.dispatch.auto_proposals import select_proposals
+            runtime, selection_decisions = select_proposals(graph, task, runtime)
 
     if kind is TaskKind.POINT_ESTIMATE and task.estimand is Estimand.POSTERIOR_MEAN:
         refusal = _estimate_refusal(runtime, task, bundle)
@@ -2065,7 +2211,10 @@ def compile_task(
         if refusal is not None:
             return refusal
 
-    analysis = _analysis_report(runtime, task, model_ref, bundle)
+    analysis = _analysis_report(runtime, task, model_ref, bundle, selection_decisions)
+    refusal = _posterior_policy_refusal(runtime, task, analysis, bundle)
+    if refusal is not None:
+        return refusal
     return PlannedTask(
         task=task,
         analysis=analysis,
@@ -2197,10 +2346,13 @@ def _ran_a_chain(runtime: InferencePlan, posterior: Posterior) -> bool:
     grows a chain without one is the collapse substitution, which does say so
     in its method.
     """
-    return posterior.method == "nuts" or runtime.sampled is not None
+    return (_is_proposal_plan(runtime) or _is_factor_plan(runtime) or
+            posterior.method == "nuts" or runtime.sampled is not None)
 
 
 def _planned_method(runtime: InferencePlan) -> str:
+    if _is_proposal_plan(runtime) or _is_factor_plan(runtime):
+        return runtime.method
     return runtime.exact.method if runtime.exact is not None else "nuts"
 
 
@@ -2233,7 +2385,7 @@ def _sample_settings(task: Task) -> dict[str, Any]:
         settings["ess_floor"] = task.ess_floor
     options = dict(task.backend_options)
     for name in sorted(_POSTERIOR_OPTIONS):
-        if name in options:
+        if name in options and name not in {"proposals", "auto_proposals"}:
             settings[name] = options[name]
     return settings
 
@@ -2442,10 +2594,13 @@ def _run_posterior(planned: PlannedTask, key: jax.Array | None) -> Result:
         )
     runtime = planned.runtime_plan
     settings = _sample_settings(task)
+    from bayesmith.dispatch.sampling import SamplingControl
+    control = SamplingControl(initialization=task.initialization, stopping=task.stopping,
+                              max_seconds=task.budget.max_wall_clock_seconds)
 
     started = utc_timestamp()
     clock = time.perf_counter()
-    posterior = runtime.sample(key, **settings)
+    posterior = runtime.sample(key, **settings, _control=control)
     elapsed = time.perf_counter() - clock
     finished = utc_timestamp()
 
@@ -2477,7 +2632,7 @@ def _run_posterior(planned: PlannedTask, key: jax.Array | None) -> Result:
     if posterior.log_weights is None:
         representation = DrawsPosterior(
             draws=draws,
-            chain_shape=(settings["num_chains"], settings["num_samples"])
+            chain_shape=(settings["num_chains"], len(values[0]) // settings["num_chains"])
             if chained
             else None,
             method=posterior.method,
@@ -2497,21 +2652,36 @@ def _run_posterior(planned: PlannedTask, key: jax.Array | None) -> Result:
         )
 
     termination = _sample_termination(posterior, chained)
+    stop = control.details.get("stop_reason")
+    if stop in ("draw_cap", "time_cap"):
+        termination = TerminationRecord(TerminationReason.BUDGET_EXHAUSTED,
+            iterations=control.details["draws_per_chain"], message=stop)
+    elif stop == "diagnostics_converged":
+        termination = TerminationRecord(TerminationReason.CONVERGED,
+            iterations=control.details["draws_per_chain"], message=stop)
+    elif chained and control.details.get("diagnostics_passed") is False:
+        termination = TerminationRecord(TerminationReason.COMPLETED,
+            message="fixed budget completed; convergence criteria not met")
+    if not chained:
+        control.details.update(initialization="not_required_independent_draws",
+                               stop_reason="independent_draw_budget", draws=len(values[0]))
     run = _run_record(
         planned,
         key=key,
         values=values,
         budget=ComputeBudget(
-            draws=settings["num_samples"],
+            draws=(len(values[0]) // settings["num_chains"]) if chained else len(values[0]),
             warmup=settings["num_warmup"],
             chains=settings["num_chains"],
             max_iterations=task.solver_maxiter,
+            max_wall_clock_seconds=task.budget.max_wall_clock_seconds,
         ),
         termination=termination,
         timing=_timing(started, finished, elapsed),
         approximation=ApproximationRecord(
             representation_class=ApproximationClass.MONTE_CARLO,
-            target_fidelity=TargetFidelity.EXACT,
+            target_fidelity=(runtime.target_fidelity if _is_proposal_plan(runtime)
+                             else TargetFidelity.EXACT),
             details=(
                 ("method", posterior.method),
                 ("planned_method", _planned_method(runtime)),
@@ -2526,6 +2696,8 @@ def _run_posterior(planned: PlannedTask, key: jax.Array | None) -> Result:
         warnings=_sample_warnings(task, runtime, posterior, chained, termination),
         chained=chained,
     )
+    run = dataclasses.replace(run, initial_values=control.initial_values,
+                              sampling_details=control.record())
     meta = _result_meta(planned, run, posterior.reason)
     report_refs = ()
     if posterior.diagnostics:

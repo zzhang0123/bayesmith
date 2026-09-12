@@ -557,10 +557,8 @@ CENSUS_MEMBERS = {
     ),
     "(c) all-residual": (
         "affine_only_at_zero",
-        "bilinear_pair",
         "bright_and_faint_channels",
         "bright_and_faint_observations",
-        "bright_and_faint_pair",
         "cubic_tail",
         "faint_alone",
         "high_snr_curvature",
@@ -570,6 +568,7 @@ CENSUS_MEMBERS = {
         "quadratic_claim",
         "student_t_likelihood",
     ),
+    "(e) no latents": ("bilinear_pair", "bright_and_faint_pair"),
     "(d) gcr+snis": (
         "contrast_sigma_pair",
         "element_contrast_sigma_plate",
@@ -644,7 +643,7 @@ def test_the_structural_class_census_over_the_forty_nine_no_argument_graphs(
     assert counts["(a) whole-graph exact"] == 15
     assert counts["(b) exact+residual gcr"] == 6
     assert counts["(b') exact+residual gcr+mh"] == 1
-    assert counts["(c) all-residual"] == 13
+    assert counts["(c) all-residual"] == 11
     assert counts["(d) gcr+snis"] == 9
     assert (
         sum(value for key, value in counts.items() if key.startswith("compile-refused"))
@@ -669,11 +668,7 @@ def test_the_structural_class_census_over_the_forty_nine_no_argument_graphs(
         assert got == tuple(
             label for label in expected if label.split("[")[0] not in PARAMETERISED
         ), (key, got, expected)
-    # Row (e) -- no latents at all -- is REACHABLE and shipped by nothing.  The
-    # R5 plan's 0.3 says it is the only graph that will still reach
-    # `evidence_residual_integral_required` after Task 7 widens the gate, so
-    # Task 7 has to build one; this row says it does not exist yet.
-    assert "(e) no latents" not in counts
+    assert counts["(e) no latents"] == 2
 
 
 def test_the_five_parameterised_fixtures_move_only_classes_a_and_d(classified):
@@ -691,7 +686,7 @@ def test_the_five_parameterised_fixtures_move_only_classes_a_and_d(classified):
     assert counts["(a) whole-graph exact"] == 19
     assert counts["(b) exact+residual gcr"] == 6
     assert counts["(b') exact+residual gcr+mh"] == 1
-    assert counts["(c) all-residual"] == 13
+    assert counts["(c) all-residual"] == 11
     assert counts["(d) gcr+snis"] == 10
     assert (
         sum(value for key, value in counts.items() if key.startswith("compile-refused"))

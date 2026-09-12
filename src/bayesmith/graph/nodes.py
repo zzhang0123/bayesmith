@@ -99,11 +99,10 @@ class Deterministic(Node):
 
     Attributes:
         fn: called with the parents' values, in ``parents`` order.
-        linear_in: the parents this node claims to be linear in. This is a
-            **claim about the model**, not a hint -- it decides whether an
-            exact conjugate solve may be used -- so it is checked rather than
-            trusted before any such solve runs. Nothing in P1 reads it; it is
-            recorded here so the declaration exists from the start.
+        linear_in: optional legacy assertion about parent-wise affinity.
+            Automatic discovery reads the primal computation and does not
+            require this field. An assertion never substitutes for structural
+            or numerical validation; graph validation still checks its names.
     """
 
     fn: Callable[..., Any]

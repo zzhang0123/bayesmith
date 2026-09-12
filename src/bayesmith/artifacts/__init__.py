@@ -79,6 +79,13 @@ from bayesmith.artifacts.identity import (
     fingerprint,
     model_ref_from_callable,
 )
+from bayesmith.artifacts.policies import (
+    DiagnosticPolicy,
+    InitializationPolicy,
+    ProposalBlockPolicy,
+    StoppingPolicy,
+    proposal_options,
+)
 from bayesmith.artifacts.refusal import (
     CAPABILITY_UNAVAILABLE_R1,
     PREMISES,
@@ -141,6 +148,8 @@ from bayesmith.artifacts.tasks import (
 )
 
 __all__ = [
+    "DiagnosticPolicy", "InitializationPolicy", "StoppingPolicy",
+    "ProposalBlockPolicy", "proposal_options",
     # persistence and the codec's public corner
     "ArtifactCodecError",
     "ArtifactFile",

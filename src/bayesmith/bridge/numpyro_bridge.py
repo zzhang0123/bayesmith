@@ -248,6 +248,7 @@ def nuts(
     chain_method: str = "sequential",
     progress_bar: bool = False,
     nuts_options: Mapping[str, Any] | None = None,
+    _control: Any = None,
 ) -> dict[str, jax.Array]:
     """Sample the posterior of ``graph`` with NUTS.
 
@@ -309,6 +310,9 @@ def nuts(
         chain_method=chain_method,
         progress_bar=progress_bar,
     )
+    if _control is not None:
+        from bayesmith.dispatch.sampling import run_mcmc
+        return run_mcmc(mcmc, key, as_graph(graph), _control)
     mcmc.run(key)
     return mcmc.get_samples()
 

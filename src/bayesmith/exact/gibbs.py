@@ -48,13 +48,17 @@ from bayesmith.exact.block import (
     LinearBlock,
     _env_before,
     domain_centre,
+    gaussian_parts,
+    node_shape,
     unchecked_operator,
 )
 from bayesmith.exact.correct import log_weight
 from bayesmith.exact.gaussian import precision_at
 from bayesmith.exact.gls import iterative_gls, precision_from_graph
 from bayesmith.exact.solve import gcr_sample, wiener_solve
+from bayesmith.graph.evaluate import apply_deterministic, apply_probabilistic
 from bayesmith.graph.graph import Graph
+from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
 
 #: The two corrections this module implements, and there is no third.
 #: ``"nuts"`` and ``"gcr+snis"`` are also rows of the dispatch table, but
@@ -97,6 +101,81 @@ def _prior_centre(graph: Graph) -> dict[str, jax.Array]:
             node=exc.node,
         ) from exc
     return {name: env[name] for name in graph.latents}
+
+
+def _site_centres(graph: Graph) -> dict[str, jax.Array]:
+    """Centres for site encoding, including graphs with non-Gaussian remainders."""
+    try:
+        return _prior_centre(graph)
+    except NotGaussian:
+        # Only exact members need a Gaussian centre here. Build finite anchors
+        # for non-Gaussian remainders locally so ``exact`` keeps its layering
+        # promise and does not import ``dispatch`` even at function scope.
+        env = {}
+        for node in graph.nodes:
+            if isinstance(node, Const):
+                env[node.name] = node.value
+            elif isinstance(node, Deterministic):
+                env[node.name] = apply_deterministic(graph, node, env)
+            elif isinstance(node, Probabilistic):
+                if not node.is_latent:
+                    env[node.name] = node.observed
+                    continue
+                try:
+                    loc, _ = gaussian_parts(graph, node, env)
+                    env[node.name] = jnp.broadcast_to(loc, node_shape(graph, node, env))
+                except NotGaussian:
+                    distribution = apply_probabilistic(graph, node, env)
+                    # Non-Gaussian families need not expose ``loc`` (Uniform,
+                    # Gamma, ...), so node_shape's Gaussian reader cannot apply.
+                    shape = tuple(distribution.shape())
+                    if node.plate:
+                        shape = tuple(jnp.broadcast_shapes(
+                            shape, (graph.plate_size(node.plate[0]),)))
+                    try:
+                        centre = jnp.broadcast_to(jnp.asarray(distribution.mean), shape)
+                    except (NotImplementedError, AttributeError, TypeError, ValueError):
+                        centre = jnp.zeros(shape)
+                    env[node.name] = (
+                        centre if bool(jnp.all(jnp.isfinite(centre))) else jnp.zeros(shape)
+                    )
+        return env
+
+
+def _encoded_site_names(graph: Graph, names: tuple[str, ...]) -> tuple[str, ...]:
+    """Names of the real NumPyro sites backing the requested graph latents."""
+    centres = _site_centres(graph)
+    return tuple(
+        site
+        for name in names
+        for site in (
+            (f"{name}__re", f"{name}__im")
+            if jnp.iscomplexobj(centres[name])
+            else (name,)
+        )
+    )
+
+
+def _decode_sites(names: tuple[str, ...], centres, sites):
+    values = {}
+    for name in names:
+        if jnp.iscomplexobj(centres[name]):
+            values[name] = sites[f"{name}__re"] + 1j * sites[f"{name}__im"]
+        else:
+            values[name] = sites[name]
+    return values
+
+
+def _encode_values(names: tuple[str, ...], centres, values):
+    encoded = {}
+    for name in names:
+        value = values[name]
+        if jnp.iscomplexobj(centres[name]):
+            encoded[f"{name}__re"] = jnp.real(value)
+            encoded[f"{name}__im"] = jnp.imag(value)
+        else:
+            encoded[name] = value
+    return encoded
 
 
 def _precision_at(
@@ -230,6 +309,7 @@ def gibbs_factory(
     names = tuple(names)
     members = set(names)
     nuts = tuple(name for name in graph.latents if name not in members)
+    centres = _site_centres(graph)
     if method not in GIBBS_METHODS:
         raise ValueError(
             f"unknown method {method!r}; this module implements "
@@ -247,7 +327,10 @@ def gibbs_factory(
         # `hmc_sites` arrives POST-processed, so it carries the graph's
         # deterministic nodes as well as its NUTS latents; `at` is only ever
         # the latents, which is also what `_validated_at` will accept.
-        at = {k: v for k, v in hmc_sites.items() if k in graph.latents}
+        at = {
+            k: v for k, v in hmc_sites.items() if k in graph.latents and k not in members
+        }
+        current = _decode_sites(names, centres, gibbs_sites)
         block = unchecked_operator(
             graph,
             names,
@@ -269,10 +352,9 @@ def gibbs_factory(
                 maxiter=maxiter,
                 require_convergence=None,
             )
-            return {name: draw[name] for name in names}
-        return _mh_step(
-            graph, block, gibbs_sites, at, noise, rng_key, tol, maxiter, names
-        )
+            return _encode_values(names, centres, draw)
+        updated = _mh_step(graph, block, current, at, noise, rng_key, tol, maxiter, names)
+        return _encode_values(names, centres, updated)
 
     return gibbs_fn
 
@@ -414,6 +496,7 @@ def assemble(
             "nothing then corrects. A whole-graph block's row in the dispatch "
             "table is 'gcr+snis': iid draws reweighted once, with no chain."
         )
+    encoded_names = _encoded_site_names(graph, names)
     kernel = HMCGibbs(
         NUTS(to_numpyro(graph), **dict(nuts_options or {})),
         gibbs_fn=gibbs_factory(
@@ -425,7 +508,7 @@ def assemble(
             maxiter=maxiter,
             precision=precision,
         ),
-        gibbs_sites=list(names),
+        gibbs_sites=list(encoded_names),
     )
     return MCMC(
         kernel,

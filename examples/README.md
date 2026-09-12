@@ -1,5 +1,10 @@
 # Examples
 
+For an operator-to-DAG-to-simulation-to-inference walkthrough, start with
+[`inference/README.md`](inference/README.md). It contains six executable
+parameter-recovery demos, saved DAGs and posterior reports, and an optional
+bilingual walkthrough. Run all six with `python -m examples.inference`.
+
 Runnable companions to `docs/factor-partition-examples.md`. The models are
 defined once, in `models.py`, and consumed by everything here — the model the
 docs show, the model the demos run and the model the validation experiment

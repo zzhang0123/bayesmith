@@ -535,12 +535,15 @@ def observation_parts(
     :func:`observed_data_and_loc`, which does not, and callers wanting only
     those should take them from there.
     """
-    data, loc = observed_data_and_loc(graph, env)
     scale: dict[str, jax.Array] = {}
     for name in graph.observed:
         node = graph.node(name)
+        # Validate the diagonal-Gaussian domain before node_shape reads loc.
+        # Bernoulli/Poisson have no loc; they must raise NotGaussian so a
+        # posterior task can omit predictive metadata and keep its draws.
         _, node_scale = gaussian_parts(graph, node, env)
         scale[name] = jnp.broadcast_to(node_scale, node_shape(graph, node, env))
+    data, loc = observed_data_and_loc(graph, env)
     return data, loc, scale
 
 

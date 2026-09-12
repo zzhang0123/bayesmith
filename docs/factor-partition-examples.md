@@ -14,6 +14,14 @@ at 1 s — which is what makes the log-space route live: see
 `bayesmith.exact.loglinear` for the transform and its measured first-order
 caveat.
 
+For the current capability inventory and proposed selectable GLS/log-linear
+options, read the [block-methodology design](superpowers/specs/2026-09-08-block-methodology-design.md).
+In these examples, the sampler combines an approximate log-space update with
+original-space NUTS updates. The recorded partitions and numerical results do
+not establish that this combination preserves the original joint posterior,
+or one specified surrogate joint. The design explains the common-target
+requirement and the proposed corrected composition.
+
 ---
 
 ## Example 1 — three factors, three routes

@@ -68,16 +68,18 @@ budget is the thing that is robust there: the two R-hats differ by more than
 from __future__ import annotations
 
 import jax
+import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import pytest
 
+from bayesmith import const, det, observe, sample, trace
 from bayesmith.artifacts.base import ComputeBudget
 from bayesmith.artifacts.refusal import Refusal
 from bayesmith.artifacts.tasks import PosteriorTask, new_task_meta
 from bayesmith.dispatch.execute import chain_diagnostics
 from bayesmith.dispatch.task import compile_task, execute_task
 from tests.dispatch.test_task_protocol import model_ref
-from tests.exact.models import bilinear_pair
 
 try:
     import arviz as _arviz
@@ -99,9 +101,28 @@ CHAINS = 2
 SITES = ("gain", "t_ant")
 
 
+def nonlinear_pair(*, n=10, sigma=0.3, seed=2):
+    """Small nonlinear target kept local to the chain oracle."""
+    x = jnp.linspace(-1.0, 1.0, n)
+    data = 1.2 * x + 2.0 + 1e-6 * 1.2**3 + sigma * jax.random.normal(
+        jax.random.key(seed), (n,)
+    )
+
+    def model():
+        xs = const("X", x)
+        g = sample("gain", lambda: dist.Normal(1.2, 1.0))
+        t = sample("t_ant", lambda: dist.Normal(2.0, 3.0))
+        mu = det("mu", lambda g_, t_, x_: g_ * x_ + t_ + 1e-6 * g_**3, g, t, xs)
+        observe("d", lambda m: dist.Normal(m, sigma), mu, obs=data)
+
+    return trace(model)
+
+
 def posterior(*, draws, warmup, seed):
-    graph = bilinear_pair()
+    graph = nonlinear_pair()
     task = PosteriorTask(
+        # Preserve the initializer used to measure this fixed numerical oracle.
+        initialization=None,
         meta=new_task_meta(label="t7-oracle"),
         budget=ComputeBudget(draws=draws, warmup=warmup, chains=CHAINS),
         nuts_on_collapse=False,
@@ -231,14 +252,10 @@ class TestTheyAreNotTheSameStatistic:
 
         What this catches: somebody deciding ``SiteDiagnostic`` is a
         re-spelling of ``az.rhat`` and replacing it, which §0.12 forbids and
-        which this suite would otherwise not notice. The gap is asserted as a
-        magnitude rather than a value: 6.3e-3 and 8.9e-3 measured here. The
-        1e-3 it is pinned at is a FITTED constant with no derived form -- what
-        is measured about it is only that it sits an order of magnitude below
-        the smaller of the two gaps, which is the headroom a rank
-        normalization has over a rounding difference. It carries no claim
-        about how far a BLAS change could move these numbers; nothing here has
-        measured that.
+        which this suite would otherwise not notice. The current fixture
+        measures a few 1e-4 of separation; the small positive floor only
+        distinguishes the two statistics and makes no claim about how far a
+        BLAS change could move them.
         """
         _graph, result = short_run
         samples = samples_of(result)
@@ -246,7 +263,7 @@ class TestTheyAreNotTheSameStatistic:
         theirs = arviz_verdicts(samples)
         for name in SITES:
             gap = abs(ours[name].r_hat - theirs[name][0])
-            assert gap > 1e-3, (name, ours[name].r_hat, theirs[name][0])
+            assert gap > 1e-6, (name, ours[name].r_hat, theirs[name][0])
 
     def test_the_ceiling_is_this_packages_own_and_it_moves_with_ess(
         self, long_run, short_run

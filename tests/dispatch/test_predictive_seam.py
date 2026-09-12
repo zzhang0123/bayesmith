@@ -82,6 +82,30 @@ def _masked_graph():
 # ------------------------------------------------------------ the §0.1 seam
 
 
+@pytest.mark.parametrize("kind", ["bernoulli", "poisson"])
+def test_a_non_gaussian_without_loc_is_refused_before_gaussian_shape_access(kind):
+    """Missing loc is a supported-domain refusal, not an AttributeError.
+
+    StudentT has loc and never exposed the ordering bug. Bernoulli/Poisson
+    must reach the same NotGaussian boundary so posterior result assembly
+    can omit predictive metadata without discarding completed NUTS draws.
+    """
+    def model():
+        theta = sample("theta", lambda: dist.Normal(0.0, 1.0))
+        law = (lambda t: dist.Bernoulli(logits=t)) if kind == "bernoulli" else (
+            lambda t: dist.Poisson(jnp.exp(t))
+        )
+        observe("obs", law, theta, obs=jnp.array([0, 1, 1]))
+
+    graph = trace(model)
+    values = {"theta": jnp.linspace(-0.2, 0.2, 8)}
+    with pytest.raises(NotGaussian) as caught:
+        pointwise_log_likelihood(graph, values)
+    assert caught.value.reason == "not_normal"
+    with pytest.raises(NotGaussian):
+        replicated_draws(graph, values, jax.random.key(0))
+
+
 def test_observation_parts_returns_three_dicts_with_aligned_leaves():
     """(data, loc, scale) keyed by the same observed nodes, broadcast to one
     shape -- so a downstream reduction is one tree-map, never a per-leaf guess."""

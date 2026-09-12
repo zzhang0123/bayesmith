@@ -58,6 +58,13 @@ from .base import (
     utc_timestamp,
 )
 from .identity import ArtifactKind, Fingerprint, FingerprintKind, fingerprint
+from .policies import (
+    DiagnosticPolicy,
+    InitializationPolicy,
+    ProposalBlockPolicy,
+    StoppingPolicy,
+    _proposal_policies,
+)
 
 __all__ = [
     "TaskKind",
@@ -379,6 +386,15 @@ class PosteriorTask:
     nuts_on_collapse: bool = True
     backend_options: tuple[tuple[str, CanonicalValue], ...] = ()
     quality_gate: str | None = None
+    diagnostics: DiagnosticPolicy = dataclasses.field(default_factory=DiagnosticPolicy)
+    initialization: InitializationPolicy | None = dataclasses.field(default_factory=InitializationPolicy)
+    stopping: StoppingPolicy = dataclasses.field(default_factory=StoppingPolicy)
+    block_order: tuple[tuple[str, ...], ...] | None = None
+
+    @property
+    def proposals(self) -> tuple[ProposalBlockPolicy, ...]:
+        """Explicit proposal blocks encoded in the existing backend options."""
+        return _proposal_policies(self.backend_options)
 
     def __post_init__(self) -> None:
         _instance("a posterior task's meta", self.meta, TaskMeta)
@@ -401,7 +417,18 @@ class PosteriorTask:
             "backend_options",
             canonical_value_options("backend_options", self.backend_options),
         )
+        _proposal_policies(self.backend_options)
         _optional_text("quality_gate", self.quality_gate)
+        _instance("diagnostics", self.diagnostics, DiagnosticPolicy)
+        _instance("stopping", self.stopping, StoppingPolicy)
+        if self.initialization is not None:
+            _instance("initialization", self.initialization, InitializationPolicy)
+        if self.block_order is not None:
+            _tuple_of("block_order", self.block_order, tuple)
+            for names in self.block_order:
+                _tuple_of("block_order names", names, str)
+                if not names:
+                    raise ValueError("block_order contains an empty block")
 
 
 @register_artifact_type

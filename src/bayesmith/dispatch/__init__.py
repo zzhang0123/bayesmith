@@ -1,10 +1,10 @@
-"""Structural dispatch: deriving what to run from what the graph declares.
+"""Structural dispatch: deriving what to run from the graph computation.
 
 :mod:`bayesmith.dispatch.classify` answers one question -- which latents an
-exact linear-Gaussian method applies to, how they group, and which method the
-group needs. It reads the three structural axes P1 recorded (``linear_in``,
-``support``, ``depends_on_prediction``) and the guards P3a built, and
-produces no samples of its own.
+exact linear-Gaussian method applies to, how groups form, and which method the
+group needs. Affinity is discovered structurally and checked numerically;
+support and prediction-dependent covariance then constrain the method. The
+classifier produces no samples of its own.
 """
 
 from bayesmith.dispatch.classify import (

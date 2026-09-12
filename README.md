@@ -9,7 +9,7 @@ and compiles an inference route — an exact solve where the structure permits
 one, NumPyro NUTS as the current general fallback where it does not.
 
 ```
-block 0  {x}          Wiener exact        (linear_in checked, 3 scales)
+block 0  {x}          Wiener exact        (structurally certified; numerical check)
 block 1  {z}          enumerate 4 states
 block 2  {sigma, nu}  NUTS (numpyro)      no exact structure found
 ```
@@ -23,10 +23,11 @@ Those future protocols are not claimed as current API here.
 
 An illustrated overview -- what the package is, where it sits next to NumPyro,
 BlackJAX and ArviZ, what each subpackage owns, and where the roadmap stands --
-is published as a page:
-[bayesmith Overview](https://claude.ai/code/artifact/e3514ec4-000f-4a59-9e6c-79b12281b83c)
-(English, with a Chinese toggle; generated from the 0.7.2 checkout on
-2026-09-03, so it describes that release rather than tracking this file).
+is served from this repository at
+[zzhang0123.github.io/bayesmith](https://zzhang0123.github.io/bayesmith/)
+(source: `site/index.html`, deployed by `.github/workflows/pages.yml`; English,
+with a Chinese toggle). It is refreshed by hand and names the release it
+describes in its own footer, so it can lag this file.
 
 ## What bayesmith is not
 
@@ -40,7 +41,7 @@ the graph can certify. Its current ownership inventory is
 
 What it owns today:
 
-- **Graph analysis and structural dispatch** — checked linearity, Gaussianity,
+- **Graph analysis and structural dispatch** — automatic affine discovery, Gaussianity,
   support, coupling and conditioning claims, followed by an inspectable plan.
 - **Structural exact inference** — first-party conjugate / Wiener / GCR / GLS
   solves and exact posterior sampling, plus exact enumeration of discrete
@@ -62,9 +63,14 @@ What it owns today:
   upstream-candidate implementations rather than a commitment to grow local
   algorithm families.
 
-Declarations such as `linear_in` are *claims about the model*, not hints, so
-they are **checked rather than trusted**: a node declared linear is probed at
-three scales before any exact solve is allowed to use it.
+`linear_in` is optional. The compiler discovers supported affine structure
+from the primal computation, with all complementary latents kept symbolic.
+It checks numerical behavior separately and distinguishes structural proof
+from finite probes. Unsupported structure falls back conservatively.
+Multiple certified Gaussian conditional blocks run as a Gibbs chain; they
+are not reported as one joint Gaussian solve or independent draws. See
+[automatic affine discovery](docs/automatic-affinity.md) for examples and
+the proof's scope.
 
 ## Worked examples
 
@@ -206,7 +212,7 @@ still move -- 0.3.0 made `reason` required on `NotGaussian` and
 `NotLogLinear`, and 0.4.0 tightens two precision refusals, each breaking for
 a caller who was relying on the wrong answer.
 
-Implemented and tested, 6421 tests: the graph core with plates and joint
+Implemented and tested, 6,712 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every
 route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR
@@ -217,6 +223,18 @@ discrete latents; streamed marginal-likelihood terms as square-root information
 factors; and graph diagnostics for identifiability, prior sensitivity and
 linearity. A graph-level `EvidenceTask`, Bayes factors and general model
 comparison are roadmap work, not present capabilities.
+
+Posterior tasks also support automatic bounded Jeffreys diagnostics and explicit
+proposal/MH schedules. `ProposalBlockPolicy` selects iterative GLS, bias-corrected
+log-linear or Gauss–Newton proposals; `proposal_options(...)` passes their ordered
+blocks through `PosteriorTask.backend_options`. The full model corrects every
+proposal, with an optional NUTS remainder. These dense builders have independent
+size limits. Automatic discovery also handles supported parameter-dependent
+Gaussian noise and can enlarge a small moving-noise GCR block with jointly
+linear parameters. Fixed-covariance GCR retains priority; failed enlargement
+preserves the original plan. See
+[`examples/inference/README.md`](examples/inference/README.md) for the bilingual
+notebook and executable comparisons.
 
 **Two things the page above describes that this release does not do yet.** Stated here
 because a front page is a claim, and finding out afterwards is worse than

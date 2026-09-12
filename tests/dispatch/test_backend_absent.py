@@ -135,14 +135,14 @@ class _RaisingFinder:
 
 
 #: Wave B's five residual fixtures, with the structural class each compiles to.
-#: **Measured on this tree**, not read off the plan: three are class (b) -- an
-#: exact block AND a residual one -- and two are class (c).
+#: **Measured on this tree**, not read off the plan: automatic affinity now
+#: recognizes the previously undeclared quartet as a whole-graph exact block.
 #:
 #:     mixture_prior_residual     (b)  exact=('b',)   gcr  sampled=('w',)
 #:     outside_observation_pair   (b)  exact=('x',)   gcr  sampled=('tau',)
 #:     shifted_block_prior        (b)  exact=('x',)   gcr  sampled=('tau',)
 #:     cauchy_residual_pair       (c)  exact=()            sampled=('z',)
-#:     undeclared_quartet         (c)  exact=()            sampled=4 latents
+#:     undeclared_quartet         (a)  exact=4 latents     gcr
 #:
 #: Class (b) is the harder half and §8 R5's headline, so the refusal is graded
 #: against it rather than only against the all-residual case.
@@ -671,7 +671,8 @@ def test_a_posterior_task_over_the_same_graph_is_unaffected(name):
 
     with jax.enable_x64(True):
         graph = _graph(name)
-        _refuse(graph)
+        if name != "c_undeclared_quartet":
+            _refuse(graph)
         plan = compile_plan(graph)
         outcome = compile_task(
             graph, PosteriorTask(meta=new_task_meta(label="p")), model_ref=_model_ref()
@@ -683,6 +684,9 @@ def test_a_posterior_task_over_the_same_graph_is_unaffected(name):
 
     exact = tuple(plan.exact.latents) if plan.exact is not None else ()
     sampled = tuple(plan.sampled.latents) if plan.sampled is not None else ()
+    if name == "c_undeclared_quartet":
+        assert exact and not sampled
+        return
     assert sampled, f"{name} has no residual block, so it is not (b) or (c)"
     expected_class = "b" if exact else "c"
     assert name.startswith(f"{expected_class}_"), (

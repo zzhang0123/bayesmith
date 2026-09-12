@@ -128,6 +128,22 @@ class TestTheReportIsPerParameter:
         report = chain_diagnostics({"w": _converged(400, 1, seed=4).ravel()})
         assert report["w"].worst == ()
 
+    def test_a_multidimensional_site_names_the_full_coordinate(self):
+        draws = _converged(400, 6, seed=41).reshape(400, 2, 3)
+        draws[:, 1, 2] = 0.0
+        report = chain_diagnostics({"field": draws})
+        assert report["field"].worst == (1, 2)
+        assert not report["field"].converged
+
+    def test_a_complex_site_diagnoses_real_and_imaginary_components(self):
+        real = _converged(400, 2, seed=42)
+        imag = _converged(400, 2, seed=43)
+        imag[:, 1] = 0.0
+        report = chain_diagnostics({"z": real + 1j * imag})
+        # The added final coordinate is 0 for real and 1 for imaginary.
+        assert report["z"].worst == (1, 1)
+        assert not report["z"].converged
+
 
 class TestAFrozenCoordinateCannotPassQuietly:
     """The trap this guard exists for, and it is not hypothetical.

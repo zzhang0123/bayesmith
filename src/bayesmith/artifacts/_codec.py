@@ -436,6 +436,36 @@ def _decode(payload: object, depth: int) -> object:
                 raise ArtifactCodecError(f"a field name must be a string; got {name!r}")
             arguments[name] = _decode(encoded, depth + 1)
         expected = {field.name for field in dataclasses.fields(cls)}
+        # This policy formerly always corrected with MH. Its new opt-out
+        # therefore defaults ON when reading the earlier standalone payload.
+        # Other types, extra fields, and any other omission remain strict.
+        if (
+            _qualified(cls) == "bayesmith.artifacts.policies.ProposalBlockPolicy"
+            and set(arguments) == expected - {"mh_correction"}
+        ):
+            arguments["mh_correction"] = True
+        # PosteriorTask gained optional control policies additively.  Preserve
+        # the legacy task semantics when decoding an older payload: omitted
+        # initialization means the historical backend initializer, while the
+        # other fields use their declared dataclass defaults.
+        if _qualified(cls) == "bayesmith.artifacts.tasks.PosteriorTask":
+            missing = expected - set(arguments)
+            fields_by_name = {field.name: field for field in dataclasses.fields(cls)}
+            allowed = {
+                name
+                for name in missing
+                if fields_by_name[name].default is not dataclasses.MISSING
+                or fields_by_name[name].default_factory is not dataclasses.MISSING
+            }
+            if allowed == missing:
+                for name in missing:
+                    field = fields_by_name[name]
+                    if name == "initialization":
+                        arguments[name] = None
+                    elif field.default is not dataclasses.MISSING:
+                        arguments[name] = field.default
+                    else:
+                        arguments[name] = field.default_factory()
         if set(arguments) != expected:
             raise ArtifactCodecError(
                 f"payload for {payload.get('type')} names fields "

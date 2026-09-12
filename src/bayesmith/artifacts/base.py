@@ -745,6 +745,8 @@ class RunRecord:
     timing: TimingRecord
     approximation: ApproximationRecord
     warnings: tuple[RunWarning, ...]
+    initial_values: tuple[NamedArray, ...] = ()
+    sampling_details: tuple[tuple[str, CanonicalValue], ...] = ()
 
     def __post_init__(self) -> None:
         _uuid4("run_id", self.run_id)
@@ -773,6 +775,9 @@ class RunRecord:
         ):
             _instance(name, getattr(self, name), kind)
         _tuple_of("warnings", self.warnings, RunWarning)
+        _tuple_of("initial_values", self.initial_values, NamedArray)
+        object.__setattr__(self, "sampling_details",
+                           canonical_value_options("sampling_details", self.sampling_details))
 
 
 def new_artifact_meta(

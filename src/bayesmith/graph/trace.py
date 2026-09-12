@@ -189,7 +189,11 @@ def det(
     linear_in: Iterable[str] = (),
     plate: PlateRef | Iterable[PlateRef] | None = None,
 ) -> NodeRef:
-    """Declare a deterministic node: it propagates dependence, no density."""
+    """Declare a deterministic node; ``linear_in`` is optional legacy metadata.
+
+    The compiler discovers supported affine structure from the computation,
+    even when no parent is named in ``linear_in``.
+    """
     recorder = _active()
     node = Deterministic(
         name=name,

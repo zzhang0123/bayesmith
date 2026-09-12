@@ -177,27 +177,11 @@ def test_partition_matches_the_hand_derived_answer(build, exact, nuts, method):
     assert result.method == method
 
 
-def test_a_refused_block_names_its_members_in_the_reason():
-    """ "Everything went to NUTS" is useless without saying which claim failed.
-
-    A user one `linear_in` declaration away from an exact solve has to be able
-    to see that from the plan, or the whole-block-falls-together policy is
-    just an unexplained downgrade.
-
-    Asserted on the part of the reason that came from `check_linearity`, not
-    on the whole string. `_all_to_nuts` is handed
-    `f"exact block {list(block)} falls together: {exc}"`, and that PREFIX
-    names every member unconditionally -- so "gain" and "t_ant" appear in the
-    reason even if `: {exc}` is deleted outright and the user is told nothing
-    about which claim failed. Measured: with the `: {exc}` removed, the
-    earlier spelling of this test stayed green. Splitting the prefix off first
-    is what makes the members and the diagnosis both load-bearing.
-    """
+def test_multiple_conditional_blocks_name_the_factor_sweep_requirement():
     result = partition(bilinear_pair())
-    _, marker, body = result.reason.partition("falls together: ")
-    assert marker, f"the refusal carries no diagnosis at all: {result.reason!r}"
-    assert "not JOINTLY affine" in body
-    assert "gain" in body and "t_ant" in body
+    assert "factor sweep" in result.reason
+    assert "gain" in result.reason and "t_ant" in result.reason
+    assert result.discovery.groups == (("gain",), ("t_ant",))
 
 
 def test_a_non_gaussian_refusal_keeps_its_first_sentence_whole():

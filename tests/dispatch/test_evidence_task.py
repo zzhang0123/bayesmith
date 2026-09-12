@@ -203,6 +203,7 @@ class TestWhatItRefuses:
             "the refusal broke the neighbouring capability, which makes it a "
             "regression rather than a coverage boundary"
         )
+        return outcome
 
     def test_a_model_with_a_sampled_block_reaches_the_capability_refusal(self):
         """R5 admits this class and has nothing to run it, and says which.
@@ -260,7 +261,10 @@ class TestWhatItRefuses:
                 "graph does not have, and after the widening no other graph "
                 "reaches this premise for it to be true of"
             )
-            self._posterior_still_compiles(graph)
+            outcome = self._posterior_still_compiles(graph)
+            geometry = next(f for f in outcome.analysis.findings if f.code == "joint_geometry")
+            assert geometry.conclusion == "not_applicable"
+            assert dict(geometry.measurements)["reason"] == "no_latent_parameters"
 
     @pytest.mark.parametrize(
         "fixture, method",

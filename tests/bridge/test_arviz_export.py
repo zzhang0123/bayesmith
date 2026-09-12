@@ -78,13 +78,13 @@ def predictive_task(source, **overrides) -> PredictiveTask:
 @requires_arviz
 class TestAPosteriorExportsItsLatentsAndLikelihood:
     def test_a_chained_run_splits_the_draw_axis_into_chain_and_draw(self):
-        """A NUTS posterior came from a chain, so its draw axis becomes arviz's
+        """A Gibbs posterior came from a chain, so its draw axis becomes arviz's
         ``chain`` and ``draw`` axes and the pointwise likelihood keeps them."""
         graph = bilinear_pair()
         result = execute_task(
             planned_for(graph, posterior_task()), key=jax.random.key(3)
         )
-        assert result.representation.method == "nuts"
+        assert result.representation.method == "factor_gibbs"
         assert result.representation.chain_shape == (1, 8)
 
         idata = to_inference_data(result, graph=graph)
@@ -211,4 +211,3 @@ class TestTheModuleStaysCheapWithoutArviZ:
         )
         assert out.returncode == 0, out.stderr
         assert out.stdout.strip() == "[]"
-

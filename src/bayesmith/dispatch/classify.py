@@ -1,10 +1,10 @@
 """Which latents an exact method applies to, and how they group.
 
-The three structural axes P1 recorded -- ``linear_in``, ``support``,
-``depends_on_prediction`` -- are read here for the first time. P3a *verified*
-``linear_in`` (it measured affinity); this module *reads* it, which is a
-different thing: it walks the declaration along every path from a latent to
-every observed node's location parameter.
+Affine groups are discovered from the primal computation with complementary
+latents kept symbolic. ``linear_in`` remains compatible input metadata, but
+neither its presence nor its absence decides membership. Structural proof,
+finite numerical checks, Gaussian eligibility and covariance movement remain
+separate evidence.
 
 **Nothing here samples, and nothing here is jittable.** Every guard it calls
 -- :func:`~bayesmith.exact.gaussian.check_gaussian`,
@@ -104,6 +104,8 @@ class Classification:
     linearity: dict[int, dict[float, float]] | None
     sigma_movement: float | None
     sigma_needs_rebuild: bool
+    structure: dict | None = None
+    discovery: Any = None
 
 
 def _evidence_safe(graph: Graph, result: Classification) -> Classification:
@@ -547,6 +549,7 @@ def _classify_block(
     latents: list[str],
     env: dict[str, Any],
     key: jax.Array,
+    discovery=None,
 ) -> Classification:
     """Check the block's ``linear_in`` claim, then pick its method.
 
@@ -556,7 +559,8 @@ def _classify_block(
     at = block_at(graph, block, env=env)
     at_points, note = _at_points(graph, block, env, key)
     try:
-        linearity = check_linearity(graph, block, at, at_points=at_points, key=key)
+        linearity = (discovery.linearity[block] if discovery is not None else
+                     check_linearity(graph, block, at, at_points=at_points, key=key))
     except StructureError as exc:
         # The ONE call site where StructureError is a verdict rather than a
         # fault: `linear_in` was declared and is false, which the spec routes
@@ -565,7 +569,8 @@ def _classify_block(
         return _all_to_nuts(latents, f"exact block {list(block)} falls together: {exc}")
     operator = _partition_probe_operator(graph, block, at)
     movement = _sigma_movement(graph, operator, at, key)
-    if movement <= SIGMA_RTOL:
+    structure = None if discovery is None else discovery.evidence[block]
+    if movement <= SIGMA_RTOL and (structure is None or structure["covariance_independent"]):
         method = "gcr"
     else:
         method = "gcr+snis" if len(block) == len(latents) else "gcr+mh"
@@ -577,6 +582,8 @@ def _classify_block(
         linearity,
         movement,
         _sigma_needs_rebuild(graph, block),
+        structure,
+        discovery,
     )
 
 
@@ -597,41 +604,20 @@ def partition(graph: Graph, *, key: jax.Array | None = None) -> Classification:
                 ),
             )
 
-    qualified, why_not = [], {}
-    for name in latents:
-        ok, why = _is_gaussian(graph, name, env)
-        if not ok:
-            why_not[name] = why
-            continue
-        ok, why = _declares_linear_in(graph, name)
-        if not ok:
-            why_not[name] = why
-            continue
-        qualified.append(name)
+    from bayesmith.dispatch.affinity import discover_affinity
 
-    # Ejection: ancestor of ANY latent, qualified or not. The "qualified"
-    # reading drops the factor p(child | member) silently -- see
-    # `orphaned_child_latent`, and note the dense oracle reproduces the same
-    # wrong answer because it reads the same two sources the operator does.
-    # One pass and no `break`: a chain `tau -> x -> y` has TWO to eject, and
-    # stopping at the first leaves a block whose members are ancestors of each
-    # other -- `three_latent_chain` measures that. One pass suffices because
-    # the quantifier ranges over `latents`, which never shrinks.
-    ejected = {
-        z
-        for z in qualified
-        if any(z in _ancestors(graph, other) for other in latents if other != z)
-    }
-    for z in ejected:
-        why_not[z] = f"{z!r} is an ancestor of another latent's distribution"
-    block = tuple(sorted(set(qualified) - ejected))
-
-    if not block:
-        return _evidence_safe(
-            graph,
-            _all_to_nuts(
-                latents,
-                "; ".join(f"{n!r}: {w}" for n, w in sorted(why_not.items())),
-            ),
+    discovery = discover_affinity(graph, env, key)
+    if len(discovery.groups) != 1:
+        reason = (f"conditional affine blocks {discovery.groups} require a factor sweep; "
+                  "no single JOINTLY certified block"
+                  if discovery.groups else
+                  "; ".join(f"{n!r}: {w}" for n, w in sorted(discovery.reasons.items())))
+        result = dataclasses.replace(
+            _all_to_nuts(latents, reason), discovery=discovery,
+            structure={"candidates": tuple(discovery.evidence.values())},
         )
-    return _evidence_safe(graph, _classify_block(graph, block, latents, env, key))
+        return _evidence_safe(graph, result)
+    block = discovery.groups[0]
+    result = _classify_block(graph, block, latents, env, key, discovery)
+    # Public membership ordering remains canonical, independent of tracing order.
+    return _evidence_safe(graph, dataclasses.replace(result, exact=tuple(sorted(block))))

@@ -773,10 +773,10 @@ def test_exact_witness_and_factor_plan_name_the_same_real_nuts_block():
             scales=(1.0,),
             nuts_latents=plan.nuts,
         )
-    with pytest.raises(GraphError) as planned:
-        factor_partition(unsafe, scales=(1.0,), log_scales=(1.0,))
+    planned = factor_partition(unsafe, scales=(1.0,), log_scales=(1.0,))
+    assert "z" in planned.nuts
 
-    for error in (direct.value, planned.value):
+    for error in (direct.value,):
         message = str(error)
         assert "non-NUTS latents ['z']" in message
         assert "NUTS block ['gain', 'offset']" in message
@@ -794,7 +794,7 @@ def test_exact_witness_and_factor_plan_name_the_same_real_nuts_block():
     assert factor_partition(safe, scales=(1.0,), log_scales=(1.0,)).nuts == plan.nuts
 
 
-def test_partition_and_compile_check_raw_evidence_against_the_derived_nuts_block(
+def test_partition_and_compile_keep_raw_evidence_latents_in_the_derived_nuts_block(
     monkeypatch,
 ):
     import bayesmith.exact.block as exact_block
@@ -813,22 +813,9 @@ def test_partition_and_compile_check_raw_evidence_against_the_derived_nuts_block
         plates=bare.plates,
         evidence_terms=(_term("x"),),
     )
-    with pytest.raises(
-        GraphError,
-        match=(
-            r"evidence_terms\[0\].*outside the NUTS block.*"
-            r"Exact and conditional.*put.*NUTS.*keep.*explicit"
-        ),
-    ):
-        partition(unsafe)
-    with pytest.raises(
-        GraphError,
-        match=(
-            r"evidence_terms\[0\].*outside the NUTS block.*"
-            r"Exact and conditional.*put.*NUTS.*keep.*explicit"
-        ),
-    ):
-        compile_graph(unsafe)
+    assert "x" in partition(unsafe).nuts
+    sampled = compile_graph(unsafe).sampled
+    assert sampled is not None and "x" in sampled.latents
 
     safe = Graph(
         nodes=bare.nodes,
@@ -862,11 +849,7 @@ def test_factor_dispatch_checks_raw_graph_evidence_at_plan_and_execution_edges(
         plates=bare.plates,
         evidence_terms=(_term("x"),),
     )
-    with pytest.raises(
-        GraphError,
-        match=r"evidence_terms\[0\].*outside the NUTS block.*keep.*explicit",
-    ):
-        factor_partition(unsafe)
+    assert "x" in factor_partition(unsafe).nuts
 
     safe = Graph(
         nodes=bare.nodes,

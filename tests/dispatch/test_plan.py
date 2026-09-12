@@ -362,26 +362,18 @@ def test_the_kappa_sweep_reaches_both_sides_of_the_anchor(build):
 
 
 def test_a_refused_block_prints_why_not_just_that_it_was_refused():
-    """ "NUTS" with no reason is indistinguishable from "no exact structure".
-
-    The member names alone cannot carry this: the block header prints
-    `{gain, t_ant}` whatever the reason says, so `"gain" in text` is green
-    even with the reason deleted. Checked instead against the classifier's own
-    verdict string, and separately against the plan with its header lines
-    stripped -- the two together red on any plan that drops the reason.
-    """
-    graph = bilinear_pair()
+    graph = quadratic_claim()
     text = str(compile_graph(graph))
     reason = partition(graph).reason
     assert "NUTS" in text
-    assert "gain" in reason and "t_ant" in reason
+    assert "prediction" in reason
     assert flat(reason) in flat(text)
-    body = flat("\n".join(l for l in text.split("\n") if not l.startswith("block ")))
-    assert "gain" in body and "t_ant" in body
+    body = flat("\n".join(line for line in text.split("\n") if not line.startswith("block ")))
+    assert "prediction" in body
 
 
 @pytest.mark.parametrize(
-    "build", [bilinear_pair, quadratic_claim, orphaned_child_latent]
+    "build", [quadratic_claim, orphaned_child_latent]
 )
 def test_an_all_nuts_plan_shows_the_classifiers_verdict_verbatim(build):
     """Three different refusals, three different reasons, none of them dropped.
@@ -402,7 +394,8 @@ def test_an_all_nuts_plan_shows_the_classifiers_verdict_verbatim(build):
         pytest.param(mixed_radiometer, "HMCGibbs", "no chain", id="mixed_mh"),
         pytest.param(two_linear_latents, "no chain", "HMCGibbs", id="fully_exact"),
         pytest.param(radiometer, "no chain", "HMCGibbs", id="fully_exact_snis"),
-        pytest.param(bilinear_pair, "NUTS", "HMCGibbs", id="fully_sampled"),
+        pytest.param(quadratic_claim, "NUTS", "HMCGibbs", id="fully_sampled"),
+        pytest.param(bilinear_pair, "Gibbs", "no chain", id="conditional_factors"),
     ],
 )
 def test_the_plan_names_the_execution_it_will_use(build, execution, absent):
@@ -658,6 +651,10 @@ def test_the_plan_covers_exactly_the_partition_the_classifier_made():
         graph = build()
         classification = partition(graph)
         plan = compile_graph(graph)
+        if classification.discovery is not None and len(classification.discovery.groups) > 1:
+            assert [block.latents for block in plan.blocks] == list(classification.discovery.groups)
+            assert plan.guard_hoisted
+            continue
         expected = [
             names for names in (classification.exact, classification.nuts) if names
         ]
@@ -685,7 +682,7 @@ def test_the_plan_is_reproducible(build):
 
 def test_kappa_and_tol_are_absent_where_there_is_no_linear_system():
     """A NUTS block solves nothing, so a tolerance for it would be fiction."""
-    plan = compile_graph(bilinear_pair())
+    plan = compile_graph(quadratic_claim())
     assert plan.exact is None
     assert [block.kappa for block in plan.blocks] == [None]
     assert [block.tol for block in plan.blocks] == [None]

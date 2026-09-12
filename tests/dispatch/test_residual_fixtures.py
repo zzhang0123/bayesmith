@@ -246,8 +246,8 @@ def test_the_edge_bound_is_measured_against_an_exactly_known_polynomial_tail():
 # ------------------------------------------------------- (iii) four residual axes
 
 
-def test_the_quartet_puts_four_latents_in_one_sampled_block_that_does_not_factor():
-    """Four residual axes, above anything ``models.py`` ships, and coupled.
+def test_the_quartet_is_discovered_as_one_joint_exact_block():
+    """Four undeclared affine axes are discovered jointly despite coupling.
 
     The coupling is the half that is easy to lose: four INDEPENDENT axes would
     make the evidence a product of four one-dimensional integrals, which a
@@ -266,8 +266,9 @@ def test_the_quartet_puts_four_latents_in_one_sampled_block_that_does_not_factor
             parts["prior_std"],
             parts["sigma"],
         )
-    assert plan.exact is None
-    assert sorted(plan.sampled.latents) == sorted(rm.QUARTET_NAMES)
+    assert sorted(plan.exact.latents) == sorted(rm.QUARTET_NAMES)
+    assert plan.exact.method == "gcr"
+    assert plan.sampled is None
     off_diagonal = np.abs(precision - np.diag(np.diag(precision)))
     assert off_diagonal.max() > np.diag(precision).min(), precision
     covariance = np.linalg.inv(precision)
@@ -471,11 +472,11 @@ def test_where_each_new_fixture_sits_in_the_structural_taxonomy():
         CAPABILITY_UNAVAILABLE_R1,
     ), (seen["cauchy_residual_pair"], after_task_6)
     assert seen["undeclared_quartet"][:3] == (
-        (),
-        None,
         ("alpha", "beta", "delta", "gamma"),
+        "gcr",
+        (),
     )
-    assert seen["undeclared_quartet"][3] == CAPABILITY_UNAVAILABLE_R1, (
+    assert seen["undeclared_quartet"][3] == "(ADMITTED)", (
         seen["undeclared_quartet"],
         after_task_6,
     )

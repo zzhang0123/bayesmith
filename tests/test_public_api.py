@@ -567,6 +567,7 @@ def test_the_artifacts_subpackage_reexports_each_owning_module_s_protocol():
         base,
         gates,
         identity,
+        policies,
         refusal,
         reports,
         results,
@@ -574,7 +575,7 @@ def test_the_artifacts_subpackage_reexports_each_owning_module_s_protocol():
     )
 
     expected = {}
-    for module in (identity, base, tasks, results, refusal, reports, gates):
+    for module in (identity, base, tasks, policies, results, refusal, reports, gates):
         for name in module.__all__:
             expected[name] = getattr(module, name)
     for name in (

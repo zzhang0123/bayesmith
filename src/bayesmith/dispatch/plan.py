@@ -127,7 +127,7 @@ _LINE_WIDTH: int = 88
 _LABELS: dict[str, str] = {
     "gcr": "GCR exact",
     "gcr+snis": "GCR + SNIS",
-    "gcr+mh": "GCR + MH accept",
+    "gcr+mh": "GCR + iterative GLS + MH",
     "nuts": "NUTS",
 }
 
@@ -378,6 +378,7 @@ class Block(eqx.Module):
     kappa: float | tuple[float, float] | None = eqx.field(static=True, default=None)
     tol: float | None = eqx.field(static=True, default=None)
     epsilon: float | None = eqx.field(static=True, default=None)
+    structure: dict | None = eqx.field(static=True, default=None)
 
     @property
     def tol_attainable(self) -> bool:
@@ -425,8 +426,10 @@ def _evidence(block: Block) -> str:
         return ""
     scales = len(next(iter(block.linearity.values())))
     worst = max(value for row in block.linearity.values() for value in row.values())
+    label = ("structurally certified; numerical check" if block.structure and
+             block.structure.get("certified") else "numerically validated (global affinity unproved)")
     return (
-        f"linear_in ✓ {scales} scales x {len(block.linearity)} at-points "
+        f"{label} {scales} scales x {len(block.linearity)} at-points "
         f"(max {worst:.2e})"
     )
 
@@ -643,6 +646,7 @@ class InferencePlan(eqx.Module):
         ess_floor: float = SNIS_ESS_FLOOR,
         nuts_on_collapse: bool = False,
         collapse: bool = False,
+        _control: Any = None,
     ) -> Posterior:
         """Run the plan. Section 6.4's dispatch, and nothing else decides.
 
@@ -728,6 +732,7 @@ class InferencePlan(eqx.Module):
             ess_floor=ess_floor,
             nuts_on_collapse=nuts_on_collapse,
             collapse=collapse,
+            _control=_control,
         )
 
     def estimate(
@@ -877,6 +882,7 @@ def compile(
     strategy: Literal["declared", "cost"] = "declared",
     a: float = 1.0,
     timing: TimingConstants | None = None,
+    _classification: Classification | None = None,
 ) -> InferencePlan:
     """Derive the plan for a graph: what runs, on which latents, and why.
 
@@ -914,7 +920,52 @@ def compile(
     """
     key = jax.random.key(0) if key is None else key
     timing = timing_reference() if timing is None else timing
-    classification = partition(graph, key=key)
+    classification = _classification or partition(graph, key=key)
+    if (
+        _classification is None
+        and classification.discovery is not None
+        and len(classification.discovery.groups) > 1
+    ):
+        from bayesmith.dispatch.factor import factor_partition
+        from bayesmith.dispatch.factor_runtime import FactorRuntimePlan
+
+        factors = factor_partition(graph, key=key, _discovery=classification.discovery,
+                                   _linear_only=True)
+        if len(factors.exact) > 1:
+            if strategy != "declared":
+                raise ValueError("the cost ladder supports a single exact block, not a factor sweep")
+            from bayesmith.dispatch.classify import _classify_block
+
+            collapse_classification = _classify_block(
+                graph,
+                factors.exact[0].latents,
+                list(graph.latents),
+                prior_environment(graph),
+                key,
+                classification.discovery,
+            )
+            collapse_plan = compile(
+                graph,
+                key=key,
+                strategy=strategy,
+                a=a,
+                timing=timing,
+                _classification=collapse_classification,
+            )
+            return FactorRuntimePlan(
+                graph,
+                factors,
+                collapse_plan=collapse_plan,
+                sigma_needs_rebuild=collapse_plan.sigma_needs_rebuild,
+                streaming=collapse_plan.streaming,
+                ladder=collapse_plan.ladder,
+            )
+        if factors.exact:
+            from bayesmith.dispatch.classify import _classify_block
+
+            classification = _classify_block(
+                graph, factors.exact[0].structure["members"], list(graph.latents),
+                prior_environment(graph), key, classification.discovery)
     env = prior_environment(graph)
     blocks: list[Block] = []
     kappa: float | tuple[float, float] | None = None
@@ -930,6 +981,7 @@ def compile(
                 method=classification.method,
                 reason=classification.reason + note,
                 linearity=classification.linearity,
+                structure=classification.structure,
                 kappa=kappa,
                 epsilon=epsilon,
                 tol=tol_for(kappa),
@@ -941,6 +993,8 @@ def compile(
                 latents=classification.nuts,
                 method="nuts",
                 reason=_sampled_reason(classification),
+                structure=({"candidates": tuple(classification.discovery.evidence.values())}
+                           if classification.discovery is not None else classification.structure),
             )
         )
     ladder = _cost_ladder(

@@ -2,6 +2,87 @@
 
 ## Unreleased
 
+### Added
+
+Automatic affine discovery no longer requires `linear_in`. A shared primal
+Jaxpr analysis certifies complete candidate groups with symbolic complementary
+latents, separately checks Gaussian prior eligibility and covariance dependence,
+and retains numerical probes as distinct evidence. Default `compile()` executes
+multiple certified Gaussian conditional blocks as a Gibbs chain, including
+task initialization, chain diagnostics and checkpoint controls. Whole-graph
+analytic mean/evidence and single-block collapse are not inferred from multiple
+conditional blocks. Graph-level joint priors remain on a conservative route.
+
+Six runnable inference demos under `examples/inference`: linear Gaussian
+regression, two power-law density indices, hierarchical group measurements and
+Bernoulli logistic regression, and a multiplicative matrix model with
+`mu = exp(U @ p_g) * (A @ p_n)` and `sigma = 0.001 * mu`, plus a composed
+Gaussian random process with nonlinear, linear and log-linear blocks.
+Each declares operators, traces a DAG, simulates
+data and checks parameter recovery. Saved reports include the actual graph,
+posterior draws and diagnostics; an optional matplotlib script renders an offline
+bilingual walkthrough of the model, simulation, inference and parameter recovery,
+with readable DAG roles and separate posterior plots for each parameter.
+
+`PosteriorTask` adds serializable `DiagnosticPolicy`, `InitializationPolicy` and
+`StoppingPolicy` controls: bounded automatic preflight, partial constrained
+initial values per chain, and consecutive checkpoint stopping on one warmed
+NUTS/HMCGibbs state. Run records retain starting values, cumulative diagnostics,
+actual draw counts and stop reasons. Prior choices stay explicit; unsupported
+required checks and schedules are refused. Fixed-budget sampling remains the
+default; `initialization=None` retains the legacy NumPyro initializer. A separate
+`examples/inference/policy_demo.py` verifies forward simulation and recovery.
+Explicit proposal/MH composition is available through `ProposalBlockPolicy` and
+`proposal_options`: iterative GLS, bias-corrected log-linear and Gauss–Newton
+Gaussian proposals, corrected with normalized forward/reverse densities against
+the original model. Ordered blocks can cover the whole model or precede a NUTS
+remainder. Dense work is budgeted separately. Bounded automatic discovery now
+supports parameter-dependent Gaussian noise and enlargement of small moving-noise
+GCR blocks after joint-affinity and aggregate-budget checks. Fixed-covariance GCR
+retains priority; failed enlargement keeps the legacy plan intact.
+`examples/inference/proposal_demo.py` runs three explicit comparisons.
+
+The inference notebook keeps all baseline examples in the sidebar across prior
+counterparts. Built-in JAX array packing is recognized by the primal diagnostic;
+Uniform priors receive an inapplicable Gaussian-perturbation result rather than
+an unresolved check. Explicit instance sampling is distinguished from optional
+marginal-Jeffreys construction. Demo 06 jointly updates instance and background.
+
+Explicit proposal policies now have `mh_correction=True` by default; disabling
+it marks the whole schedule approximate and separates applied-proposal counts
+from MH acceptances. Support and numerical guards remain active. Older serialized
+policies default to MH ON when loaded.
+
+Four bounded Jeffreys-prior counterparts reuse the original simulated data and
+validation criteria. Analytic joint Fisher priors cover power-law, logistic and
+multiplicative models; the hierarchical population has a flat marginal Jeffreys
+prior. The composed-process counterpart explicitly remains unconstructed pending
+a justified marginal Fisher calculation. Example chapters now show “Methods and
+blocks”, shared mathematical symbols and stochastic DAG roles.
+
+### Fixed
+
+Example navigation preserves the current step across demos and prior counterparts.
+The unimplemented composed-process marginal-Jeffreys entry cannot masquerade as a
+baseline recovery page; explicitly requesting it returns a non-success CLI status.
+Power-law demonstrations compare finite-bound Uniform and Jeffreys priors with an
+analytic posterior oracle and paired repeated-simulation MAP/mean bias estimates.
+Fixed-cutoff Pareto expected Fisher diagnostics use primal support and density guards.
+
+Jeffreys flatness no longer depends on selecting GCR or a Gaussian prior.
+A conservative primal-Jaxpr certificate recognizes linear means with
+block-independent covariance; numerical rank checks retain their precision and
+budget requirements. Unsupported derivative semantics remain unresolved. In
+the notebook the moving-noise legacy route is labelled
+`GCR + iterative GLS + MH` to distinguish its proposal construction from
+fixed-covariance Gaussian conditional draws.
+
+Posterior tasks with Bernoulli or Poisson observations no longer lose completed
+NUTS draws to an `AttributeError` while preparing predictive metadata. The
+diagonal Gaussian reader checks its supported domain before accessing `loc`,
+so unsupported pointwise likelihoods retain the existing `NotGaussian` path.
+This does not expand the Gaussian predictive interface's supported domain.
+
 ## 0.8.0 -- 2026-09-04
 
 R3, the model-checking and calibration layer. The minor slot rather than the

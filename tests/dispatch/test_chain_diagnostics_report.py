@@ -119,11 +119,11 @@ def _collapse_graph(n=6, sigma=0.5, x_loc=0.35, x_scale=1.7, th_loc=-0.2, th_sca
 
 
 class TestAChainRunReferencesItsDiagnosticsReport:
-    def test_a_nuts_run_references_a_report(self):
+    def test_an_automatic_factor_gibbs_run_references_a_report(self):
         result = execute_task(
             planned_for(bilinear_pair(), posterior_task()), key=jax.random.key(3)
         )
-        assert result.representation.method == "nuts"
+        assert result.representation.method == "factor_gibbs"
         assert len(result.report_refs) == 1
         assert result.report_refs[0].artifact_type is ArtifactKind.EVALUATION_REPORT
 
@@ -226,4 +226,3 @@ class TestTheProjectionCarriesEverySiteAndRoundTrips:
         assert by_name["alm"].observed[5] is False
         assert by_name["alm"].observed[1] == diagnostics["alm"].r_hat
         assert by_name["alm"].observed[3] == diagnostics["alm"].ceiling
-

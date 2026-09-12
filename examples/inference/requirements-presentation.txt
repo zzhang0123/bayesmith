@@ -1,0 +1,4 @@
+# Optional, for rendering the notebook; inference has no dependency on this file.
+matplotlib>=3.8
+markdown-it-py==4.2.0
+scipy>=1.11

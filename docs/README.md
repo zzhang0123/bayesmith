@@ -28,6 +28,7 @@
 | 文档 | 状态 | 标题 |
 |---|---|---|
 | `docs/artifacts.md` | `module-spec` | The artifact protocol: Tasks, Results, provenance and gates |
+| `docs/automatic-affinity.md` | `module-spec` | Automatic affine discovery and conditional blocks |
 | `docs/correlated-noise-proposal.md` | `record` | Declaring a correlated noise on a graph node |
 | `docs/evaluation.md` | `module-spec` | Model checking: eight report kinds, two axes, and what a PASS does not mean |
 | `docs/evidence-layer-readiness.md` | `record` | What B11 will find here |
@@ -49,6 +50,10 @@
 | `docs/superpowers/plans/2026-09-02-r3-model-checking.md` | `record` | R3 执行计划：model checking 与 calibration |
 | `docs/superpowers/plans/2026-09-04-r4-evidence.md` | `record` | R4 execution plan: the evidence foundation |
 | `docs/superpowers/plans/2026-09-04-r5-nested-residual-evidence.md` | `plan-active` | R5 execution plan: nested residual evidence |
+| `docs/superpowers/plans/2026-09-09-inference-composition.md` | `record` | Inference composition and diagnostics implementation plan |
+| `docs/superpowers/plans/2026-09-09-jeffreys-proposals.md` | `record` | Structural Jeffreys diagnostics and unified proposals |
+| `docs/superpowers/plans/2026-09-09-tris-skymap.md` | `record` | TRIS / Haslam real-data inference implementation plan |
+| `docs/superpowers/plans/2026-09-10-automatic-affinity.md` | `plan-active` | Automatic affinity discovery implementation plan |
 | `docs/superpowers/plans/HANDOFF-p3b-tasks-4-10.md` | `record` | 交接：bayesmith P3b Tasks 4–10 —— **已全部完成（2026-08-24）** |
 | `docs/superpowers/specs/2026-08-23-bayesmith-design.md` | `superseded` | bayesmith — 设计文档 |
 | `docs/superpowers/specs/2026-08-23-p3-structural-dispatch-design.md` | `superseded` | bayesmith P3 — 结构分派器 + InferencePlan + 线性高斯精确解 |
@@ -117,3 +122,4 @@
 | `docs/superpowers/specs/2026-09-04-r3-close-out.md` | `record` | R3 close-out — the model-checking layer |
 | `docs/superpowers/specs/2026-09-04-r4-close-out.md` | `record` | R4 close-out — the evidence foundation |
 | `docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md` | `record` | R5 backend evaluation — BlackJAX NSS and JAXNS, scored on measured runs |
+| `docs/superpowers/specs/2026-09-08-block-methodology-design.md` | `plan-active` | Block inference: structure, solvers and approximation policy |

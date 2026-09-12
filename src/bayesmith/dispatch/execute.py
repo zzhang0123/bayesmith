@@ -199,6 +199,19 @@ class Estimate(NamedTuple):
         return per_sample_sigma(self.precision)
 
 
+def _real_diagnostic_values(values: Any) -> np.ndarray:
+    """Represent complex model coordinates as adjacent real coordinates.
+
+    NumPyro's FFT-based diagnostics only accept real arrays.  Keeping the
+    component as the final axis also makes a reported coordinate reversible:
+    final index ``0`` is the real part and ``1`` is the imaginary part.
+    """
+    array = np.asarray(values)
+    if np.iscomplexobj(array):
+        return np.stack((array.real, array.imag), axis=-1)
+    return array
+
+
 def chain_ess(samples: Mapping[str, Any], *, num_chains: int = 1) -> float:
     """MIN of numpyro's ESS over every site and every coordinate.
 
@@ -226,7 +239,7 @@ def chain_ess(samples: Mapping[str, Any], *, num_chains: int = 1) -> float:
     """
     worst = math.inf
     for draws in samples.values():
-        values = np.asarray(draws)
+        values = _real_diagnostic_values(draws)
         grouped = values.reshape((num_chains, -1, *values.shape[1:]))
         measured = np.asarray(effective_sample_size(grouped), dtype=float)
         worst = min(worst, float(np.where(np.isfinite(measured), measured, 1.0).min()))
@@ -417,7 +430,7 @@ def chain_diagnostics(
     """
     grouped: dict[str, Any] = {}
     for name, draws in samples.items():
-        values = np.asarray(draws)
+        values = _real_diagnostic_values(draws)
         block = values.reshape((num_chains, -1, *values.shape[1:]))
         if block.shape[1] < 4:
             raise ValueError(
@@ -449,25 +462,32 @@ def chain_diagnostics(
         starved = ~usable | (e < CHAIN_ESS_FLOOR)
         excess = np.where(usable, (r - 1.0) / (ceiling - 1.0), np.inf)
         rank = np.where(starved, np.inf, excess)
-        flat = int(np.argmax(rank))
+        flat = int(np.argmax(rank.reshape(-1)))
         worst = tuple(int(i) for i in np.unravel_index(flat, shape)) if shape else ()
-        if starved[flat]:
+        r_flat = r.reshape(-1)
+        e_flat = e.reshape(-1)
+        usable_flat = usable.reshape(-1)
+        safe_e_flat = safe_e.reshape(-1)
+        ceiling_flat = ceiling.reshape(-1)
+        starved_flat = starved.reshape(-1)
+        excess_flat = excess.reshape(-1)
+        if starved_flat[flat]:
             reason = (
-                f"effective sample size {float(safe_e[flat]) if usable[flat] else 0.0:.1f} "
+                f"effective sample size {float(safe_e_flat[flat]) if usable_flat[flat] else 0.0:.1f} "
                 f"is below {CHAIN_ESS_FLOOR:.0f}; convergence cannot be "
                 f"established at this coordinate, whatever r-hat says"
             )
-        elif excess[flat] > 1.0:
+        elif excess_flat[flat] > 1.0:
             reason = (
-                f"split r-hat {float(r[flat]):.4f} exceeds {float(ceiling[flat]):.4f}, "
-                f"the ceiling for an effective sample size of {float(e[flat]):.1f}"
+                f"split r-hat {float(r_flat[flat]):.4f} exceeds {float(ceiling_flat[flat]):.4f}, "
+                f"the ceiling for an effective sample size of {float(e_flat[flat]):.1f}"
             )
         else:
             reason = ""
         report[name] = SiteDiagnostic(
-            r_hat=float(r[flat]) if usable[flat] else math.inf,
-            ess=float(e[flat]) if usable[flat] else 0.0,
-            ceiling=float(ceiling[flat]),
+            r_hat=float(r_flat[flat]) if usable_flat[flat] else math.inf,
+            ess=float(e_flat[flat]) if usable_flat[flat] else 0.0,
+            ceiling=float(ceiling_flat[flat]),
             converged=not reason,
             worst=worst,
             reason=reason,
@@ -510,6 +530,7 @@ def run_sample(
     ess_floor: float,
     nuts_on_collapse: bool,
     collapse: bool,
+    _control: Any = None,
 ) -> Posterior:
     """:meth:`~bayesmith.dispatch.plan.InferencePlan.sample`, as a function.
 
@@ -533,6 +554,7 @@ def run_sample(
         ess_floor=ess_floor,
         nuts_on_collapse=nuts_on_collapse,
         collapse=collapse,
+        _control=_control,
     )
     return _reconciled(plan, posterior, time.perf_counter() - started)
 
@@ -587,6 +609,7 @@ def _dispatch_sample(
     ess_floor: float,
     nuts_on_collapse: bool,
     collapse: bool,
+    _control: Any = None,
 ) -> Posterior:
     """Section 6.4's five shapes and 6.5's two, with nothing timed around them.
 
@@ -612,6 +635,8 @@ def _dispatch_sample(
         "progress_bar": progress_bar,
         "nuts_options": nuts_options,
     }
+    if _control is not None:
+        chain["_control"] = _control
     if plan.exact is None:
         return _nuts_posterior(plan.graph, fallback_key, plan.sampled.reason, chain)
     tol = plan.exact.tol if tol is None else tol
@@ -726,6 +751,8 @@ def _swept(
     than being re-derived, so what runs is what ``str(plan)`` printed. The
     reason is :meth:`InferencePlan._execution`'s own line for the same reason.
     """
+    chain = dict(chain)
+    control = chain.pop("_control", None)
     mcmc = assemble(
         plan.graph,
         plan.exact.latents,
@@ -735,8 +762,13 @@ def _swept(
         maxiter=maxiter,
         **chain,
     )
-    mcmc.run(key)
-    samples = _latents_only(mcmc.get_samples(), plan.graph)
+    if control is None:
+        mcmc.run(key)
+        raw = mcmc.get_samples()
+    else:
+        from bayesmith.dispatch.sampling import run_mcmc
+        raw = run_mcmc(mcmc, key, plan.graph, control, plan.exact.latents)
+    samples = _latents_only(raw, plan.graph)
     ess = chain_ess(samples, num_chains=chain["num_chains"])
     return Posterior(
         samples, None, ess, None, False, plan.exact.method, plan._execution(),
@@ -784,7 +816,7 @@ def _collapsed(
     reduced = collapse_graph(graph, exact_names, nuts_names)
     draws = nuts_draws(reduced, draw_key, **chain)
     theta = {name: draws[name] for name in nuts_names}
-    count = chain["num_samples"] * chain["num_chains"]
+    count = next(iter(theta.values())).shape[0]
     keys = jax.random.split(fallback_key, count)
 
     def regress(key: jax.Array, at: dict[str, jax.Array]) -> dict[str, jax.Array]:

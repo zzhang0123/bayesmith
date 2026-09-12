@@ -74,6 +74,7 @@ from tests.exact.models import (
     bilinear_pair,
     mixed_radiometer,
     non_gaussian_observed_node,
+    quadratic_claim,
     radiometer,
     straight_line,
 )
@@ -98,6 +99,10 @@ def posterior_task(**overrides) -> PosteriorTask:
         "meta": new_task_meta(label="run"),
         "budget": BUDGET,
         "nuts_on_collapse": False,
+        # This parity fixture opts into the legacy NumPyro initializer. The
+        # task default now validates a support-interior point per chain; its
+        # actual state and repeatability are tested in test_sampling_policies.
+        "initialization": None,
     }
     fields.update(overrides)
     return PosteriorTask(**fields)
@@ -218,9 +223,8 @@ def test_the_two_places_the_effective_sample_size_appears_cannot_drift():
 
 
 def test_a_sampled_graph_is_the_old_chain():
-    """``bilinear_pair`` declares an affinity that is false, so the classifier
-    routes the whole graph to NUTS -- the third of §6.4's shapes."""
-    graph = bilinear_pair()
+    """A quadratic prediction remains on the NUTS route."""
+    graph = quadratic_claim()
     key = jax.random.key(3)
     old = compile_graph(graph).sample(
         key, num_samples=8, num_warmup=8, num_chains=1, nuts_on_collapse=False
@@ -349,7 +353,7 @@ def test_the_backend_that_ran_is_recorded_apart_from_the_one_requested():
     """A task asks for ``auto`` and a run record may not answer ``auto``: the
     graph that goes to NUTS is run by numpyro, and the record is where that
     is written down."""
-    planned = planned_for(bilinear_pair(), posterior_task())
+    planned = planned_for(quadratic_claim(), posterior_task())
     result = execute_task(planned, key=jax.random.key(4))
 
     assert planned.task.backend == "auto"
@@ -423,7 +427,7 @@ def test_a_nuts_posterior_records_pointwise_density():
     """A Gaussian observation sampled by NUTS still has a pointwise likelihood
     to replay -- pointwise does not require the exact route (§4.1)."""
     result = execute_task(
-        planned_for(bilinear_pair(), posterior_task()), key=jax.random.key(4)
+        planned_for(quadratic_claim(), posterior_task()), key=jax.random.key(4)
     )
     assert result.representation.method == "nuts"
     assert result.pointwise_log_likelihood is not None

@@ -80,6 +80,7 @@ from tests.exact.models import (
     plated_and_scalar_latents,
     plated_latent,
     plated_radiometer,
+    quadratic_claim,
     radiometer,
     radiometer_group,
     steep_radiometer,
@@ -648,11 +649,11 @@ def test_the_sweep_returns_both_halves_of_a_mixed_graph_correctly(seed):
 def test_a_graph_with_no_exact_structure_says_nuts_and_says_why():
     """No exact block: NUTS, with the classifier's own refusal carried over.
 
-    ``bilinear_pair``'s members are printed by the plan whatever the reason
+    ``quadratic_claim``'s member is printed by the plan whatever the reason
     says, so "gain in reason" is checked against the refusal text and not
     against a member list.
     """
-    graph = bilinear_pair()
+    graph = quadratic_claim()
     plan = compile_graph(graph)
     post = plan.sample(jax.random.key(0), num_warmup=200, num_samples=400)
     assert plan.exact is None
@@ -667,7 +668,7 @@ def test_a_graph_with_no_exact_structure_says_nuts_and_says_why():
 @pytest.mark.parametrize(
     "build,kwargs,extra",
     [
-        pytest.param(bilinear_pair, {}, {}, id="no_exact_block"),
+        pytest.param(quadratic_claim, {}, {}, id="no_exact_block"),
         pytest.param(
             plated_radiometer,
             COLLAPSED,
@@ -721,7 +722,7 @@ def test_both_nuts_paths_are_handed_the_chain_settings_sample_was_given(
     assert seen["num_samples"] == 60
 
 
-@pytest.mark.parametrize("build", [bilinear_pair, orphaned_child_latent])
+@pytest.mark.parametrize("build", [quadratic_claim, orphaned_child_latent])
 @pytest.mark.parametrize("seed", [0, 3])
 def test_a_nuts_option_reaches_the_kernel_and_changes_the_chain(build, seed):
     """The wiring above is only worth having if the far end reads it.
@@ -733,7 +734,7 @@ def test_a_nuts_option_reaches_the_kernel_and_changes_the_chain(build, seed):
     five keys and both fixtures at 300 warmup / 600 draws -- the widest
     per-site sd with the option against the NARROWEST without it:
 
-        bilinear_pair       2.98e-08 / 0 / 5.96e-08 / 1.19e-07 / 2.98e-08
+        quadratic_claim     frozen at float32 resolution
                             against 0.948, 0.364, 0.677, 0.338, 0.563
         orphaned_child_latent  same five frozen values
                             against 0.128, 0.136, 0.138, 0.139, 0.127
@@ -746,9 +747,8 @@ def test_a_nuts_option_reaches_the_kernel_and_changes_the_chain(build, seed):
     ``max_tree_depth=1`` and ``target_accept_prob=0.95`` were both tried
     first and both rejected as probes, for the same reason: they change the
     chain's MIXING, and the mixing of the fixtures that reach bare NUTS here
-    is itself unstable in the key. ``bilinear_pair``'s default ``chain_ess``
-    reads 17.1, 124.7, 22.7, 99.4, 87.7 and 127.4 over keys 0-5, so an
-    assertion on a ratio to it would ride on which key it ran at.
+    is itself unstable in the key, so an assertion on a ratio would ride on
+    which key it ran at.
 
     Both bare-NUTS shapes' fixtures are swept, so this cannot pass on a
     ``nuts_options`` that reached the kernel only through one of them.
