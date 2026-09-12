@@ -120,7 +120,7 @@ def survey_covariance(
     tau_rj_k: np.ndarray,
 ) -> np.ndarray:
     sigma, code, tau = map(np.asarray, (sigma_independent_rj_k, survey_code, tau_rj_k))
-    if sigma.ndim != code.ndim != tau.ndim or sigma.shape != code.shape or sigma.shape != tau.shape:
+    if any(array.ndim != 1 for array in (sigma, code, tau)) or sigma.shape != code.shape or sigma.shape != tau.shape:
         raise ValueError("external covariance arrays must be one-dimensional and aligned")
     if not np.all(np.isfinite(sigma) & np.isfinite(tau) & (sigma > 0) & (tau >= 0)):
         raise ValueError("external covariance scales must be finite and nonnegative")

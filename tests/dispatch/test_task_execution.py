@@ -141,6 +141,32 @@ def details(result) -> dict:
 # --------------------------------------------------------- 7.1 numerical parity
 
 
+def test_task_nuts_geometry_options_reach_the_existing_sampler():
+    """The artifact route must retain the direct route's kernel settings."""
+    graph = non_gaussian_observed_node()
+    options = {"dense_mass": True, "target_accept_prob": 0.91}
+    task = posterior_task(backend_options=(("nuts_options", tuple(options.items())),))
+    key = jax.random.key(472)
+    old = compile_graph(graph).sample(
+        key, num_samples=8, num_warmup=8, num_chains=1,
+        nuts_on_collapse=False, nuts_options=options,
+    )
+    result = execute_task(planned_for(graph, task), key=key)
+    assert isinstance(result, PosteriorResult)
+    for name, values in old.samples.items():
+        same(values, drawn(result)[name])
+
+
+@pytest.mark.parametrize("value", [True, (("dense_mass", "yes"),), (("target_accept_prob", 1.1),),
+                                  (("max_tree_depth", True),), (("typo", 1),),
+                                  (("dense_mass", True), ("dense_mass", False))])
+def test_task_refuses_malformed_nuts_geometry(value):
+    task = posterior_task(backend_options=(("nuts_options", value),))
+    result = compile_task(non_gaussian_observed_node(), task, model_ref=model_ref())
+    assert isinstance(result, Refusal)
+    assert result.failed_premise == "task_options_recognised"
+
+
 def test_pure_exact_draws_are_the_old_draws():
     """``straight_line`` is whole-graph exact with a constant sigma: iid GCR
     draws, no chain, and ESS is the draw count exactly."""

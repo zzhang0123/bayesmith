@@ -29,6 +29,8 @@ from .__main__ import finite_json, positive, provenance
 from .block_inspection import inspect_blocks
 from .common import diagnostic_checks, graph_rows, mermaid, require_result, samples
 from .tris_prepare import sha256
+from .tris_rsb_diagnostics import posterior_checks
+from .tris_rsb_initialization import data_initialization
 from .tris_rsb_sky import model, model_inputs
 
 
@@ -69,7 +71,7 @@ def load_common_inputs(tris_directory: Path, external_directory: Path) -> Common
     required = {"frequency_mhz", "temperature_rj_k", "sigma_independent_rj_k", "tau_rj_k", "survey_code", "survey"}
     if required - set(external):
         raise ValueError("external input lacks required likelihood arrays")
-    if len(external["frequency_mhz"]) != 11 and not {"LWA", "ARCADE"}.issubset(set(external["survey"].tolist())):
+    if not {"LWA", "ARCADE"}.issubset(set(external["survey"].tolist())):
         raise ValueError("external input must include the approved survey labels")
     return CommonInputs(tris_directory, external_directory, tris_manifest, external_manifest, tris_bundle, external)
 
@@ -108,7 +110,7 @@ def _parameter_rows(draws):
     return rows
 
 
-def run_variant(common, *, variant, included_surveys, output, seed, draws, warmup):
+def run_variant(common, *, variant, included_surveys, output, seed, draws, warmup, chains=4, target_accept=.95):
     if not jax.config.jax_enable_x64:
         raise ValueError("TRIS RSB inference requires jax.enable_x64(True)")
     include_rsb = variant == "rsb"
@@ -116,11 +118,14 @@ def run_variant(common, *, variant, included_surveys, output, seed, draws, warmu
         raise ValueError("variant must be no_rsb or rsb")
     inputs = model_inputs(common.tris_bundle, common.external, included_surveys, include_rsb)
     graph = trace(model, *inputs)
+    initialization, initialization_record = data_initialization(graph, inputs, chains=chains, seed=seed)
+    kernel_options = (("dense_mass", True), ("target_accept_prob", target_accept))
     task = PosteriorTask(
         meta=new_task_meta(label=f"TRIS + Haslam {'RSB' if include_rsb else 'no-RSB'} real-data inference"),
-        budget=ComputeBudget(draws=draws, warmup=warmup, chains=2), chain_method="sequential",
+        budget=ComputeBudget(draws=draws, warmup=warmup, chains=chains), chain_method="sequential",
+        initialization=initialization,
         nuts_on_collapse=False, stopping=StoppingPolicy(rhat_max=1.01, ess_min=400),
-        backend_options=(("progress_bar", False),),
+        backend_options=(("progress_bar", False), ("nuts_options", kernel_options)),
     )
     plan_key, sample_key = jax.random.split(jax.random.key(seed))
     plan = compile_task(graph, task, model_ref=model_ref_from_callable(model, identifier=model.__module__), key=plan_key)
@@ -131,6 +136,9 @@ def run_variant(common, *, variant, included_surveys, output, seed, draws, warmu
         raise TypeError("TRIS RSB case requires unweighted posterior draws")
     posterior_samples = samples(posterior)
     diagnostics = diagnostic_checks(posterior)
+    adequacy, predictions = posterior_checks(common.tris_bundle, posterior_samples, seed=seed)
+    if not adequacy["map_likelihood"]["passed"]:
+        raise ValueError("joint map likelihood does not preserve ring likelihood differences")
     manifest = build_common_manifest(common)
     report = {
         "case": f"tris_haslam_{variant}", "kind": "real_observations", "title": f"TRIS + Haslam {'+ RSB' if include_rsb else 'without RSB'}",
@@ -138,8 +146,10 @@ def run_variant(common, *, variant, included_surveys, output, seed, draws, warmu
         "requested_draws_per_chain": draws, "chain_shape": posterior.representation.chain_shape,
         "method": posterior.representation.method, "passed": diagnostics["passed"],
         "latent_names": list(graph.latents), "parameters": _parameter_rows(posterior_samples),
-        "checks": {"chain_diagnostics": diagnostics}, "data_manifest": manifest,
-        "priors": {"rsb_amplitude": "Uniform(0, 5) K at 1 GHz", "rsb_beta": "Uniform(-4, -1.5)", "haslam_monopole_K": "Normal(0, 3 K)", "calibration_standard": "Normal(0, 1); tau is survey-wide"},
+        "checks": {"chain_diagnostics": diagnostics, "map_likelihood": adequacy.pop("map_likelihood")}, "data_manifest": manifest,
+        **adequacy,
+        "sky_products": {"definition": "a(region)*(H-CMB408+z_H-B408)+CMB408+B408", "uncertainty": "conditional regional extrapolation; does not include model discrepancy"},
+        "priors": {"amplitude": "three independent Uniform(0.2, 3)", "beta": "three independent Uniform(-4, -1.5)", "zero_standard": "two independent Normal(0,1); corrections 0.066 z and (0.300 if z<0 else 0.430) z K", **({"rsb_amplitude": "Uniform(0, 5) K at 1 GHz", "rsb_beta": "Uniform(-4, -1.5)"} if include_rsb else {}), "haslam_monopole_K": "Normal(0, 3 K)", "calibration_standard": "Normal(0, 1); tau is survey-wide; assumed covariance of published summaries"},
         "provenance": provenance(), "model_source": Path(__file__).with_name("tris_rsb_sky.py").read_text(),
         "blocking": inspect_blocks(graph, plan.runtime_plan), "dag": graph_rows(graph),
         "preflight": [{"code": finding.code, "conclusion": finding.conclusion, "scope": {"kind": finding.scope.kind.value, "name": finding.scope.name}, "measurements": dict(finding.measurements), "grounds": list(finding.grounds)} for finding in plan.analysis.findings],
@@ -147,9 +157,11 @@ def run_variant(common, *, variant, included_surveys, output, seed, draws, warmu
         "note": "Real observations. Convergence, TRIS residual adequacy, and cross-survey predictive comparison are distinct findings.",
     }
     output = Path(output)
+    report["execution"].update(initialization=initialization_record, nuts_options=dict(kernel_options))
     output.mkdir(parents=True, exist_ok=True)
     (output / "result.json").write_text(json.dumps(finite_json(report), indent=2) + "\n")
     np.savez_compressed(output / "posterior.npz", **posterior_samples)
+    np.savez_compressed(output / "predictions.npz", **predictions)
     shutil.copy2(common.tris_directory / "maps.npz", output / "maps.npz")
     shutil.copy2(common.external_directory / "external.npz", output / "external.npz")
     shutil.copy2(common.tris_directory / "manifest.json", output / "manifest.json")
@@ -171,12 +183,25 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--draws", type=positive, default=2000)
     parser.add_argument("--warmup", type=positive, default=1500)
+    parser.add_argument("--chains", type=positive, default=4)
+    parser.add_argument("--target-accept", type=float, default=.95)
+    parser.add_argument("--train-survey", choices=("LWA", "ARCADE"), help="run only the specified directional refit")
+    parser.add_argument("--heldout", action="store_true", help="also refit each variant with one external survey omitted")
     args = parser.parse_args()
     common = load_common_inputs(args.tris_input, args.external_input)
     variants = ("no_rsb", "rsb") if args.variant == "both" else (args.variant,)
     with jax.enable_x64(True):
         for index, variant in enumerate(variants):
-            run_variant(common, variant=variant, included_surveys=("LWA", "ARCADE"), output=args.output / f"tris_haslam_{variant}", seed=args.seed + index, draws=args.draws, warmup=args.warmup)
+            if args.train_survey:
+                report = run_variant(common, variant=variant, included_surveys=(args.train_survey,), output=args.output / "heldout" / f"{variant}_train_{args.train_survey}", seed=args.seed + index, draws=args.draws, warmup=args.warmup, chains=args.chains, target_accept=args.target_accept)
+                print(variant, args.train_survey, report["checks"]["chain_diagnostics"], flush=True)
+                continue
+            report = run_variant(common, variant=variant, included_surveys=("LWA", "ARCADE"), output=args.output / f"tris_haslam_{variant}", seed=args.seed + index, draws=args.draws, warmup=args.warmup, chains=args.chains, target_accept=args.target_accept)
+            print(variant, report["checks"]["chain_diagnostics"], flush=True)
+            if args.heldout:
+                for fold, survey in enumerate(("LWA", "ARCADE")):
+                    report = run_variant(common, variant=variant, included_surveys=(survey,), output=args.output / "heldout" / f"{variant}_train_{survey}", seed=args.seed + 10 + 2 * index + fold, draws=args.draws, warmup=args.warmup, chains=args.chains, target_accept=args.target_accept)
+                    print(variant, survey, report["checks"]["chain_diagnostics"], flush=True)
 
 
 if __name__ == "__main__":

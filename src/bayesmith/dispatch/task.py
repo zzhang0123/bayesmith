@@ -356,7 +356,7 @@ SUPPORTED_TASK_KINDS: frozenset[TaskKind] = frozenset(
 #: decision taken inside an adapter that is meant to take none.
 MAP_METHODS: tuple[str, ...] = ("newton", "adam", "gradient")
 
-_POSTERIOR_OPTIONS = frozenset({"collapse", "progress_bar", "proposals", "auto_proposals"})
+_POSTERIOR_OPTIONS = frozenset({"collapse", "progress_bar", "proposals", "auto_proposals", "nuts_options"})
 _MAP_OPTIONS = frozenset({"method", "learning_rate"})
 _POSTERIOR_MEAN_OPTIONS = frozenset({"tolerance"})
 
@@ -1019,6 +1019,16 @@ def _option_refusal(
 ) -> Refusal | None:
     known = _known_options(task, kind)
     unknown = tuple(name for name, _ in _given_options(task, kind) if name not in known)
+    if kind is TaskKind.POSTERIOR and "nuts_options" in dict(task.backend_options):
+        try:
+            _nuts_geometry_options(dict(task.backend_options)["nuts_options"])
+        except ValueError as error:
+            return _refusal(
+                task, artifact_type=ArtifactKind.PLAN, fingerprints=fingerprints,
+                failed_premise="task_options_recognised",
+                grounds=(Finding(code="invalid_nuts_options", message=str(error)),),
+                scope=_scope(ScopeKind.TASK, kind.value), summary=str(error),
+            )
     if not unknown:
         return None
     return _refusal(
@@ -1039,6 +1049,31 @@ def _option_refusal(
         scope=_scope(ScopeKind.TASK, kind.value),
         summary=f"unrecognised option(s) {list(unknown)}",
     )
+
+
+def _nuts_geometry_options(value) -> dict[str, Any]:
+    """Canonical task options for the existing NUTS geometry controls.
+
+    Initial values belong to InitializationPolicy. Callables and arbitrary
+    kernel kwargs remain available through the direct runtime API.
+    """
+    if not isinstance(value, tuple) or any(
+        not isinstance(pair, tuple) or len(pair) != 2 or not isinstance(pair[0], str)
+        for pair in value
+    ):
+        raise ValueError("nuts_options must be a tuple of (name, value) pairs")
+    options = dict(value)
+    if len(options) != len(value):
+        raise ValueError("nuts_options must have unique keys")
+    for name, option in options.items():
+        valid = (
+            (name == "dense_mass" and isinstance(option, bool))
+            or (name == "target_accept_prob" and type(option) in (int, float) and 0 < option < 1)
+            or (name == "max_tree_depth" and type(option) is int and option > 0)
+        )
+        if not valid:
+            raise ValueError(f"invalid NUTS geometry option: {name}={option!r}")
+    return options
 
 
 def _method_refusal(
@@ -2386,7 +2421,7 @@ def _sample_settings(task: Task) -> dict[str, Any]:
     options = dict(task.backend_options)
     for name in sorted(_POSTERIOR_OPTIONS):
         if name in options and name not in {"proposals", "auto_proposals"}:
-            settings[name] = options[name]
+            settings[name] = _nuts_geometry_options(options[name]) if name == "nuts_options" else options[name]
     return settings
 
 

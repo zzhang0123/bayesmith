@@ -29,11 +29,15 @@ SYMBOLS = {
 
 
 def symbol(case, name):
-    if case == "tris_haslam":
+    if case in {"tris_haslam", "tris_haslam_no_rsb", "tris_haslam_rsb"}:
         return {
             "amplitude": (r"a_r", "aᵣ"),
             "beta": (r"\beta_r", "βᵣ"),
             "zero_standard": (r"z_\nu", "zᵥ"),
+            "haslam_monopole_K": (r"z_H", "zᴴ"),
+            "calibration_standard": (r"c_s", "cₛ"),
+            "rsb_amplitude": (r"A_{\rm RSB}", "Aᴿˢᴮ"),
+            "rsb_beta": (r"\beta_{\rm RSB}", "βᴿˢᴮ"),
         }.get(name, SYMBOLS.get(name, (name, name)))
     if case == "power_law" and name == "amplitude":
         return ("A", "A")
