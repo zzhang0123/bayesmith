@@ -105,3 +105,6 @@ def test_comparison_renderer_explains_predictive_limit():
     assert "Bayes factor" in html and "physical origin" in html
     assert html.count('data-stage=') == 5
     assert 'class="previous"' in html and 'class="next"' in html
+    assert 'data-language-choice="zh"' in html
+    assert 'M0 diagnostics' in html and 'M1 diagnostics' in html
+    assert 'tris-metrics rsb-metrics' in html

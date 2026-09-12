@@ -389,11 +389,15 @@ def write_gallery(reports, directory):
         from .methodology_guide import bi
         from .tris_presentation import SCRIPT as tris_script
         from .tris_presentation import STYLE as tris_style
+        from .tris_rsb_presentation import SCRIPT as rsb_script
+        from .tris_rsb_presentation import STYLE as rsb_style
     else:
         from methodology import render_methodology
         from methodology_guide import bi
         from tris_presentation import SCRIPT as tris_script
         from tris_presentation import STYLE as tris_style
+        from tris_rsb_presentation import SCRIPT as rsb_script
+        from tris_rsb_presentation import STYLE as rsb_style
 
     reports = [(report, folder) for report, folder in reports
                if comparison_visible(directory.name, report["case"])]
@@ -428,8 +432,8 @@ def write_gallery(reports, directory):
         shown["comparison_links"] = links
         display_reports.append((shown, folder))
     design_html, design_sources = render_methodology(directory, [(r, f) for r, f in reports if r.get("kind") != "real_observations"])
-    style = (root / "gallery.css").read_text() + (root / "methodology.css").read_text() + tris_style
-    script = (root / "gallery.js").read_text() + "\n" + (root / "methodology.js").read_text() + tris_script
+    style = (root / "gallery.css").read_text() + (root / "methodology.css").read_text() + tris_style + rsb_style
+    script = (root / "gallery.js").read_text() + "\n" + (root / "methodology.js").read_text() + tris_script + rsb_script
     navigation = gallery_navigation(display_reports, directory)
     observations = observation_navigation(display_reports, directory)
     comparison = ""

@@ -479,6 +479,11 @@ def main():
             # Intermediate full-data fits support the comparison artifact only.
             continue
         if report.get("kind") == "real_observations" and report["case"] == "tris_haslam_rsb_comparison":
+            if __package__:
+                from .tris_rsb_presentation import render_figures
+            else:
+                from tris_rsb_presentation import render_figures
+            render_figures(report, path.parent)
             reports.append((report, path.parent.name))
             continue
         if report["case"] not in CASES and report["case"] not in LEGACY_CASES:
