@@ -347,7 +347,7 @@ def gallery_navigation(reports, directory):
         else:
             entry = f'<span class="case-button">{label}</span>'
         for kind, title in COMPARISON_GALLERIES.items():
-            if not comparison_visible(kind, case):
+            if (kind == "proposals" and directory.name != "proposals") or not comparison_visible(kind, case):
                 continue
             variant = catalogue / kind
             if not (variant / case / "result.json").exists():
@@ -443,8 +443,7 @@ def write_gallery(reports, directory):
         '<section class="sidebar-demos" aria-labelledby="verified-demos">'
         f'<h2 id="verified-demos">{bi("Verified with demos", "Demo 验证")}</h2>'
         f'<p class="demo-caption">{bi("Forward simulation & posterior recovery", "先模拟，再推断；以已知真值检查恢复")}</p>'
-        f'<nav aria-label="Examples">{navigation}</nav>{comparison}</section>'
-        f'{observations}'
+        f'<nav aria-label="Examples">{navigation}{observations}</nav>{comparison}</section>'
         '<section class="sidebar-credits" aria-label="Project credits / 项目署名">'
         f'<p><span>{bi("Designed by", "设计")}</span><strong>Zheng Zhang</strong></p>'
         f'<p><span>{bi("Assistance from", "辅助支持")}</span><strong class="assistance-credit">{bi("OpenAI Academic Researcher plan, Claude Code, and all developers who have contributed to humanity’s knowledge base", "OpenAI Academic Researcher plan, Claude Code, 以及曾向人类知识库做出贡献的所有开发者")}</strong></p>'
