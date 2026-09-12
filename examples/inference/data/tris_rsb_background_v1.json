@@ -1,0 +1,17 @@
+{
+  "schema": "bayesmith.tris.rsb.background.v1",
+  "description": "Eleven published background-temperature rows selected for the TRIS + Haslam RSB analysis.",
+  "rows": [
+    {"survey": "LWA", "frequency_mhz": 40.0, "temperature_thermodynamic_k": 5792.0, "sigma_thermodynamic_k": 963.0, "table": "Dowell & Taylor (2018), Table 2", "row": "0.040 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "1804.08581", "source_pdf_sha256": null},
+    {"survey": "LWA", "frequency_mhz": 50.0, "temperature_thermodynamic_k": 3443.0, "sigma_thermodynamic_k": 526.0, "table": "Dowell & Taylor (2018), Table 2", "row": "0.050 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "1804.08581", "source_pdf_sha256": null},
+    {"survey": "LWA", "frequency_mhz": 60.0, "temperature_thermodynamic_k": 2363.0, "sigma_thermodynamic_k": 365.0, "table": "Dowell & Taylor (2018), Table 2", "row": "0.060 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "1804.08581", "source_pdf_sha256": null},
+    {"survey": "LWA", "frequency_mhz": 70.0, "temperature_thermodynamic_k": 1505.0, "sigma_thermodynamic_k": 208.0, "table": "Dowell & Taylor (2018), Table 2", "row": "0.070 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "1804.08581", "source_pdf_sha256": null},
+    {"survey": "LWA", "frequency_mhz": 80.0, "temperature_thermodynamic_k": 1188.0, "sigma_thermodynamic_k": 112.0, "table": "Dowell & Taylor (2018), Table 2", "row": "0.080 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "1804.08581", "source_pdf_sha256": null},
+    {"survey": "ARCADE", "frequency_mhz": 3200.0, "temperature_thermodynamic_k": 2.792, "sigma_thermodynamic_k": 0.010, "table": "Fixsen et al. (2011), Table 4", "row": "3.20 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "0901.0555", "source_pdf_sha256": null},
+    {"survey": "ARCADE", "frequency_mhz": 3410.0, "temperature_thermodynamic_k": 2.771, "sigma_thermodynamic_k": 0.009, "table": "Fixsen et al. (2011), Table 4", "row": "3.41 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "0901.0555", "source_pdf_sha256": null},
+    {"survey": "ARCADE", "frequency_mhz": 7970.0, "temperature_thermodynamic_k": 2.765, "sigma_thermodynamic_k": 0.014, "table": "Fixsen et al. (2011), Table 4", "row": "7.97 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "0901.0555", "source_pdf_sha256": null},
+    {"survey": "ARCADE", "frequency_mhz": 8330.0, "temperature_thermodynamic_k": 2.741, "sigma_thermodynamic_k": 0.016, "table": "Fixsen et al. (2011), Table 4", "row": "8.33 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "0901.0555", "source_pdf_sha256": null},
+    {"survey": "ARCADE", "frequency_mhz": 9720.0, "temperature_thermodynamic_k": 2.732, "sigma_thermodynamic_k": 0.006, "table": "Fixsen et al. (2011), Table 4", "row": "9.72 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "0901.0555", "source_pdf_sha256": null},
+    {"survey": "ARCADE", "frequency_mhz": 10490.0, "temperature_thermodynamic_k": 2.732, "sigma_thermodynamic_k": 0.006, "table": "Fixsen et al. (2011), Table 4", "row": "10.49 GHz", "convention": "thermodynamic_temperature", "source_arxiv": "0901.0555", "source_pdf_sha256": null}
+  ]
+}

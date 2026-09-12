@@ -475,6 +475,12 @@ def main():
             render_figures(report, path.parent)
             reports.append((report, path.parent.name))
             continue
+        if report.get("kind") == "real_observations" and report["case"] in {"tris_haslam_no_rsb", "tris_haslam_rsb"}:
+            # Intermediate full-data fits support the comparison artifact only.
+            continue
+        if report.get("kind") == "real_observations" and report["case"] == "tris_haslam_rsb_comparison":
+            reports.append((report, path.parent.name))
+            continue
         if report["case"] not in CASES and report["case"] not in LEGACY_CASES:
             parser.error(f"Unknown demo case {report['case']!r} in {path}")
         if not comparison_visible(args.input.name, report["case"]):

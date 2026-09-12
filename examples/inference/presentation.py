@@ -302,6 +302,12 @@ def render_case(report, folder, index):
         else:
             from tris_presentation import render_case as render
         return render(report, folder, index)
+    if report.get("kind") == "real_observations" and report["case"] == "tris_haslam_rsb_comparison":
+        if __package__:
+            from .tris_rsb_presentation import render_case as render
+        else:
+            from tris_rsb_presentation import render_case as render
+        return render(report, folder, index)
     if __package__:
         from .case_panels import render_case as render
     else:
@@ -366,15 +372,15 @@ def observation_navigation(reports, directory):
         from .methodology_guide import bi
     else:
         from methodology_guide import bi
-    local = any(r.get("case") == "tris_haslam" for r, _ in reports)
-    label = bi("TRIS × Haslam sky", "TRIS × Haslam 天空")
-    if local:
-        entry = f'<button type="button" class="case-button" data-select-case="tris_haslam" aria-controls="tris_haslam" aria-pressed="false">{label}</button>'
-    elif directory.name in {*COMPARISON_GALLERIES, *RETIRED_GALLERIES} and (directory.parent / "tris_haslam" / "result.json").exists():
-        entry = f'<a class="case-button" data-gallery-link data-preserve-step href="../index.html#case=tris_haslam&step=model">{label}</a>'
-    else:
+    entries = []
+    for case, label in (("tris_haslam", bi("TRIS × Haslam sky", "TRIS × Haslam 天空")), ("tris_haslam_rsb_comparison", bi("TRIS + Haslam + RSB", "TRIS + Haslam + RSB"))):
+        if any(report.get("case") == case for report, _ in reports):
+            entries.append(f'<button type="button" class="case-button" data-select-case="{case}" aria-controls="{case}" aria-pressed="false">{label}</button>')
+        elif directory.name in {*COMPARISON_GALLERIES, *RETIRED_GALLERIES} and (directory.parent / case / "result.json").exists():
+            entries.append(f'<a class="case-button" data-gallery-link data-preserve-step href="../index.html#case={case}&step=model">{label}</a>')
+    if not entries:
         return ""
-    return '<section class="sidebar-observations"><h2>' + bi("Real observations", "真实观测") + '</h2><nav aria-label="Real observations">' + entry + '</nav></section>'
+    return '<section class="sidebar-observations"><h2>' + bi("Real observations", "真实观测") + '</h2><nav aria-label="Real observations">' + "".join(entries) + '</nav></section>'
 
 
 def write_gallery(reports, directory):

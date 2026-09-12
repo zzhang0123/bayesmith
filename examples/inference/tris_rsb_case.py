@@ -1,0 +1,183 @@
+"""Run common-data TRIS × Haslam analyses with and without an RSB term."""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import hashlib
+import json
+import shutil
+from pathlib import Path
+
+import jax
+import numpy as np
+
+from bayesmith import compile_task, execute_task, trace
+from bayesmith.artifacts import (
+    ComputeBudget,
+    DrawsPosterior,
+    PosteriorResult,
+    PosteriorTask,
+    Refusal,
+    StoppingPolicy,
+    dump_artifact,
+    model_ref_from_callable,
+    new_task_meta,
+)
+
+from .__main__ import finite_json, positive, provenance
+from .block_inspection import inspect_blocks
+from .common import diagnostic_checks, graph_rows, mermaid, require_result, samples
+from .tris_prepare import sha256
+from .tris_rsb_sky import model, model_inputs
+
+
+@dataclasses.dataclass(frozen=True)
+class CommonInputs:
+    tris_directory: Path
+    external_directory: Path
+    tris_manifest: dict
+    external_manifest: dict
+    tris_bundle: dict
+    external: dict
+
+
+def _canonical_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _load_npz(path):
+    with np.load(path, allow_pickle=False) as archive:
+        return {name: archive[name] for name in archive.files}
+
+
+def load_common_inputs(tris_directory: Path, external_directory: Path) -> CommonInputs:
+    tris_directory, external_directory = map(Path, (tris_directory, external_directory))
+    tris_manifest = json.loads((tris_directory / "manifest.json").read_text())
+    external_manifest = json.loads((external_directory / "external_manifest.json").read_text())
+    if tris_manifest.get("schema") != "bayesmith.tris.maps.v1":
+        raise ValueError("unsupported TRIS map schema")
+    if external_manifest.get("schema") != "bayesmith.tris.rsb.external.v1":
+        raise ValueError("unsupported external-background schema")
+    for directory, filename, manifest in (
+        (tris_directory, "maps.npz", tris_manifest),
+        (external_directory, "external.npz", external_manifest),
+    ):
+        if sha256(directory / filename) != manifest.get("input_sha256"):
+            raise ValueError(f"{filename} hash differs from its provenance manifest")
+    tris_bundle, external = _load_npz(tris_directory / "maps.npz"), _load_npz(external_directory / "external.npz")
+    required = {"frequency_mhz", "temperature_rj_k", "sigma_independent_rj_k", "tau_rj_k", "survey_code", "survey"}
+    if required - set(external):
+        raise ValueError("external input lacks required likelihood arrays")
+    if len(external["frequency_mhz"]) != 11 and not {"LWA", "ARCADE"}.issubset(set(external["survey"].tolist())):
+        raise ValueError("external input must include the approved survey labels")
+    return CommonInputs(tris_directory, external_directory, tris_manifest, external_manifest, tris_bundle, external)
+
+
+def build_common_manifest(common: CommonInputs) -> dict:
+    content = {
+        "schema": "bayesmith.tris.rsb.common-input.v1",
+        "tris_maps_sha256": common.tris_manifest["input_sha256"],
+        "external_input_sha256": common.external_manifest["input_sha256"],
+        "external_rows": len(common.external["frequency_mhz"]),
+        "external_surveys": list(dict.fromkeys(str(name) for name in common.external["survey"])),
+        "frequency_mhz": np.asarray(common.external["frequency_mhz"]).tolist(),
+        "calibration_tau_rj_k": np.asarray(common.external["tau_rj_k"]).tolist(),
+        "frozen_reference_case": "tris_haslam",
+    }
+    return {**content, "common_input_sha256": _canonical_digest(content)}
+
+
+def summarize(values):
+    values = np.asarray(values)
+    summary = {
+        "mean": values.mean(axis=0), "sd": values.std(axis=0, ddof=1),
+        "lower": np.quantile(values, .025, axis=0), "median": np.median(values, axis=0),
+        "upper": np.quantile(values, .975, axis=0),
+    }
+    return {name: float(value) if np.ndim(value) == 0 else value.tolist() for name, value in summary.items()}
+
+
+def _parameter_rows(draws):
+    rows = []
+    for name, values in draws.items():
+        values = np.asarray(values)
+        for index in np.ndindex(values.shape[1:]):
+            part = values[(slice(None),) + index]
+            rows.append({"name": name + (str(list(index)) if index else ""), "parameter": name, "index": list(index), **summarize(part)})
+    return rows
+
+
+def run_variant(common, *, variant, included_surveys, output, seed, draws, warmup):
+    if not jax.config.jax_enable_x64:
+        raise ValueError("TRIS RSB inference requires jax.enable_x64(True)")
+    include_rsb = variant == "rsb"
+    if variant not in {"no_rsb", "rsb"}:
+        raise ValueError("variant must be no_rsb or rsb")
+    inputs = model_inputs(common.tris_bundle, common.external, included_surveys, include_rsb)
+    graph = trace(model, *inputs)
+    task = PosteriorTask(
+        meta=new_task_meta(label=f"TRIS + Haslam {'RSB' if include_rsb else 'no-RSB'} real-data inference"),
+        budget=ComputeBudget(draws=draws, warmup=warmup, chains=2), chain_method="sequential",
+        nuts_on_collapse=False, stopping=StoppingPolicy(rhat_max=1.01, ess_min=400),
+        backend_options=(("progress_bar", False),),
+    )
+    plan_key, sample_key = jax.random.split(jax.random.key(seed))
+    plan = compile_task(graph, task, model_ref=model_ref_from_callable(model, identifier=model.__module__), key=plan_key)
+    if isinstance(plan, Refusal):
+        raise RuntimeError(f"TRIS RSB compilation refused: {plan}")  # noqa: TRY004
+    posterior = require_result(execute_task(plan, key=sample_key), PosteriorResult)
+    if not isinstance(posterior.representation, DrawsPosterior):
+        raise TypeError("TRIS RSB case requires unweighted posterior draws")
+    posterior_samples = samples(posterior)
+    diagnostics = diagnostic_checks(posterior)
+    manifest = build_common_manifest(common)
+    report = {
+        "case": f"tris_haslam_{variant}", "kind": "real_observations", "title": f"TRIS + Haslam {'+ RSB' if include_rsb else 'without RSB'}",
+        "variant": variant, "included_surveys": list(included_surveys), "seed": seed, "warmup": warmup,
+        "requested_draws_per_chain": draws, "chain_shape": posterior.representation.chain_shape,
+        "method": posterior.representation.method, "passed": diagnostics["passed"],
+        "latent_names": list(graph.latents), "parameters": _parameter_rows(posterior_samples),
+        "checks": {"chain_diagnostics": diagnostics}, "data_manifest": manifest,
+        "priors": {"rsb_amplitude": "Uniform(0, 5) K at 1 GHz", "rsb_beta": "Uniform(-4, -1.5)", "haslam_monopole_K": "Normal(0, 3 K)", "calibration_standard": "Normal(0, 1); tau is survey-wide"},
+        "provenance": provenance(), "model_source": Path(__file__).with_name("tris_rsb_sky.py").read_text(),
+        "blocking": inspect_blocks(graph, plan.runtime_plan), "dag": graph_rows(graph),
+        "preflight": [{"code": finding.code, "conclusion": finding.conclusion, "scope": {"kind": finding.scope.kind.value, "name": finding.scope.name}, "measurements": dict(finding.measurements), "grounds": list(finding.grounds)} for finding in plan.analysis.findings],
+        "execution": {"termination": posterior.run.termination.reason.value, "sampling": dict(posterior.run.sampling_details), "initial_values": {item.name: item.value.tolist() for item in posterior.run.initial_values}, "budget": dataclasses.asdict(task.budget), "stopping_policy": dataclasses.asdict(task.stopping), "wall_clock_seconds": posterior.run.timing.wall_clock_seconds},
+        "note": "Real observations. Convergence, TRIS residual adequacy, and cross-survey predictive comparison are distinct findings.",
+    }
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "result.json").write_text(json.dumps(finite_json(report), indent=2) + "\n")
+    np.savez_compressed(output / "posterior.npz", **posterior_samples)
+    shutil.copy2(common.tris_directory / "maps.npz", output / "maps.npz")
+    shutil.copy2(common.external_directory / "external.npz", output / "external.npz")
+    shutil.copy2(common.tris_directory / "manifest.json", output / "manifest.json")
+    shutil.copy2(common.external_directory / "external_manifest.json", output / "external_manifest.json")
+    (output / "shared_input_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (output / "dag.mmd").write_text(mermaid(report["dag"]))
+    (output / "plan.txt").write_text(str(plan.runtime_plan) + "\n")
+    for name, artifact in (("posterior", posterior), ("analysis", plan.analysis), ("task", task)):
+        dump_artifact(artifact, output / f"{name}.artifact.json")
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--tris-input", type=Path, required=True)
+    parser.add_argument("--external-input", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=Path("runs/inference-demo-verified"))
+    parser.add_argument("--variant", choices=("no_rsb", "rsb", "both"), default="both")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--draws", type=positive, default=2000)
+    parser.add_argument("--warmup", type=positive, default=1500)
+    args = parser.parse_args()
+    common = load_common_inputs(args.tris_input, args.external_input)
+    variants = ("no_rsb", "rsb") if args.variant == "both" else (args.variant,)
+    with jax.enable_x64(True):
+        for index, variant in enumerate(variants):
+            run_variant(common, variant=variant, included_surveys=("LWA", "ARCADE"), output=args.output / f"tris_haslam_{variant}", seed=args.seed + index, draws=args.draws, warmup=args.warmup)
+
+
+if __name__ == "__main__":
+    main()

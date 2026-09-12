@@ -123,3 +123,5 @@
 | `docs/superpowers/specs/2026-09-04-r4-close-out.md` | `record` | R4 close-out — the evidence foundation |
 | `docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md` | `record` | R5 backend evaluation — BlackJAX NSS and JAXNS, scored on measured runs |
 | `docs/superpowers/specs/2026-09-08-block-methodology-design.md` | `plan-active` | Block inference: structure, solvers and approximation policy |
+| `docs/superpowers/specs/2026-09-12-tris-rsb-joint-design.md` | `plan-active` | TRIS + Haslam + RSB: joint background analysis and comparison |
+| `docs/superpowers/plans/2026-09-12-tris-rsb-joint-implementation.md` | `plan-active` | TRIS + Haslam + RSB Joint Analysis Implementation Plan |
