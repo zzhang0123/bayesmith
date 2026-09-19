@@ -3,6 +3,9 @@
     <div class="design-toolbar"><span class="status-tag proposed"><span class="translated" lang="en">Methodology design · 8 September 2026</span><span class="translated" lang="zh">方法论设计 · 2026 年 9 月 8 日</span></span></div>
     <h1 id="methodology-title" tabindex="-1"><span class="translated" lang="en">From methods to a block plan</span><span class="translated" lang="zh">从方法到分块方案</span></h1>
     <p><span class="translated" lang="en">Match the structure. Keep the prior. Explain the choice.</span><span class="translated" lang="zh">匹配结构，保留先验，解释选择。</span></p>
+    <div class="compilation-intro">
+      <p><span class="translated" lang="en">bayesmith is a Bayesian compilation layer that sits between the <strong><em>model declaration</em></strong> and the <strong><em>numerical backend</em></strong>. It records a model written as operators into an explicit, inspectable graph, discovers and verifies the graph's structure, eliminates exactly whatever admits a closed form, picks an execution backend for what remains, and hands back results that carry their applicability conditions, diagnostics and provenance. It is not another probabilistic programming language, and not a collection of samplers.</span><span class="translated" lang="zh">bayesmith 是位于<strong><em>模型声明</em></strong>与<strong><em>数值后端</em></strong>之间的贝叶斯编译层。它将以算子形式编写的模型记录为显式、可检查的图，发现并验证图的结构，对具有闭式解的部分进行精确消元，为剩余部分选择执行后端，并返回附带适用条件、诊断和来源记录的结果。它不是另一种概率编程语言，也不是采样器的集合。</span></p>
+    </div>
   </header>
   <div class="design-controls"><nav class="design-tabs" aria-label="Design chapters / 设计章节">
     <button type="button" data-design-tab="methods" aria-controls="design-methods" aria-pressed="true"><b>1</b><span class="translated" lang="en">Basic methods</span><span class="translated" lang="zh">基础方法</span></button>

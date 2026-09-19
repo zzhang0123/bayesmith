@@ -1,0 +1,37 @@
+{
+  "snippet": "nonlinear.py",
+  "snippet_sha256": "66703454aefec9ee0d3227944088b9d8e8e484a9609d59c099d5905f5a1113fb",
+  "environment": {
+    "recorded": "2026-09-19",
+    "git_head": "f53e10afc6b01640fd23febb3161d89dc89512a8",
+    "src_differs_from_head": true,
+    "src_sha256": "22abe9ba078e5a5b81e3a3cf2744f418b3812586c992f1dfa7c9a68421dfb369",
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine": "arm64",
+    "python": "3.12.9",
+    "bayesmith": "0.9.0",
+    "jax": "0.11.1",
+    "numpy": "2.5.2",
+    "numpyro": "0.21.0",
+    "blas": "accelerate",
+    "jax_enable_x64": true
+  },
+  "plans": {
+    "decay": {
+      "text": "block 0  {rate}           NUTS\n         'rate': node 'rate' returns LogNormal; the exact linear-Gaussian path needs a\n         diagonal Normal (a Normal, one wrapped by .to_event(...) or .expand(...), or a\n         ComplexNormal)\nexecution: NUTS",
+      "blocks": [
+        {
+          "latents": [
+            "rate"
+          ],
+          "method": "nuts",
+          "route": "NUTS",
+          "evidence": "'rate': node 'rate' returns LogNormal; the exact linear-Gaussian path needs a diagonal Normal (a Normal, one wrapped by .to_event(...) or .expand(...), or a ComplexNormal)",
+          "refused_claim": false
+        }
+      ],
+      "execution": "NUTS"
+    }
+  },
+  "tables": {}
+}

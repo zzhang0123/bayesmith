@@ -552,6 +552,7 @@ CENSUS_MEMBERS = {
         "improper_outside_prior",
         "indirect_ancestor",
         "overflowing_outside_latent",
+        "plated_student_t_latent",
         "shared_ancestor",
         "three_latent_chain",
     ),
@@ -581,7 +582,6 @@ CENSUS_MEMBERS = {
         "steep_radiometer",
         "sum_sigma_pair",
     ),
-    "compile-refused NotGaussian": ("plated_student_t_latent",),
     "compile-refused StructureError": (
         "lying_block_member",
         "lying_observed_node",
@@ -641,19 +641,20 @@ def test_the_structural_class_census_over_the_forty_nine_no_argument_graphs(
     counts, members = _census(classified, parameterised=False)
     assert sum(counts.values()) == 49
     assert counts["(a) whole-graph exact"] == 15
-    assert counts["(b) exact+residual gcr"] == 6
+    assert counts["(b) exact+residual gcr"] == 7
     assert counts["(b') exact+residual gcr+mh"] == 1
     assert counts["(c) all-residual"] == 11
     assert counts["(d) gcr+snis"] == 9
     assert (
         sum(value for key, value in counts.items() if key.startswith("compile-refused"))
-        == 5
+        == 4
     )
     assert sorted(members["(b) exact+residual gcr"]) == [
         "diamond_ancestor",
         "improper_outside_prior",
         "indirect_ancestor",
         "overflowing_outside_latent",
+        "plated_student_t_latent",
         "shared_ancestor",
         "three_latent_chain",
     ]
@@ -684,13 +685,13 @@ def test_the_five_parameterised_fixtures_move_only_classes_a_and_d(classified):
         key: tuple(value) for key, value in CENSUS_MEMBERS.items()
     }
     assert counts["(a) whole-graph exact"] == 19
-    assert counts["(b) exact+residual gcr"] == 6
+    assert counts["(b) exact+residual gcr"] == 7
     assert counts["(b') exact+residual gcr+mh"] == 1
     assert counts["(c) all-residual"] == 11
     assert counts["(d) gcr+snis"] == 10
     assert (
         sum(value for key, value in counts.items() if key.startswith("compile-refused"))
-        == 5
+        == 4
     )
 
 
@@ -1162,6 +1163,10 @@ BLOCK_SPLIT = {
     "indirect_ancestor": (("x",), ("tau",)),
     "mixed_radiometer": (("w",), ("tau",)),
     "overflowing_outside_latent": (("w",), ("z",)),
+    # Until 2026-09-19 `compile` raised on this graph: the streaming probe let
+    # `NotGaussian` for the plated Student-t `u` escape. The split is the one
+    # the fixture's docstring describes.
+    "plated_student_t_latent": (("w",), ("u",)),
     "shared_ancestor": (("x",), ("tau",)),
     "three_latent_chain": (("y",), ("tau", "x")),
 }
@@ -1716,7 +1721,9 @@ def test_the_peak_is_verified_by_its_gradient_and_not_by_its_own_claim():
             log_density, ("w",), [{"w": 0.0}], [(-9.0, 9.0)]
         )
         assert note == "located", note
-        assert residual_oracle._stationary(log_density, ("w",), location, widths) is None
+        assert (
+            residual_oracle._stationary(log_density, ("w",), location, widths) is None
+        )
 
 
 def test_a_resolved_peak_still_certifies_and_says_so():
@@ -1798,7 +1805,9 @@ def test_the_conditions_this_modules_docstring_lists_are_counted_not_typed():
     doc = residual_oracle.__doc__ or ""
     words = {"three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
     match = re.search(r"unless \*\*(\w+)\*\*\s+conditions", doc)
-    assert match, "the docstring no longer states its condition count in the pinned form"
+    assert match, (
+        "the docstring no longer states its condition count in the pinned form"
+    )
     stated = words[match.group(1)]
     enumerated = len(re.findall(r"^\d+\. \*\*", doc, flags=re.MULTILINE))
     assert stated == enumerated, (

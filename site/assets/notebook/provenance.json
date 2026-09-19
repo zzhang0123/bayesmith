@@ -1,0 +1,329 @@
+{
+  "case": "hierarchical",
+  "title": "Hierarchical group measurements",
+  "seed": 0,
+  "requested_draws_per_chain": 2000,
+  "warmup": 1000,
+  "chain_shape": [
+    2,
+    2000
+  ],
+  "method": "nuts",
+  "backend": "numpyro",
+  "interval_mass": 0.99,
+  "parameters": [
+    {
+      "name": "population",
+      "truth": 0.8,
+      "mean": 1.0078487139923207,
+      "posterior_sd": 0.21670798087725895,
+      "lower": 0.467040587328264,
+      "upper": 1.592475994565657,
+      "covered": true,
+      "sd_ratio": 0.12511641109502575,
+      "informative": true
+    },
+    {
+      "name": "groups[0]",
+      "truth": 1.928017935735768,
+      "mean": 1.937752228570914,
+      "posterior_sd": 0.03979422768241704,
+      "lower": 1.8349466592355148,
+      "upper": 2.0395648009840492,
+      "covered": true,
+      "sd_ratio": 0.021709531021069428,
+      "informative": true
+    },
+    {
+      "name": "groups[1]",
+      "truth": 0.5112710157795068,
+      "mean": 0.5514283599197939,
+      "posterior_sd": 0.038130794629688124,
+      "lower": 0.45332807011164206,
+      "upper": 0.6479087634958669,
+      "covered": true,
+      "sd_ratio": 0.020802053892781128,
+      "informative": true
+    },
+    {
+      "name": "groups[2]",
+      "truth": 1.049274337783546,
+      "mean": 1.0819345246560255,
+      "posterior_sd": 0.040622049978362045,
+      "lower": 0.9798862872219539,
+      "upper": 1.1856652350441588,
+      "covered": true,
+      "sd_ratio": 0.022161145108348015,
+      "informative": true
+    },
+    {
+      "name": "groups[3]",
+      "truth": 2.2291040469248293,
+      "mean": 2.1745202153146326,
+      "posterior_sd": 0.039752926694231236,
+      "lower": 2.071727184851816,
+      "upper": 2.275849303355958,
+      "covered": true,
+      "sd_ratio": 0.02168699948480301,
+      "informative": true
+    },
+    {
+      "name": "groups[4]",
+      "truth": 0.454779769976247,
+      "mean": 0.44978374250384306,
+      "posterior_sd": 0.03927275227281272,
+      "lower": 0.3491098963708316,
+      "upper": 0.5503210087750683,
+      "covered": true,
+      "sd_ratio": 0.021425042861834914,
+      "informative": true
+    },
+    {
+      "name": "groups[5]",
+      "truth": 0.5776738796850824,
+      "mean": 0.5663373791951145,
+      "posterior_sd": 0.0392635168053273,
+      "lower": 0.4624796110752842,
+      "upper": 0.6668296282471188,
+      "covered": true,
+      "sd_ratio": 0.02142000450125989,
+      "informative": true
+    },
+    {
+      "name": "groups[6]",
+      "truth": 0.8380115318697419,
+      "mean": 0.8332916041099424,
+      "posterior_sd": 0.039402585381282024,
+      "lower": 0.7381790039557363,
+      "upper": 0.9369597694934932,
+      "covered": true,
+      "sd_ratio": 0.021495872629367297,
+      "informative": true
+    },
+    {
+      "name": "groups[7]",
+      "truth": 0.523749603294189,
+      "mean": 0.4945789683299695,
+      "posterior_sd": 0.038836302939653886,
+      "lower": 0.39236968422216084,
+      "upper": 0.5959854938124209,
+      "covered": true,
+      "sd_ratio": 0.02118694023014285,
+      "informative": true
+    }
+  ],
+  "checks": {
+    "recovery": true,
+    "chain_diagnostics": {
+      "passed": true,
+      "kind": "bayesmith_chain_diagnostics",
+      "sites": {
+        "groups": {
+          "r_hat": 0.9999248590617115,
+          "ess": 7251.425346376035,
+          "ceiling": 1.0020991108726536,
+          "converged": true,
+          "worst": [
+            4
+          ],
+          "reason": ""
+        },
+        "population": {
+          "r_hat": 1.0000041813284166,
+          "ess": 8817.24984392566,
+          "ceiling": 1.0017263371296323,
+          "converged": true,
+          "worst": [],
+          "reason": ""
+        }
+      },
+      "sampling_policy_passed": true,
+      "divergences": 0
+    }
+  },
+  "dag": [
+    {
+      "name": "group_index",
+      "parents": [],
+      "kind": "constant",
+      "operator": "const",
+      "plate": [],
+      "linear_in": null,
+      "depends_on_prediction": null
+    },
+    {
+      "name": "population",
+      "parents": [],
+      "kind": "latent",
+      "operator": "population_prior",
+      "plate": [],
+      "linear_in": null,
+      "depends_on_prediction": true
+    },
+    {
+      "name": "groups",
+      "parents": [
+        "population"
+      ],
+      "kind": "latent",
+      "operator": "group_prior",
+      "plate": [],
+      "linear_in": null,
+      "depends_on_prediction": true
+    },
+    {
+      "name": "location",
+      "parents": [
+        "groups",
+        "group_index"
+      ],
+      "kind": "deterministic",
+      "operator": "gather",
+      "plate": [],
+      "linear_in": [
+        "groups"
+      ],
+      "depends_on_prediction": null
+    },
+    {
+      "name": "obs",
+      "parents": [
+        "location"
+      ],
+      "kind": "observed",
+      "operator": "gaussian_observation",
+      "plate": [],
+      "linear_in": null,
+      "depends_on_prediction": true
+    }
+  ],
+  "description": "Historical inference notebook snapshot; not a rerun of the 0.9.0 candidate.",
+  "provenance": {
+    "git_revision": "6c644b1f41cf85cb4afe054ec8e52a3414910856",
+    "source_sha256": {
+      "__init__.py": "4aad7ff5599d034b4db87b3f7277dc6d50cb83d14ceca66206f3119cb119dd20",
+      "__main__.py": "f2f27c14fefcc58e99ac83ababa38718c11cfacc7a9688273fad7b1fb02c05b0",
+      "bernoulli.py": "b9d5e8a16e057b2362470ec048a0d78e3efd66f302e65535ad29eb8b413fbc9c",
+      "block_inspection.py": "72efd76393c097138d49ee3376bc1110471caf1e69b2e8861fbb48453d002359",
+      "case_content.py": "932287e52457d3c3f87199b9a445cf5bd14f08f2cf31e52c3f94ce1f58b7a2cd",
+      "case_panels.py": "e49d83c7dbd38c693e013a81f73788fa0c11e6a2f5d80b8e8ee872dd252ccba7",
+      "common.py": "2d6557e1bff146f942015b47c9b7d7f17fa4b14061e7c98a40e75f7f9a1cf21d",
+      "composed_process.py": "abd36daf10c74d7714f946758ad30f9fcdeba966949228f106265854b9b61f71",
+      "exponential_decay.py": "88c836951c1b767e63174af1f115e48e7ae89c3573951131fa7e2d4a75406bba",
+      "hierarchical.py": "45151dc7cf4de551833366b32cb6915f4b75a1a2dddf4cf2161862fa55523533",
+      "linear_gaussian.py": "dcf62c462dec00c698fea0a2d2e8504bfbd2f84ecda9dcc111f9999eb1a295c4",
+      "methodology.py": "bd0cf1bc965f1629ea68daa916d77b3c8bc5efd6c23b522dac7700839a10afb6",
+      "methodology_guide.py": "3da3d7db14ec4d84e439fa481dad7a0ecf387a0a390f6eec11ba2399eadb1784",
+      "multiplicative_noise.py": "be17620fa140b78eab25f56340c6d24a32ac9d29c09a6e323f175374e88f4a3b",
+      "plot_results.py": "d774295ccfd6eb248a59e1fa6ff9ebb4d10fba5c6a59516673f9059945d5bcf2",
+      "policy_demo.py": "39053e5ffca64594c853c94b61d59e8ee4873d5c4871ee180b2b8ff6a8566594",
+      "presentation.py": "d747c440b53bc05de1347764192b4539c4523b041ac12e2cc72d69f42652c97a",
+      "priors.py": "8ba55ac5361f3fca1c7fc688e9e2d166f4517be12899343cbd3922138a273fff",
+      "proposal_demo.py": "bb80ab768288c0e80fb2cc772140e69cafcb47f9bb3cfb2473592ae6c1724244"
+    },
+    "library_source_sha256": {
+      "src/bayesmith/__init__.py": "679218289372bbe36b304264709019a62366433537e4811e122b822c4773a9c0",
+      "src/bayesmith/amortize.py": "c4ebf4a668e4a71e9612a6cdf289a3d2195377488ab3da55afb87836038c1d02",
+      "src/bayesmith/artifacts/__init__.py": "649e32aab338155e6b0fca99e9ef96092adf8918387b7deaab4471c2109bc01c",
+      "src/bayesmith/artifacts/_codec.py": "7b338ec66dc6c549ec4971c88b2515e440ee77cb7e98e19af8da6a0a474dd60d",
+      "src/bayesmith/artifacts/base.py": "3454c38e97ebf5971147ce38fe5c98f1dc8c0746c0d229acd3aca836d85a918e",
+      "src/bayesmith/artifacts/gates.py": "504047926dd6ff6064a1fd8f25d9537f8a6b37b6040c9a101d63ef7ba550c888",
+      "src/bayesmith/artifacts/identity.py": "21f77d9158ae15eaef9a1f833960d6829ab4fac83c6e5f30565290d26841f7ad",
+      "src/bayesmith/artifacts/policies.py": "2333c6d108e9bf39de496a4397c9eb99fc7c2f293d5539478a681332c215e4cb",
+      "src/bayesmith/artifacts/refusal.py": "f4e808de8bf57701c07dbb72508565eba294c9a726490757ff8e8636f4877ed9",
+      "src/bayesmith/artifacts/reports.py": "f6aa5fd7a00266da93af4863d1636b189134df10061d292012694847ec20dc73",
+      "src/bayesmith/artifacts/results.py": "4ecb3605590e72e7bb15574736b8db3b36de5d362dc37174eac791419090974b",
+      "src/bayesmith/artifacts/tasks.py": "db56d3010f547224a9d65ec3ff2d11f9bb2c940cd805652c593059b701fe8f44",
+      "src/bayesmith/bridge/__init__.py": "de5c3744f3121db56419775457c078ede0ba855b0c340166ce5dc1b272fa8fb2",
+      "src/bayesmith/bridge/arviz.py": "b023ad6e82082c0e2c4e77ef81a29263521d3280bda0b192299d5d90f1295668",
+      "src/bayesmith/bridge/jaxns_bridge.py": "1414d26eb549b5fc96e41586b155a98270b92a5ac120e6a0db96548cfc3cf30a",
+      "src/bayesmith/bridge/numpyro_bridge.py": "42df932a7b8daf4a34e3e588731b4aacf8fe8c05cf87ba8ba49aa3fa98ce650b",
+      "src/bayesmith/compiled.py": "98e4b0474193fb1b003c04f6e60508ab791fb91e425bcde3cd770eadb72e16fb",
+      "src/bayesmith/diagnose/__init__.py": "dab0bf1236e41cade1f744de3522e5fa8f1d34923fb615c92e9e6e976742863d",
+      "src/bayesmith/diagnose/coupling.py": "03f9f7031f3834f38cd4ca3c6a284a724608e45d797f4b2a6e39a5e4ecb91fe8",
+      "src/bayesmith/diagnose/identifiability.py": "9164b8030f085f0e64826a52eb2c0c301e5af99f0d8580d79ec12704f4f0c146",
+      "src/bayesmith/diagnose/local.py": "116b40a68a20feef6635e876dc1b923668f8e27ad9f0ca03fcf892a2b0d29b21",
+      "src/bayesmith/diagnose/map.py": "fdfb44d05896a565cfd6aacc5d69d8883b7e0badcc829c188a2d4f46db779c0b",
+      "src/bayesmith/diagnose/priors.py": "590a989c71822c6214c0d9113f3bf9daae38143c78cb85cb7750d29307dc9908",
+      "src/bayesmith/diagnose/sensitivity.py": "a4a521a95601cf2eeac490bc25b8f91a6b44a67be1d936a632c7e34d31751d0d",
+      "src/bayesmith/diagnose/structure.py": "44aec798d7c3de368ff43a638345bfe4fdcdd23a1659182851a8ce1e969ce4cf",
+      "src/bayesmith/dispatch/__init__.py": "43d040d929662f92fc8b005a9bbb7755990c12e67a7777f66d50b3a0b8591ca5",
+      "src/bayesmith/dispatch/amortized.py": "977c9533c30553a39dc4aa7bf59991af0f26bc21c367f96c3d666042e101fc66",
+      "src/bayesmith/dispatch/classify.py": "49a79c70b0d940d19a2aef522c4f329ece6c2b96d2dc0dc5bd7ed59288765699",
+      "src/bayesmith/dispatch/collapse.py": "d75e3490b90023ce2446da7ee293d1152b9e4dba78471f205d8a83274590491b",
+      "src/bayesmith/dispatch/costs.py": "ef561d6dc34b7391bba151309d75d848c2a1919d729b61c1a9fa066e350b433b",
+      "src/bayesmith/dispatch/evidence.py": "00e019bf21908d215fa6b5561cc2e85d9380c7ff226082c20cdf6834eff6b5a6",
+      "src/bayesmith/dispatch/execute.py": "c5acee60ad0c1f3b22de5efeac49faca4e8d2876afb040ecd9355e5b3cddb4ae",
+      "src/bayesmith/dispatch/factor.py": "85410354ab2b20372961d0708b1361ff764e09237e02c11fe4c49681b98175d6",
+      "src/bayesmith/dispatch/initialization.py": "1757529d4825e3a5babc72b9b5acc84cc7268abeb6902acf703a2ba78f876325",
+      "src/bayesmith/dispatch/pilot.py": "3397b548044fe65546600337c73d43c68912629a6ec1bb0ed8680207338968fe",
+      "src/bayesmith/dispatch/plan.py": "e1a46de685a4ae9f8a764bea56680051a7d8ccc2710ea3eeade08dc33a276bd8",
+      "src/bayesmith/dispatch/predictive.py": "e743babfd41f70b9459cb6995a7489d471c8894ab6265328b6a44ca3c91ef346",
+      "src/bayesmith/dispatch/preflight.py": "5b8be47c91278ebb5fd8199b4a13ce9a9bfb353fd0e50769b4189b2424a38616",
+      "src/bayesmith/dispatch/proposal_plan.py": "b7a1ab231251e518c0e3ad521fba939c440eda3f850242391760472337fc9074",
+      "src/bayesmith/dispatch/proposal_sampling.py": "35cc4aeb28d7358cb006e004951ac0f0de050d9953480c356553e00e5ba66dda",
+      "src/bayesmith/dispatch/sampling.py": "db2ec9934096ca82b124732d6a34f89d96ae5b35f76e299fc8256a897f688fa2",
+      "src/bayesmith/dispatch/streaming.py": "5b5e7dc8db7f56c42ffd6d9c579a7b54441d64a5432a0004645d204dad43df72",
+      "src/bayesmith/dispatch/task.py": "9efbe5fd463193eb2f8532b297b365cb130017daeabec6a4f11fd26b61f826a4",
+      "src/bayesmith/distributions.py": "c0923c7ffd994bf8273d089d67f464e25bca6159bfc313160dcd6ec7ee73229d",
+      "src/bayesmith/errors.py": "d70a214a4465faa1c241147663a9fadd8686a174efabdba441af4c654dffdb98",
+      "src/bayesmith/evaluation/__init__.py": "c2706ef87ac07aa0613b596131121d4f12b14d0d861765d1c1c06f9610612e9c",
+      "src/bayesmith/evaluation/checks.py": "66f1d4e62ec129abb94846ce252cf099842acbe77163ede00a6af980a40e588f",
+      "src/bayesmith/evaluation/diagnostics.py": "0669f11c76a392763c41d048794023b58a5cf1c840a3e0474ddb41f456952618",
+      "src/bayesmith/evaluation/evidence.py": "5cbe4edbee9c0a8d8519278218c42572b6947ac857a29a00189e2b3dc5e8f0ae",
+      "src/bayesmith/evaluation/gate.py": "be10e4c80fa36d2e0c7c94bb3b19a51de4647c7089416ac06281458229d660a8",
+      "src/bayesmith/evaluation/heldout.py": "92622fcc1796911b30f654b73f9b705265bde1fde31cec6c5daf98cf7b3869d8",
+      "src/bayesmith/evaluation/loo.py": "66dd1fefac6d29d9fb6e47a51fe6ed370b54e7af5e1216fd7cf305afe2bc6e52",
+      "src/bayesmith/evaluation/sbc.py": "3d5286289b38ce13d863ac1af0a5260c2788fab8ef41b6b051c0733b076d7ee7",
+      "src/bayesmith/evidence/__init__.py": "67a3c2377b345d7a38ffe69d311ab254ce5f060cd9c8893d870a8d75694be696",
+      "src/bayesmith/exact/__init__.py": "e008ee1df3d69765be8002bfebb2dcb6965f7224ae8cf9ea63ddc55d96dab227",
+      "src/bayesmith/exact/block.py": "2a7e9b3a4d542a5e3ea6cd9cff7e129bba47325659b50bc4ae212875e64e175f",
+      "src/bayesmith/exact/conditioning.py": "074b9fd599fb445c7b6d1e7e103103eb5f3bf90753fd10d439731b1ff10c6ada",
+      "src/bayesmith/exact/correct.py": "1d879077573dd8f3e417ef94462b49fbe397a698b9ad9a6f4c1daf636da4e68c",
+      "src/bayesmith/exact/discrete.py": "69c1a2f664462f0c48b51f594aa47c5ef067ea9c0bbff7d88d51ed94cd9db0b4",
+      "src/bayesmith/exact/fisher.py": "6a788d05da58a1389dbd98cfc23eb7908b4406c3a5bbca2c1bbd53c904e9a1e2",
+      "src/bayesmith/exact/gaussian.py": "fc7e8d83b1846169fdf2761ab824ffd7017f2075b8bcd17d4cf0d1c81204d131",
+      "src/bayesmith/exact/gibbs.py": "887d1826c3ea9d6b1e5a5bc520ee73ca8808ea60c38048b88dab31f0129f8a20",
+      "src/bayesmith/exact/gls.py": "9f9d57bf11ef7bde8c8d97844f0f6b134af80d56521c74953c993f9eba24b34b",
+      "src/bayesmith/exact/linearity.py": "789017c747563667619443172036a1236a691784608d97b34dca73f0ed12fefa",
+      "src/bayesmith/exact/loglinear.py": "2adf34328b4d3b0630cd1ea88d8e5ee71c43ebeab5be5b5f6fd915a4554b21e4",
+      "src/bayesmith/exact/precision.py": "fa2f7aa76b682a26fc317e1f026188c77d136257eda1ecc33b7aff5e5f19842c",
+      "src/bayesmith/exact/proposals.py": "2dd8cf3ff544cf7c3c3f96fb703d09469b6548076f91a27f6f020e4c788a98ed",
+      "src/bayesmith/exact/reduced_basis.py": "7b3e70cc01b06db03313ca91c2b4cf9db90ade443fedb2eabbb2d2da2c2ce5a4",
+      "src/bayesmith/exact/solve.py": "b89257b773507dd3bb69b7dc84dc8e3245b10769123d89e5c6d600e11c7d657c",
+      "src/bayesmith/graph/__init__.py": "d3904285b76d052606fc5d73ef1767af612ca319e4dc4cb861f018652d9dcd6c",
+      "src/bayesmith/graph/evaluate.py": "818cccc204f1e57affe96be346360494e6d7dba4220dfbbb8330c03f28762c7b",
+      "src/bayesmith/graph/graph.py": "65dcd5efea90b217cacc37e346d0e7187a8ea633026bfd4dae0e5cb0518e599c",
+      "src/bayesmith/graph/nodes.py": "981512ebcce8b6bfc6736094e0da3441e02cf943fa42734cafe6f09f910ec55b",
+      "src/bayesmith/graph/reduction.py": "21308393ed426db30fce2b2c38d4124914542565920b1cd7dbe8be923c472804",
+      "src/bayesmith/graph/trace.py": "91141d26f85a5ea40d088b13cefa1061a6c46c6eae6c916a418d657434a834dd",
+      "src/bayesmith/marginal/__init__.py": "60ef1475408759842eabba91b8ae5b6b775e0542990c520ce6ce7d87e9abaf44",
+      "src/bayesmith/marginal/_logdet_eager.py": "34403dd47960119c75eabddf0c9107f7abbd6f67d7fee951e06a533d9c4d7f45",
+      "src/bayesmith/marginal/_logdet_ladder.py": "49c45117a6e0f816d93359099bac72536d766a6d6e079b03296c49979a7f85f5",
+      "src/bayesmith/marginal/_logdet_plan.py": "b0a36aa7ccc7f97a7697d0cb50f182899c2e0ec48e662ecf72bf4141adf135e6",
+      "src/bayesmith/marginal/_logdet_runtime.py": "8a8c2ee0a4c3956a2ad2cf3d8ac153cc335ef39802c7b66b11a9a39ef9eb4b7a",
+      "src/bayesmith/marginal/campaign.py": "511bc97d8fc91b85fdc40fd765e43f407ebb35f3a831d41f9d388ba92983a972",
+      "src/bayesmith/marginal/chain.py": "bf7b482f03f4e4b94ac926b5dbd0136269c6980340303e11514338e0c26ea284",
+      "src/bayesmith/marginal/compress.py": "f1200ece9df23a2122239826339957a925b588b2816f79d86fad2c3194292fb4",
+      "src/bayesmith/marginal/diagnostics.py": "c6ed2595ae4688880269d874bb111f29d7050224572a1ce06d7c0b5f3bd5a8a9",
+      "src/bayesmith/marginal/factorize.py": "8c658f4abe7fba90040ff698390211418cdf7ae8b369e6aca31a7cd93026304a",
+      "src/bayesmith/marginal/logdet.py": "fd441958cde5b123b99119bd4bcda6cfc4d99ca8b0d05a0aa8035c213c9fed91",
+      "src/bayesmith/marginal/sqrtinfo.py": "7d0326642cfd15fa44d45ce6ac19fdc50f4bed2e85b14c0d6e512521a1f2d28e",
+      "src/bayesmith/optimize.py": "de6e1616b32767d8f5eddc509a95e63408d1883961fd326b21152ad231344dc2"
+    },
+    "versions": {
+      "jax": "0.11.1",
+      "numpy": "2.5.2",
+      "numpyro": "0.21.0"
+    },
+    "jax_enable_x64": true
+  },
+  "original_result_sha256": "390df584630eedfbec982b01c2a1dac5da6f0dd83c6a08276bff202288ff4e40",
+  "assets_sha256": {
+    "simulation.svg": "34f0aeb5f62ac507557749d063588f2bab7c5bed7938ca0fd416274dddf40276",
+    "inference.svg": "af43b04b8c5530b2f9dd86818b13616a0bd7b9dd92be3ce8b1f90a5824b70d8f",
+    "recovery.svg": "0f6d83099150ad628f7eca63385f51eb74e9bb859c1cccee9a71d0d7d4cb6a85",
+    "parameter-0.svg": "5d0ed917095f41c401bd81d735ebd6152a3c2de8cb3860b326f80734fad92f97",
+    "trace-0.svg": "fdefa2aae5a6103f466c93d14726a2ebc223fa9f5a00f82f26d21dfa0a982173"
+  }
+}

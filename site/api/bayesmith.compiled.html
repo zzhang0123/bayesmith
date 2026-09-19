@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.compiled"><title>bayesmith.compiled · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.compiled</span></nav>
+<article><h1>bayesmith.compiled</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The compiled residual problem, at the leaf so both layers may import it.
+
+**Why this is a module of its own and not in ``dispatch/evidence.py``, where it
+was written.** R5 Task 6&#x27;s adapter lives in ``bridge/`` and must assert what it
+was handed BY TYPE. Measured, the declared direction is ``dispatch -&gt; bridge``:
+``bridge/`` imports only ``graph/`` and ``distributions`` at module scope and
+never ``dispatch/``, while ``dispatch/`` imports ``bridge/`` at
+``evidence.py`` and at ``execute.py``. A module-scope import of this class from
+``bridge/`` would therefore close a cycle that
+``tests/test_layering.py::test_the_module_scope_import_graph_is_acyclic``
+raises on.
+
+Plan 6.2 offers two ways out and says only one keeps &quot;dependency direction is
+unchanged&quot; true. The other -- importing it inside the adapter&#x27;s function --
+leaves the module-scope graph untouched, so the layering test passes while the
+runtime dependency exists. That test&#x27;s SUBJECT is which layer depends on which;
+its IMPLEMENTATION is which import statements sit at module scope. Taking the
+function-scope route would be choosing to satisfy the instrument rather than
+the property, knowingly, and three separate guards in this repository have
+already been walked past exactly that way.
+
+So the class moves to a leaf: ``dispatch -&gt; compiled`` and ``bridge -&gt;
+compiled``, with no new edge between them. It was cheap to move -- a plain
+frozen dataclass, **not** a registered artifact type, and nothing under ``src/``
+imported it. ``dispatch.evidence`` re-exports it, so existing imports keep
+working.
+
+Not ``bayesmith/evidence/``: that is a deprecated alias for
+:mod:`bayesmith.marginal`, retiring at 1.0, whose own docstring argues the word
+was wrong there. Not ``artifacts/``: this is not an artifact.
+
+〔Design 0.17: the parent ``CompiledProblem`` this is nominally a variant of has
+never been written, and R5 does not write it. This module&#x27;s name leaves room
+for it without claiming it exists.〕</pre></details><div class="symbol-index"><a href="#CompiledEvidenceProblem">CompiledEvidenceProblem</a></div><section class="api-symbol"><h2 id="CompiledEvidenceProblem">CompiledEvidenceProblem</h2><p class="source-note">Defined in <code>bayesmith.compiled</code>, line 44.</p><pre><code>class CompiledEvidenceProblem
+log_prior: Any
+log_likelihood: Any
+prior_sample: Any
+exact_elimination: tuple[str, ...]
+residual_parameters: tuple[str, ...]
+shapes: tuple[tuple[str, tuple[int, ...]], ...]
+prior_terms: tuple[str, ...]
+likelihood_terms: tuple[str, ...]</code></pre><pre class="docstring">A residual evidence problem, with its prior and likelihood separated.
+
+Nested sampling needs ``log L(theta)`` apart from ``log pi(theta)``, and
+nothing else in this package produces that separation:
+:func:`~bayesmith.graph.evaluate.log_joint` sums every ``Probabilistic``
+node into ONE running total and then adds ``joint_prior`` and every
+``evidence_terms`` entry in the same loop. Building the split is a compiler
+pass and bayesmith owns it -- design section 1.5&#x27;s first clause is graph
+semantics, structure discovery, premise validation and task-aware
+compilation.
+
+**No FIELD is a Graph, and the densities close over one.** Both halves are
+asserted, because stating only the first is how a guard that reads a
+spelling gets written: an earlier test here walked the field values for a
+``.nodes`` attribute, and they are functions, so it passed while the graph
+was reachable through every one of the three closures.
+
+Design line 192 says a compiled problem may contain the residual log
+density, transforms, constant terms and a reconstruction map, &quot;but it may
+not re-interpret the Graph&quot;. What that forbids is a BACKEND doing the
+re-interpreting. bayesmith compiling the densities itself, by closing over
+the graph, is the contract kept rather than broken -- the adapter receives
+callables and cannot reach a graph without walking closure internals. The
+half that binds an adapter is asserted where an adapter exists: its module
+imports no ``Graph`` and its signature takes only a compiled problem.
+
+The parent type design line 482 names, ``CompiledProblem``, does not exist
+in this package -- the name appears six times in the design and nowhere in
+the source -- so this is built standalone and to line 192&#x27;s contract, in
+order that the variant relation is a refactor rather than a redesign when
+the parent is written.
+
+Attributes:
+    log_prior: ``theta -&gt; log pi(theta)``, the latent nodes&#x27; own densities
+        plus the graph-level ``joint_prior``.
+    log_likelihood: ``theta -&gt; log L(theta)``, the observed nodes&#x27; densities
+        (honouring ``observed_mask``) plus every graph-level
+        ``evidence_terms`` entry. Those hold graph-level LIKELIHOOD factors
+        despite the field&#x27;s name, which the R4 PLAN records and declines to
+        rename (`2026-09-04-r4-evidence.md:650`; the close-out does not
+        mention the field at all, and an earlier version of this line cited
+        it). The assignment is asserted by consequence -- the prior side
+        integrates to one -- and never by the name.
+    prior_sample: ``key -&gt; theta``, a draw from the prior. Strictly
+        stronger than a prior that integrates to one, and it is what a
+        nested sampler actually needs: ``improper_outside_prior`` raises
+        here rather than returning a number.
+    exact_elimination: latents already integrated in closed form.
+    residual_parameters: latents the backend must integrate. Disjoint from
+        ``exact_elimination`` -- ``InferencePlanRecord`` already refuses a
+        name in both, and the two would otherwise disagree about which
+        parameters a backend was handed.
+    shapes: the parameter layout, ``(name, shape)`` per residual parameter.
+    prior_terms, likelihood_terms: which term went to which side. Carried
+        as data so that a test can assert every term is filed exactly once
+        without re-deriving the partition it is grading.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#CompiledEvidenceProblem">CompiledEvidenceProblem</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

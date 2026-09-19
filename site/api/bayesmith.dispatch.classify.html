@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.dispatch.classify"><title>bayesmith.dispatch.classify · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.classify</span></nav>
+<article><h1>bayesmith.dispatch.classify</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Which latents an exact method applies to, and how they group.
+
+Affine groups are discovered from the primal computation with complementary
+latents kept symbolic. ``linear_in`` remains compatible input metadata, but
+neither its presence nor its absence decides membership. Structural proof,
+finite numerical checks, Gaussian eligibility and covariance movement remain
+separate evidence.
+
+**Nothing here samples, and nothing here is jittable.** Every guard it calls
+-- :func:`~bayesmith.exact.gaussian.check_gaussian`,
+:func:`~bayesmith.exact.linearity.check_linearity`,
+:func:`~bayesmith.exact.gls.check_prediction_dependence` -- runs on concrete
+values and raises, so this whole module runs once, at compile time, outside
+any trace.
+
+**Exceptions are discriminated by raise SITE, not by type.**
+:class:`~bayesmith.errors.NotGaussian` is a verdict about an ordinary model
+and is caught wherever it appears. :class:`~bayesmith.errors.StructureError`
+is caught at exactly one call site -- ``check_linearity``&#x27;s, where it means a
+false ``linear_in`` and the block falls to NUTS naming its members -- and is
+deliberately allowed through everywhere else, because from ``check_gaussian``
+it means a node whose own ``log_prob`` contradicts the ``loc``/``scale`` read
+off it, and routing that to NUTS would hide a broken model behind an
+ordinary-looking fallback.</pre></details><div class="symbol-index"><a href="#SIGMA_RTOL">SIGMA_RTOL</a> <a href="#Classification">Classification</a> <a href="#block_at">block_at</a> <a href="#partition">partition</a></div><section class="api-symbol"><h2 id="SIGMA_RTOL">SIGMA_RTOL</h2><p class="source-note">Defined in <code>bayesmith.dispatch.classify</code>, line 63.</p><pre><code>SIGMA_RTOL = 1e-08</code></pre></section><section class="api-symbol"><h2 id="Classification">Classification</h2><p class="source-note">Defined in <code>bayesmith.dispatch.classify</code>, line 81.</p><pre><code>class Classification
+exact: tuple[str, ...]
+nuts: tuple[str, ...]
+method: str
+reason: str
+linearity: dict[int, dict[float, float]] | None
+sigma_movement: float | None
+sigma_needs_rebuild: bool
+structure: dict | None = None
+discovery: Any = None</code></pre><pre class="docstring">The partition of one graph, and the evidence behind it.
+
+Attributes:
+    exact: the single exact block, sorted. Empty if there is none.
+    nuts: every other latent, sorted.
+    method: ``&quot;gcr&quot;``, ``&quot;gcr+snis&quot;``, ``&quot;gcr+mh&quot;`` or ``&quot;nuts&quot;``.
+    reason: why -- named members on a refusal, so a user one declaration
+        away from an exact solve can see that from the plan.
+    linearity: ``check_linearity``&#x27;s per-at-point errors, or ``None``.
+    sigma_movement: the largest relative movement of sigma with the
+        block, or ``None`` if there is no block. Measured from TWO
+        anchors -- prior-scale probes around the prior centre, and the
+        block&#x27;s own Wiener solution, which is where the data put the
+        posterior. See :func:`_sigma_movement` for why one of them is not
+        enough.
+    sigma_needs_rebuild: whether any observed node&#x27;s scale has a latent
+        ANCESTOR outside the block, in which case ``noise_std`` must be
+        recomputed every sweep rather than hoisted. Distinct from
+        ``sigma_movement``, which only sees movement with the BLOCK.</pre></section><section class="api-symbol"><h2 id="block_at">block_at</h2><p class="source-note">Defined in <code>bayesmith.dispatch.classify</code>, line 120.</p><pre><code>block_at(graph: Graph, names: tuple[str, ...], *, env: dict[str, Any] | None=None) -&gt; dict[str, Any]</code></pre><pre class="docstring">``{outside latent: prior centre}`` -- where a block is built.
+
+A block is affine *given* the latents outside it, so it has to be
+anchored somewhere, and the prior&#x27;s centre is the &quot;before seeing
+anything&quot; point. Anchoring at zero instead is not equivalent and is not
+merely a different starting guess: ``affine_only_at_zero``&#x27;s prediction is
+affine exactly where its outside latent is zero, so a zero anchor accepts
+at the caller&#x27;s own at-point a model that the prior&#x27;s centre refuses
+there.</pre></section><section class="api-symbol"><h2 id="partition">partition</h2><p class="source-note">Defined in <code>bayesmith.dispatch.classify</code>, line 526.</p><pre><code>partition(graph: Graph, *, key: jax.Array | None=None) -&gt; Classification</code></pre><pre class="docstring">Derive the exact block and its method from the graph&#x27;s structure.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#SIGMA_RTOL">SIGMA_RTOL</a><a href="#Classification">Classification</a><a href="#block_at">block_at</a><a href="#partition">partition</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="Partial structure in a hierarchy"><title>Partial structure in a hierarchy · bayesmith</title>
+<link rel="stylesheet" href="assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="assets/docs.css"><script defer src="assets/vendor/katex/katex.min.js"></script><script defer src="assets/search-index.js"></script><script defer src="assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="index.html">Overview</a><a href="installation.html">Installation</a><a href="quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="nonlinear.html" aria-current="page">Partial structure</a><a href="notebook.html">Hierarchical notebook</a><a href="reweighting.html">Near-Gaussian targets</a><a href="predictive.html">Prediction and simulation</a><a href="tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="concepts.html">Core concepts</a><a href="modeling.html">Graph and hierarchy</a><a href="inference.html">Inference routes</a><a href="policies.html">Sampling policies</a><a href="artifacts.html">Results and provenance</a><a href="diagnostics.html">Diagnostics</a><a href="evidence.html">Evidence</a><a href="experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="architecture.html">Architecture</a><a href="principles.html">Principles and verification</a><a href="extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="reference.html">API reference</a></section><section><h2>Project</h2><a href="project.html">Release status</a><a href="contributing.html">Contributing</a><a href="records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span>/</span><span>Worked examples</span><span>/</span><span aria-current="page">Partial structure in a hierarchy</span></nav>
+<article><h1>Partial structure in a hierarchy</h1><p class="lede">In a hierarchy, the group means are conditionally Gaussian once the population mean is fixed. The plan solves them exactly and leaves only the population mean to NUTS. A second model, with no exact block, runs on NUTS alone.</p>
+<nav class="steps" aria-label="Steps in this example"><ol><li><a href="#model"><b>Model</b><span>Population · groups · data</span></a></li><li><a href="#data"><b>Simulate</b><span>Set truth · draw data</span></a></li><li><a href="#infer"><b>Infer</b><span>Read the plan · sample</span></a></li><li><a href="#check"><b>Check</b><span>Against the exact posterior</span></a></li></ol></nav>
+<h2 id="model">Model</h2><p>Six groups share a population mean μ. Each group has a latent mean u<sub>g</sub>, and each of its five measurements has known noise:</p><div data-math="\mu\sim\mathcal N(0,2^2),\qquad u_g\mid\mu\sim\mathcal N(\mu,0.6^2),\qquad y_{gj}\mid u_g\sim\mathcal N(u_g,0.25^2)">\mu\sim\mathcal N(0,2^2),\qquad u_g\mid\mu\sim\mathcal N(\mu,0.6^2),\qquad y_{gj}\mid u_g\sim\mathcal N(u_g,0.25^2)</div><p>The function <code>hierarchy</code> in the script declares this graph: a vector latent <code>groups</code> whose prior mean is <code>population</code>, an indexing operator that assigns each measurement to its group, and the observed node.</p><details><summary>Complete script</summary><div class="code-caption">partial_structure.py</div><pre><code class="language-python">&quot;&quot;&quot;A hierarchy with exact group means. Run with: JAX_ENABLE_X64=1 python partial_structure.py&quot;&quot;&quot;
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+import numpyro.distributions as dist
+
+import bayesmith as bs
+
+GROUPS, PER_GROUP = 6, 5
+INDEX = np.repeat(np.arange(GROUPS), PER_GROUP)
+PRIOR_SD, GROUP_SD, NOISE_SD = 2.0, 0.6, 0.25
+
+
+def hierarchy(index, data):
+    index = bs.const(&quot;group_index&quot;, index)
+    population = bs.sample(&quot;population&quot;, lambda: dist.Normal(0.0, PRIOR_SD))
+    groups = bs.sample(
+        &quot;groups&quot;,
+        lambda mu: dist.Normal(mu * jnp.ones(GROUPS), GROUP_SD).to_event(1),
+        population,
+    )
+    location = bs.det(&quot;location&quot;, lambda u, i: u[i], groups, index)
+    bs.observe(&quot;obs&quot;, lambda loc: dist.Normal(loc, NOISE_SD), location, obs=data)
+
+
+def simulate(seed=0, population=0.8):
+    &quot;&quot;&quot;Set a truth, draw group means from their prior, then draw data.&quot;&quot;&quot;
+    rng = np.random.default_rng(seed)
+    groups = population + GROUP_SD * rng.standard_normal(GROUPS)
+    data = groups[INDEX] + NOISE_SD * rng.standard_normal(INDEX.size)
+    return {&quot;population&quot;: population, &quot;groups&quot;: groups}, data
+
+
+def exact_posterior(data):
+    &quot;&quot;&quot;Closed-form posterior of (population, groups): the model is jointly Gaussian.&quot;&quot;&quot;
+    prior = np.full((GROUPS + 1, GROUPS + 1), PRIOR_SD**2)
+    prior[1:, 1:] += GROUP_SD**2 * np.eye(GROUPS)
+    design = np.zeros((INDEX.size, GROUPS + 1))
+    design[np.arange(INDEX.size), 1 + INDEX] = 1.0
+    precision = np.linalg.inv(prior) + design.T @ design / NOISE_SD**2
+    covariance = np.linalg.inv(precision)
+    mean = covariance @ design.T @ data / NOISE_SD**2
+    return mean, np.sqrt(np.diag(covariance))
+
+
+def compare(seed=1, num_warmup=1000, num_samples=4000):
+    &quot;&quot;&quot;Sample through the compiled plan and set it beside the exact posterior.&quot;&quot;&quot;
+    truth, data = simulate()
+    plan = bs.compile(bs.trace(hierarchy, INDEX, jnp.asarray(data)))
+    draws = plan.sample(
+        jax.random.key(seed), num_warmup=num_warmup, num_samples=num_samples
+    ).samples
+    sampled = np.column_stack([draws[&quot;population&quot;], draws[&quot;groups&quot;]])
+    exact_mean, exact_sd = exact_posterior(data)
+    names = [&quot;population&quot;] + [f&quot;groups[{g}]&quot; for g in range(GROUPS)]
+    truths = [truth[&quot;population&quot;], *truth[&quot;groups&quot;]]
+    return [
+        {
+            &quot;name&quot;: name,
+            &quot;truth&quot;: float(truths[i]),
+            &quot;exact_mean&quot;: float(exact_mean[i]),
+            &quot;sampled_mean&quot;: float(sampled[:, i].mean()),
+            &quot;exact_sd&quot;: float(exact_sd[i]),
+            &quot;sampled_sd&quot;: float(sampled[:, i].std()),
+        }
+        for i, name in enumerate(names)
+    ]
+
+
+if __name__ == &quot;__main__&quot;:
+    _, data = simulate()
+    print(bs.compile(bs.trace(hierarchy, INDEX, jnp.asarray(data))))
+    for row in compare():
+        print(row)
+</code></pre><p><a download href="snippets/partial_structure.py">Download this example</a></p></details>
+<h2 id="data">Simulate</h2><p><code>simulate()</code> sets μ = 0.8, draws the six group means from their prior and then draws five measurements per group, with a fixed seed. The truth is kept for the check and is not given to inference.</p>
+<h2 id="infer">Infer</h2><p>Compiling the graph gives this plan:</p><figure class="plan-record"><div class="table-scroll"><table class="plan-table"><thead><tr><th>Block</th><th>Latents</th><th>Route</th><th>Why</th></tr></thead><tbody><tr><td>0</td><td><code>groups</code></td><td><span class="route route-exact">GCR exact</span></td><td>structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)</td></tr><tr><td>1</td><td><code>population</code></td><td><span class="route route-sampled">NUTS</span></td><td>outside the exact block [&#x27;groups&#x27;]: sampled by NUTS, and the exact block is solved CONDITIONAL on them, once per sweep</td></tr></tbody><tfoot><tr><th scope="row" colspan="2">Execution</th><td colspan="2"><code>HMCGibbs(inner=NUTS, gibbs_sites=[&#x27;groups&#x27;]); noise_std rebuilt every sweep</code></td></tr></tfoot></table></div><details><summary>Printed plan</summary><pre class="plan-output"><code>block 0  {groups}         GCR exact         structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)
+         kappa=29.8 -&gt; tol=3.3557047e-05, guard hoisted out of the sweep
+         exact block [&#x27;groups&#x27;]: sigma does not move with the block (0.000e+00 relative,
+         rtol=1.0e-08), so the covariance is fixed and one Wiener solve is exact
+block 1  {population}     NUTS
+         outside the exact block [&#x27;groups&#x27;]: sampled by NUTS, and the exact block is
+         solved CONDITIONAL on them, once per sweep
+execution: HMCGibbs(inner=NUTS, gibbs_sites=[&#x27;groups&#x27;]); noise_std rebuilt every sweep</code></pre></details><figcaption>Recorded 2026-09-19 with bayesmith 0.9.0 on arm64 (accelerate BLAS, x64 on) from <a href="snippets/partial_structure.py"><code>partial_structure.py</code></a>. Condition numbers and tolerances in the printout depend on the BLAS; block membership and routes are re-checked by the test suite. <a href="assets/plans/partial.json">Full record</a>.</figcaption></figure>
+<p>With μ fixed, the six group means have a Gaussian prior, each prediction is a selection from them and the noise does not depend on them, so <code>groups</code> is certified as an exact block. The prior of <code>groups</code> depends on μ, so μ cannot sit in the same exact block; it goes to NUTS. The execution line states the result: NUTS moves μ, and every sweep draws all six group means exactly given the current μ.</p><p>The exact route reads a Normal whether or not it is wrapped by <code>.to_event</code> or <code>.expand</code>. The <a href="notebook.html#infer">hierarchical notebook</a> writes its group prior with <code>.expand</code> and gets the same plan.</p>
+<h2 id="check">Check</h2><p>Every distribution here is Gaussian and every operator is affine, so the joint posterior of all seven latents is Gaussian and has a closed form (<code>exact_posterior</code> in the script). That gives an independent reference for the draws the plan produces.</p><figure class="plan-record"><div class="table-scroll"><table class="result-table"><thead><tr><th>Parameter</th><th>Truth</th><th>Exact mean</th><th>Sampled mean</th><th>Exact sd</th><th>Sampled sd</th></tr></thead><tbody><tr><td>population</td><td>0.800</td><td>0.8067</td><td>0.8096</td><td>0.2473</td><td>0.2460</td></tr><tr><td>groups[0]</td><td>0.875</td><td>0.8566</td><td>0.8543</td><td>0.1102</td><td>0.1093</td></tr><tr><td>groups[1]</td><td>0.721</td><td>0.5071</td><td>0.5067</td><td>0.1102</td><td>0.1078</td></tr><tr><td>groups[2]</td><td>1.184</td><td>1.1941</td><td>1.1956</td><td>0.1102</td><td>0.1089</td></tr><tr><td>groups[3]</td><td>0.863</td><td>0.9601</td><td>0.9573</td><td>0.1102</td><td>0.1094</td></tr><tr><td>groups[4]</td><td>0.479</td><td>0.3489</td><td>0.3475</td><td>0.1102</td><td>0.1078</td></tr><tr><td>groups[5]</td><td>1.017</td><td>1.0458</td><td>1.0472</td><td>0.1102</td><td>0.1112</td></tr></tbody></table></div><figcaption>Recorded 2026-09-19 with bayesmith 0.9.0 on arm64 (accelerate BLAS, x64 on); seed 1, num_warmup 1000, num_samples 4000. Sampled columns are one run on that platform; closed-form columns are recomputed by the test suite. <a href="assets/plans/partial.json">Full record</a>.</figcaption></figure>
+<p>Agreement on one dataset with one seed checks this route on this model. It does not calibrate the sampler across datasets; <a href="diagnostics.html">diagnostics and model checks</a> covers that.</p>
+<h2 id="decay">When nothing is exact</h2><p>An exponential decay with an unknown rate is nonlinear in its only latent, and the rate has a log-normal prior. The plan has no exact block:</p><figure class="plan-record"><div class="table-scroll"><table class="plan-table"><thead><tr><th>Block</th><th>Latents</th><th>Route</th><th>Why</th></tr></thead><tbody><tr><td>0</td><td><code>rate</code></td><td><span class="route route-sampled">NUTS</span></td><td>&#x27;rate&#x27;: node &#x27;rate&#x27; returns LogNormal; the exact linear-Gaussian path needs a diagonal Normal (a Normal, one wrapped by .to_event(...) or .expand(...), or a ComplexNormal)</td></tr></tbody><tfoot><tr><th scope="row" colspan="2">Execution</th><td colspan="2"><code>NUTS</code></td></tr></tfoot></table></div><details><summary>Printed plan</summary><pre class="plan-output"><code>block 0  {rate}           NUTS
+         &#x27;rate&#x27;: node &#x27;rate&#x27; returns LogNormal; the exact linear-Gaussian path needs a
+         diagonal Normal (a Normal, one wrapped by .to_event(...) or .expand(...), or a
+         ComplexNormal)
+execution: NUTS</code></pre></details><figcaption>Recorded 2026-09-19 with bayesmith 0.9.0 on arm64 (accelerate BLAS, x64 on) from <a href="snippets/nonlinear.py"><code>nonlinear.py</code></a>. Condition numbers and tolerances in the printout depend on the BLAS; block membership and routes are re-checked by the test suite. <a href="assets/plans/decay.json">Full record</a>.</figcaption></figure>
+<p>The script below runs the same model through the typed task protocol with a deliberately small budget.</p><div class="code-caption">nonlinear.py</div><pre><code class="language-python">&quot;&quot;&quot;A small NUTS tutorial; short chains demonstrate the API, not convergence.&quot;&quot;&quot;
+
+import jax
+import jax.numpy as jnp
+import numpyro.distributions as dist
+
+import bayesmith as bs
+from bayesmith.artifacts import (
+    ComputeBudget,
+    PosteriorTask,
+    Refusal,
+    model_ref_from_callable,
+    new_task_meta,
+)
+
+DATA = jnp.array([1.02, 0.57, 0.30, 0.21, 0.12])
+
+
+def model(data):
+    rate = bs.sample(&quot;rate&quot;, lambda: dist.LogNormal(-0.5, 0.4))
+    mean = bs.det(&quot;mean&quot;, lambda r: jnp.exp(-r * jnp.arange(5.0)), rate)
+    bs.observe(&quot;signal&quot;, lambda m: dist.Normal(m, 0.1), mean, obs=data)
+
+
+def main():
+    graph = bs.trace(model, DATA)
+    print(bs.compile(graph))
+    task = PosteriorTask(
+        meta=new_task_meta(label=&quot;decay rate&quot;),
+        budget=ComputeBudget(draws=100, warmup=100, chains=1),
+        require_convergence=False,  # tutorial budget only; inspect real runs separately
+    )
+    planned = bs.compile_task(
+        graph,
+        task,
+        model_ref=model_ref_from_callable(model, identifier=&quot;decay&quot;),
+        key=jax.random.key(1),
+    )
+    if isinstance(planned, Refusal):
+        raise SystemExit(planned.failed_premise)
+    result = bs.execute_task(planned, key=jax.random.key(2))
+    if isinstance(result, Refusal):
+        raise SystemExit(result.failed_premise)
+    print(result.run.backend)
+    print(result.run.termination)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre><p><a download href="snippets/nonlinear.py">Download this example</a></p>
+<h2 id="budget">Sampling budget and diagnostics</h2><p>The short single-chain example explicitly disables the convergence requirement. For a scientific result, choose an adequate warmup and draw budget, use multiple chains where supported, inspect divergences and chain diagnostics, and retain termination details. Increasing the number of draws does not repair an incorrect likelihood, a poor parameterization or missing identifiability.</p><p><code>result.run.backend</code> identifies the numerical engine. <code>result.run.termination</code> states how the run stopped. Keep both with the result so a fixed-budget stop cannot later be presented as a convergence decision.</p>
+<h2 id="blocks">Conditional exactness and its limits</h2><p>An exact block is exact given the other latents. It does not make the chain over the remaining latents independent, and it does not make the whole graph analytically integrable. A declaration cannot create an exact block the checks reject: the Overview shows <a href="index.html#plan-before-fit">a false declaration refused</a> with its measurements.</p><p>Continue with <a href="inference.html">structure and inference routes</a> and <a href="policies.html">sampling policies</a>.</p>
+</article><footer><p>Version 0.9.0 · <a href="project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#model">Model</a><a href="#data">Simulate</a><a href="#infer">Infer</a><a href="#check">Check</a><a href="#decay">When nothing is exact</a><a href="#budget">Sampling budget and diagnostics</a><a href="#blocks">Conditional exactness and its limits</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

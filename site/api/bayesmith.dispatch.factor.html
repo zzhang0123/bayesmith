@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.dispatch.factor"><title>bayesmith.dispatch.factor · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.factor</span></nav>
+<article><h1>bayesmith.dispatch.factor</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Factor partition: as many exact blocks as the model has factors.
+
+:func:`~bayesmith.dispatch.classify.partition` finds THE exact block -- one,
+by declaration, with everything else falling to NUTS. On a multilinear model
+that is the wrong shape: in ``d = g * (B t)`` with both latents declared,
+``g`` and ``t`` are each affine given the other and not affine together, so
+the single block fails its joint check and the WHOLE model lands in NUTS --
+measured, that is exactly what ``partition`` returns -- when the correct
+treatment is an alternating Gibbs sweep of two exact blocks, one per factor.
+
+This module derives that partition, and the rule it uses is a fact of
+calculus rather than a heuristic: for latents each already verified affine
+on its own, every diagonal block of the group&#x27;s Hessian vanishes, so JOINT
+affinity is exactly the vanishing of the off-diagonal blocks -- a property
+of PAIRS. Probing the ``C(n, 2)`` pairs therefore settles all ``2^n - n - 1``
+subsets, and the pairwise verdicts colour a graph whose groups are the
+blocks. :func:`first_fit` is that colouring: deterministic, in declaration
+order, not guaranteed minimal -- a needless extra block costs mixing, never
+correctness -- and a caller who knows the true factors writes them by hand.
+
+**Log-linear factors are discovered by the same probe, not declared.** A
+latent the prediction is ``exp``-affine in has no ``linear_in`` that could
+be true of it, so after the linear factors are grouped, the remainder is
+probed again on the :func:`~bayesmith.exact.loglinear.log_space` graph --
+where such a latent IS affine, the noise is additive, and its scale is
+constant. Latents that pass group into ``&quot;log-gcr&quot;`` blocks by the same
+pairwise rule; what remains after both probes is the NUTS block.
+
+**Execution reuses the machinery it finds blocks for.** A sweep updates each
+closed-form block in turn -- ``gcr_sample`` on the original graph for a
+linear block, on the transformed graph for a log one, conditioning every
+block on the latest values of all the others -- and hands any NUTS remainder
+to ``HMCGibbs`` exactly as the single-block assembly does. The one method
+this module refuses to sweep is ``&quot;gcr+mh&quot;``: a Metropolis accept per block
+per sweep is a different correctness argument from
+:func:`~bayesmith.exact.gibbs._mh_step`&#x27;s single-block one, and until it is
+written down this module says so rather than running an unargued sampler.
+
+The pairwise rule, the log-space scenarios and their thresholds are ported
+from ``rheplicant.inference.partition`` / ``loglinear``; the probes they run
+on are this package&#x27;s own -- per element, sigma-weighted, swept over the
+outside latents&#x27; priors -- which the originals were not.</pre></details><div class="symbol-index"><a href="#FACTOR_METHODS">FACTOR_METHODS</a> <a href="#FactorPlan">FactorPlan</a> <a href="#SweepEstimate">SweepEstimate</a> <a href="#SweepReport">SweepReport</a> <a href="#declared_partition">declared_partition</a> <a href="#estimate_factors">estimate_factors</a> <a href="#factor_partition">factor_partition</a> <a href="#first_fit">first_fit</a> <a href="#sample_factors">sample_factors</a></div><section class="api-symbol"><h2 id="FACTOR_METHODS">FACTOR_METHODS</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 85.</p><pre><code>FACTOR_METHODS: tuple[str, ...] = (&#x27;gcr&#x27;, &#x27;log-gcr&#x27;, &#x27;nuts&#x27;)</code></pre></section><section class="api-symbol"><h2 id="FactorPlan">FactorPlan</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 114.</p><pre><code>class FactorPlan(eqx.Module)
+blocks: tuple[Block, ...]
+log_space: LogSpace | None</code></pre><pre class="docstring">The factor partition of one graph, ready to sweep.
+
+Attributes:
+    blocks: closed-form blocks first (``&quot;gcr&quot;`` then ``&quot;log-gcr&quot;``, each
+        in discovery order), then at most one ``&quot;nuts&quot;`` block holding
+        everything neither probe accepted -- whose ``reason`` names, per
+        latent, why not.
+    log_space: the transformed graph the ``&quot;log-gcr&quot;`` blocks solve
+        against, or ``None`` when there are none. Carried on the plan
+        because every rebuild in a sweep needs it, and reconstructing it
+        per sweep would re-run the scenario probes hundreds of times for
+        an answer that cannot change.</pre><h3 id="FactorPlan.exact">FactorPlan.exact</h3><pre><code>exact(self) -&gt; tuple[Block, ...]</code></pre><pre class="docstring">The closed-form blocks, in sweep order.</pre><h3 id="FactorPlan.nuts">FactorPlan.nuts</h3><pre><code>nuts(self) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The latents left to NUTS.</pre></section><section class="api-symbol"><h2 id="SweepEstimate">SweepEstimate</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 850.</p><pre><code>class SweepEstimate(NamedTuple)
+values: dict[str, Any]
+history: jax.Array
+residuals: dict[tuple[str, ...], jax.Array]
+sweeps: int</code></pre><pre class="docstring">What :func:`estimate_factors` returns (G10 ii).
+
+Attributes:
+    values: the point the sweeps reached, every latent.
+    history: the joint log-density after each sweep, shape ``(sweeps,)``.
+        For an all-exact plan this is **non-decreasing by construction**
+        and that is the property to assert on: a Gaussian conditional&#x27;s
+        MEAN is its MODE, so each block update maximises the joint over
+        its own members. A sweep that conditioned on stale values still
+        converges on an orthogonal model and breaks this on a correlated
+        one.
+    residuals: the last sweep&#x27;s relative CG residual per exact block.
+    sweeps: how many were run. There is no early stop.</pre></section><section class="api-symbol"><h2 id="SweepReport">SweepReport</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 628.</p><pre><code>class SweepReport(NamedTuple)
+index: int
+warmup: bool
+values: dict[str, Any]
+log_joint: jax.Array
+residuals: dict[tuple[str, ...], jax.Array]</code></pre><pre class="docstring">One sweep, as the ``on_sweep`` hook sees it (G10 i).
+
+Attributes:
+    index: sweep number over warmup and kept sweeps together, from 0.
+    warmup: whether this sweep is being discarded.
+    values: every latent&#x27;s value at the END of this sweep -- the row that
+        was kept, when ``warmup`` is false.
+    log_joint: the joint log-density there. This is the chi-square
+        trajectory D14 asks for, in the spelling that also exists for a
+        model that is not Gaussian: for one that is, ``-2 log_joint`` IS
+        the chi-square up to an additive constant, and the constant does
+        not move along a trajectory.
+    residuals: ``{block latents: relative CG residual}`` for this sweep&#x27;s
+        solves. Not an accuracy -- multiply by the block&#x27;s ``kappa`` for
+        that -- but it is the only per-solve number there is, and this
+        executor used to drop it on the floor.</pre></section><section class="api-symbol"><h2 id="declared_partition">declared_partition</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 408.</p><pre><code>declared_partition(graph: Graph, blocks: Sequence[tuple[Sequence[str], str]], *, key: jax.Array | None=None, measure: bool=True) -&gt; FactorPlan</code></pre><pre class="docstring">A :class:`FactorPlan` from a block table the CALLER decided (G10 iii).
+
+:func:`factor_partition` derives a partition by probing: it checks each
+latent&#x27;s affinity alone, groups by the pairwise joint check, and refuses a
+group whose sigma moves with it. This entry runs none of that. It takes
+the groups and the methods as given, builds the plan, and hands it to
+:func:`sample_factors`.
+
+**You declare, you are responsible.** That is not a disclaimer, it is the
+contract: a ``&quot;gcr&quot;`` block whose prediction is not affine in its members
+gives a draw from a linearisation, silently, with a converged residual and
+a healthy chain. Nothing here can tell you so, because the check that
+would have is exactly what this entry skips. Every block records
+``declared`` in its ``reason`` so a plan read later cannot be mistaken for
+a derived one.
+
+What is still refused is everything that is a BOOKKEEPING error rather
+than a modelling claim -- a name that is not a latent, a latent in two
+blocks or in none, an empty block, an unknown method, a second ``&quot;nuts&quot;``
+block. Those are not judgements about the model, and letting them through
+would make the entry useless rather than permissive.
+
+**G12 -- sigma frozen at the block&#x27;s CURRENT value, and exactly when.**
+A block whose sigma moves with its own members is what
+:func:`factor_partition` refuses (the movement gate); declaring it
+``&quot;gcr&quot;`` here is how that semantics becomes reachable. What happens then
+is already in :func:`sample_factors` and is not new code: a block is put
+on the REBUILD branch by
+:func:`~bayesmith.dispatch.classify._sigma_needs_rebuild`, and that branch
+reads ``precision_at(source, current)`` where ``current`` already holds
+every latent&#x27;s latest value, the block&#x27;s own included.
+
+**The condition is about an OUTSIDE latent, and that matters here.**
+``_sigma_needs_rebuild`` asks whether an observed node depends on a latent
+outside the block -- so a plan of two or more blocks over a
+prediction-dependent sigma rebuilds, and a plan of ONE block over the
+whole model does not: with nothing outside it, that block is hoisted and
+its sigma is frozen at the PRIOR CENTRE instead. Measured on a
+single-latent radiometer: ``_sigma_needs_rebuild`` returns ``False``.
+Two different approximations, and only the first is the one this entry is
+for.
+
+**Either way it is an approximation with a name, not a correctness
+proof.** The transition is history-dependent and the chain it produces is
+not, in general, invariant for the declared posterior. It is offered
+because it reproduces a specific existing behaviour exactly, and that is
+written down here so &quot;the switch-over kept the numbers&quot; is not mistaken
+for &quot;the sampler is right&quot;. ``&quot;gcr+mh&quot;`` -- the corrected version -- is
+refused at construction, with its own message.
+
+Args:
+    graph: the model.
+    blocks: ``[(names, method), ...]`` in sweep order. Methods are
+        :data:`FACTOR_METHODS`. The order is the caller&#x27;s and is kept --
+        block order is a modelling choice for a Gibbs sweep, not an
+        implementation detail.
+    key: PRNG key for the kappa sweep, when ``measure`` is on.
+    measure: whether to measure each exact block&#x27;s conditioning and set
+        its ``tol`` from it, as :func:`factor_partition` does. ``False``
+        leaves ``tol`` unset and :func:`sample_factors` falls back to its
+        own default -- for a caller who knows the probe is expensive and
+        does not want the number.
+
+Returns:
+    A :class:`FactorPlan`.
+
+Raises:
+    GraphError: if an evidence term covers a latent the declaration puts
+        in an exact block; that conditional solve cannot consume the
+        graph-level term.
+    StructureError: for any of the bookkeeping errors listed above.</pre></section><section class="api-symbol"><h2 id="estimate_factors">estimate_factors</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 872.</p><pre><code>estimate_factors(graph: Graph, plan: FactorPlan, *, sweeps: int=50, maxiter: int | None=None, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None) -&gt; SweepEstimate</code></pre><pre class="docstring">A POINT by block coordinate ascent over the plan (G10 ii).
+
+:meth:`~bayesmith.dispatch.plan.InferencePlan.estimate` refuses a graph
+that is not exact throughout, which leaves a mixed model -- the ordinary
+case, and the one a factor partition exists for -- with no point estimate
+at all. This sweeps instead: every exact block is solved for its
+conditional MEAN, and the remainder, if there is one, is stepped by
+:func:`~bayesmith.optimize.fit` on the same joint.
+
+**Solved, not drawn.** The exact blocks go through
+:func:`~bayesmith.exact.solve.wiener_solve` rather than ``gcr_sample``,
+so this takes no key and is deterministic -- a sweep that drew would land
+near the mode too, and differ run to run while looking identical in a
+docstring.
+
+**Why the two halves compose.** For a Gaussian conditional the mean IS
+the mode, so a Wiener sweep is exact coordinate ascent on the joint;
+:func:`~bayesmith.optimize.fit` ascends the same joint over the remaining
+latents. One objective, two ways of maximising over a coordinate block --
+which is why :attr:`SweepEstimate.history` is a single meaningful
+trajectory rather than two spliced ones.
+
+**What it is not.** There is no convergence verdict and no early stop:
+``sweeps`` sweeps are run. The gradient half also has no line search, so
+on a mixed plan the history can dip where a gradient block overshoots;
+monotonicity is a property of the all-exact case only, and is asserted
+there.
+
+Args:
+    graph: the model.
+    plan: from :func:`factor_partition` or :func:`declared_partition`.
+    sweeps: how many passes over the blocks.
+    maxiter: CG iteration cap per solve.
+    steps, learning_rate, step_sizes: passed to
+        :func:`~bayesmith.optimize.fit` for the NUTS-remainder block, per
+        sweep. Ignored when the plan has no remainder.
+
+Returns:
+    A :class:`SweepEstimate`.
+
+Raises:
+    StructureError: for a non-positive ``sweeps``.
+    GraphError: if a block carries a method this module does not sweep,
+        or if an evidence term covers one of the plan&#x27;s exact latents.</pre></section><section class="api-symbol"><h2 id="factor_partition">factor_partition</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 186.</p><pre><code>factor_partition(graph: Graph, *, key: jax.Array | None=None, scales: Sequence[float]=DEFAULT_SCALES, log_scales: Sequence[float]=LOG_DEFAULT_SCALES, rtol: float | None=None, _discovery=None, _linear_only: bool=False) -&gt; FactorPlan</code></pre><pre class="docstring">Derive the factor partition: exact blocks by structural discovery, NUTS rest.
+
+The linear pass uses shared automatic affinity discovery: Gaussian prior
+eligibility, latent ancestry, a primal symbolic-complement certificate,
+and independent numerical probes. Final candidate groups are certified
+jointly rather than inferred from pairwise probes. The log pass takes what
+remains, transforms the graph once, and repeats its numerical checks;
+nothing is declared for it because the probe answers the question a
+declaration would merely assert.
+
+Args:
+    graph: the model.
+    key: PRNG key for every probe and kappa sweep. Fixed by default, so a
+        partition is reproducible.
+    scales, log_scales: probe magnitudes for the two passes, in units of
+        each latent&#x27;s own prior width. Separate arguments because the
+        linear default&#x27;s ``1e3`` entry, pushed through an exponential,
+        measures the dtype rather than the model -- see
+        :data:`~bayesmith.exact.loglinear.LOG_DEFAULT_SCALES`.
+    rtol: forwarded to every affinity check.
+
+Returns:
+    A :class:`FactorPlan`. Its ``str`` is the readable form, in the same
+    shape the package front page sketches.
+
+Raises:
+    GraphError: if an evidence term covers a latent assigned to an exact
+        block, whose conditional solve would omit that term. Put the
+        covered latent in NUTS or keep its likelihood explicit.</pre></section><section class="api-symbol"><h2 id="first_fit">first_fit</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 88.</p><pre><code>first_fit(names: Sequence[str], compatible: Callable[[str, str], bool]) -&gt; list[list[str]]</code></pre><pre class="docstring">Group ``names`` so every pair within a group is compatible.
+
+First-fit in the caller&#x27;s order: each name joins the first existing group
+whose every member it is compatible with, and otherwise opens a new one.
+One function for however many probes call it -- the linear pass, the
+log-linear pass, and any other package that partitions by a pairwise
+predicate -- so the grouping RULE cannot drift between them.
+
+No pair is asked twice, and no cache is needed to say so: the groups are
+disjoint, so a name meets any other name in at most one group, and
+``all()`` short-circuits the moment a group is ruled out.</pre></section><section class="api-symbol"><h2 id="sample_factors">sample_factors</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 711.</p><pre><code>sample_factors(graph: Graph, plan: FactorPlan, key: jax.Array, *, num_warmup: int=1000, num_samples: int=2000, maxiter: int | None=None, nuts_options: dict[str, Any] | None=None, on_sweep: Callable[[SweepReport], None] | None=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Draw from the posterior by sweeping the plan&#x27;s blocks.
+
+Every closed-form block is updated by an exact conditional draw --
+:func:`~bayesmith.exact.solve.gcr_sample` on its own source graph --
+conditioning on the LATEST values of every other latent, in plan order.
+With no NUTS remainder the sweep is an exact Gibbs sampler and runs as a
+plain loop here; with one, the sweep becomes ``HMCGibbs``&#x27;s ``gibbs_fn``
+and NUTS advances the remainder between sweeps, exactly as the
+single-block :func:`~bayesmith.exact.gibbs.assemble` arranges.
+
+Args:
+    graph: the model the plan was derived from.
+    plan: from :func:`factor_partition`. Its per-block ``tol`` is used
+        for every solve -- the compile-time choice standing in for the
+        in-sweep guard, for the reason
+        :func:`~bayesmith.exact.gibbs.gibbs_factory` gives.
+    key: PRNG key for the whole run.
+    num_warmup, num_samples: sweeps discarded and kept.
+    maxiter: CG iteration cap per solve.
+    nuts_options: forwarded to the inner NUTS kernel, when there is one.
+    on_sweep: called with a :class:`SweepReport` after every sweep, warmup
+        included. **Refused on a plan with a NUTS remainder**, and the
+        reason is measured rather than defensive: with one, the sweep
+        becomes ``HMCGibbs``&#x27;s ``gibbs_fn``, which numpyro TRACES -- on a
+        two-block plan over five sweeps it is entered twice at the Python
+        level. A callback there would fire once, at trace time, and report
+        a sweep that never happened, with plausible values in it.
+
+The inner NUTS kernel, when there is one, is initialised at the latents&#x27;
+prior centres unless ``nuts_options`` names its own ``init_strategy`` --
+numpyro&#x27;s default draws the initial point from the priors in
+unconstrained space, and on a model whose prediction can go negative out
+there (a radiometer likelihood under a wide sky prior) that manufactures
+an invalid scale before the first sweep runs.
+
+Returns:
+    ``{latent: draws}`` with ``num_samples`` rows each, closed-form and
+    NUTS latents alike.
+
+Raises:
+    GraphError: if the plan has no closed-form block at all -- run
+        :func:`~bayesmith.bridge.numpyro_bridge.nuts` instead, and this
+        refusal names it -- or if a block carries a method this module
+        does not sweep; or if an evidence term covers one of the plan&#x27;s
+        exact latents, including when a cached plan came from another
+        graph state.
+    StructureError: if ``on_sweep`` is given for a plan with a NUTS
+        remainder.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#FACTOR_METHODS">FACTOR_METHODS</a><a href="#FactorPlan">FactorPlan</a><a href="#SweepEstimate">SweepEstimate</a><a href="#SweepReport">SweepReport</a><a href="#declared_partition">declared_partition</a><a href="#estimate_factors">estimate_factors</a><a href="#factor_partition">factor_partition</a><a href="#first_fit">first_fit</a><a href="#sample_factors">sample_factors</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

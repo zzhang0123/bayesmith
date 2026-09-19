@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.bridge.jaxns_bridge"><title>bayesmith.bridge.jaxns_bridge · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.bridge.jaxns_bridge</span></nav>
+<article><h1>bayesmith.bridge.jaxns_bridge</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><div class="warning"><p>Residual-evidence adapter. Public residual EvidenceTask execution is not enabled by this adapter or by installing its optional dependency. See <a href="../evidence.html#residual">the evidence boundary</a>.</p></div><details><summary>Module contract</summary><pre class="docstring">The JAXNS nested-sampling adapter: one module, consuming one compiled problem.
+
+R5 Task 6. The backend decision is
+``docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md``: jaxns passes
+every condition that scores a candidate, blackjax fails condition 1 because it
+does not answer ``overflowing_outside_latent``, and §0.6&#x27;s default drops the
+second backend.
+
+**What this module is allowed to see.** A :class:`~bayesmith.compiled.
+CompiledEvidenceProblem` and nothing else -- no ``Graph``, asserted by type on
+the way in. That class sits in ``bayesmith.compiled`` rather than in
+``dispatch/evidence.py`` where it was written, precisely so this import can be
+at module scope: ``bridge -&gt; dispatch`` would close a cycle that
+``tests/test_layering.py`` raises on. The ruling is in that module.
+
+**What this module does NOT build, and why that departs from plan 6.1.** The
+plan says the adapter &quot;returns a populated ``EvidenceResult``&quot;. It cannot, and
+the reason is a rule this module found by breaking it:
+``tests/test_layering.py::test_the_artifact_protocol_is_a_leaf_and_dispatch_is_
+what_reaches_it`` asserts that the units reaching ``artifacts`` are exactly
+``[&quot;dispatch&quot;, &quot;evaluation&quot;]``, and says a third &quot;would have to be argued for&quot;.
+A first draft of this file imported ``EvidenceComponent`` and
+``WeightedDrawsPosterior`` at module scope and that assertion failed with
+``bridge`` in the list -- which is the test doing precisely what its docstring
+promises.
+
+The edge is not argued for, because it is not needed. ``evaluation`` cannot do
+its job without artifact types; this module can. It reports NUMBERS, and
+``dispatch`` -- which already assembles every other ``EvidenceResult`` in this
+package, at ``task.py:3246``, out of facts only the planner has
+(``plan_ref``, ``fingerprints``, ``PRODUCER``) -- turns them into artifacts.
+That is also what ``bridge/numpyro_bridge.py::nuts`` does: it returns
+``dict[str, jax.Array]``, and ``bridge/arviz.py`` imports artifact types inside
+a function for the same reason.
+
+**So the split is: jaxns facts here, bayesmith policy in `dispatch`.** The bit
+LABELS below are jaxns&#x27;s own words; the map from a label to a termination
+member is this package&#x27;s judgement, and it is carried here as the enum&#x27;s plain
+string VALUES so that stating it costs no import. The test that it is total --
+that every string is a real ``TerminationReason`` and every bit has one -- lives
+in ``tests/``, where reaching ``artifacts`` is free.
+
+**The box, and what it costs.** jaxns&#x27;s ``Prior`` wants a quantile function
+``U -&gt; X``, and a compiled problem carries ``log_prior``, ``log_likelihood`` and
+``prior_sample`` -- a density is not invertible by inspection and a sampler is
+not a transform, so none of the three yields one. The generic route is the
+reparametrisation the bake-off measured: declare a bounded box ``B``, give jaxns
+a uniform prior over it, and move this package&#x27;s own prior into the likelihood,
+
+    log L&#x27;(x) = log pi(x) + log L(x) + log |B|
+
+so jaxns integrates ``INT_B pi L dx``. Three consequences, each a cost the
+verdict already names: ``B`` is an input jaxns needs and the compiled problem
+does not carry; the answer is the evidence TRUNCATED to ``B``, so mass outside
+it is an error the oracle&#x27;s own truncation term bounds; and the sampler now
+contracts against ``pi L`` rather than ``L``, which is not the problem nested
+sampling&#x27;s efficiency argument is about.
+
+**Two things jaxns does that a caller has to know.** Importing it writes
+``jax_enable_x64`` **process-globally** -- reproduced here on 2026-09-07, with
+``UserWarning: JAX x64 is not enabled. Setting it now.`` -- against this
+package&#x27;s rule that ``src/`` never touches ``jax.config``. §0.16&#x27;s owner
+decision attaches to this module because the backend it was conditional on was
+chosen. And ``TerminationCondition()`` **disables every stopping rule**: each
+field defaults to ``None``, ``None`` means &quot;off&quot;, and the real defaults live in
+``jaxns/public.py``, which builds one only when it is handed none. This module
+never constructs one and never passes ``term_cond`` at all.</pre></details><div class="symbol-index"><a href="#JAXNS_TERMINATION">JAXNS_TERMINATION</a> <a href="#NestedEvidence">NestedEvidence</a> <a href="#Termination">Termination</a> <a href="#decode_termination">decode_termination</a> <a href="#nested_evidence">nested_evidence</a></div><section class="api-symbol"><h2 id="JAXNS_TERMINATION">JAXNS_TERMINATION</h2><p class="source-note">Defined in <code>bayesmith.bridge.jaxns_bridge</code>, line 99.</p><pre><code>JAXNS_TERMINATION: tuple[tuple[str, str], ...] = ((&#x27;reached max samples&#x27;, &#x27;budget_exhausted&#x27;), (&#x27;evidence uncertainty low enough&#x27;, &#x27;converged&#x27;), (&#x27;small remaining evidence&#x27;, &#x27;converged&#x27;), (&#x27;reached ESS&#x27;, &#x27;converged&#x27;), (&#x27;used max num likelihood evaluations&#x27;, &#x27;budget_exhausted&#x27;), (&#x27;likelihood contour reached&#x27;, &#x27;completed&#x27;), (&#x27;sampler efficiency too low&#x27;, &#x27;tolerance_unmet&#x27;), (&#x27;all live points on a single plateau&#x27;, &#x27;diverged&#x27;), (&#x27;relative spread of live points &lt; rtol&#x27;, &#x27;converged&#x27;), (&#x27;absolute spread of live points &lt; atol&#x27;, &#x27;converged&#x27;), (&#x27;no seed points left&#x27;, &#x27;diverged&#x27;), (&#x27;XL &lt; max(XL) * peak_XL_frac&#x27;, &#x27;converged&#x27;))</code></pre></section><section class="api-symbol"><h2 id="NestedEvidence">NestedEvidence</h2><p class="source-note">Defined in <code>bayesmith.bridge.jaxns_bridge</code>, line 191.</p><pre><code>class NestedEvidence
+log_evidence: float
+standard_error: float
+draws: tuple[tuple[str, np.ndarray], ...]
+log_weights: np.ndarray
+ess: float
+termination: Termination
+backend_name: str
+backend_version: str | None
+likelihood_evaluations: int
+iterations: int
+truncated_to: tuple[tuple[str, float, float], ...]
+method: str</code></pre><pre class="docstring">What the backend produced, in artifact types and plain Python floats.
+
+Every number here has been through ``float()`` already. ``_finite`` requires
+``type(value) in (int, float)``, so a ``np.float64`` or a jax scalar raises
+``TypeError`` at the artifact boundary (§0.1), and a backend returns none of
+these as Python floats.</pre></section><section class="api-symbol"><h2 id="Termination">Termination</h2><p class="source-note">Defined in <code>bayesmith.bridge.jaxns_bridge</code>, line 134.</p><pre><code>class Termination
+reason: str
+message: str
+labels: tuple[str, ...]</code></pre><pre class="docstring">One jaxns bitmask, decoded. ``reason`` is a ``TerminationReason`` VALUE.
+
+A string rather than the enum member so that this module costs no edge to
+``artifacts``; ``TerminationReason(record.reason)`` is what ``dispatch``
+does with it, and a test asserts every value in the table is a real member.</pre></section><section class="api-symbol"><h2 id="decode_termination">decode_termination</h2><p class="source-note">Defined in <code>bayesmith.bridge.jaxns_bridge</code>, line 147.</p><pre><code>decode_termination(mask: int) -&gt; Termination</code></pre><pre class="docstring">One jaxns bitmask, decoded.
+
+The message names EVERY bit that fired, so collapsing the mask to one
+``reason`` loses nothing a reader needs.
+
+A mask of zero raises. §0.1: &quot;An unmapped backend signal is an error, not a
+default -- a nested sampler that stopped for an unrecognised reason must not
+be recorded as ``COMPLETED``.&quot; A run that stopped for no declared reason is
+exactly that case, and so is a bit above the twelve this table knows.</pre></section><section class="api-symbol"><h2 id="nested_evidence">nested_evidence</h2><p class="source-note">Defined in <code>bayesmith.bridge.jaxns_bridge</code>, line 229.</p><pre><code>nested_evidence(problem: CompiledEvidenceProblem, *, box: Mapping[str, tuple[float, float]], seed: int=0, num_live_points: int | None=None, max_samples: int=100000, method: str=&#x27;jaxns_nested_sampling&#x27;) -&gt; NestedEvidence</code></pre><pre class="docstring">Integrate ``problem`` over ``box`` with jaxns, and report what came back.
+
+``box`` is per residual parameter, ``(lower, upper)``. It is required
+because jaxns needs a domain and the compiled problem does not carry one;
+see this module&#x27;s docstring for what the truncation costs.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#JAXNS_TERMINATION">JAXNS_TERMINATION</a><a href="#NestedEvidence">NestedEvidence</a><a href="#Termination">Termination</a><a href="#decode_termination">decode_termination</a><a href="#nested_evidence">nested_evidence</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

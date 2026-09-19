@@ -1,21 +1,15 @@
-# Publishes site/ -- the package overview page -- to GitHub Pages through the
-# Actions deployment path, so there is no gh-pages branch to keep in step with
-# main. It runs only when the page or this file changes, and on demand.
-#
-# One-time setting this file cannot make for itself: Pages has to be switched
-# on in the repository settings with "GitHub Actions" as the source. Until that
-# is done the deploy step fails and says so; nothing else in the repository
-# depends on this workflow.
-
+# Local candidate documentation is not deployed on push.
+# Explicit manual opt-in is required for any future Pages publication.
 name: Pages
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "site/**"
-      - ".github/workflows/pages.yml"
   workflow_dispatch:
+    inputs:
+      publish_docs:
+        description: "Publish the unindexed documentation candidate to Pages"
+        type: boolean
+        default: false
+        required: true
 
 permissions:
   contents: read
@@ -28,15 +22,23 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ inputs.publish_docs }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate generated documentation before publishing
+        run: |
+          python tools/build_docs.py --check
+          python tools/build_docs.py --output _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4

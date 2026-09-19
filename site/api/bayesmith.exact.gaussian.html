@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.gaussian"><title>bayesmith.exact.gaussian · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.gaussian</span></nav>
+<article><h1>bayesmith.exact.gaussian</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Reading a Gaussian off a node -- and checking the reading.
+
+The exact solves need three numbers a graph does not hand over directly: the
+prediction and its sigma (from an observed node&#x27;s distribution), and the
+prior&#x27;s centre and width (from a latent node&#x27;s). ``dist_fn`` returns an
+opaque NumPyro distribution, so those numbers have to be *extracted* -- and,
+this package&#x27;s rule being that a claim is checked rather than trusted, the
+extraction is checked too.
+
+**Two functions, deliberately.** :func:`gaussian_parts` is the fast path: one
+``isinstance``, two attribute reads, fully traceable, and it is what runs
+inside ``jax.linearize`` on every solve. :func:`check_gaussian` is the guard:
+it probes the node&#x27;s own ``log_prob`` at several points and refuses if the
+extracted ``(loc, scale)`` do not reproduce it. The guard uses Python floats
+and raises, so it cannot run inside a trace -- it runs once, on concrete
+values, when the block is built.
+
+Splitting them is not an optimisation, it is a correctness requirement: a
+guard that cannot run where the fast path runs must run *before* it, on the
+values the fast path will see.
+
+**Why the introspection is a fast path and not the answer.** Reading
+``.loc``/``.scale`` off a ``Normal`` trusts the type. A ``Distribution``
+subclass may override ``log_prob`` -- censored, tempered, or simply wrong --
+and keep both attributes, so the type is evidence, not proof. The probe is
+what raises the bar, at a cost of five ``log_prob`` evaluations per node per
+block build.
+
+**What the probe does and does not establish.** It establishes that the
+extracted ``(loc, scale)`` reproduce the node&#x27;s own density *at the probed
+points, elementwise, at the shape the node&#x27;s value actually takes*. It does
+not establish agreement everywhere: a finite set of points cannot certify a
+claim about a function, and a correction shaped to vanish at exactly these
+offsets -- a quartic with roots there, say -- would pass while being wrong by
+hundreds of nats at the mode. That is an adversarial construction, and the
+threat this guard is placed against is accidental: a censored likelihood, a
+tempered one, a hand-written approximation. Those do not have roots at the
+probe points. Stated so the guarantee is not mistaken for a stronger one.</pre></details><div class="symbol-index"><a href="#PROBE_OFFSETS">PROBE_OFFSETS</a> <a href="#unwrap">unwrap</a> <a href="#gaussian_parts">gaussian_parts</a> <a href="#node_shape">node_shape</a> <a href="#check_gaussian">check_gaussian</a> <a href="#check_observed">check_observed</a> <a href="#precision_parts">precision_parts</a> <a href="#observed_data_and_loc">observed_data_and_loc</a> <a href="#observation_parts">observation_parts</a> <a href="#noise_std_at">noise_std_at</a> <a href="#precision_at">precision_at</a></div><section class="api-symbol"><h2 id="PROBE_OFFSETS">PROBE_OFFSETS</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 64.</p><pre><code>PROBE_OFFSETS: tuple[float, ...] = (-3.0, -1.0, 0.0, 0.5, 2.0)</code></pre></section><section class="api-symbol"><h2 id="unwrap">unwrap</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 69.</p><pre><code>unwrap(distribution: Any) -&gt; Any</code></pre><pre class="docstring">Strip wrappers that only change how ``log_prob`` is reduced.
+
+``Independent`` is what ``.to_event(k)`` produces: the same per-element
+density with the last ``k`` batch dimensions summed. The elementwise
+reading underneath is what the exact solves want -- a diagonal covariance
+is diagonal whether or not its log-density was summed -- so the wrapper is
+removed rather than refused.
+
+``ExpandedDistribution`` is what ``.expand(shape)`` produces, and it is
+stripped for the same reason: its ``log_prob`` is the base&#x27;s ``log_prob``
+broadcast to the larger batch shape, and its draws are independent
+copies, so its per-element density IS the base&#x27;s. The base keeps its own
+smaller ``loc``, which is the &quot;scalar loc, larger value&quot; case a plated
+latent already has; :func:`node_shape` reads the value&#x27;s shape off the
+unstripped distribution. Matched by exact type, as ``diagnose.structure``
+does, so a subclass that changes the broadcast is not assumed away -- and
+the base is returned, never rebuilt, so :func:`check_gaussian` still
+probes the node&#x27;s own density.</pre></section><section class="api-symbol"><h2 id="gaussian_parts">gaussian_parts</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 96.</p><pre><code>gaussian_parts(graph: Graph, node: Node, env: dict[str, Any]) -&gt; tuple[jax.Array, jax.Array]</code></pre><pre class="docstring">``(loc, scale)`` of ``node``&#x27;s distribution, ``scale`` broadcast to ``loc``.
+
+Traceable and **unchecked** -- pair it with :func:`check_gaussian`, which
+runs once on concrete values before any trace is opened.
+
+A :class:`~bayesmith.distributions.ComplexNormal` is read the same way:
+its ``loc`` is complex and its ``scale`` real, and the scale is the width
+of EACH part. Everything downstream splits the latent into its real
+degrees of freedom, so nothing here needs to know more than that -- see
+:func:`~bayesmith.exact.block.real_parts`.
+
+Raises:
+    NotGaussian: if the distribution is not a (possibly ``Independent``-
+        wrapped) ``Normal`` or ``ComplexNormal``. The *type* is static
+        under tracing, so this refusal is safe to make inside a trace. It
+        is a **classification outcome, not a fault**: P3b&#x27;s dispatcher
+        catches it and routes the block to NUTS.
+    StructureError: if ``loc`` has an integer dtype. That one IS a fault --
+        a conjugate solve differentiates through ``loc``.</pre></section><section class="api-symbol"><h2 id="node_shape">node_shape</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 170.</p><pre><code>node_shape(graph: Graph, node: Node, env: dict[str, Any]) -&gt; tuple[int, ...]</code></pre><pre class="docstring">Shape of ``node``&#x27;s VALUE.
+
+Three sources, broadcast together: the distribution&#x27;s own batch shape, the
+plate the node sits in, and -- for an observed node -- the data. All three
+are needed. A plated latent whose ``dist_fn`` takes no plated parent has a
+scalar ``loc`` and a plate-shaped value (the ordinary &quot;N iid draws from one
+shared prior&quot;); an unplated observed node conditioned on a vector has a
+scalar ``loc`` and a vector value. Taking any one source alone gets one of
+those two wrong.
+
+This must agree with what ``to_numpyro`` opens the site at, or the block&#x27;s
+domain is a different space from the one NUTS samples --
+``test_node_shape_agrees_with_the_numpyro_bridge`` pins it.
+
+The distribution&#x27;s batch and event shape are read off the node&#x27;s own,
+UNSTRIPPED distribution as well as off ``loc``: ``.expand`` enlarges the
+batch shape while the base it wraps keeps its scalar ``loc``, so ``loc``
+alone would report a scalar for an eight-element value.</pre></section><section class="api-symbol"><h2 id="check_gaussian">check_gaussian</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 221.</p><pre><code>check_gaussian(graph: Graph, node: Node, env: dict[str, Any], *, rtol: float | None=None) -&gt; dict[float, float]</code></pre><pre class="docstring">Verify the extracted ``(loc, scale)`` really reproduce ``node``&#x27;s log_prob.
+
+Costs ``len(PROBE_OFFSETS)`` evaluations of ``log_prob``. Runs on concrete
+values, **outside** any trace.
+
+**Probes at the shape the node&#x27;s VALUE takes**, not at ``dist_fn``&#x27;s own
+batch shape, and compares **elementwise**. Both matter, and both were
+measured:
+
+* A plated latent whose ``dist_fn`` takes no plated parent has a scalar
+  ``loc`` and a plate-shaped value; so does an unplated observed node
+  conditioned on a vector. Probing at the scalar evaluates ``log_prob`` at
+  a shape the consumer never uses. Measured on this package&#x27;s own
+  ``plated_latent`` fixture pattern: a ``Distribution`` subclass correct
+  on a scalar and off by 1000 nats per element on an array passed the
+  guard with every reported error exactly ``0.0``, against a real
+  discrepancy of 2.0e6 nats. This is the same shape of defect P1 recorded
+  -- the guard and the thing it guards looking at different shapes -- and
+  it is fixed the same way.
+* A summed comparison dilutes a localised defect by the magnitudes of the
+  correct entries. Measured: one wrong element out of 1e6, off by 50 nats,
+  reports a summed relative error of 1.95e-5 -- under the default rtol,
+  silently accepted -- and an elementwise error of 50.
+
+Args:
+    graph, node, env: the node under test and the values its parents take.
+    rtol: tolerance on the relative disagreement, per element. Default
+        ``1e3 * eps`` of ``loc``&#x27;s dtype, which leaves room for
+        accumulated roundoff without admitting a real difference in
+        density.
+
+Returns:
+    ``{offset: worst relative error over the node&#x27;s entries}`` -- useful
+    for reporting how Gaussian a node is, not only whether it passes.
+
+Raises:
+    NotGaussian: propagated from :func:`gaussian_parts`.
+    StructureError: if the scale is not strictly positive and finite, or
+        if any probe disagrees by more than ``rtol`` at any entry.</pre></section><section class="api-symbol"><h2 id="check_observed">check_observed</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 339.</p><pre><code>check_observed(graph: Graph, node: Node, env: dict[str, Any], *, rtol: float | None=None) -&gt; dict[Any, float]</code></pre><pre class="docstring">Probe an observed node&#x27;s declared density, whichever covariance it has.
+
+The eager guard the build path runs, and the router between the two:
+
+===================  ==================================================
+distribution         what is run
+===================  ==================================================
+``Normal``           :func:`check_gaussian` -- unchanged, five offsets
+                     against the ``(loc, scale)`` read off it
+``CirculantNormal``  :func:`~bayesmith.exact.precision.                         check_positive_definite`, THEN
+                     :func:`~bayesmith.exact.precision.check_precision`
+===================  ==================================================
+
+**The order is load-bearing, and it was measured.** ``check_precision``
+does refuse an indefinite kernel on its own -- but only through NaN
+propagation, and it names the wrong cause. Measured on three indefinite
+kernels, including one whose entries are all positive: numpyro&#x27;s own
+``CirculantNormal.log_prob`` returns ``nan``, so ``check_precision``
+reports ``linearity=nan, normalizer=nan``, and its message explains
+``linearity`` as &quot;the log-density is not quadratic, so it has no
+covariance to extract&quot;. The log-density IS quadratic; the kernel simply
+describes no realisable process. A user sent to look at their ``det``
+nodes and ``linear_in`` declarations would be looking in the wrong place.
+:func:`~bayesmith.exact.precision.check_positive_definite` says what is
+actually wrong, so it goes first.
+
+Refusing through a NaN is also fragile in a way that saying so is not: it
+holds only for as long as ``log_prob`` keeps returning ``nan`` rather
+than, say, clamping.
+
+Args:
+    graph, node, env: the node under test and the values its parents take.
+    rtol: passed to whichever guard runs. Both default it the same way,
+        to ``1e3 * eps`` of ``loc``&#x27;s dtype.
+
+Returns:
+    Whatever the guard that ran returns -- ``{offset: error}`` from
+    :func:`check_gaussian`, ``{&quot;operator&quot;/&quot;normalizer&quot;/&quot;linearity&quot;:
+    error}`` from :func:`~bayesmith.exact.precision.check_precision`.
+    The two are different measurements and are deliberately not squashed
+    into one shape; every caller in this package discards them and reads
+    the exception instead.
+
+Raises:
+    NotGaussian: for a distribution neither row accepts, exactly as
+        before -- still a classification outcome, not a fault.
+    StructureError: from :func:`check_gaussian`.
+    ValueError: from
+        :func:`~bayesmith.exact.precision.check_positive_definite`, when
+        the kernel is not a realisable autocovariance.
+    PrecisionMismatch: from
+        :func:`~bayesmith.exact.precision.check_precision`.</pre></section><section class="api-symbol"><h2 id="precision_parts">precision_parts</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 418.</p><pre><code>precision_parts(graph: Graph, node: Node, env: dict[str, Any]) -&gt; tuple[jax.Array, Any]</code></pre><pre class="docstring">``(loc, Precision)`` -- the ONE object the whole exact path should read.
+
+The widened counterpart of :func:`gaussian_parts`, which returns a
+per-sample ``scale`` and so can only ever describe a diagonal covariance.
+Traceable and **unchecked**; pair it with
+:func:`~bayesmith.exact.precision.check_precision`, which verifies the
+returned operator against the node&#x27;s own density by the gradient identity
+and runs eagerly, outside any trace.
+
+The gate widens by exactly two rows and refuses everything else with the
+same :class:`NotGaussian`, so a model this cannot express is still a
+CLASSIFICATION outcome routed to NUTS rather than a fault:
+
+==================  ====================================================
+distribution        Precision
+==================  ====================================================
+``Normal``          ``DiagonalPrecision`` -- unchanged behaviour
+``CirculantNormal``  ``CirculantPrecision`` from ``.covariance_row``
+==================  ====================================================
+
+``CirculantNormal`` is not a new idea imported from outside: numpyro ships
+it, and its log-density agrees with ``CirculantPrecision``&#x27;s and with a
+dense reference to 1.8e-15 -- three independent routes. The exact path was
+the only thing refusing a correlated noise the rest of the stack could
+already handle.
+
+**``depends_on_prediction=True`` is accepted now.** ``45198f9`` refused
+it, because ``fisher.py``&#x27;s variance-information term was derived for a
+DIAGONAL ``N`` and nothing said it survived off-diagonal terms. It does,
+in a form that covers both rows at once:
+``1/2 tr(N^-1 d_a N N^-1 d_b N) = 1/2 sum_k d_a log lam_k d_b log lam_k``
+whenever ``N``&#x27;s eigenbasis does not move with the parameters -- ``I`` for
+a ``Normal``, the DFT for a ``CirculantNormal``. Derived in
+``docs/derivations/variance_information_spectral.wls``, measured against a
+dense finite-difference Fisher matrix in
+``docs/probes/probe_9_correlated_variance_information.py``, and
+implemented as
+:func:`~bayesmith.exact.fisher._log_spectrum_curvature`, which
+``fisher_information`` reaches through ``precision_of=``. The refusal was
+written to be deleted and this is its deletion.
+
+Raises:
+    NotGaussian: for any other distribution, as before.
+    StructureError: for an integer ``loc``, as before.</pre></section><section class="api-symbol"><h2 id="observed_data_and_loc">observed_data_and_loc</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 522.</p><pre><code>observed_data_and_loc(graph: Graph, env: dict[str, Any]) -&gt; tuple[dict[str, jax.Array], dict[str, jax.Array]]</code></pre><pre class="docstring">``({obs: data}, {obs: loc})`` over every observed node, reading no covariance.
+
+The two halves of :func:`observation_parts` that have nothing to do with
+the noise. Split out because ``block.py`` wants exactly these -- ``isolate``
+takes the ``loc`` and the block build takes the ``data`` -- and reading
+them through ``observation_parts`` made both walk ``gaussian_parts``,
+which refuses a correlated node. A block&#x27;s design matrix and its data do
+not depend on whether the samples are correlated.
+
+Both are broadcast to :func:`node_shape`, so the dicts align leaf for leaf
+and every reduction downstream is one ``jax.tree.map``.</pre></section><section class="api-symbol"><h2 id="observation_parts">observation_parts</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 547.</p><pre><code>observation_parts(graph: Graph, env: dict[str, Any]) -&gt; tuple[dict[str, jax.Array], dict[str, jax.Array], dict[str, jax.Array]]</code></pre><pre class="docstring">``({obs: data}, {obs: loc}, {obs: scale})`` over every observed node.
+
+All three are broadcast to :func:`node_shape`, so the three dicts align
+leaf for leaf and every reduction downstream is one ``jax.tree.map``.
+
+The DIAGONAL walk: ``scale`` comes from :func:`gaussian_parts`, so this
+refuses a correlated node as it always did. The first two dicts are
+:func:`observed_data_and_loc`, which does not, and callers wanting only
+those should take them from there.</pre></section><section class="api-symbol"><h2 id="noise_std_at">noise_std_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 572.</p><pre><code>noise_std_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">``{obs: scale}`` with the latents at ``values`` -- the GLS seam.
+
+``iterative_gls`` iterates this: solve at the current sigma, recompute
+sigma at the new solution, repeat. Whether it moves at all is what
+separates a single Wiener solve from a reweighting loop, and
+``test_noise_std_at_moves_with_the_latent_only_for_a_prediction_dependent_node``
+exercises both sides.</pre></section><section class="api-symbol"><h2 id="precision_at">precision_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 585.</p><pre><code>precision_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, Any]</code></pre><pre class="docstring">``{obs: Precision}`` with the latents at ``values`` -- the OPERATOR seam.
+
+The counterpart of :func:`noise_std_at`, and deliberately **not** its
+replacement. The seam SPLITS rather than renames, because the two sides
+are different quantities and only one of them generalises:
+
+==============  ==============================  =========================
+seam            what it produces                who needs it
+==============  ==============================  =========================
+``precision_at``  ``N^-1`` as an operator       the solve, the density,
+                                                the information
+``noise_std_at``  per-sample sigma VALUES       ``iterative_gls``&#x27;s
+                                                reweighting, the
+                                                linearity check&#x27;s unit
+==============  ==============================  =========================
+
+``iterative_gls`` iterates sigma values -- solve at the current sigma,
+recompute sigma at the new solution, repeat -- and an operator has none to
+iterate. Renaming ``noise_std_at`` to this would have left that loop with
+nothing to say, which is why B9&#x27;s step 4 is a split and not the rename its
+own text describes.
+
+A ``Precision`` is what a correlated node can supply and a sigma dict is
+not, so this is the producer a ``CirculantNormal`` observation reaches the
+solver through. For a diagonal model the two agree by construction, and
+``test_precision_at_agrees_with_diagonal_from_noise_std_at`` pins that:
+this is not a second implementation of the diagonal case, it is
+:func:`precision_parts` over the same nodes ``observation_parts`` walks.
+
+Traceable and **unchecked**, like the parts it is built from. Pair it with
+:func:`check_gaussian` (diagonal) or
+:func:`~bayesmith.exact.precision.check_precision` (either), which run
+eagerly at the boundary.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#PROBE_OFFSETS">PROBE_OFFSETS</a><a href="#unwrap">unwrap</a><a href="#gaussian_parts">gaussian_parts</a><a href="#node_shape">node_shape</a><a href="#check_gaussian">check_gaussian</a><a href="#check_observed">check_observed</a><a href="#precision_parts">precision_parts</a><a href="#observed_data_and_loc">observed_data_and_loc</a><a href="#observation_parts">observation_parts</a><a href="#noise_std_at">noise_std_at</a><a href="#precision_at">precision_at</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

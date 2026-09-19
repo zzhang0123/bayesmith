@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.gls"><title>bayesmith.exact.gls · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.gls</span></nav>
+<article><h1>bayesmith.exact.gls</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Iteratively reweighted least squares: finding the covariance to solve at.
+
+:func:`~bayesmith.exact.solve.gcr_sample` is a linear sampler *given* a
+covariance and :func:`~bayesmith.exact.solve.wiener_solve` is the
+corresponding mean. Both take ``noise_std`` and neither cares where it came
+from. For a constant sigma there is nothing more to say.
+
+For a sigma that tracks the prediction -- a radiometer&#x27;s
+``sigma_i = kappa |prediction_i|`` -- there is: the weights depend on the
+solution and the solution depends on the weights, and neither is available
+first. This module supplies the missing half and changes nothing about the
+two solvers.
+
+The algorithm is a fixed-point iteration: solve with the current weights,
+recompute the weights at the new prediction, repeat. It is the same
+iteratively-reweighted GLS as hydra-tod&#x27;s ``iterative_gls``, but
+**matrix-free** -- hydra-tod forms a dense design matrix and a dense
+``N_inv``, while here the same algorithm runs on the block&#x27;s JVP and VJP.
+
+**What this estimator is, and is not.** Freezing sigma inside each solve is
+what makes each step a linear-Gaussian problem, and it is also what makes the
+converged answer *generalized least squares* rather than the maximum of the
+full Gaussian likelihood: the log-determinant&#x27;s dependence on the solution is
+held fixed rather than differentiated. That difference is exactly what P3b&#x27;s
+importance weight puts back, which is why this function is both a point
+estimate here and the proposal centre there.
+
+**The gap, measured rather than asserted.** On ``radiometer()`` (true weight
+3.0), minimising the FULL Gaussian NLL densely -- differentiating
+``sum(log(sigma_i(w)))`` through ``w`` rather than freezing it, against the
+GLS fixed point at the same kappa: at kappa=0.05 (radiometer&#x27;s own default)
+the two agree to 0.08% relative (``w_gls=3.0255`` vs ``w_mle=3.0232``); at
+kappa=1 they are 19.5% apart (``3.4681`` vs ``2.9016``); by kappa=3.5-4 the
+gap is ~50% and the two estimates sit on OPPOSITE sides of the true value
+(``w_gls~4.00`` above it, ``w_mle~2.66-2.67`` below). ``NLL(w_gls) &gt;=
+NLL(w_mle)`` held at every kappa tried, as it must, and the gap shrinks to
+zero as kappa does: freezing sigma&#x27;s dependence on the solution is exact at
+kappa=0 (sigma does not depend on the prediction at all there) and
+increasingly costly as that dependence strengthens. This is the quantity
+P3b&#x27;s importance weight exists to correct for.</pre></details><div class="symbol-index"><a href="#MIN_REWEIGHTS">MIN_REWEIGHTS</a> <a href="#MAX_REWEIGHTS">MAX_REWEIGHTS</a> <a href="#REWEIGHT_TOL_EPS">REWEIGHT_TOL_EPS</a> <a href="#DEPENDENCE_PROBES">DEPENDENCE_PROBES</a> <a href="#DEPENDENCE_PATTERNS">DEPENDENCE_PATTERNS</a> <a href="#GLSResult">GLSResult</a> <a href="#sigma_from_graph">sigma_from_graph</a> <a href="#precision_from_graph">precision_from_graph</a> <a href="#scale_from_graph">scale_from_graph</a> <a href="#check_prediction_dependence">check_prediction_dependence</a> <a href="#iterative_gls">iterative_gls</a></div><section class="api-symbol"><h2 id="MIN_REWEIGHTS">MIN_REWEIGHTS</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 64.</p><pre><code>MIN_REWEIGHTS: int = 5</code></pre></section><section class="api-symbol"><h2 id="MAX_REWEIGHTS">MAX_REWEIGHTS</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 68.</p><pre><code>MAX_REWEIGHTS: int = 100</code></pre></section><section class="api-symbol"><h2 id="REWEIGHT_TOL_EPS">REWEIGHT_TOL_EPS</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 72.</p><pre><code>REWEIGHT_TOL_EPS: float = 8.0</code></pre></section><section class="api-symbol"><h2 id="DEPENDENCE_PROBES">DEPENDENCE_PROBES</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 74.</p><pre><code>DEPENDENCE_PROBES: tuple[float, ...] = (1.0, -0.5)</code></pre></section><section class="api-symbol"><h2 id="DEPENDENCE_PATTERNS">DEPENDENCE_PATTERNS</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 85.</p><pre><code>DEPENDENCE_PATTERNS: tuple[str, ...] = (&#x27;uniform&#x27;, &#x27;random&#x27;)</code></pre></section><section class="api-symbol"><h2 id="GLSResult">GLSResult</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 191.</p><pre><code>class GLSResult(NamedTuple)
+precision: dict[str, Any]
+solution: dict[str, jax.Array]
+residual: jax.Array
+iterations: jax.Array
+delta: jax.Array
+converged: jax.Array</code></pre><pre class="docstring">What a reweighting run produced. A pytree, so it survives ``jit``.
+
+Attributes:
+    precision: the converged covariance as ``{observed: N^-1}`` -- **the
+        covariance**, and the whole point of the exercise. What every
+        consumer of the answer reads.
+
+        This and ``noise_std`` swapped places at increment 5, and the swap
+        went the way it did because a CORRELATED result has no per-sample
+        sigma to derive an operator from, while every result has an
+        operator to derive a sigma from when one exists. One covariance is
+        stored either way; see :attr:`noise_std`.
+    solution: the GLS point estimate at that covariance.
+    residual: relative CG residual of the final solve. Not an accuracy.
+    iterations: reweighting steps taken, the first solve included.
+    delta: relative change of the last step.
+    converged: whether ``delta`` fell below ``reweight_tol`` within
+        ``max_reweights``. **False means the returned covariance is not a
+        fixed point**, and everything conditioned on it inherits that.</pre><h3 id="GLSResult.noise_std">GLSResult.noise_std</h3><pre><code>noise_std(self) -&gt; dict[str, jax.Array] | None</code></pre><pre class="docstring">:attr:`precision` as per-sample sigma VALUES, or ``None``.
+
+Derived rather than stored, so this result holds ONE covariance and
+the two spellings cannot drift. For a diagonal covariance it is the
+very arrays :attr:`precision` was built from -- bitwise, not to a
+tolerance. For a correlated one it is ``None``, because a stationary
+covariance has an n-point kernel and no per-sample sigma, and
+reporting its per-mode amplitudes under this name would be a lie.
+
+See :func:`~bayesmith.exact.precision.per_sample_sigma`, which is the
+one place in the package that asks which implementation a
+``Precision`` is.</pre></section><section class="api-symbol"><h2 id="sigma_from_graph">sigma_from_graph</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 238.</p><pre><code>sigma_from_graph(graph: Graph, at: dict[str, Any]) -&gt; Callable[[dict[str, Any]], dict[str, jax.Array]]</code></pre><pre class="docstring">The ``{name: x} -&gt; {observed: sigma}`` seam :func:`iterative_gls` iterates.
+
+Taking the seam as a callable rather than the graph keeps this module
+independent of the graph layer for testing, and lets P3b hand in a sigma
+frozen somewhere else without this module needing to know.</pre></section><section class="api-symbol"><h2 id="precision_from_graph">precision_from_graph</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 254.</p><pre><code>precision_from_graph(graph: Graph, at: dict[str, Any]) -&gt; Callable[[dict[str, Any]], dict[str, Any]]</code></pre><pre class="docstring">``{name: x} -&gt; {observed: Precision}`` -- the general seam.
+
+What :func:`sigma_from_graph` is for a diagonal model, for any model the
+gate accepts. Hand this to :func:`iterative_gls` as ``precision_of=``.</pre></section><section class="api-symbol"><h2 id="scale_from_graph">scale_from_graph</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 269.</p><pre><code>scale_from_graph(graph: Graph, at: dict[str, Any]) -&gt; Callable[[dict[str, Any]], dict[str, jax.Array]]</code></pre><pre class="docstring">``{name: x} -&gt; {observed: sqrt(lambda_k)}`` -- the per-MODE amplitude.
+
+The general counterpart of :func:`sigma_from_graph`, and the descriptor
+:func:`check_prediction_dependence` should be handed when a node may be
+correlated. That guard only ever asks whether an array-valued function
+MOVES; it does not care what the array means, so the caller picks a
+descriptor that exists for every row.
+
+``sqrt(lambda_k)`` is that descriptor. For a diagonal covariance
+``lambda_i = sigma_i**2``, so this is the per-sample sigma -- the same
+quantity ``sigma_from_graph`` returns, to 1.8e-15 rather than bitwise,
+because it travels through ``exp(1/2 log lambda)``. For a circulant it is
+the amplitude of each spectral mode, which is what &quot;the covariance moved&quot;
+means when there is no per-sample sigma to compare.
+
+:func:`sigma_from_graph` stays and is not replaced: ``iterative_gls``
+ITERATES sigma values, and a per-mode amplitude is not something it can
+feed back to a solve. The split is B9 step 4&#x27;s, one level up.</pre></section><section class="api-symbol"><h2 id="check_prediction_dependence">check_prediction_dependence</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 342.</p><pre><code>check_prediction_dependence(block: LinearBlock, sigma_of: Callable[[dict[str, Any]], dict[str, jax.Array]], *, declared: bool, rtol: float=1e-08, key: jax.Array | None=None) -&gt; float</code></pre><pre class="docstring">Measure how much sigma moves with the block, and check the declaration.
+
+``depends_on_prediction`` is a **claim about the model**, like
+``linear_in``: declared ``False``, a dispatcher skips the reweighting loop
+and solves at whatever sigma the prior mean implies -- a confident answer
+at the wrong covariance, with nothing to notice.
+
+Runs on concrete values, outside any trace, for the same reason
+:func:`~bayesmith.exact.gaussian.check_gaussian` does.
+
+Args:
+    block: the block sigma might depend on.
+    sigma_of: the seam, from :func:`sigma_from_graph`.
+    declared: what the node claims.
+    rtol: relative movement below which sigma counts as constant. Untested
+        AT the boundary -- every fixture in this module&#x27;s test suite sits
+        far above it (a genuinely prediction-dependent sigma) or far
+        below (a genuinely constant one), never within a decade of
+        ``1e-8`` itself. Judged acceptable: this is a coarse yes/no
+        movement detector guarding a declaration, not a numeric
+        dispatcher choosing between two methods that must agree at a
+        threshold, so there is no boundary-validation-style requirement
+        that both sides produce the same answer there.
+    key: PRNG key for the ``random`` entry of
+        :data:`DEPENDENCE_PATTERNS`. Fixed by default, so a yes/no guard
+        has a reproducible verdict -- exactly
+        :func:`~bayesmith.exact.linearity.check_linearity`&#x27;s contract,
+        and per-member sub-keys are folded in by position in the SORTED
+        names there too, so permuting ``block.names`` probes the same
+        points. Pass one to take a second, independent opinion: a random
+        direction detects any non-zero linear functional with probability
+        1, so two keys that disagree about whether sigma moves is
+        evidence the movement is at the edge of ``rtol``, not evidence
+        one of them is wrong.
+
+Returns:
+    The largest relative movement observed.
+
+Raises:
+    StructureError: if ``declared`` is ``False`` and sigma does move.
+        The opposite mismatch -- declared ``True``, sigma constant -- is
+        merely conservative and is returned rather than raised, so a
+        caller can report &quot;the declaration is conservative; the
+        reweighting loop could be skipped&quot;.</pre></section><section class="api-symbol"><h2 id="iterative_gls">iterative_gls</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 443.</p><pre><code>iterative_gls(block: LinearBlock, sigma_of: Callable[[dict[str, Any]], dict[str, jax.Array]] | None=None, *, precision_of: Callable[[dict[str, Any]], dict[str, Any]] | None=None, depends_on_prediction: bool=True, tol: float=1e-06, maxiter: int | None=None, reweight_tol: float | None=None, min_reweights: int=MIN_REWEIGHTS, max_reweights: int=MAX_REWEIGHTS, require_convergence: float | None=None) -&gt; GLSResult</code></pre><pre class="docstring">Find the covariance a prediction-dependent noise model implies.
+
+Repeats: solve at the current sigma, recompute sigma at the new solution.
+With ``depends_on_prediction=False`` there is nothing to repeat and this is
+a single :func:`~bayesmith.exact.solve.wiener_solve`.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    sigma_of: the DIAGONAL spelling of the seam, from
+        :func:`sigma_from_graph`. Give this or ``precision_of``, not both.
+        When it is given the result carries a
+        :attr:`GLSResult.noise_std`; when it is not, that field is
+        ``None`` because a correlated covariance has no per-sample sigma.
+    precision_of: the general spelling,
+        ``{name: x} -&gt; {observed: Precision}``, from
+        :func:`~bayesmith.exact.gaussian.precision_at` curried on the
+        graph. **Required for a correlated node.**
+
+        **This loop does not iterate sigma VALUES**, which is worth
+        stating because the B9 notes said it did. Read ``step`` below: the
+        fixed point is in the LATENT -- ``delta`` is
+        ``|updated - latent| / |updated|`` over the block&#x27;s domain -- and
+        the covariance enters only as the operator each inner solve is
+        weighted by. So the rule can be either spelling, and nothing in
+        the loop needs numbers it can subtract.
+    depends_on_prediction: the node&#x27;s own claim. **Check it first** with
+        :func:`check_prediction_dependence` -- this function cannot, being
+        jittable.
+    tol, maxiter: CG settings for each inner solve.
+    reweight_tol: stop when the block&#x27;s relative change falls below this.
+        **The default cannot be a fixed number**, because two independent
+        floors bound how small a step is measurable at all, so it defaults
+        to ``max(8 * eps, tol)``:
+
+        * the arithmetic&#x27;s own epsilon -- a relative step below it is
+          rounding, not a measurement. float32&#x27;s is ``1.2e-7``, so a
+          plausible-looking ``1e-8`` is exactly this trap;
+        * **the inner solver&#x27;s tolerance** ``tol`` -- consecutive solves
+          differ by roughly their own CG residual no matter what the outer
+          iteration is doing, so a step smaller than ``tol`` measures CG,
+          not the fixed point. This is the binding floor in float64.
+
+        Ask for less than either and the run does not fail loudly: it
+        spends ``max_reweights`` steps and reports ``converged=False`` for
+        a fixed point it had in fact reached.
+    min_reweights: steps taken before the test is consulted.
+    max_reweights: cap on steps.
+    require_convergence: bound on the relative error of the **final**
+        solve. Deliberately applied once, at the converged covariance, and
+        not inside the loop: it bounds the error of what is returned and
+        says nothing about the intermediate steps, which do not need it.
+
+        ``None`` by default, for the reason
+        :func:`~bayesmith.exact.solve.wiener_solve` documents and
+        ``test_the_convergence_guard_is_off_by_default_but_reachable``
+        measures. This function is the one MOST exposed to that finding:
+        every fixture the measurement refuses is a prediction-dependent
+        sigma, which is exactly what this function exists to solve.
+
+Returns:
+    A :class:`GLSResult`. **Check ``converged``** -- a covariance that is
+    not a fixed point is still a number, and a draw conditioned on it is
+    still a draw.
+
+Note:
+    The iteration starts from sigma at the block&#x27;s **prior mean** rather
+    than from hydra-tod&#x27;s unweighted least squares or rheplicant&#x27;s sigma
+    at the data. A graph&#x27;s sigma is a function of the latents, not of a
+    prediction array, so the data is not a point this seam can be
+    evaluated at; the prior mean is the natural &quot;before seeing anything&quot;
+    one. A fixed point does not depend on where the iteration started, so
+    all three agree wherever any of them converges.
+
+    Built on ``lax.while_loop``, so it is jittable but **not** reverse-mode
+    differentiable. That is not the limitation it looks like: the result is
+    a fixed point, so implicit differentiation -- not unrolling -- is the
+    right way to take a gradient through it.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#MIN_REWEIGHTS">MIN_REWEIGHTS</a><a href="#MAX_REWEIGHTS">MAX_REWEIGHTS</a><a href="#REWEIGHT_TOL_EPS">REWEIGHT_TOL_EPS</a><a href="#DEPENDENCE_PROBES">DEPENDENCE_PROBES</a><a href="#DEPENDENCE_PATTERNS">DEPENDENCE_PATTERNS</a><a href="#GLSResult">GLSResult</a><a href="#sigma_from_graph">sigma_from_graph</a><a href="#precision_from_graph">precision_from_graph</a><a href="#scale_from_graph">scale_from_graph</a><a href="#check_prediction_dependence">check_prediction_dependence</a><a href="#iterative_gls">iterative_gls</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

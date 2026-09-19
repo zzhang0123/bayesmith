@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.marginal.chain"><title>bayesmith.marginal.chain · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.marginal.chain</span></nav>
+<article><h1>bayesmith.marginal.chain</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">A nuisance that drifts across epochs, and the recursion that integrates it out.
+
+An epoch-local nuisance is re-drawn every epoch and integrated away inside its
+own. A LINKED one is not: it is a Markov chain, and treating it as epoch-local
+marginalises a single physical fluctuation ``N`` times against independent
+priors -- injecting information that is not there. This module is the exact
+alternative (migration gap G3).
+
+**The recursion.** Carry a joint square-root information factor over
+``(theta, zeta_e)``. Fold in an epoch by stacking its rows and
+re-triangularising. Advance by widening to ``(theta, zeta_e, zeta_{e+1})``,
+appending the transition&#x27;s rows, and marginalising ``zeta_e``: permute it
+first, re-triangularise, drop row and column. **That drop IS the Schur
+complement, in square root**, which is what keeps a thousand-epoch
+accumulation inside float64 where the explicit ``(F, b)`` form goes indefinite.
+``theta`` is never marginalised, so what comes back is ``log p(d_1:N | theta)``
+exactly.
+
+**Two sub-scopes, because &quot;linear-Gaussian&quot; is not enough.** An OU chain with
+an INFERRED correlation time is still linear-Gaussian, so a caveat phrased
+that way is satisfied while its claim fails: ``Q(theta)``, ``phi(theta)`` and
+the Schur complement all become functions of theta, and a filter run once at
+compression time pins them silently. The distinction lives in the TYPE. A
+:class:`LinearGaussianTransition` holds numbers, and the theta posterior is
+exact under filtering; a :class:`HyperTransition` holds a builder and is
+resolved INSIDE the theta likelihood, so the whole recursion is a
+differentiable ``lax.scan`` over the stored per-epoch blocks. One code path
+serves both, because the recursion is traceable either way -- which is also
+why the fixed case is validated by the same tests rather than by a second
+implementation of the same arithmetic.
+
+**The constant bookkeeping is not optional, and it is where this module can be
+wrong while looking right.** Six constants reach the answer, and the
+recursion&#x27;s shape, gradient and curvature are all correct without any of them
+-- so every test that checks a mean, a width or a derivative passes on a
+version that has dropped one. Only a comparison against a dense joint density
+notices. ``tests/marginal/test_chain.py`` builds that dense reference and
+deletes each constant in turn to measure what it was worth.
+
+Ported from ``rheplicant.inference.chain``. The containers a campaign stores
+(a chain memory, its epoch bookkeeping) stay upstream, per the migration
+ledger&#x27;s D12 and the G6 enumeration; what is here is the recursion.</pre></details><div class="symbol-index"><a href="#HyperTransition">HyperTransition</a> <a href="#LinearGaussianTransition">LinearGaussianTransition</a> <a href="#chain_log_likelihood">chain_log_likelihood</a> <a href="#chain_marginal">chain_marginal</a> <a href="#ornstein_uhlenbeck">ornstein_uhlenbeck</a> <a href="#smooth">smooth</a></div><section class="api-symbol"><h2 id="HyperTransition">HyperTransition</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 205.</p><pre><code>class HyperTransition(eqx.Module)
+build: Callable[[dict[str, jax.Array]], LinearGaussianTransition] = eqx.field(static=True)
+width: int = eqx.field(static=True)
+hyper: tuple[str, ...] = eqx.field(static=True, default=())</code></pre><pre class="docstring">A transition whose blocks are FUNCTIONS of theta.
+
+The distinction the module docstring argues for, as a type. ``build`` is
+resolved inside the theta likelihood, on every evaluation, so a correlation
+time that is inferred rather than pinned is differentiated on every
+leapfrog step. That is why the recursion is a ``lax.scan`` over stored
+blocks rather than a filter run once at compression time: the latter would
+pin ``Q(theta)`` and ``phi(theta)`` silently, and the posterior it produced
+would be exact for a model nobody declared.
+
+Attributes:
+    build: ``{name: value} -&gt; LinearGaussianTransition``. Positivity of
+        the spreads it returns is the BUILDER&#x27;s responsibility and cannot
+        be checked here -- see :class:`LinearGaussianTransition`.
+    width: how many components the chain carries. Declared rather than
+        derived, because deriving it would mean calling ``build`` at
+        construction time with values that may not exist yet.
+    hyper: the latents ``build`` reads.</pre><h3 id="HyperTransition.at">HyperTransition.at</h3><pre><code>at(self, values: dict[str, jax.Array]) -&gt; LinearGaussianTransition</code></pre><pre class="docstring">The transition at these values.</pre></section><section class="api-symbol"><h2 id="LinearGaussianTransition">LinearGaussianTransition</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 67.</p><pre><code>LinearGaussianTransition(phi: Any, process_std: Any, initial_std: Any, initial_mean: Any=None, hyper: Sequence[str]=())</code></pre><pre class="docstring">``zeta_{e+1} = phi zeta_e + w``, ``w ~ N(0, diag(process_std)^2)``.
+
+Attributes:
+    phi: ``(n, n)``. A full matrix, because a multi-component drift can
+        rotate; the process and initial spreads are diagonal because a
+        correlated INNOVATION is a modelling claim nobody has made, and a
+        silently-accepted full covariance would need its own Cholesky
+        refusal.
+    process_std: ``(n,)``, strictly positive.
+    initial_std: ``(n,)``, strictly positive -- ``sd(zeta_1)``.
+    initial_mean: ``(n,)``. Zero unless declared.
+    hyper: empty for a fixed transition. Present so a caller can ask one
+        question of either type.
+
+**Positivity is checked here and nowhere else, on purpose.** The rows this
+class contributes are what constrain every ``zeta_e``, so a strictly
+positive spread makes each marginalisation&#x27;s block full-rank BY
+CONSTRUCTION -- and that is what lets the filter call
+:func:`~bayesmith.marginal.sqrtinfo.marginalise_arrays` inside a
+``lax.scan`` instead of the checked
+:func:`~bayesmith.marginal.sqrtinfo.marginalise`, which concretises and
+therefore cannot be traced or differentiated. One eager check at
+declaration, not one traced check per epoch of a thousand.
+
+A TRACED spread is not checked, and cannot be: a :class:`HyperTransition`
+builds these from theta, and under NUTS theta goes wherever it likes.
+Parameterise the builder so positivity is structural -- return
+``jnp.exp(log_sigma)``, never a raw sampled scale -- which is why this
+class takes standard deviations rather than a covariance.</pre><h3 id="LinearGaussianTransition.width">LinearGaussianTransition.width</h3><pre><code>width(self) -&gt; int</code></pre><pre class="docstring">How many components the chain carries.</pre><h3 id="LinearGaussianTransition.at">LinearGaussianTransition.at</h3><pre><code>at(self, values: dict[str, jax.Array]) -&gt; LinearGaussianTransition</code></pre><pre class="docstring">Itself. A fixed transition does not depend on theta -- that is the
+claim it is making, and the reason its posterior is exact.</pre></section><section class="api-symbol"><h2 id="chain_log_likelihood">chain_log_likelihood</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 449.</p><pre><code>chain_log_likelihood(blocks: tuple[jax.Array, jax.Array, jax.Array], transition: Any, values: dict[str, jax.Array], names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; jax.Array</code></pre><pre class="docstring">``log p(d_1:N | theta)``, the chain integrated out exactly. No prior.</pre></section><section class="api-symbol"><h2 id="chain_marginal">chain_marginal</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 356.</p><pre><code>chain_marginal(blocks: tuple[jax.Array, jax.Array, jax.Array], transition: Any, values: dict[str, jax.Array], names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; SqrtInfo</code></pre><pre class="docstring">``zeta_1:N`` integrated out exactly, leaving a quadratic form in theta.
+
+Args:
+    blocks: ``(factor (N, w, w), target (N, w), offset (N,))`` -- one
+        square per-epoch joint form over ``(*names, zeta)``, with
+        ``zeta``&#x27;s columns **last**. Square rather than ragged because
+        ``lax.scan`` needs one shape per iteration.
+    transition: a :class:`LinearGaussianTransition` or a
+        :class:`HyperTransition`. One code path serves both; ``.at(values)``
+        is where they differ.
+    values: theta, for a hyper transition to resolve against. A fixed one
+        ignores it.
+    names, shapes: theta&#x27;s layout, as the returned :class:`SqrtInfo` will
+        carry it.
+
+Returns:
+    A :class:`SqrtInfo` over ``names`` alone. Its ``offset`` carries every
+    constant of the integral, which is what makes it an EVIDENCE rather
+    than a shape.
+
+**Why the scan stops one short.** Scanning over all ``N`` blocks and then
+marginalising once more integrates a ``zeta_{N+1}`` no data constrained,
+and comes back exact anyway -- the extra transition density integrates to
+one over its own argument, so its normalisation and the extra
+marginalisation&#x27;s constant cancel term for term. The reason to stop one
+short is COST, one QR per call, not correctness. What it does change is the
+COUNT of each constant, which is what the constant tests notice and the
+exactness tests cannot.</pre></section><section class="api-symbol"><h2 id="ornstein_uhlenbeck">ornstein_uhlenbeck</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 178.</p><pre><code>ornstein_uhlenbeck(tau: Any, sigma: Any, width: int=1, hyper: Sequence[str]=()) -&gt; LinearGaussianTransition</code></pre><pre class="docstring">A stationary OU chain: correlation time ``tau`` in epochs, spread ``sigma``.
+
+``phi = exp(-1/tau)`` and ``process_std = sigma sqrt(1 - phi^2)``, so
+``var(zeta_{e+1}) = phi^2 var + Q`` returns ``sigma^2`` when it starts
+there -- **stationarity is arithmetic here, not an assumption**, and a test
+pins it.
+
+A FUNCTION, not a class: the type the filter consumes -- and the type a
+:class:`HyperTransition` builder must return -- is
+:class:`LinearGaussianTransition`. An OU is a way of constructing one, and
+this package spells constructors in lower case.</pre></section><section class="api-symbol"><h2 id="smooth">smooth</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 555.</p><pre><code>smooth(blocks: tuple[jax.Array, jax.Array, jax.Array], transition: Any, values: dict[str, jax.Array], names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; tuple[jax.Array, jax.Array]</code></pre><pre class="docstring">``p(zeta_e | d_1:N, theta)`` for every epoch -- mean and variance.
+
+``theta`` is **conditioned on**, not marginalised: the question a smoother
+answers is &quot;given this receiver model, what did the drift do?&quot;, and
+marginalising theta would answer a different one with the same shapes.
+
+**Not the classical backward pass, and the same quantity.** The joint form
+over ``zeta_1:N`` given theta is block-tridiagonal and small enough to
+assemble: ``N * width`` is the number of epochs times the chain&#x27;s width, not
+the data size. Assembling and solving it gives the exact smoothed mean and
+marginal variances in one step, with no forward/backward pair to keep
+consistent -- and the two halves of an RTS smoother disagreeing is a defect
+that reads as a physical result.
+
+**Assembled as a square root, and :func:`_zeta_joint` says why at length.**
+In short: the precision would carry ``(1 / process_std) ** 2``, and a stiff
+chain then asks float64 to hold a number whose product with ``eps`` is not
+small. This function used to form it that way and returned confidently
+wrong answers on chains this package documents as supported.
+
+Returns:
+    ``(mean (N, width), variance (N, width))`` -- the smoothed marginal of
+    each epoch&#x27;s chain state.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#HyperTransition">HyperTransition</a><a href="#LinearGaussianTransition">LinearGaussianTransition</a><a href="#chain_log_likelihood">chain_log_likelihood</a><a href="#chain_marginal">chain_marginal</a><a href="#ornstein_uhlenbeck">ornstein_uhlenbeck</a><a href="#smooth">smooth</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

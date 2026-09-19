@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.linearity"><title>bayesmith.exact.linearity · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.linearity</span></nav>
+<article><h1>bayesmith.exact.linearity</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Checking the linear_in claim before anything exploits it.
+
+``Deterministic(linear_in=(&quot;w&quot;,))`` promises that, holding every other latent
+fixed, every prediction is an **affine** function of ``w``::
+
+    prediction(w) = A w + b
+
+The promise is checkable, and this module checks it: :func:`check_linearity`
+compares the model against its own linearization at zero, at several probe
+magnitudes and at several values of the latents outside the block. A false
+declaration would otherwise produce a confident, wrong posterior instead of
+an error.
+
+**Two entry points, not a flag.** :func:`linear_operator` checks and then
+builds, and is what callers should reach for.
+:func:`~bayesmith.exact.block.unchecked_operator` skips the check and says so
+in its name -- for inside a Gibbs sweep, where the check is hoisted out of the
+loop deliberately. rheplicant spells this as ``linear_operator(check=True)``,
+which makes the most natural call name the one that is one keyword away from
+unsafe.</pre></details><div class="symbol-index"><a href="#DEFAULT_SCALES">DEFAULT_SCALES</a> <a href="#DEFAULT_AT_POINTS">DEFAULT_AT_POINTS</a> <a href="#WEIGHTED_RTOL">WEIGHTED_RTOL</a> <a href="#RELATIVE_FLOOR_FACTOR">RELATIVE_FLOOR_FACTOR</a> <a href="#WEIGHTED_FLOOR_FACTOR">WEIGHTED_FLOOR_FACTOR</a> <a href="#Unresolved">Unresolved</a> <a href="#affinity_errors">affinity_errors</a> <a href="#prior_at_points">prior_at_points</a> <a href="#check_linearity">check_linearity</a> <a href="#linear_operator">linear_operator</a></div><section class="api-symbol"><h2 id="DEFAULT_SCALES">DEFAULT_SCALES</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 51.</p><pre><code>DEFAULT_SCALES: tuple[float, ...] = (0.001, 1.0, 1000.0)</code></pre></section><section class="api-symbol"><h2 id="DEFAULT_AT_POINTS">DEFAULT_AT_POINTS</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 55.</p><pre><code>DEFAULT_AT_POINTS: int = 3</code></pre></section><section class="api-symbol"><h2 id="WEIGHTED_RTOL">WEIGHTED_RTOL</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 78.</p><pre><code>WEIGHTED_RTOL: float = 0.001</code></pre></section><section class="api-symbol"><h2 id="RELATIVE_FLOOR_FACTOR">RELATIVE_FLOOR_FACTOR</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 85.</p><pre><code>RELATIVE_FLOOR_FACTOR: float = 10000.0</code></pre></section><section class="api-symbol"><h2 id="WEIGHTED_FLOOR_FACTOR">WEIGHTED_FLOOR_FACTOR</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 127.</p><pre><code>WEIGHTED_FLOOR_FACTOR: float = 100.0</code></pre></section><section class="api-symbol"><h2 id="Unresolved">Unresolved</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 130.</p><pre><code>class Unresolved(float)</code></pre><pre class="docstring">A departure the roundoff floor DECLINED TO JUDGE, not one measured as 0.
+
+A float, so every consumer that maxes, compares or stores these numbers
+keeps working unchanged -- and a different string, so the one consumer
+that PRINTS it cannot report &quot;not measured&quot; as &quot;measured zero&quot;. Formats
+as ``unresolved:1.25e+01`` under the caller&#x27;s own format spec.
+
+The distinction is not pedantic. ``roundoff_stress(big=1e6, sigma=1e-2)``
+is exactly affine and its departure is worth 12.5 noise widths at
+float32; the floor is right to refuse to convict on it, and reporting
+``0.00e+00`` beside that verdict states the opposite of what happened.
+A reader who sees ``unresolved:1.25e+01`` knows to re-run under
+``jax.enable_x64(True)``, where the same probe reads 2.33e-08.</pre></section><section class="api-symbol"><h2 id="affinity_errors">affinity_errors</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 298.</p><pre><code>affinity_errors(g: Callable[[Any], Any], zero: Any, probe_at: Callable[[int, float], Any], scales: Sequence[float], rtol: float | None, *, precision: dict[str, Any], at_description: str=&#x27;the linearisation point&#x27;) -&gt; tuple[dict[float, float], list[float], float, dict[float, tuple[float, float]]]</code></pre><pre class="docstring">Compare a map against its own linearization at zero, **per element**.
+
+Every number below comes from ``g``, ``zero``, ``sigma`` and the probe
+alone, so a single-latent and a grouped check cannot drift into measuring
+different things. Ported from rheplicant, generalised to a pytree
+codomain.
+
+Args:
+    precision: ``{observed: N^-1}`` read at the same point ``zero`` is
+        anchored at, from
+        :func:`~bayesmith.exact.gaussian.precision_at`. The unit of the
+        second criterion below, which measures the WHITENED departure --
+        elementwise division by sigma where the noise is diagonal, and
+        still meaningful where it is not.
+    at_description: names the point ``zero`` is anchored at -- used only
+        by the non-finite-baseline error below, to say where the graph
+        broke rather than blaming whichever ``linear_in`` happens to be
+        under test.
+
+Returns:
+    ``(worst, failed, rtol, columns)`` -- ``worst[scale]`` is the larger
+    of the two criteria at that scale (NaN if either was unusable),
+    ``failed`` lists the refused scales, ``rtol`` is the one actually
+    used, and ``columns[scale]`` is ``(relative, sigma-weighted)`` so a
+    refusal can say WHICH criterion fired.
+
+Two changes from the original, both forced by measurement:
+
+* **Per element, not a max over the whole codomain.** ``variation`` and
+  ``floor`` were each a maximum over EVERY leaf, so a bright leaf
+  supplied both the yardstick and the roundoff floor for a faint one.
+  Measured: an honest 1e17 component beside a false ``linear_in`` claim
+  on a 1e-2 one reported 2.57e-14 in float32 and PASSED, while the faint
+  node alone was correctly refused at 4.93e+00 -- and the resulting
+  &quot;exact&quot; posterior was 202 true posterior standard deviations wrong. The
+  same dilution happens between ELEMENTS of one leaf, which is the
+  realistic case: a spectrum with one bright foreground channel and five
+  faint signal ones.
+* **A second criterion in units of sigma.** The relative measure is 0/0
+  on an element the block does not move at all; the weighted one is not,
+  and it is what the likelihood actually cares about. Either one failing
+  is a refusal, and each has a case the other cannot see -- pinned by
+  ``test_the_relative_criterion_is_load_bearing_where_sigma_hides_the_curvature``
+  and ``test_the_dilution_is_caught_within_a_single_array_too``.
+
+The original already suspected half of this. Its own floor comment said
+the floor must not be set &quot;by the baseline alone, which would let an
+unrelated bright component disable the check&quot; -- and then took a global
+maximum anyway. This finishes that thought.
+
+:func:`~bayesmith.exact.gaussian.check_gaussian` made the elementwise
+choice first, and argues it in its docstring: a summed comparison dilutes
+a localised defect by the magnitudes of the correct entries.
+
+Note:
+    ``sigma`` is divided by, not validated here -- :func:`check_linearity`
+    clears it first with :func:`_refuse_unusable_noise`, which names the
+    offending node. Called directly with a zero, negative or non-finite
+    scale, this function still refuses, but reports it as curvature.</pre></section><section class="api-symbol"><h2 id="prior_at_points">prior_at_points</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 425.</p><pre><code>prior_at_points(graph: Graph, names: tuple[str, ...], count: int, key: jax.Array) -&gt; list[dict[str, Any]]</code></pre><pre class="docstring">``count`` alternative values for the latents OUTSIDE the block.
+
+Drawn from the graph&#x27;s own prior, through the NumPyro bridge -- so they
+cover exactly the range the model itself considers plausible, and they
+work for a non-Gaussian outside latent (which is the usual case: a latent
+is outside the block precisely because it is not conjugate).
+
+Raises:
+    StructureError: if an outside latent&#x27;s own prior has no sampler --
+        an improper or reference prior, typically -- propagated from a
+        NumPyro ``NotImplementedError`` with a pointer to ``at_points=``.</pre></section><section class="api-symbol"><h2 id="check_linearity">check_linearity</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 642.</p><pre><code>check_linearity(graph: Graph, names: Iterable[str], at: dict[str, Any] | None=None, *, scales: Sequence[float]=DEFAULT_SCALES, rtol: float | None=None, at_points: Sequence[dict[str, Any]] | None=None, key: jax.Array | None=None) -&gt; dict[int, dict[float, float]]</code></pre><pre class="docstring">Verify every prediction really is affine in a block -- or in a group.
+
+Costs one linearization plus one forward evaluation per scale per
+at-point: with the defaults, three of each.
+
+Args:
+    graph: the model under test.
+    names: the latents in the block. Checked **jointly**, which is
+        strictly stronger than checking each in turn. A gain and an
+        antenna temperature are each affine given the other and their
+        product is not affine in the pair, so a group holding both is
+        refused here rather than solved as if it were linear.
+    at: values for the latents OUTSIDE the block.
+    scales: probe magnitudes, as multiples of each latent&#x27;s own declared
+        prior standard deviation -- per element, so a latent whose prior
+        width varies across its entries is probed accordingly.
+    rtol: tolerance on the **per-element** relative departure from
+        affinity. Default ``1e4 * eps`` of the prediction&#x27;s dtype --
+        1.19e-03 in float32, which is what this package runs in unless a
+        caller opens ``jax.enable_x64``. It is one of two criteria: the
+        other, :data:`WEIGHTED_RTOL`, measures the same departure in
+        units of the noise sigma and is not a relative error, so this
+        keyword does not reach it.
+    at_points: values of the outside latents to check at. Defaults to
+        ``at`` plus ``DEFAULT_AT_POINTS - 1`` draws from the graph&#x27;s own
+        prior. **Passing a single point is how a check becomes a
+        moderate-parameter probe**, which is the failure mode
+        ``boundary-validation.md`` exists to prevent; do it only when the
+        model is used at exactly one outside value.
+    key: PRNG key for probes and prior draws. Fixed by default, so the
+        check is reproducible. Per-latent sub-keys are folded in by
+        position in the SORTED names, so permuting ``names`` probes the
+        same points and returns the same verdict.
+
+Returns:
+    ``{at_point_index: {scale: departure}}``, where each departure is the
+    worse of the two criteria at that scale, over the elements clearing
+    that criterion&#x27;s roundoff floor -- useful for reporting how linear a
+    block is, not only whether it passes. The two are on different scales
+    (one relative, one in units of sigma), so the number says how far from
+    affine the block is, not which criterion it came from; the refusal
+    message separates them.
+
+    A departure may come back as an :class:`Unresolved`, which is a float
+    that FORMATS as ``unresolved:1.25e+01``. It means the floor masked a
+    real departure that would otherwise have breached its threshold, so
+    the number is what was seen and not what was judged. A caller that
+    prints these must not present one as a measured zero; see
+    :func:`_warn_unresolved`, which also fires once per call.
+
+Raises:
+    GraphError: propagated from :func:`~bayesmith.exact.block._validated_names`
+        and :func:`~bayesmith.exact.block._validated_at` -- the same
+        misuses :func:`~bayesmith.exact.block.unchecked_operator` refuses,
+        checked here BEFORE any linearization runs so a malformed ``at``
+        fails with that message rather than a confusing one from three
+        layers down; or if the graph has no observed node, for the same
+        reason and by the same shared guard
+        (:func:`~bayesmith.exact.block._refuse_missing_observed`) that
+        :func:`~bayesmith.exact.block.unchecked_operator` uses -- checked
+        here too because :func:`linear_operator` calls this function
+        BEFORE ``unchecked_operator``, so a guard living only there would
+        never be reached.
+    StructureError: if any element of any prediction, at any scale at any
+        at-point, departs from affinity by more than ``rtol`` relatively
+        or by more than :data:`WEIGHTED_RTOL` in units of its own noise
+        sigma, while also clearing that element&#x27;s roundoff floor; if the
+        prediction is already non-finite at an at-point
+        BEFORE any probe is taken, attributed to that at-point rather
+        than misdiagnosed as a failure of this block&#x27;s own
+        ``linear_in`` (see :func:`affinity_errors`); or if an outside
+        latent&#x27;s prior has no sampler (propagated from
+        :func:`prior_at_points`).
+    NotGaussian: propagated from the block machinery.</pre></section><section class="api-symbol"><h2 id="linear_operator">linear_operator</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 797.</p><pre><code>linear_operator(graph: Graph, names: Iterable[str], at: dict[str, Any] | None=None, *, scales: Sequence[float]=DEFAULT_SCALES, rtol: float | None=None, at_points: Sequence[dict[str, Any]] | None=None, key: jax.Array | None=None, nuts_latents: Iterable[str] | None=None) -&gt; LinearBlock</code></pre><pre class="docstring">Check the linearity claim, then export the block. **The entry point.**
+
+Costs three forward evaluations per at-point more than
+:func:`~bayesmith.exact.block.unchecked_operator`, and buys the class of
+silent, confident errors that a false ``linear_in`` produces.
+
+In a Gibbs sweep, call this once outside the loop and
+``unchecked_operator`` inside it: the claim is a property of the model,
+not of the sweep, so re-checking every sweep pays for the same answer
+repeatedly. The at-points this checks at are what make that safe.
+
+Raises:
+    GraphError: if an evidence term covers a non-NUTS latent, if an
+        evidence graph is supplied without the global ``nuts_latents``
+        witness, or for a structural refusal documented by
+        :func:`~bayesmith.exact.block.unchecked_operator`.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#DEFAULT_SCALES">DEFAULT_SCALES</a><a href="#DEFAULT_AT_POINTS">DEFAULT_AT_POINTS</a><a href="#WEIGHTED_RTOL">WEIGHTED_RTOL</a><a href="#RELATIVE_FLOOR_FACTOR">RELATIVE_FLOOR_FACTOR</a><a href="#WEIGHTED_FLOOR_FACTOR">WEIGHTED_FLOOR_FACTOR</a><a href="#Unresolved">Unresolved</a><a href="#affinity_errors">affinity_errors</a><a href="#prior_at_points">prior_at_points</a><a href="#check_linearity">check_linearity</a><a href="#linear_operator">linear_operator</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

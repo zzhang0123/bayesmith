@@ -29,7 +29,9 @@
 |---|---|---|
 | `docs/artifacts.md` | `module-spec` | The artifact protocol: Tasks, Results, provenance and gates |
 | `docs/automatic-affinity.md` | `module-spec` | Automatic affine discovery and conditional blocks |
+| `docs/campbell-sky-validation.md` | `record` | Campbell sky validation: GCR reweighting and analytic cumulants |
 | `docs/correlated-noise-proposal.md` | `record` | Declaring a correlated noise on a graph node |
+| `docs/cumulant-expansion.md` | `module-spec` | Cumulant likelihoods for array-valued fields |
 | `docs/evaluation.md` | `module-spec` | Model checking: eight report kinds, two axes, and what a PASS does not mean |
 | `docs/evidence-layer-readiness.md` | `record` | What B11 will find here |
 | `docs/evidence.md` | `module-spec` | The evidence layer: one structure class, five terms, and what a PASS does not mean |
@@ -39,6 +41,9 @@
 | `docs/mutation/2026-09-05-r5-wave-c.md` | `record` | R5 Wave C mutation table |
 | `docs/mutation/2026-09-05-r5-wave-d.md` | `record` | R5 Wave D mutation table |
 | `docs/ownership.md` | `decision-home` | Implementation ownership |
+| `docs/reweight.md` | `module-spec` | Gaussian reference sampling and non-Gaussian hyperparameter MAP |
+| `docs/stability.md` | `module-spec` | The 0.9 stable baseline |
+| `docs/stabilization-090.md` | `record` | 0.9.0 stabilization review — T-002 |
 | `docs/superpowers/plans/2026-08-23-p1-graph-core-p2-numpyro-bridge.md` | `record` | bayesmith P1 图核 + P2 NumPyro 桥 — 实施计划 |
 | `docs/superpowers/plans/2026-08-23-p3a-exact-core.md` | `record` | bayesmith P3a 精确解核心 — 实施计划 |
 | `docs/superpowers/plans/2026-08-23-p3b-dispatch-execution.md` | `record` | bayesmith P3b 分派与执行 — 实施计划 |
@@ -53,9 +58,12 @@
 | `docs/superpowers/plans/2026-09-09-inference-composition.md` | `record` | Inference composition and diagnostics implementation plan |
 | `docs/superpowers/plans/2026-09-09-jeffreys-proposals.md` | `record` | Structural Jeffreys diagnostics and unified proposals |
 | `docs/superpowers/plans/2026-09-09-tris-skymap.md` | `record` | TRIS / Haslam real-data inference implementation plan |
-| `docs/superpowers/plans/2026-09-10-automatic-affinity.md` | `plan-active` | Automatic affinity discovery implementation plan |
+| `docs/superpowers/plans/2026-09-10-automatic-affinity.md` | `record` | Automatic affinity discovery implementation plan |
+| `docs/superpowers/plans/2026-09-12-tris-forward-beam-handoff.md` | `plan-active` | TRIS 全流程审计与 rheplicant 天空—波束联合推断交接计划 |
 | `docs/superpowers/plans/2026-09-12-tris-rsb-convergence-review.md` | `record` | TRIS + Haslam + RSB convergence review |
 | `docs/superpowers/plans/2026-09-12-tris-rsb-joint-implementation.md` | `plan-active` | TRIS + Haslam + RSB Joint Analysis Implementation Plan |
+| `docs/superpowers/plans/2026-09-19-t002-stabilization.md` | `record` | T-002 — Architecture, documentation and release stabilization |
+| `docs/superpowers/plans/2026-09-19-t003-documentation-narrative.md` | `plan-active` | T-003: documentation narrative restructuring plan |
 | `docs/superpowers/plans/HANDOFF-p3b-tasks-4-10.md` | `record` | 交接：bayesmith P3b Tasks 4–10 —— **已全部完成（2026-08-24）** |
 | `docs/superpowers/specs/2026-08-23-bayesmith-design.md` | `superseded` | bayesmith — 设计文档 |
 | `docs/superpowers/specs/2026-08-23-p3-structural-dispatch-design.md` | `superseded` | bayesmith P3 — 结构分派器 + InferencePlan + 线性高斯精确解 |

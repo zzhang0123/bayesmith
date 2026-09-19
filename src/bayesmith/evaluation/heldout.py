@@ -28,7 +28,7 @@ itself.
 * ``elpd_heldout = Σ_j log Σ_i w_i p(y_j | θ_i)`` -- the log predictive density
   actually achieved.  It is REPORTED, never thresholded: there is no scale on
   which "-1.02 is good and -24.05 is bad" without a second model to compare
-  against, and model comparison is R7's (§"R3 明确不做的事").  The verdict
+  against, and model comparison is R7's (section "R3 explicit non-goals").  The verdict
   comes from the PIT alone; the elpd is what a later comparison will read.
 
 **The band is derived, not chosen.**  §0.4 declares ONE false-positive rate for

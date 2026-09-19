@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.evaluation.gate"><title>bayesmith.evaluation.gate · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.evaluation.gate</span></nav>
+<article><h1>bayesmith.evaluation.gate</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">``model_checking@1``: eight reports about one posterior, aggregated once.
+
+This module is the only one in the layer that reaches no verdict of its own,
+and that is its whole design (§8.2).  Every question it asks already has an
+owner: the predictive band is :mod:`bayesmith.evaluation.checks`&#x27;s, the
+replicate floor is :mod:`bayesmith.evaluation.sbc`&#x27;s, the rank tolerance and
+the shift criterion are :mod:`bayesmith.diagnose`&#x27;s, and the truth table that
+turns eight reports into one status and one verdict is
+:func:`bayesmith.artifacts.gates.aggregate_gate`&#x27;s.  Nothing here compares a
+number against a constant.  If a reader finds one, it is a bug: it means a
+decision that lives somewhere else has been copied, and a copy agrees with its
+original right up until somebody edits one of them.
+
+**Two checks are required and six are optional, and the split is not about
+cost.**  ``posterior_predictive_check`` asks whether the fitted model can
+reproduce the data it was fitted to, and ``identifiability`` asks whether the
+parameters were determined by that data at all; a posterior that fails either
+has not been checked in any useful sense, so their absence must leave the gate
+undecided.  The other six each answer a question that is real but conditional
+-- there may be no held-out point, no ArviZ, no calibration campaign -- and
+§0.6 lets only required checks decide.
+
+**The trap this runner exists to avoid, measured before it was written.**
+:func:`~bayesmith.artifacts.gates.aggregate_gate` was probed on this checkout
+with one required PASS slot beside one optional slot in six states::
+
+    optional slot ABSENT from slots        status=evaluated verdict=pass n_refs=1 findings=[]
+    optional slot NOT_ATTEMPTED            status=evaluated verdict=pass n_refs=1 findings=[]
+    optional slot UNVERIFIABLE x ABSTAIN   status=evaluated verdict=pass n_refs=2 findings=[]
+    optional slot APPLICABLE x ABSTAIN     status=evaluated verdict=pass n_refs=2 findings=[]
+    optional slot APPLICABLE x PASS        status=evaluated verdict=pass n_refs=2 findings=[]
+    optional slot APPLICABLE x FAIL        status=evaluated verdict=pass n_refs=2 findings=[&#x27;optional_report_failed&#x27;]
+
+So on the OPTIONAL axis the status, the verdict and the findings are identical
+whether a check was never attempted or was attempted and could not answer:
+``report_refs`` is the one field that separates them.  (On the REQUIRED axis
+they are separate findings -- ``required_report_missing`` against
+``required_report_abstained`` -- which is why the trap is an optional-slot
+trap.)  **Therefore this runner never drops a report.**  A check that ran files
+its report whatever the report says; only a check that nobody ran gets
+``NOT_ATTEMPTED``.  A runner that skipped abstaining optional reports because
+&quot;they change nothing&quot; would emit a byte-identical clean PASS for a run where a
+check was attempted and failed to answer.
+
+**Two of the eight are CARRIED rather than run**, and the reason is the same
+ruling that keeps numbers out of this file.  ``sbc`` costs at least
+:data:`~bayesmith.evaluation.sbc.REPLICATE_FLOOR` posterior fits, so running it
+here would mean this module choosing a replicate count -- a number, and one
+whose floor already has a home.  ``chain_diagnostics`` is decided by the
+execution layer while it makes the posterior -- re-deciding convergence here
+would put a second owner on it (§2.4, red line 3) -- and only its REFERENCE
+survives on
+:attr:`~bayesmith.artifacts.results.PosteriorResult.report_refs`, so a caller
+who wants that slot filled supplies the report.  A caller with neither gets
+two ``NOT_ATTEMPTED`` slots, which is the honest record.
+
+**A check that raises becomes an ``ErrorRecord``, never an exception.**  Not a
+defensive habit -- a measured requirement.  On this checkout ``arviz.loo``
+raises ``ValueError: n_draws_tail must be at least 5`` on an 8-draw posterior
+and ``ValueError: All tail values are the same`` on an 8-point masked line, so
+the ``draws=8`` fixture §8.1 asks for cannot reach a verdict at all unless the
+runner catches.  ``ReportSlot`` has the field for exactly this, and §0.6
+decides what an error means: blocking for a required check, ignored for an
+optional one unless the requirement says otherwise.  What this module must not
+do is let the exception out, because then a gate that could not run a check
+produces no record instead of a record saying so.
+
+**``prerequisites_ready`` and ``inputs_current`` are READ, not decided.**  The
+first is
+:attr:`~bayesmith.artifacts.results.PosteriorResult.predictive_ready`, which is
+the execution layer&#x27;s own statement that a predictive result can be made from
+this posterior -- and three of the eight checks need one, so when it is False
+§0.6&#x27;s BLOCKED (&quot;needs an artifact that does not exist yet&quot;) is literally the
+case.  The second is the posterior&#x27;s lifecycle status: reports about an
+invalidated subject judge something that has moved.
+
+Layering: ``dispatch``, ``graph``, ``artifacts`` and this package&#x27;s own
+sibling modules (§0.1).  ArviZ stays optional -- it is reached only through
+:func:`bayesmith.evaluation.loo.loo_report`, which imports it inside the
+function that needs it.</pre></details><div class="symbol-index"><a href="#CARRIED_KINDS">CARRIED_KINDS</a> <a href="#CHAIN_DIAGNOSTICS">CHAIN_DIAGNOSTICS</a> <a href="#MODEL_CHECKING">MODEL_CHECKING</a> <a href="#POSTERIOR_PREDICTIVE_CHECK">POSTERIOR_PREDICTIVE_CHECK</a> <a href="#PRIOR_PREDICTIVE_CHECK">PRIOR_PREDICTIVE_CHECK</a> <a href="#check_posterior">check_posterior</a> <a href="#model_checking_slots">model_checking_slots</a></div><section class="api-symbol"><h2 id="CARRIED_KINDS">CARRIED_KINDS</h2><p class="source-note">Defined in <code>bayesmith.evaluation.gate</code>, line 171.</p><pre><code>CARRIED_KINDS: tuple[str, ...] = (SBC, CHAIN_DIAGNOSTICS)</code></pre></section><section class="api-symbol"><h2 id="CHAIN_DIAGNOSTICS">CHAIN_DIAGNOSTICS</h2><p class="source-note">Defined in <code>bayesmith.evaluation.gate</code>, line 165.</p><pre><code>CHAIN_DIAGNOSTICS = &#x27;chain_diagnostics&#x27;</code></pre></section><section class="api-symbol"><h2 id="MODEL_CHECKING">MODEL_CHECKING</h2><p class="source-note">Defined in <code>bayesmith.evaluation.gate</code>, line 196.</p><pre><code>MODEL_CHECKING = GateDefinition(name=&#x27;model_checking&#x27;, version=1, requirements=(ReportRequirement(name=POSTERIOR_PREDICTIVE_CHECK, required=True), ReportRequirement(name=IDENTIFIABILITY, required=True), ReportRequirement(name=PRIOR_PREDICTIVE_CHECK, required=False), ReportRequirement(name=HELD_OUT_PREDICTION, required=False), ReportRequirement(name=LOO_PSIS, required=False), ReportRequirement(name=SBC, required=False), ReportRequirement(name=PRIOR_SENSITIVITY, required=False), ReportRequirement(name=CHAIN_DIAGNOSTICS, required=False)), blocked_actions=(), remedies=(Remedy(action=&#x27;raise_draws_to_the_resolution_floor&#x27;, message=&quot;A predictive check below D105&#x27;s draw floor abstains rather than passing, because a p-value from that many draws cannot land in the tail the declared rate reserves. Re-run the posterior with at least this many draws.&quot;, parameters=((&#x27;draws&#x27;, DRAW_FLOOR),)), Remedy(action=&#x27;build_the_graph_inside_enable_x64&#x27;, message=&#x27;identifiability and prior_sensitivity refuse a float32 ambient precision, and they refuse a graph whose constants were traced outside the block as well (§0.10). Build the graph and run the check inside jax.enable_x64(True).&#x27;)))</code></pre></section><section class="api-symbol"><h2 id="POSTERIOR_PREDICTIVE_CHECK">POSTERIOR_PREDICTIVE_CHECK</h2><p class="source-note">Defined in <code>bayesmith.evaluation.gate</code>, line 161.</p><pre><code>POSTERIOR_PREDICTIVE_CHECK = &#x27;posterior_predictive_check&#x27;</code></pre></section><section class="api-symbol"><h2 id="PRIOR_PREDICTIVE_CHECK">PRIOR_PREDICTIVE_CHECK</h2><p class="source-note">Defined in <code>bayesmith.evaluation.gate</code>, line 162.</p><pre><code>PRIOR_PREDICTIVE_CHECK = &#x27;prior_predictive_check&#x27;</code></pre></section><section class="api-symbol"><h2 id="check_posterior">check_posterior</h2><p class="source-note">Defined in <code>bayesmith.evaluation.gate</code>, line 581.</p><pre><code>check_posterior(graph: Graph, posterior: PosteriorResult, *, key: jax.Array, budget: ComputeBudget, model_ref: ModelRef, carried: Sequence[EvaluationReport]=()) -&gt; GateResult</code></pre><pre class="docstring">Run ``model_checking@1`` over one posterior: slots, then the aggregator.
+
+:func:`model_checking_slots` then
+:func:`~bayesmith.artifacts.gates.aggregate_gate`, and nothing between them
+-- the same split as :func:`~bayesmith.evaluation.sbc.simulation_based_calibration`&#x27;s,
+for the same reason: everything about what ran is in the first, everything
+about what it means is in the second, and this function decides neither.
+The aggregator is not wrapped, extended or second-guessed here (§8.2).
+
+Args:
+    graph: as :func:`model_checking_slots` takes it.
+    posterior: the subject.  Two of its fields reach the aggregator
+        directly: ``predictive_ready`` as ``prerequisites_ready``, and the
+        lifecycle status of its envelope as ``inputs_current``.
+    key: PRNG key for the two internal runs.
+    budget: what those runs may spend.
+    model_ref: what the model callable is.
+    carried: ``sbc`` and ``chain_diagnostics`` reports the caller holds.
+
+Returns:
+    The :class:`~bayesmith.artifacts.gates.GateResult`.  Its ``meta``
+    carries the posterior&#x27;s own fingerprints and names it as a parent, so
+    §0.3 retires this verdict when the thing it judged changes.
+
+    The result&#x27;s identity is minted, so two calls on identical inputs give
+    two DIFFERENT ``report_refs`` over the same decision: they are two
+    artifacts, and ``new_artifact_meta`` says so in as many words.  What is
+    deterministic is everything the gate decided, which is what
+    ``test_gate.py`` compares.</pre></section><section class="api-symbol"><h2 id="model_checking_slots">model_checking_slots</h2><p class="source-note">Defined in <code>bayesmith.evaluation.gate</code>, line 437.</p><pre><code>model_checking_slots(graph: Graph, posterior: PosteriorResult, *, key: jax.Array, budget: ComputeBudget, model_ref: ModelRef, carried: Sequence[EvaluationReport]=()) -&gt; tuple[ReportSlot, ...]</code></pre><pre class="docstring">Run the checks that apply and file each outcome in its own slot.
+
+One slot per declared requirement, in the definition&#x27;s order, always: a
+requirement with no slot is invisible to a reader of the result, and an
+optional one with no slot is invisible to
+:func:`~bayesmith.artifacts.gates.aggregate_gate` as well.
+
+Args:
+    graph: the model.  READ -- nothing here modifies it (§2.4).  For the
+        two ``diagnose`` projections it must have been BUILT inside
+        ``jax.enable_x64(True)``; outside one they file an UNVERIFIABLE
+        report carrying the refusal, which is a verdict the gate can
+        aggregate rather than an exception it cannot.
+    posterior: the subject.  Its ``latent_names`` name the sites carried
+        forward, its ``predictive_ready`` says whether a predictive result
+        can be made at all, and its own reference is what a carried
+        ``chain_diagnostics`` report&#x27;s ``subject_ref`` is checked against.
+    key: PRNG key.  Split once, into one stream for the predictive replay
+        and one for the prior simulation, so the same key gives the same
+        eight reports and adding a check later cannot disturb the earlier
+        streams.
+    budget: what the two internal runs may spend.  Never defaulted: a draw
+        count is a budget, and D105 is a floor on it rather than a value
+        for it.
+    model_ref: what the model callable is, for every compiled task.
+    carried: reports produced elsewhere, of the kinds in
+        :data:`CARRIED_KINDS`.  Anything else is refused by name.
+
+Returns:
+    One :class:`~bayesmith.artifacts.gates.ReportSlot` per requirement of
+    :data:`MODEL_CHECKING`, in that definition&#x27;s order.
+
+Raises:
+    TypeError: for the wrong kind of argument, or a carried entry that is
+        not an evaluation report.
+    ValueError: for a carried report this gate will not accept, two
+        carried reports of one kind, or a carried ``chain_diagnostics``
+        that judges some other result.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#CARRIED_KINDS">CARRIED_KINDS</a><a href="#CHAIN_DIAGNOSTICS">CHAIN_DIAGNOSTICS</a><a href="#MODEL_CHECKING">MODEL_CHECKING</a><a href="#POSTERIOR_PREDICTIVE_CHECK">POSTERIOR_PREDICTIVE_CHECK</a><a href="#PRIOR_PREDICTIVE_CHECK">PRIOR_PREDICTIVE_CHECK</a><a href="#check_posterior">check_posterior</a><a href="#model_checking_slots">model_checking_slots</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

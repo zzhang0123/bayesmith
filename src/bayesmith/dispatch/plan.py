@@ -54,7 +54,6 @@ from bayesmith.dispatch.classify import (
     Classification,
     block_at,
     partition,
-    prior_environment,
 )
 from bayesmith.dispatch.costs import (
     LadderInputs,
@@ -76,6 +75,7 @@ from bayesmith.dispatch.execute import (
 )
 from bayesmith.dispatch.streaming import StreamingRoute, streaming_route
 from bayesmith.errors import GraphError, NotGaussian
+from bayesmith.exact._environment import prior_environment
 from bayesmith.exact.block import _partition_probe_operator, domain_centre
 from bayesmith.exact.gaussian import gaussian_parts, node_shape, precision_at
 from bayesmith.exact.gls import MAX_REWEIGHTS, MIN_REWEIGHTS

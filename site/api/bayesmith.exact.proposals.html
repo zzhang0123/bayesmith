@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.proposals"><title>bayesmith.exact.proposals · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.proposals</span></nav>
+<article><h1>bayesmith.exact.proposals</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Small dense Gaussian proposals with optional model-coordinate MH correction.
+
+These are explicitly budgeted proposal builders. They do not replace the
+matrix-free GCR path. With MH enabled, approximation affects efficiency, while the original
+full graph density and both normalized proposal directions define the target.
+Explicitly disabling correction instead applies unadjusted approximate updates,
+while retaining support and numerical-validity rejection.</pre></details><div class="symbol-index"><a href="#DenseGaussianProposal">DenseGaussianProposal</a> <a href="#MHInfo">MHInfo</a> <a href="#ProposalDiagnostics">ProposalDiagnostics</a> <a href="#mh_transition">mh_transition</a> <a href="#full_support">full_support</a> <a href="#ProposalBlock">ProposalBlock</a> <a href="#CompiledProposals">CompiledProposals</a> <a href="#compile_proposals">compile_proposals</a></div><section class="api-symbol"><h2 id="DenseGaussianProposal">DenseGaussianProposal</h2><p class="source-note">Defined in <code>bayesmith.exact.proposals</code>, line 32.</p><pre><code>class DenseGaussianProposal(NamedTuple)
+mean: jax.Array
+precision_cholesky: jax.Array
+valid: Any = True</code></pre><pre class="docstring">A normalized law with precision ``L @ L.T`` in flat model coordinates.</pre><h3 id="DenseGaussianProposal.sample">DenseGaussianProposal.sample</h3><pre><code>sample(self, key)</code></pre><h3 id="DenseGaussianProposal.log_prob">DenseGaussianProposal.log_prob</h3><pre><code>log_prob(self, value)</code></pre><h3 id="DenseGaussianProposal.is_valid">DenseGaussianProposal.is_valid</h3><pre><code>is_valid(self)</code></pre></section><section class="api-symbol"><h2 id="MHInfo">MHInfo</h2><p class="source-note">Defined in <code>bayesmith.exact.proposals</code>, line 62.</p><pre><code>class MHInfo(NamedTuple)
+attempted: jax.Array
+accepted: jax.Array
+numerical_failure: jax.Array
+support_rejected: jax.Array
+log_accept_ratio: jax.Array</code></pre><pre class="docstring">No additional source docstring. Read the signature and owning module contract above.</pre></section><section class="api-symbol"><h2 id="ProposalDiagnostics">ProposalDiagnostics</h2><p class="source-note">Defined in <code>bayesmith.exact.proposals</code>, line 70.</p><pre><code>class ProposalDiagnostics(NamedTuple)
+attempted: jax.Array
+accepted: jax.Array
+numerical_failure: jax.Array
+support_rejected: jax.Array</code></pre><pre class="docstring">One counter per block; ``accepted`` counts applied proposals in either mode.</pre></section><section class="api-symbol"><h2 id="mh_transition">mh_transition</h2><p class="source-note">Defined in <code>bayesmith.exact.proposals</code>, line 79.</p><pre><code>mh_transition(key, current, build, log_target, support=None, *, mh_correction=True)</code></pre><pre class="docstring">One proposal attempt, with original-target MH enabled by default.
+
+``build`` and ``log_target`` accept flat vectors. A support rejection is
+distinct from a numerical failure. No retry or clipping is performed.
+With ``mh_correction=False`` no reverse law or MH ratio is evaluated:
+a supported draw with finite target density is applied, and the absent
+log acceptance ratio is represented by NaN. This is an unadjusted kernel,
+not a claim to sample the original target or a known approximate joint.</pre></section><section class="api-symbol"><h2 id="full_support">full_support</h2><p class="source-note">Defined in <code>bayesmith.exact.proposals</code>, line 149.</p><pre><code>full_support(graph, state)</code></pre><pre class="docstring">Check every latent against its distribution in the candidate environment.</pre></section><section class="api-symbol"><h2 id="ProposalBlock">ProposalBlock</h2><p class="source-note">Defined in <code>bayesmith.exact.proposals</code>, line 204.</p><pre><code>class ProposalBlock
+graph: Any
+policy: Any
+names: tuple[str, ...]
+unpack: Any
+terms: tuple[_Term, ...]</code></pre><pre class="docstring">Static flattening metadata and a traceable conditional proposal builder.</pre><h3 id="ProposalBlock.pack">ProposalBlock.pack</h3><pre><code>pack(self, state)</code></pre><h3 id="ProposalBlock.state_at">ProposalBlock.state_at</h3><pre><code>state_at(self, state, flat)</code></pre><h3 id="ProposalBlock.build">ProposalBlock.build</h3><pre><code>build(self, state)</code></pre><h3 id="ProposalBlock.step">ProposalBlock.step</h3><pre><code>step(self, key, state)</code></pre></section><section class="api-symbol"><h2 id="CompiledProposals">CompiledProposals</h2><p class="source-note">Defined in <code>bayesmith.exact.proposals</code>, line 344.</p><pre><code>class CompiledProposals
+names: tuple[str, ...]
+remainder: tuple[str, ...]
+blocks: tuple[ProposalBlock, ...]
+initial_values: dict[str, Any]</code></pre><pre class="docstring">No additional source docstring. Read the signature and owning module contract above.</pre><h3 id="CompiledProposals.mh_corrected">CompiledProposals.mh_corrected</h3><pre><code>mh_corrected(self)</code></pre><pre class="docstring">Whether every scheduled proposal preserves the original target by MH.</pre><h3 id="CompiledProposals.sweep">CompiledProposals.sweep</h3><pre><code>sweep(self, key, full_state)</code></pre></section><section class="api-symbol"><h2 id="compile_proposals">compile_proposals</h2><p class="source-note">Defined in <code>bayesmith.exact.proposals</code>, line 475.</p><pre><code>compile_proposals(graph, policies, initial_values)</code></pre><pre class="docstring">Validate explicit blocks and dense budgets before tracing transitions.
+
+Block priors may be Normal or Uniform; other factors remain in the target.
+Observations used for a proposal must have the existing Gaussian precision
+interface. Log proposals additionally accept canonical LogNormal data.
+Complex/discrete blocks are left to the existing inference routes.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#DenseGaussianProposal">DenseGaussianProposal</a><a href="#MHInfo">MHInfo</a><a href="#ProposalDiagnostics">ProposalDiagnostics</a><a href="#mh_transition">mh_transition</a><a href="#full_support">full_support</a><a href="#ProposalBlock">ProposalBlock</a><a href="#CompiledProposals">CompiledProposals</a><a href="#compile_proposals">compile_proposals</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

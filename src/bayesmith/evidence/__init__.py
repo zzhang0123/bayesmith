@@ -3,9 +3,12 @@
 This subpackage was called ``evidence`` through 0.4.0. The name claimed
 something the package does not do: the Bayesian evidence is
 ``p(d) = INT p(theta) PROD_i L_i(theta) d theta``, a number obtained by
-integrating the parameters OUT, and nothing here computes or consumes one --
-there is no Bayes factor and no model comparison anywhere in the package. What
-the modules under here actually build is each dataset's MARGINAL LIKELIHOOD
+integrating the parameters OUT, and nothing here computes or consumes one.
+The package computes it elsewhere: an ``EvidenceTask`` answered by
+:mod:`bayesmith.dispatch.evidence` for a graph that is one exact
+linear-Gaussian block, and compared across two results by
+:mod:`bayesmith.evaluation.evidence`. What the modules under here actually
+build is each dataset's MARGINAL LIKELIHOOD
 ``L_i(theta)``, with its own nuisances integrated away: a function of the
 parameters, not a number. Hence ``marginal``.
 
@@ -43,8 +46,8 @@ from bayesmith import marginal as _marginal
 warnings.warn(
     "bayesmith.evidence is deprecated and will be removed in 1.0; it is now "
     "bayesmith.marginal. The old name claimed the Bayesian evidence p(d), "
-    "which this package does not compute -- what these modules build is each "
-    "dataset's marginal likelihood L_i(theta).",
+    "which these modules do not compute (an EvidenceTask does); what they "
+    "build is each dataset's marginal likelihood L_i(theta).",
     DeprecationWarning,
     stacklevel=2,
 )

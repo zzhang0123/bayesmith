@@ -65,6 +65,13 @@ jobs:
           uv pip install build
           uv run python -m build
 
+      - name: Verify the source archive and documentation
+        run: |
+          .venv/bin/python tools/check_distribution.py dist --extract-to /tmp/bayesmith-release-sdist --report distribution.json
+          .venv/bin/python tools/build_docs.py --check
+          version=$(.venv/bin/python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          uv build --wheel --out-dir /tmp/bayesmith-rebuilt "/tmp/bayesmith-release-sdist/bayesmith-$version"
+
       # The tag and pyproject's version are two spellings of one number, and
       # they drift on exactly the commit where everyone is busy with something
       # else. PyPI filenames are immutable, so publishing 0.1.0 from a tag that
@@ -94,6 +101,11 @@ jobs:
           uv pip install --python .testenv/bin/python dist/*.whl \
             pytest pytest-xdist hypothesis
           .testenv/bin/python -m pytest -n 4
+          uv pip install --python .testenv/bin/python --reinstall --no-deps /tmp/bayesmith-rebuilt/*.whl
+          version=$(.venv/bin/python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          interpreter="$PWD/.testenv/bin/python"
+          cd "/tmp/bayesmith-release-sdist/bayesmith-$version"
+          "$interpreter" -m pytest -n 4 -m 'not full'
         # tests/crosscheck skips without a rheplicant checkout. That is
         # expected here, and those tests say so in their own skip reasons.
 

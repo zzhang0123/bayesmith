@@ -10,7 +10,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .tris_rsb_data import HC_OVER_K_MHZ_K, survey_covariance
+from .tris_rsb_data import HC_OVER_K_MHZ_K
+from .tris_rsb_external import covariance_for_rows
 
 CMB_THERMODYNAMIC_K = 2.725
 
@@ -38,9 +39,7 @@ def heldout_log_predictive_density(draws, heldout, *, include_rsb, chain_shape=N
     """Integrate the unseen survey's shared calibration analytically."""
     frequency = np.asarray(heldout["frequency_mhz"], dtype=float)
     data = np.asarray(heldout["temperature_rj_k"], dtype=float)
-    covariance = survey_covariance(
-        heldout["sigma_independent_rj_k"], heldout["survey_code"], heldout["tau_rj_k"]
-    )
+    covariance = covariance_for_rows(heldout, slice(None))
     if np.linalg.eigvalsh(covariance).min() <= 0:
         raise ValueError("held-out survey covariance must be positive definite")
     if include_rsb:
@@ -101,7 +100,8 @@ def score_refits(parent, common_hash):
     rows, hashes = [], {}
     for train, held in (("LWA", "ARCADE"), ("ARCADE", "LWA")):
         mask = external["survey"] == held
-        heldout = {name: value[mask] for name, value in external.items()}
+        heldout = {name: value[np.ix_(mask, mask)] if value.ndim == 2 else value[mask]
+                   for name, value in external.items()}
         scores = {}
         for variant in ("no_rsb", "rsb"):
             path = paths[variant, train]

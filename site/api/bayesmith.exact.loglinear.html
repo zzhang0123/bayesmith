@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.loglinear"><title>bayesmith.exact.loglinear · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.loglinear</span></nav>
+<article><h1>bayesmith.exact.loglinear</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Log space as a graph transform: multiplicative noise made conjugate.
+
+Two observation models produce data whose LOG is Gaussian about an affine
+prediction, and they arrive in different clothes:
+
+* **multiplicative Gaussian** -- ``d = mu (1 + f w)``, ``w ~ N(0, 1)``: the
+  radiometer equation&#x27;s own form, declared as ``Normal(mu, f |mu|)``. Taking
+  logs, ``log d = log mu + log(1 + f w)`` and ``log(1 + f w) -&gt; N(-f^2/2,
+  f^2)`` to first order -- an approximation whose size is measured below.
+* **log-Gaussian** -- ``d = mu exp(s w)``, declared as ``LogNormal(ell, s)``
+  with ``ell`` the log-location: here ``log d = ell + s w`` EXACTLY, with no
+  correction term and no threshold.
+
+Either way, in log space the noise is additive AND its scale no longer
+depends on the prediction -- so a latent the prediction is ``exp``-affine in
+(a gain entered as ``exp(log_gain)``) has an exact conjugate block there,
+where in the original space it had only NUTS; and the reweighting fixed point
+:func:`~bayesmith.exact.gls.iterative_gls` exists to find has nothing left to
+iterate on.
+
+**The implementation is a graph-to-graph transform, and that is the design.**
+:func:`log_space` rewrites each observed node into an ordinary ``Normal`` in
+log space -- ``loc`` becomes ``log`` of the old prediction (or the LogNormal&#x27;s
+own ``ell``, which already is one), ``scale`` becomes the constant ``f`` (or
+``s``), ``observed`` becomes ``log d`` (plus ``f^2/2`` in the first-order
+case), and ``depends_on_prediction`` becomes ``False`` because it genuinely
+is. Everything downstream is then STOCK: the per-element affinity check with
+its two criteria and roundoff floors, ``unchecked_operator``,
+``wiener_solve``/``gcr_sample``, ``precision_at``, the Gibbs machinery -- none
+of it knows or needs to know that the graph it was handed carries logs. One
+transform, zero re-implementations, and the checking machinery that catches a
+false claim is the same one that catches it in linear space.
+
+**Which scenario a node is, is probed rather than declared.** The transform
+evaluates each observed node&#x27;s distribution at two points of the latents&#x27;
+own priors: a ``LogNormal`` is the exact case by type; a ``Normal`` whose
+``scale / loc`` is the same at both points (while ``loc`` itself moved) is
+multiplicative with that ratio as ``f``; a ``Normal`` whose scale did not
+track the prediction is additive, and log space is refused for it --
+:class:`~bayesmith.errors.NotLogLinear` -- because a transform that does not
+simplify the noise is just a different, wrong likelihood.
+
+**The first-order approximation, and its size.** ``E[log(1 + f w)] =
+-f^2/2`` to leading order and ``Var[log(1 + f w)]`` exceeds ``f^2``.
+Measured over 2e7 draws:
+
+======  ==================  =====================
+``f``   ``Var / f^2 - 1``   ``mean / (-f^2/2)``
+======  ==================  =====================
+0.004   below the MC floor  1.00
+0.06    0.0088              1.006
+0.10    0.0258              1.016
+0.30    0.3983              1.185
+======  ==================  =====================
+
+:data:`FIRST_ORDER_MAX_FRACTIONAL` refuses above 0.06, where the variance
+taken as ``f^2`` is 1 % wrong. A radiometer at 61 kHz x 1 s has
+``f = 4.05e-3`` -- fifteen times below the refusal -- so the threshold is
+not a limit met by observing; reaching it means a channel width or an
+integration time is not what was intended. The ``LogNormal`` route has no
+threshold at all, which is the reason to declare one when the noise really
+is log-Gaussian.
+
+**Positivity is refused eagerly, never propagated.** ``log`` of a
+non-positive value is NaN, and ``nan &gt; rtol`` is ``False`` -- so a NaN
+departure would read as PASSING the affinity check, and a NaN residual as a
+converged solve. Data is checked at transform time on concrete values;
+a prediction that goes non-positive at a probe surfaces through the stock
+non-finite-baseline refusal.
+
+**Ownership.** bayesmith owns the graph-side transform, its approximation
+threshold and mean-shift arithmetic, the refusal vocabulary, and the oracles
+that certify them. rheplicant now consumes that arithmetic while retaining its
+pipeline-specific adapter and probe machinery. This implementation was
+originally ported from ``rheplicant.inference.loglinear`` and re-founded on the
+graph; that is historical provenance, not a second source of truth. The
+bayesmith form is one transform in front of the existing exact machinery,
+whose per-element check also adds a sigma-weighted second criterion absent
+from the original implementation.</pre></details><div class="symbol-index"><a href="#FIRST_ORDER_MAX_FRACTIONAL">FIRST_ORDER_MAX_FRACTIONAL</a> <a href="#LOG_DEFAULT_SCALES">LOG_DEFAULT_SCALES</a> <a href="#LogSpace">LogSpace</a> <a href="#check_log_linearity">check_log_linearity</a> <a href="#log_linear_operator">log_linear_operator</a> <a href="#log_space">log_space</a> <a href="#multiplicative_log_data">multiplicative_log_data</a></div><section class="api-symbol"><h2 id="FIRST_ORDER_MAX_FRACTIONAL">FIRST_ORDER_MAX_FRACTIONAL</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 111.</p><pre><code>FIRST_ORDER_MAX_FRACTIONAL: float = 0.06</code></pre></section><section class="api-symbol"><h2 id="LOG_DEFAULT_SCALES">LOG_DEFAULT_SCALES</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 121.</p><pre><code>LOG_DEFAULT_SCALES: tuple[float, ...] = (0.001, 0.01, 0.1, 1.0)</code></pre></section><section class="api-symbol"><h2 id="LogSpace">LogSpace</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 131.</p><pre><code>class LogSpace
+graph: Graph
+kind: dict[str, str]
+fractional: dict[str, jax.Array]
+skipped: dict[str, str]
+log_jacobian: jax.Array = dataclasses.field(default_factory=lambda: jnp.zeros(()))</code></pre><pre class="docstring">A graph taken to log space, with the reading that justified it.
+
+Attributes:
+    graph: the transformed model. Every observed node is an ordinary
+        ``Normal`` whose ``loc`` is the log-prediction, whose ``scale``
+        is constant in the latents (``depends_on_prediction=False``, and
+        genuinely so), and whose ``observed`` is the log data, shifted by
+        ``f^2/2`` where the first-order route applied. Latents, priors,
+        deterministic structure and plates are untouched -- which is why
+        every downstream consumer takes this graph verbatim.
+    kind: ``{observed: &quot;lognormal&quot; | &quot;multiplicative&quot;}`` -- which scenario
+        each node was read as. ``&quot;lognormal&quot;`` is exact;
+        ``&quot;multiplicative&quot;`` carries the first-order caveat the module
+        docstring sizes.
+    fractional: ``{observed: f}`` for the multiplicative nodes, absent
+        for the exact ones. Broadcast to the node&#x27;s shape, so a
+        channel-dependent bandwidth is representable.
+    skipped: ``{observed: why}`` for nodes left UNTRANSFORMED -- additive
+        noise, a distribution the route does not read. A skipped node
+        keeps its original form in :attr:`graph`, which is harmless to a
+        log block that does not reach it (its design column there is
+        zero) and disqualifying for one that does --
+        :func:`~bayesmith.dispatch.factor.factor_partition` checks
+        reachability against exactly this dict.
+    log_jacobian: the log absolute Jacobian of the change of variables
+        this transform performed, summed over every node whose data was
+        replaced by its logarithm. For ``y = log d`` that is
+        ``sum(log |dy/dd|) = -sum(log d)``, and it is the term that
+        SEPARATES the two densities:
+
+            ``log_joint(original) == log_joint(graph) + log_jacobian``
+
+        so it is the correction an evidence ADDS, sign included, rather
+        than a magnitude a caller has to orient. Measured on a six-point
+        fixture: ``-1.3459909820953684``.
+
+        Recorded rather than applied, and the distinction is the whole of
+        it. Adding it to :attr:`graph`&#x27;s own ``log_joint`` would move every
+        downstream consumer by a data-dependent constant that no posterior
+        shape, no diagnostic and no predictive check can see -- the class
+        of silent change R4 exists to prevent. An evidence assembler reads
+        this field and nothing else does; a posterior is unaffected because
+        a constant is unaffected by conditioning.
+
+        Zero for a graph with no transformed node, which cannot happen --
+        ``log_space`` refuses that case -- but is the right value anyway.</pre></section><section class="api-symbol"><h2 id="check_log_linearity">check_log_linearity</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 508.</p><pre><code>check_log_linearity(graph: Graph, names: Iterable[str], at: dict[str, Any] | None=None, *, scales: tuple[float, ...]=LOG_DEFAULT_SCALES, rtol: float | None=None, at_points: Any=None, key: jax.Array | None=None) -&gt; dict[int, dict[float, float]]</code></pre><pre class="docstring">Verify ``log`` of every prediction is affine in a block -- or a group.
+
+:func:`log_space` decides the scenarios, then the STOCK
+:func:`~bayesmith.exact.linearity.check_linearity` runs on the
+transformed graph -- same per-element criteria, same roundoff floors,
+same at-point sweep over the outside latents&#x27; priors. There is no
+separate log-space probe loop to drift from the linear one.
+
+Args and returns as for the stock check, with one difference:
+``scales`` defaults to :data:`LOG_DEFAULT_SCALES`, for the overflow
+reason its docstring gives.
+
+Raises:
+    NotLogLinear: if no log-space reading exists (from
+        :func:`log_space`), or if log of the prediction departs from
+        affinity in these latents -- the inner check&#x27;s refusal, re-raised
+        under the blameless class with its message carried verbatim, so
+        a dispatcher probing many latents can catch &quot;no&quot; narrowly.
+    GraphError: propagated -- a malformed ``names`` or ``at`` is misuse,
+        not a classification outcome.</pre></section><section class="api-symbol"><h2 id="log_linear_operator">log_linear_operator</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 553.</p><pre><code>log_linear_operator(graph: Graph, names: Iterable[str], at: dict[str, Any] | None=None, *, nuts_latents: Iterable[str] | None=None, scales: tuple[float, ...]=LOG_DEFAULT_SCALES, rtol: float | None=None, at_points: Any=None, key: jax.Array | None=None) -&gt; tuple[LinearBlock, LogSpace]</code></pre><pre class="docstring">Check the log-linearity claim, then export the block. The entry point.
+
+The returned block is an ordinary
+:class:`~bayesmith.exact.block.LinearBlock` over the TRANSFORMED graph:
+its ``offset`` is the log-prediction with the block at zero, its ``data``
+is the log data (shifted by ``f^2/2`` where first-order), and the
+matching noise is ``precision_at(returned.graph, values)`` -- constant in
+the latents, which is the point. The :class:`LogSpace` comes back with
+the block because every further step (a Gibbs sweep&#x27;s rebuilds, the
+precision, a NUTS comparison) runs against the transformed graph, and
+handing back the block alone would leave the caller to reconstruct it.
+``nuts_latents`` is the completed plan&#x27;s global NUTS witness; evidence-
+bearing transformed graphs forward it unchanged to the stock operator.</pre></section><section class="api-symbol"><h2 id="log_space">log_space</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 410.</p><pre><code>log_space(graph: Graph) -&gt; LogSpace</code></pre><pre class="docstring">Take the graph to log space, deciding each observed node&#x27;s scenario.
+
+See the module docstring for the two scenarios and for why the result is
+an ordinary graph. The probe environments are two points of the latents&#x27;
+own priors, so the scenario is read where inference will actually run.
+
+A node with no log-Gaussian reading -- additive noise, a distribution
+the route does not read -- is left UNTRANSFORMED and recorded in
+``skipped`` with its reason, rather than refusing the whole transform:
+on a graph with several observations, a log block only ever needs the
+ones ITS latents reach, and a caller (``factor_partition`` does) checks
+that reachability against ``skipped``. Non-positive DATA on an otherwise
+multiplicative node still refuses loudly -- that is a contradiction in
+the model, not a scenario mismatch.
+
+Raises:
+    NotLogLinear: if NO observed node could be transformed -- then there
+        is no log space to hand back at all, and the aggregated per-node
+        reasons say why; or if a multiplicative node&#x27;s data is
+        non-positive, which no routing can repair.
+    StructureError: propagated from the graph machinery where the graph
+        itself is broken, which is a different statement from &quot;no
+        log-linear structure&quot; and deliberately keeps its own class.</pre></section><section class="api-symbol"><h2 id="multiplicative_log_data">multiplicative_log_data</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 189.</p><pre><code>multiplicative_log_data(observed: jax.Array, fractional: jax.Array | float) -&gt; tuple[jax.Array, jax.Array]</code></pre><pre class="docstring">``(log d + f^2/2, f)`` -- the first-order transform, on bare arrays.
+
+The two halves of one claim about the noise, returned together so a
+caller cannot take the shift without the sigma that goes with it. The
+``f^2/2`` adds back ``E[log(1 + f w)]`` to leading order; it is a
+CONSTANT -- the same for every sample, independent of the prediction --
+so adding it is exact arithmetic rather than an estimate.
+
+Positivity of ``observed`` is the CALLER&#x27;s obligation here, stated
+rather than checked: this is the seam another package&#x27;s own data
+handling (masks, flags) delegates its arithmetic to, and a check on this
+side would force that caller to pre-fill values it is about to weight by
+zero anyway. :func:`log_space`, which owns whole graphs, does check.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#FIRST_ORDER_MAX_FRACTIONAL">FIRST_ORDER_MAX_FRACTIONAL</a><a href="#LOG_DEFAULT_SCALES">LOG_DEFAULT_SCALES</a><a href="#LogSpace">LogSpace</a><a href="#check_log_linearity">check_log_linearity</a><a href="#log_linear_operator">log_linear_operator</a><a href="#log_space">log_space</a><a href="#multiplicative_log_data">multiplicative_log_data</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

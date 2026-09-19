@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.evaluation"><title>bayesmith.evaluation · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.evaluation</span></nav>
+<article><h1>bayesmith.evaluation</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Model checking: reports ABOUT results, never results.
+
+The layer the top-level design&#x27;s §7.2 puts between the execution adapters and
+a workflow.  Everything here reads a finished
+:class:`~bayesmith.artifacts.results.PosteriorResult`,
+:class:`~bayesmith.artifacts.results.PredictiveResult` or
+:class:`~bayesmith.artifacts.results.SimulationResult` and produces an
+:class:`~bayesmith.artifacts.reports.EvaluationReport` whose ``subject_ref``
+points back at what it read.
+
+**Three things this layer does not do**, and they are the reason it is a layer
+rather than a handful of functions inside ``dispatch``:
+
+* It does not MODIFY a result.  A check that could reweight a posterior would
+  be an inference step wearing a verdict&#x27;s schema.
+* It does not CHOOSE an algorithm.  Deciding that a check failed and then
+  re-running with a longer chain is a workflow&#x27;s decision, made from a report,
+  not a decision this layer may take on the execution layer&#x27;s behalf (§2.4).
+* It does not RE-JUDGE a verdict that already has a home.  ``identifiability``
+  and ``prior_sensitivity`` decide their own thresholds inside
+  :mod:`bayesmith.diagnose`; the projections here read the report fields and
+  file them, so a threshold has one owner rather than two that agree until
+  they do not.
+
+**Dependencies run one way** -- ``evaluation`` imports ``dispatch``, ``graph``,
+``artifacts`` and ``bridge.arviz``, and none of them imports it.
+``tests/test_layering.py`` holds that direction, because the shortcut it
+forbids (``dispatch`` importing a check so a run can grade itself) is exactly
+the arrangement §2.4 describes as the thing to avoid.
+
+**ArviZ stays optional.**  It is imported inside the function that needs it,
+never at module scope and never through this ``__init__``, so a clone without
+it installed gets an UNVERIFIABLE report rather than an ImportError (§7.3).
+``tests/test_layering.py`` checks that in a subprocess.</pre></details><div class="symbol-index"><a href="#ALPHA">ALPHA</a> <a href="#DEFAULT_DISCREPANCIES">DEFAULT_DISCREPANCIES</a> <a href="#DRAW_FLOOR">DRAW_FLOOR</a> <a href="#REPLICATE_FLOOR">REPLICATE_FLOOR</a> <a href="#SbcRanks">SbcRanks</a> <a href="#check_posterior">check_posterior</a> <a href="#discrepancy_identity">discrepancy_identity</a> <a href="#held_out_report">held_out_report</a> <a href="#identifiability_report">identifiability_report</a> <a href="#loo_report">loo_report</a> <a href="#posterior_predictive_check">posterior_predictive_check</a> <a href="#prior_predictive_check">prior_predictive_check</a> <a href="#prior_sensitivity_report">prior_sensitivity_report</a> <a href="#sbc_ranks">sbc_ranks</a> <a href="#sbc_report">sbc_report</a> <a href="#simulation_based_calibration">simulation_based_calibration</a></div><section class="api-symbol"><h2 id="ALPHA">ALPHA</h2><p class="source-note">Defined in <code>bayesmith.evaluation</code>, line 75.</p><pre><code>ALPHA = 0.05</code></pre></section><section class="api-symbol"><h2 id="DEFAULT_DISCREPANCIES">DEFAULT_DISCREPANCIES</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 218.</p><pre><code>DEFAULT_DISCREPANCIES: tuple[Callable[..., Any], ...] = (mean, sd, smallest, largest, residual_sd)</code></pre></section><section class="api-symbol"><h2 id="DRAW_FLOOR">DRAW_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 138.</p><pre><code>DRAW_FLOOR: int = math.ceil(1.0 / (ALPHA / 2.0))</code></pre></section><section class="api-symbol"><h2 id="REPLICATE_FLOOR">REPLICATE_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 149.</p><pre><code>REPLICATE_FLOOR = 100</code></pre></section><section class="api-symbol"><h2 id="SbcRanks">SbcRanks</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 247.</p><pre><code>class SbcRanks
+coordinates: tuple[str, ...]
+ranks: tuple[tuple[float, ...], ...]
+requested: int
+usable: int
+refused: int
+unconverged: int
+undrawn: int
+route: str
+subject_ref: ArtifactRef
+fingerprints: FingerprintBundle</code></pre><pre class="docstring">What the replicate loop measured, with no verdict attached.
+
+Separated from :func:`sbc_report` so that the two arms of §0.11 -- a
+compiled route and an arbitrary sampler -- reach one judgement through one
+object, and so that a caller who wants the ranks themselves (a histogram,
+a plot) does not have to reach inside a report to get them.
+
+``ranks`` is one tuple per coordinate, each holding one rank per USABLE
+replicate; the failure counts say how many replicates are missing from
+those tuples and why.</pre><h3 id="SbcRanks.unusable">SbcRanks.unusable</h3><pre><code>unusable(self) -&gt; int</code></pre><pre class="docstring">Replicates that produced no rank, whatever the reason.</pre></section><section class="api-symbol"><h2 id="check_posterior">check_posterior</h2><p class="source-note">Defined in <code>bayesmith.evaluation.gate</code>, line 581.</p><pre><code>check_posterior(graph: Graph, posterior: PosteriorResult, *, key: jax.Array, budget: ComputeBudget, model_ref: ModelRef, carried: Sequence[EvaluationReport]=()) -&gt; GateResult</code></pre><pre class="docstring">Run ``model_checking@1`` over one posterior: slots, then the aggregator.
+
+:func:`model_checking_slots` then
+:func:`~bayesmith.artifacts.gates.aggregate_gate`, and nothing between them
+-- the same split as :func:`~bayesmith.evaluation.sbc.simulation_based_calibration`&#x27;s,
+for the same reason: everything about what ran is in the first, everything
+about what it means is in the second, and this function decides neither.
+The aggregator is not wrapped, extended or second-guessed here (§8.2).
+
+Args:
+    graph: as :func:`model_checking_slots` takes it.
+    posterior: the subject.  Two of its fields reach the aggregator
+        directly: ``predictive_ready`` as ``prerequisites_ready``, and the
+        lifecycle status of its envelope as ``inputs_current``.
+    key: PRNG key for the two internal runs.
+    budget: what those runs may spend.
+    model_ref: what the model callable is.
+    carried: ``sbc`` and ``chain_diagnostics`` reports the caller holds.
+
+Returns:
+    The :class:`~bayesmith.artifacts.gates.GateResult`.  Its ``meta``
+    carries the posterior&#x27;s own fingerprints and names it as a parent, so
+    §0.3 retires this verdict when the thing it judged changes.
+
+    The result&#x27;s identity is minted, so two calls on identical inputs give
+    two DIFFERENT ``report_refs`` over the same decision: they are two
+    artifacts, and ``new_artifact_meta`` says so in as many words.  What is
+    deterministic is everything the gate decided, which is what
+    ``test_gate.py`` compares.</pre></section><section class="api-symbol"><h2 id="discrepancy_identity">discrepancy_identity</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 227.</p><pre><code>discrepancy_identity(discrepancy: object) -&gt; str</code></pre><pre class="docstring">``module.qualname``, and only when importing it back returns THIS object.
+
+§0.3 says a user discrepancy is recorded by its importable identity, on
+:func:`bayesmith.dispatch.amortized._embed_identity`&#x27;s rule -- and adds
+that a lambda or a REPL function is refused.  Those two clauses do not
+agree as written, which was measured rather than assumed:
+``_embed_identity`` reads ``__module__`` and ``__qualname__`` and refuses
+only when one of them is empty, and a lambda has ``__qualname__ ==
+&#x27;&lt;lambda&gt;&#x27;``, which is not empty.  Handed one, it returns
+``&#x27;__main__.&lt;lambda&gt;&#x27;`` -- an address that will never resolve again.
+
+So the rule here is the same identity with the missing half supplied: the
+identity must RESOLVE, by importing the module and walking the qualname,
+and the object it resolves to must be the one that was passed.  That
+refuses a lambda (``getattr(module, &#x27;&lt;lambda&gt;&#x27;)`` does not exist), a
+closure (``&#x27;outer.&lt;locals&gt;.inner&#x27;``), a REPL function (``__main__`` has no
+file to re-import from in another process), and the subtler case neither
+of the first two covers: a module-level name that has since been rebound
+to something else, where the address survives and its meaning does not.
+
+Raises:
+    ValueError: when there is no identity, or it does not resolve back.</pre></section><section class="api-symbol"><h2 id="held_out_report">held_out_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.heldout</code>, line 217.</p><pre><code>held_out_report(graph: Graph, predictive: PredictiveResult, *, source_posterior: PosteriorResult) -&gt; EvaluationReport</code></pre><pre class="docstring">Score the positions ``graph`` masked out, against ``predictive``&#x27;s draws.
+
+Args:
+    graph: the model the predictive result was produced against.  Its
+        observed nodes&#x27; ``observed_mask`` is the definition of held out.
+    predictive: the subject.  Its carried ``latent_draws`` are replayed
+        through the forward model; nothing is re-sampled.
+    source_posterior: the posterior ``predictive.source_posterior_ref``
+        names.  Required for its WEIGHTS, which a predictive result does
+        not carry -- see the module docstring.
+
+Returns:
+    An :class:`~bayesmith.artifacts.reports.EvaluationReport` of kind
+    ``held_out_prediction``, on §0.2&#x27;s row:
+
+    * APPLICABLE / PASS -- every held-out point&#x27;s PIT is inside
+      ``[α/2m, 1 - α/2m]``.
+    * APPLICABLE / FAIL -- at least one is outside it.
+    * INAPPLICABLE / ABSTAIN -- the graph masks nothing out, so there is
+      no out-of-sample point to score.  Not a PASS: a check with no
+      subject has verified nothing, and a gate counting it as a check that
+      was made would be counting an empty set.
+    * UNVERIFIABLE / ABSTAIN -- the predictive cannot be evaluated: a
+      correlated or non-Gaussian observed node (§0.4&#x27;s coverage domain),
+      a source posterior that holds no draws, or a subject whose carried
+      latents do not cover the graph.
+
+Raises:
+    TypeError: if the arguments are of the wrong type, or if
+        ``source_posterior`` is not the artifact and revision
+        ``predictive.source_posterior_ref`` names.  That is a caller
+        error, not a verdict about a model: a report saying &quot;unverifiable&quot;
+        would file the mistake as a property of the subject.</pre></section><section class="api-symbol"><h2 id="identifiability_report">identifiability_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.diagnostics</code>, line 154.</p><pre><code>identifiability_report(graph: Graph, subject: PosteriorResult, *, names: Sequence[str] | str | None=None, rtol: float=DEFAULT_RANK_RTOL) -&gt; EvaluationReport</code></pre><pre class="docstring">File :func:`~bayesmith.diagnose.identifiability.identifiability`&#x27;s rank
+verdict as a report about ``subject``.
+
+PASS at nullity 0, FAIL above it; §0.2&#x27;s row, and the whole comparison.
+The rank cut is ``rtol``&#x27;s, decided in ``diagnose`` and passed through so
+that a caller who has read
+:attr:`~bayesmith.diagnose.identifiability.IdentifiabilityReport.weakest_identified`
+can tighten it without this layer acquiring an opinion about the value.
+
+Args:
+    graph: the model ``subject``&#x27;s posterior was taken over. Build it
+        inside ``with jax.enable_x64(True):`` -- see the module docstring.
+    subject: the result this report judges. Only its identity and its
+        fingerprints are read; no draw is touched.
+    names: which latents to analyse, as
+        :func:`~bayesmith.diagnose.identifiability.identifiability` takes
+        them. ``None`` is the joint question over all of them, which is
+        the one a per-block guard cannot ask.
+    rtol: the relative rank tolerance.
+
+Returns:
+    APPLICABLE × PASS when nothing is degenerate, APPLICABLE × FAIL with a
+    ``null_participation`` finding naming the latents the first blind
+    direction mixes, or UNVERIFIABLE × ABSTAIN carrying the diagnostic&#x27;s
+    refusal.</pre></section><section class="api-symbol"><h2 id="loo_report">loo_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.loo</code>, line 264.</p><pre><code>loo_report(result: Any, *, graph: Graph, chain_shape: tuple[int, int] | None=None, source_posterior: Any=None) -&gt; EvaluationReport</code></pre><pre class="docstring">Judge one result&#x27;s PSIS-LOO, via ``arviz.loo`` over R2&#x27;s export.
+
+Args:
+    result: a :class:`~bayesmith.artifacts.results.PosteriorResult` or
+        :class:`~bayesmith.artifacts.results.PredictiveResult`.
+    graph: the model the result came from, handed on to the export for the
+        observed data. It is READ, never modified -- this layer evaluates
+        results and does not touch the model (§2.4).
+    chain_shape: ``(chains, draws)`` to override what the result recorded.
+        A predictive result carries no chain shape of its own, so a caller
+        holding the source posterior&#x27;s may supply it here; left out, an
+        unchained result is exported as one chain.
+    source_posterior: the :class:`~bayesmith.artifacts.results.PosteriorResult`
+        a predictive result came from, read ONLY for its representation --
+        it is what says whether the sample is importance-weighted, and a
+        ``source_posterior_ref`` is a pointer, not a representation. It
+        deliberately does not supply ``chain_shape``: that override already
+        has a home above, and one argument quietly feeding two decisions is
+        how the second one stops being visible.
+
+Returns:
+    An :class:`~bayesmith.artifacts.reports.EvaluationReport` of kind
+    ``loo_psis``, filed against ``result``:
+
+    * APPLICABLE / PASS -- arviz reported no reliability warning.
+    * APPLICABLE / ABSTAIN -- arviz warned. The ESTIMATE is unreliable,
+      which is not a claim about the model (§0.2).
+    * INAPPLICABLE / ABSTAIN -- the result carries no pointwise log
+      density, so there is no LOO to compute.
+    * UNVERIFIABLE / ABSTAIN -- the sample is importance-weighted, and
+      R2&#x27;s export carries no weights for arviz to honour.
+    * UNVERIFIABLE / ABSTAIN -- arviz is not installed (§7.3).</pre></section><section class="api-symbol"><h2 id="posterior_predictive_check">posterior_predictive_check</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 611.</p><pre><code>posterior_predictive_check(graph: Graph, predictive: PredictiveResult, *, source_posterior: PosteriorResult, discrepancies: Sequence[Callable[..., Any]]=DEFAULT_DISCREPANCIES) -&gt; EvaluationReport</code></pre><pre class="docstring">Do the observed data look like the model&#x27;s replicated datasets? (§0.2)
+
+Args:
+    graph: the model the predictive result was produced from.  It carries
+        the observed data and the loc/scale walk; the result carries the
+        draws.
+    predictive: the subject.  Its ``replicated_draws`` are the replicated
+        datasets and its ``meta`` is what the report&#x27;s ``subject_ref``
+        points at.
+    source_posterior: the posterior ``predictive.source_posterior_ref``
+        names.  Required, and checked by id and revision, for the same
+        reason :func:`bayesmith.dispatch.task.execute_task` requires it:
+        there is no artifact store to load one from, and §0.3 computes the
+        p-value with the SOURCE posterior&#x27;s weights -- a weighted
+        posterior scored as though it were iid is a different number that
+        looks exactly like this one.
+    discrepancies: callables on §0.3&#x27;s ``(y, loc) -&gt; per-draw scalar``
+        contract, defaulting to :data:`DEFAULT_DISCREPANCIES`.  Each is
+        recorded by :func:`discrepancy_identity` and never as an object.
+
+Returns:
+    An :class:`~bayesmith.artifacts.reports.EvaluationReport` of kind
+    ``posterior_predictive_check``: APPLICABLE and PASS when every cell&#x27;s
+    p-value is inside the declared band, APPLICABLE and FAIL when one is
+    outside, APPLICABLE and ABSTAIN below :data:`DRAW_FLOOR` draws, and
+    UNVERIFIABLE where the discrepancy has no definition on this subject.
+
+Raises:
+    TypeError: for the wrong kind of argument, for a source posterior that
+        is not the one the result names, or for an empty discrepancy set.
+    ValueError: for a discrepancy with no importable identity.</pre></section><section class="api-symbol"><h2 id="prior_predictive_check">prior_predictive_check</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 696.</p><pre><code>prior_predictive_check(graph: Graph, simulation: SimulationResult, *, discrepancies: Sequence[Callable[..., Any]]=DEFAULT_DISCREPANCIES) -&gt; EvaluationReport</code></pre><pre class="docstring">Could the PRIORS have generated data like this? (§0.2)
+
+The same procedure as :func:`posterior_predictive_check` over a different
+parameter source, and a different question: this one is answerable before
+any fit, and what it catches is a prior so wide (or so narrow) that the
+data it implies are nothing like the data in hand.  Measured on this
+checkout: ``straight_line``&#x27;s own ``w ~ N(0, 2)`` puts all five default
+cells inside the band, and the same model under ``w ~ N(0, 1e6)`` saturates
+``sd`` at 1.0000 and ``residual_sd`` at 0.0000 -- while ``mean``,
+``smallest`` and ``largest`` stay comfortably inside it, which is the
+limited-power sentence at the top of this module, measured again.
+
+Args:
+    graph: the model, carrying the observed data the prior draws are
+        compared against.
+    simulation: the subject.  Its ``parameter_source`` must be the PRIOR:
+        a simulation from a posterior or from fixed values answers a
+        different question, and is reported INAPPLICABLE rather than
+        silently scored as though it were this one.
+    discrepancies: as in :func:`posterior_predictive_check`.
+
+Returns:
+    An :class:`~bayesmith.artifacts.reports.EvaluationReport` of kind
+    ``prior_predictive_check``.  Prior draws are iid, so every draw
+    carries weight ``1/N``: there is no source posterior to read weights
+    from and none is invented.
+
+Raises:
+    TypeError: for the wrong kind of argument, or an empty discrepancy set.
+    ValueError: for a discrepancy with no importable identity.</pre></section><section class="api-symbol"><h2 id="prior_sensitivity_report">prior_sensitivity_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.diagnostics</code>, line 264.</p><pre><code>prior_sensitivity_report(graph: Graph, subject: PosteriorResult, *, names: Sequence[str] | str | None=None, at: dict[str, jax.Array] | None=None) -&gt; EvaluationReport</code></pre><pre class="docstring">File :func:`~bayesmith.diagnose.sensitivity.prior_sensitivity`&#x27;s worst
+mode displacement as a report about ``subject``.
+
+§0.2&#x27;s row: PASS while the worst ``|shift_sigma|`` is below
+:data:`~bayesmith.diagnose.sensitivity.CRITERION_SHIFT`, FAIL at or above
+it, ABSTAIN when the closed form and the refit did not verify each other,
+UNVERIFIABLE when the diagnostic refused. The verification is read FIRST;
+the module docstring says why.
+
+Args:
+    graph: the model, built inside ``with jax.enable_x64(True):``.
+    subject: the result this report judges.
+    names: which latents&#x27; priors to analyse; ``None`` means all of them.
+    at: where to expand, as ``prior_sensitivity`` takes it.
+
+Returns:
+    An :class:`~bayesmith.artifacts.reports.EvaluationReport` whose
+    ``worst_shift`` finding carries ``(latent, index, shift)`` against
+    ``CRITERION_SHIFT``, and whose ``prior_width_margin`` finding carries
+    the declared width against the width at which that latent&#x27;s shift
+    would reach it.</pre></section><section class="api-symbol"><h2 id="sbc_ranks">sbc_ranks</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 411.</p><pre><code>sbc_ranks(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, subject_ref: ArtifactRef | None=None) -&gt; SbcRanks | Refusal</code></pre><pre class="docstring">Run the replicate loop and return its ranks, unjudged.
+
+Args:
+    graph: the model, used for the prior simulation. Its own observed data
+        is not read -- ``SimulationTask(PRIOR)`` draws the observations
+        from their own distributions.
+    key: PRNG key. Split once into a simulation key and a replicate key,
+        then ``fold_in`` per replicate, so replicate i is reproducible on
+        its own and adding replicates does not disturb the earlier ones.
+    replicates: how many ``(theta_true, y)`` pairs to draw. Never
+        defaulted: a replicate count is a budget, and D106 is a floor on
+        it rather than a value for it.
+    model_ref: what the model callable is, for every compiled task.
+    build: ``build(data) -&gt; Graph``, the route arm. Required unless
+        ``sampler`` is given.
+    budget: the per-replicate posterior budget for the route arm.
+    nuts_on_collapse: passed to each replicate&#x27;s ``PosteriorTask``. The
+        default is False so that a route that collapses is COUNTED as an
+        unusable replicate rather than silently answered by a different
+        route -- SBC is a statement about one route.
+    sampler: the §0.11 arm. ``sampler(datum, key, n) -&gt; {name: draws}``.
+    sampler_draws: ``n`` for the sampler arm.
+    subject_ref: required with ``sampler``, which produces no Result to
+        point at; ignored by the route arm, which uses the first usable
+        replicate&#x27;s posterior (§0.2&#x27;s &quot;routing representative&quot;).
+
+Returns:
+    :class:`SbcRanks`, or the ``Refusal`` that stopped the prior
+    simulation. A REPLICATE&#x27;s refusal is never returned: §0.6 says a
+    refused replicate is COUNTED and the report abstains, so propagating
+    one would replace a verdict about a calibration run with a verdict
+    about its first bad draw.</pre></section><section class="api-symbol"><h2 id="sbc_report">sbc_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 636.</p><pre><code>sbc_report(ranks: SbcRanks, *, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -&gt; EvaluationReport</code></pre><pre class="docstring">Judge one :class:`SbcRanks`, on §0.2&#x27;s two axes.
+
+* Any replicate that produced no rank -&gt; APPLICABLE x ABSTAIN, finding
+  ``replicates_not_completed``, with all three counts. Checked BEFORE the
+  floor, because &quot;45 of 100 replicates diverged&quot; and &quot;you only asked for
+  45&quot; are different facts and the first is the one worth reporting.
+* Fewer usable replicates than D106 -&gt; APPLICABLE x ABSTAIN, finding
+  ``replicates_below_floor``.
+* Otherwise every coordinate&#x27;s KS p against ``alpha / K`` decides:
+  all at or above -&gt; PASS, any below -&gt; FAIL.
+
+``alpha / K`` is the Bonferroni correction §0.4 derives for K simultaneous
+coordinates; it is a derivation from D104 and carries no threshold of its
+own. The per-coordinate findings record the level they were compared
+against, so the verdict can be recomputed from the report -- which is
+§8&#x27;s gate G8, and the reason the level is in ``expected`` rather than only
+in the message.</pre></section><section class="api-symbol"><h2 id="simulation_based_calibration">simulation_based_calibration</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 734.</p><pre><code>simulation_based_calibration(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, subject_ref: ArtifactRef | None=None, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -&gt; EvaluationReport | Refusal</code></pre><pre class="docstring">Run the replicates and judge them: :func:`sbc_ranks` then :func:`sbc_report`.
+
+The convenience the gate runner calls. It decides nothing the two halves
+do not: everything about which arm runs is in the first, everything about
+the verdict is in the second, and this function only refuses to judge what
+could not be measured.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#ALPHA">ALPHA</a><a href="#DEFAULT_DISCREPANCIES">DEFAULT_DISCREPANCIES</a><a href="#DRAW_FLOOR">DRAW_FLOOR</a><a href="#REPLICATE_FLOOR">REPLICATE_FLOOR</a><a href="#SbcRanks">SbcRanks</a><a href="#check_posterior">check_posterior</a><a href="#discrepancy_identity">discrepancy_identity</a><a href="#held_out_report">held_out_report</a><a href="#identifiability_report">identifiability_report</a><a href="#loo_report">loo_report</a><a href="#posterior_predictive_check">posterior_predictive_check</a><a href="#prior_predictive_check">prior_predictive_check</a><a href="#prior_sensitivity_report">prior_sensitivity_report</a><a href="#sbc_ranks">sbc_ranks</a><a href="#sbc_report">sbc_report</a><a href="#simulation_based_calibration">simulation_based_calibration</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

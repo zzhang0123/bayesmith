@@ -486,6 +486,14 @@ def main():
             render_figures(report, path.parent)
             reports.append((report, path.parent.name))
             continue
+        if report["case"] == "campbell_sky":
+            if __package__:
+                from .campbell_plot import render_figures
+            else:
+                from campbell_plot import render_figures
+            render_figures(report, path.parent)
+            reports.append((report, path.parent.name))
+            continue
         if report["case"] not in CASES and report["case"] not in LEGACY_CASES:
             parser.error(f"Unknown demo case {report['case']!r} in {path}")
         if not comparison_visible(args.input.name, report["case"]):

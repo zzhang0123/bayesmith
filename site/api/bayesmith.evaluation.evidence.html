@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.evaluation.evidence"><title>bayesmith.evaluation.evidence · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.evaluation.evidence</span></nav>
+<article><h1>bayesmith.evaluation.evidence</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">What an ``EvidenceResult`` can say about itself, and about another one.
+
+Three reports and a gate. They are the evaluation half of R4: the assembly
+lives in ``dispatch.evidence`` and decides nothing here, and nothing here
+changes a number -- §2.4&#x27;s rule that evaluation judges a Result and does not
+modify it or choose an algorithm.
+
+``evidence_normalization_audit``
+    Every latent&#x27;s prior, weighed. An evidence is defined only if each prior
+    has finite mass and it is THE evidence only if each mass is one, so this
+    report is where those two verdicts are filed for a Result that already
+    exists. The compile-time gate refuses before assembling; this says the same
+    thing about a Result someone hands you later.
+
+``evidence_prior_sensitivity``
+    ``d log Z / d log s``, in nats per e-fold of prior width. R4 REPORTS it and
+    does not threshold it, and that is deliberate: no derivation for a
+    criterion exists yet, and ``CRITERION_SHIFT`` -- the only prior-sensitivity
+    number this package has -- is derived from a chain&#x27;s MCSE of a posterior
+    mean, which has nothing to do with nats of log evidence.
+
+    **It is a different report kind from R3&#x27;s ``prior_sensitivity`` and the
+    difference is not bookkeeping.** R3&#x27;s measures a posterior MODE
+    displacement in posterior sigmas. Centre a prior on the mode and the
+    displacement is zero, so R3&#x27;s report PASSes -- while changing that same
+    prior&#x27;s WIDTH moves ``log Z`` by exactly ``-sum(log s)``. The two disagree
+    on the perturbation ``Z`` is most sensitive to, and §1.4 invariant 3
+    forbids two statistical objects sharing a name.
+
+``evidence_comparability``
+    Whether two ``EvidenceResult``s may be divided. Delivered as a report and
+    not as a Refusal, because a ``Refusal`` cannot express it: its
+    ``__post_init__`` calls ``task_kind(self.task)``, which raises for anything
+    that is not one of the five Tasks, so there is no Refusal whose subject is
+    a pair of Results.
+
+Dependency direction: this module reads ``artifacts`` and ``dispatch`` and is
+read by nothing in ``src``. ``tests/test_layering.py`` holds that.</pre></details><div class="symbol-index"><a href="#EVIDENCE">EVIDENCE</a> <a href="#EVIDENCE_COMPARABILITY">EVIDENCE_COMPARABILITY</a> <a href="#EVIDENCE_NORMALIZATION_AUDIT">EVIDENCE_NORMALIZATION_AUDIT</a> <a href="#EVIDENCE_PRIOR_SENSITIVITY">EVIDENCE_PRIOR_SENSITIVITY</a> <a href="#comparability_report">comparability_report</a> <a href="#normalization_audit_report">normalization_audit_report</a> <a href="#prior_sensitivity_report">prior_sensitivity_report</a></div><section class="api-symbol"><h2 id="EVIDENCE">EVIDENCE</h2><p class="source-note">Defined in <code>bayesmith.evaluation.evidence</code>, line 422.</p><pre><code>EVIDENCE = GateDefinition(name=&#x27;evidence&#x27;, version=1, requirements=(ReportRequirement(name=EVIDENCE_NORMALIZATION_AUDIT, required=True), ReportRequirement(name=EVIDENCE_PRIOR_SENSITIVITY, required=False), ReportRequirement(name=EVIDENCE_COMPARABILITY, required=False)), blocked_actions=(), remedies=(Remedy(action=&#x27;declare_a_proper_normalised_prior_on_every_latent&#x27;, message=&#x27;p(d) is the integral of the likelihood against the prior, so a prior with infinite mass leaves it undefined and one whose mass is not one leaves it scaled. Neither affects the posterior, which is why an evidence has its own gate.&#x27;), Remedy(action=&#x27;read_the_prior_sensitivity_rather_than_pass_it&#x27;, message=&#x27;d log Z / d log s is REPORTED and not thresholded in this release: no derivation for a criterion exists, and the posterior-mode criterion this package already has measures a different perturbation. A PASS here means the slope was measured, not that it is small.&#x27;)))</code></pre></section><section class="api-symbol"><h2 id="EVIDENCE_COMPARABILITY">EVIDENCE_COMPARABILITY</h2><p class="source-note">Defined in <code>bayesmith.evaluation.evidence</code>, line 82.</p><pre><code>EVIDENCE_COMPARABILITY = &#x27;evidence_comparability&#x27;</code></pre></section><section class="api-symbol"><h2 id="EVIDENCE_NORMALIZATION_AUDIT">EVIDENCE_NORMALIZATION_AUDIT</h2><p class="source-note">Defined in <code>bayesmith.evaluation.evidence</code>, line 80.</p><pre><code>EVIDENCE_NORMALIZATION_AUDIT = &#x27;evidence_normalization_audit&#x27;</code></pre></section><section class="api-symbol"><h2 id="EVIDENCE_PRIOR_SENSITIVITY">EVIDENCE_PRIOR_SENSITIVITY</h2><p class="source-note">Defined in <code>bayesmith.evaluation.evidence</code>, line 81.</p><pre><code>EVIDENCE_PRIOR_SENSITIVITY = &#x27;evidence_prior_sensitivity&#x27;</code></pre></section><section class="api-symbol"><h2 id="comparability_report">comparability_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.evidence</code>, line 335.</p><pre><code>comparability_report(first: EvidenceResult, second: EvidenceResult) -&gt; EvaluationReport</code></pre><pre class="docstring">Whether these two evidences may be divided.
+
+Comparable iff the DATA fingerprint is unchanged between them.
+``MODEL_SOURCE`` and ``GRAPH_STRUCTURE`` differ by construction in any
+model comparison -- that is what a model comparison IS -- so ``DATA`` is
+the only slot that can be required.
+
+Both sides are first checked against themselves. Nothing in ``_envelope``
+requires a Result&#x27;s ``meta.fingerprints`` to equal its ``run.fingerprints``,
+and a rule reading ``meta`` on one artifact and ``run`` on the other would
+compare two different bundles while looking symmetric.</pre></section><section class="api-symbol"><h2 id="normalization_audit_report">normalization_audit_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.evidence</code>, line 135.</p><pre><code>normalization_audit_report(subject: EvidenceResult, graph: Graph) -&gt; EvaluationReport</code></pre><pre class="docstring">Every latent&#x27;s prior, weighed, filed against an existing Result.
+
+PASS when every prior is proper and normalised; FAIL when one is not;
+ABSTAIN when the audit could not decide one. UNVERIFIABLE is reserved for
+the case where nothing could be weighed at all -- a graph with no latents
+is not a model whose priors passed.</pre></section><section class="api-symbol"><h2 id="prior_sensitivity_report">prior_sensitivity_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.evidence</code>, line 256.</p><pre><code>prior_sensitivity_report(subject: EvidenceResult, graph: Graph, block: tuple[str, ...]) -&gt; EvaluationReport</code></pre><pre class="docstring">``d log Z / d log s`` per latent, reported and not judged.
+
+The derivative is taken by central difference across one e-fold either
+side of each declared width, which is the unit it is quoted in, so no
+step size is chosen and nothing is compared against a threshold.
+
+APPLICABLE x PASS whenever a derivative could be taken at all. R4 does not
+threshold this: a criterion would need a derivation nobody has, and the
+number&#x27;s job here is to be READ. Filing it as a PASS with the measurement
+in the findings is the honest shape -- the alternative is a threshold
+invented to make the report look decisive.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#EVIDENCE">EVIDENCE</a><a href="#EVIDENCE_COMPARABILITY">EVIDENCE_COMPARABILITY</a><a href="#EVIDENCE_NORMALIZATION_AUDIT">EVIDENCE_NORMALIZATION_AUDIT</a><a href="#EVIDENCE_PRIOR_SENSITIVITY">EVIDENCE_PRIOR_SENSITIVITY</a><a href="#comparability_report">comparability_report</a><a href="#normalization_audit_report">normalization_audit_report</a><a href="#prior_sensitivity_report">prior_sensitivity_report</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

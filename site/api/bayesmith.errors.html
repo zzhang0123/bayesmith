@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.errors"><title>bayesmith.errors · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.errors</span></nav>
+<article><h1>bayesmith.errors</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Exception family for bayesmith.
+
+Deliberately stdlib-only: this module is imported by everything, including
+from contexts that must not pay for jax, so it may never import numpy or jax.
+
+Every concrete class also derives from the closest builtin, so generic
+handlers keep working.
+
+**A refusal that a caller must act on carries its evidence as ATTRIBUTES, not
+only in its message.** The three that do -- :class:`AffinityRefused`,
+:class:`NotGaussian`, :class:`NotLogLinear` -- were message-only until the
+payload was added, and the defect that shape produces is worth stating: the
+branch with something to report was the only branch with nothing readable,
+because the passing branch returned its numbers structured while the failing
+one rendered them into a sentence and dropped them. A consumer that wanted
+them had to parse prose.
+
+Their ``reason``/payload keywords are REQUIRED, not optional. An optional
+discriminator is one that eventually gets omitted, and the caller then needs
+a prose fallback -- which is the thing being removed. ``test_errors.py`` scans
+the source for raise sites that skip it.
+
+Payload-carrying exceptions define ``__reduce__`` through :func:`_rebuild`.
+Python&#x27;s default reconstructs an exception by calling ``cls(*args)``, which
+cannot work once construction requires keywords -- the failure shows up far
+from here, when something pickles an exception across a process boundary
+(pytest-xdist does exactly that), as a TypeError about missing arguments
+rather than as the error being reported.</pre></details><div class="symbol-index"><a href="#BayesmithError">BayesmithError</a> <a href="#GraphError">GraphError</a> <a href="#TraceError">TraceError</a> <a href="#StructureError">StructureError</a> <a href="#AffinityRefused">AffinityRefused</a> <a href="#ConvergenceError">ConvergenceError</a> <a href="#NOT_GAUSSIAN_REASONS">NOT_GAUSSIAN_REASONS</a> <a href="#NOT_LOG_LINEAR_REASONS">NOT_LOG_LINEAR_REASONS</a> <a href="#NotGaussian">NotGaussian</a> <a href="#NotLogLinear">NotLogLinear</a></div><section class="api-symbol"><h2 id="BayesmithError">BayesmithError</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 32.</p><pre><code>class BayesmithError(Exception)</code></pre><pre class="docstring">Base class for every error bayesmith raises.</pre></section><section class="api-symbol"><h2 id="GraphError">GraphError</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 50.</p><pre><code>class GraphError(BayesmithError, ValueError)</code></pre><pre class="docstring">A graph was declared or evaluated inconsistently.
+
+Covers: a node naming a parent that was not declared before it, a
+duplicate node name, a latent node left without a value, and a plate
+used by a node whose parents are all outside it.</pre></section><section class="api-symbol"><h2 id="TraceError">TraceError</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 59.</p><pre><code>class TraceError(BayesmithError, RuntimeError)</code></pre><pre class="docstring">A tracing primitive was called outside ``trace(...)``.</pre></section><section class="api-symbol"><h2 id="StructureError">StructureError</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 63.</p><pre><code>class StructureError(BayesmithError, ValueError)</code></pre><pre class="docstring">A declared structural claim was checked and found false.
+
+Raised where a declaration and the model contradict each other: a
+``Deterministic`` declaring ``linear_in`` whose prediction is not affine
+in that parent, a ``Probabilistic`` declaring
+``depends_on_prediction=False`` whose scale does in fact move with the
+block, a ``dist_fn`` whose *type* says Normal but whose ``log_prob`` does
+not match the ``loc``/``scale`` read off it.
+
+**Not** raised when a graph merely fails to qualify for an exact method.
+&quot;You did not declare it&quot; is a dispatch outcome -- the block falls through
+to NUTS and the plan records why. &quot;You declared it, and it is false&quot; is
+this. Conflating the two would make an ordinary model that simply has no
+exact structure look like a broken one.</pre></section><section class="api-symbol"><h2 id="AffinityRefused">AffinityRefused</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 81.</p><pre><code>AffinityRefused(*args: object, names: &#x27;tuple[str, ...]&#x27;, at: str, errors: &#x27;dict[float, float]&#x27;, weighted: &#x27;dict[float, float]&#x27;, rtol: float, weighted_rtol: float, failed: &#x27;tuple[float, ...]&#x27;) -&gt; None</code></pre><pre class="docstring">A declared ``linear_in`` was probed and the prediction is not affine.
+
+A SUBCLASS of :class:`StructureError`, so every ``except StructureError``
+already written keeps catching it and the verdict is unchanged. What the
+subclass buys is the same two things rheplicant&#x27;s ``LinearityRefused``
+buys on its side of the seam: a NARROW catch -- &quot;the affinity claim is
+false&quot;, told apart from the rest of the structural family -- and the
+probe&#x27;s numbers as data rather than as a rendered sentence.
+
+The numbers matter because the TREND across scales is the diagnostic:
+&quot;departs at 1x and 1000x but not at 0.001x&quot; is a different fault from
+&quot;departs everywhere&quot;, and only the second is usually a wrong declaration.
+Passing probes are included for that reason -- a payload holding only the
+failures cannot show a trend.
+
+Two criteria are reported because the guard is a disjunction, and one
+number against one threshold is unreadable half the time: a reader sees a
+value under its tolerance printed beside the refusal and concludes the
+guard is broken, when the other criterion is what fired.
+
+Attributes:
+    names: the latents the affinity claim was made about, in declaration
+        order. More than one means the claim was JOINT -- each latent may
+        well be affine alone, which is why it is not checked one at a
+        time.
+    at: where the probe was evaluated, as the caller spelled it.
+    errors: ``{scale: relative departure}`` at every probed scale,
+        passing probes included.
+    weighted: ``{scale: departure in units of the noise sigma}``, same
+        keys. bayesmith&#x27;s second criterion; rheplicant&#x27;s probe has no
+        counterpart, so a translator reads ``errors`` and leaves this.
+    rtol: the relative tolerance actually used -- derived from the
+        prediction&#x27;s dtype when the caller passed none, so it is a
+        measurement of the run and not an echo of the argument.
+    weighted_rtol: the threshold the sigma-weighted criterion used.
+    failed: the scales that exceeded either tolerance, ascending; a
+        subset of ``errors``&#x27; keys.
+
+A value in ``errors`` may be an ``Unresolved`` float -- a departure the
+per-element roundoff floor declined to judge, NOT one measured as zero.
+It is a ``float`` subclass, so arithmetic on the payload works either way
+and a consumer that cares can ask ``isinstance``. Nothing is coerced here,
+because coercing would destroy the distinction silently.</pre></section><section class="api-symbol"><h2 id="ConvergenceError">ConvergenceError</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 154.</p><pre><code>class ConvergenceError(BayesmithError, RuntimeError)</code></pre><pre class="docstring">An iterative procedure did not reach the accuracy it was asked for.
+
+For guards *inside* a jitted solve the mechanism is ``equinox.error_if``
+instead, because a Python ``if`` cannot branch on a traced value. This
+class is for the checks that run on concrete values, outside any trace --
+``iterative_gls``&#x27;s ``converged=False`` promoted to a hard failure, say.
+
+No P3a call site actually raises this: ``iterative_gls`` returns
+``converged`` as a field instead, by design, and leaves the promotion to
+its caller. P3b&#x27;s ``estimate()`` is the expected first one.</pre></section><section class="api-symbol"><h2 id="NOT_GAUSSIAN_REASONS">NOT_GAUSSIAN_REASONS</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 173.</p><pre><code>NOT_GAUSSIAN_REASONS: frozenset[str] = frozenset({&#x27;not_normal&#x27;, &#x27;jointly_dependent&#x27;, &#x27;no_centre&#x27;})</code></pre></section><section class="api-symbol"><h2 id="NOT_LOG_LINEAR_REASONS">NOT_LOG_LINEAR_REASONS</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 188.</p><pre><code>NOT_LOG_LINEAR_REASONS: frozenset[str] = frozenset({&#x27;data_not_positive&#x27;, &#x27;not_gaussian_family&#x27;, &#x27;prediction_static&#x27;, &#x27;prediction_not_positive&#x27;, &#x27;noise_additive&#x27;, &#x27;noise_neither&#x27;, &#x27;fractional_too_large&#x27;, &#x27;no_node_qualifies&#x27;, &#x27;log_not_affine&#x27;})</code></pre></section><section class="api-symbol"><h2 id="NotGaussian">NotGaussian</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 216.</p><pre><code>NotGaussian(*args: object, reason: str, node: &#x27;str | None&#x27;=None, found: &#x27;str | None&#x27;=None) -&gt; None</code></pre><pre class="docstring">A node&#x27;s distribution is not a diagonal Gaussian.
+
+Purely descriptive, and deliberately blameless: most models contain
+perfectly good non-Gaussian nodes. P3b&#x27;s classifier catches this and
+routes the block to NUTS.
+
+**A sibling of** :class:`StructureError`. A dispatcher writing
+``except NotGaussian`` must NOT also swallow a :class:`StructureError`: that one means a node&#x27;s *type*
+says Normal while its own ``log_prob`` says otherwise, and silently
+downgrading it to NUTS would hide a broken model behind an
+ordinary-looking fallback.
+
+A subclass relationship, in either direction, is the ONE thing that would
+break this -- and it is worth being precise about which, because two
+classes that merely *share* a base are unaffected. ``except`` matches on
+the raised exception&#x27;s MRO, not on a common ancestor: these two already
+share :class:`BayesmithError`, and neither catches the other. Measured,
+because an earlier draft of this docstring claimed otherwise.
+
+The differing builtin bases -- ``TypeError`` here against
+:class:`StructureError`&#x27;s ``ValueError`` -- therefore buy something
+narrower, and something real: a *generic* handler can tell the two apart,
+so an ``except ValueError`` around a modelling call sees the broken-model
+case and not the ordinary not-conjugate one.
+
+Attributes:
+    reason: which of :data:`NOT_GAUSSIAN_REASONS` applies. Required,
+        because a dispatcher&#x27;s next move differs by reason and reading it
+        out of the message means parsing prose.
+    node: the node or latent the verdict is about, or ``None`` where the
+        verdict is about the graph rather than one node.
+    found: the distribution type actually returned, where one was --
+        ``&quot;Gamma&quot;``, ``&quot;MultivariateNormal&quot;``. ``None`` for the reasons
+        that are not about a type at all.</pre></section><section class="api-symbol"><h2 id="NotLogLinear">NotLogLinear</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 276.</p><pre><code>NotLogLinear(*args: object, reason: str, node: &#x27;str | None&#x27;=None, found: &#x27;str | None&#x27;=None, fractional: &#x27;float | None&#x27;=None, per_node: &#x27;dict[str, str] | None&#x27;=None) -&gt; None</code></pre><pre class="docstring">No log-linear route exists here -- for one of a NAMED set of reasons.
+
+Purely descriptive and deliberately blameless, exactly as
+:class:`NotGaussian` is: most models have no log-linear structure, and a
+dispatcher that asked and heard &quot;no&quot; routes the block to NUTS and moves
+on. The message always says WHICH reason, because they call for different
+responses:
+
+* the observation&#x27;s noise is additive, so log space would not simplify
+  anything -- it would just state a different likelihood;
+* the noise is multiplicative but its fractional level exceeds
+  :data:`~bayesmith.exact.loglinear.FIRST_ORDER_MAX_FRACTIONAL`, so the
+  first-order log-space equivalence is no longer good to the tolerance
+  this package promises;
+* the prediction, or the data, is not strictly positive, so there is no
+  log to take -- and ``log`` of a non-positive value is a NaN that would
+  READ AS PASSING every ``departure &gt; rtol`` comparison downstream, which
+  is why this refuses eagerly instead;
+* ``log`` of the prediction is not affine in the latents asked about --
+  the log-space counterpart of an ordinary linearity refusal.
+
+The same MRO argument as :class:`NotGaussian`&#x27;s applies against making
+this a subclass of :class:`StructureError`: a dispatcher probing for
+log-linearity must be able to catch &quot;no&quot; without also swallowing &quot;your
+graph is broken&quot;.
+
+The named set above is :data:`NOT_LOG_LINEAR_REASONS`, and ``reason``
+carries it as data. The message still says which, for a human; the field
+is what a dispatcher reads, because &quot;the fractional level is too high&quot;
+invites a different response (loosen the model, or accept NUTS) from &quot;the
+data is not positive&quot; (the model is wrong about its own observable).
+
+Attributes:
+    reason: which of :data:`NOT_LOG_LINEAR_REASONS` applies. Required.
+    node: the observed node this is about, or ``None`` where no node in
+        the graph qualified and the verdict is about the graph.
+    found: the distribution type actually returned, where the reason is
+        about a type; ``None`` otherwise.
+    fractional: the measured fractional noise level, present only for
+        ``&quot;fractional_too_large&quot;`` -- the number a caller needs to decide
+        whether the model or the ceiling is the thing to revisit.
+    per_node: ``{node: reason}`` for ``&quot;no_node_qualifies&quot;`` -- each
+        value is itself from this vocabulary, so a graph-level refusal
+        can be read node by node WITHOUT parsing the sentences, which are
+        in the message. A caller deciding &quot;fix one node, or give up on
+        log space&quot; needs exactly this.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#BayesmithError">BayesmithError</a><a href="#GraphError">GraphError</a><a href="#TraceError">TraceError</a><a href="#StructureError">StructureError</a><a href="#AffinityRefused">AffinityRefused</a><a href="#ConvergenceError">ConvergenceError</a><a href="#NOT_GAUSSIAN_REASONS">NOT_GAUSSIAN_REASONS</a><a href="#NOT_LOG_LINEAR_REASONS">NOT_LOG_LINEAR_REASONS</a><a href="#NotGaussian">NotGaussian</a><a href="#NotLogLinear">NotLogLinear</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

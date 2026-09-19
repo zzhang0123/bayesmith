@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.dispatch.evidence"><title>bayesmith.dispatch.evidence · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.evidence</span></nav>
+<article><h1>bayesmith.dispatch.evidence</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The exact log evidence, assembled as terms that can be audited one by one.
+
+``log Z = log p(d | M) = INT p(d | theta, M) p(theta | M) d theta`` is what this
+module builds, and the only thing that separates it from a posterior is that
+every theta-independent constant is invisible in the second and load-bearing in
+the first. A dropped constant does not make an evidence obviously wrong; it
+makes it finite, plausible and wrong by a fixed number of nats.
+
+So nothing here returns one scalar. The exact block&#x27;s contribution is five
+named terms, each derived from the block&#x27;s own inputs.
+
+**What checks them, stated precisely, because the first draft of this sentence
+overclaimed.** Comparing this module&#x27;s total against the square-root route in
+``marginal_log_density`` is NOT a check against an independent derivation: the
+two share every upstream seam -- ``unchecked_operator``, ``precision_at``,
+``dense_operator`` and ``observed_descendants`` -- and ``dense_operator`` is
+what builds the design matrix both of them integrate. An adversarial review
+priced that: scaling ``dense_operator``&#x27;s return by 1.03 leaves the
+cross-route test **completely blind**, 5 passed, exit 0, while the hand
+derivation fails 5 and an independent quadrature fails 14.
+
+The cross-route comparison is worth keeping -- it catches everything
+downstream of the shared design, which is where the constants live -- but the
+check §9.1 actually asks for is the one that rebuilds the design from the
+model&#x27;s own parameters. That is ``_by_hand`` in
+``tests/dispatch/test_evidence.py``, and the genuinely third route is
+quadrature of the graph&#x27;s own ``log_joint``.
+
+The decomposition is the determinant lemma written out. With ``A`` the design
+over the exact block, ``N`` the observation covariance, ``S`` the block&#x27;s prior
+covariance, ``m`` its prior mean, ``c`` the constant part of the prediction and
+``C = A S A^T + N``::
+
+    log p(d) = -1/2 [ r^T C^-1 r + logdet C + n log 2pi ],  r = d - A m - c
+    logdet C = logdet N + logdet S + logdet F,              F = A^T N^-1 A + S^-1
+
+which splits into
+
+===========================  ==========================================
+``data_log_normaliser``      ``-1/2 logdet(2 pi N)``
+``residual_quadratic``       ``-1/2 r^T C^-1 r``
+``prior_log_normaliser``     ``-1/2 logdet(2 pi S)``
+``integral_log_two_pi``      ``+k/2 log 2pi``
+``block_log_determinant``    ``-1/2 logdet F``
+===========================  ==========================================
+
+The third and fourth do NOT cancel. Only their ``2 pi`` halves do -- the prior
+contributes one row per block degree of freedom, so the ``k`` in both is the
+same ``k`` -- and what is left is ``-sum_j log s_j``, the declared prior widths.
+That residue is exactly zero at unit width and nowhere else: measured,
+``-0.5306`` at ``s = 1.7``, ``+5.9915`` at ``k = 2, s = 0.05``, ``-12.2830`` at
+``k = 3, s = 60``.
+
+An earlier draft of this paragraph said they cancel exactly, which is what unit
+priors look like, and it contradicted a test in its own batch --
+``test_the_prior_normaliser_is_blind_at_unit_width`` asserts precisely that the
+residue vanishes there and nowhere else. Corrected after an adversarial review
+measured it. The two are reported separately because they come from different
+places and a change to either alone is a real change.
+
+**This module is dense on purpose.** R4&#x27;s admitted structure class is a
+whole-graph-exact linear-Gaussian block small enough that ``dense_operator``
+already materialises its design on the collapse path. A matrix-free route
+cannot produce ``logdet F`` at all -- ``exact/gibbs.py`` says so in its own
+prose -- and the determinant is the term this module exists to report.
+
+Dependency direction: this module reads ``dispatch``, ``exact`` and ``graph``
+and is read by ``evaluation``. It does not import ``evaluation``, and
+``tests/test_layering.py`` holds that.</pre></details><div class="symbol-index"><a href="#EVIDENCE_COMPONENT_NAMES">EVIDENCE_COMPONENT_NAMES</a> <a href="#CompiledEvidenceProblem">CompiledEvidenceProblem</a> <a href="#compile_evidence_problem">compile_evidence_problem</a> <a href="#increments_converge">increments_converge</a> <a href="#mass_is_normalised">mass_is_normalised</a> <a href="#ConditionalPriorRange">ConditionalPriorRange</a> <a href="#ExactAssembly">ExactAssembly</a> <a href="#PriorAudit">PriorAudit</a> <a href="#PriorVerdict">PriorVerdict</a> <a href="#assemble_exact">assemble_exact</a> <a href="#audit_graph_priors">audit_graph_priors</a> <a href="#audit_prior">audit_prior</a> <a href="#conditional_prior_range_report">conditional_prior_range_report</a> <a href="#conditional_prior_verdicts">conditional_prior_verdicts</a> <a href="#residual_backend">residual_backend</a></div><section class="api-symbol"><h2 id="EVIDENCE_COMPONENT_NAMES">EVIDENCE_COMPONENT_NAMES</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 126.</p><pre><code>EVIDENCE_COMPONENT_NAMES: tuple[str, ...] = (&#x27;data_log_normaliser&#x27;, &#x27;residual_quadratic&#x27;, &#x27;prior_log_normaliser&#x27;, &#x27;integral_log_two_pi&#x27;, &#x27;block_log_determinant&#x27;)</code></pre></section><section class="api-symbol"><h2 id="CompiledEvidenceProblem">CompiledEvidenceProblem</h2><p class="source-note">Defined in <code>bayesmith.compiled</code>, line 44.</p><pre><code>class CompiledEvidenceProblem
+log_prior: Any
+log_likelihood: Any
+prior_sample: Any
+exact_elimination: tuple[str, ...]
+residual_parameters: tuple[str, ...]
+shapes: tuple[tuple[str, tuple[int, ...]], ...]
+prior_terms: tuple[str, ...]
+likelihood_terms: tuple[str, ...]</code></pre><pre class="docstring">A residual evidence problem, with its prior and likelihood separated.
+
+Nested sampling needs ``log L(theta)`` apart from ``log pi(theta)``, and
+nothing else in this package produces that separation:
+:func:`~bayesmith.graph.evaluate.log_joint` sums every ``Probabilistic``
+node into ONE running total and then adds ``joint_prior`` and every
+``evidence_terms`` entry in the same loop. Building the split is a compiler
+pass and bayesmith owns it -- design section 1.5&#x27;s first clause is graph
+semantics, structure discovery, premise validation and task-aware
+compilation.
+
+**No FIELD is a Graph, and the densities close over one.** Both halves are
+asserted, because stating only the first is how a guard that reads a
+spelling gets written: an earlier test here walked the field values for a
+``.nodes`` attribute, and they are functions, so it passed while the graph
+was reachable through every one of the three closures.
+
+Design line 192 says a compiled problem may contain the residual log
+density, transforms, constant terms and a reconstruction map, &quot;but it may
+not re-interpret the Graph&quot;. What that forbids is a BACKEND doing the
+re-interpreting. bayesmith compiling the densities itself, by closing over
+the graph, is the contract kept rather than broken -- the adapter receives
+callables and cannot reach a graph without walking closure internals. The
+half that binds an adapter is asserted where an adapter exists: its module
+imports no ``Graph`` and its signature takes only a compiled problem.
+
+The parent type design line 482 names, ``CompiledProblem``, does not exist
+in this package -- the name appears six times in the design and nowhere in
+the source -- so this is built standalone and to line 192&#x27;s contract, in
+order that the variant relation is a refactor rather than a redesign when
+the parent is written.
+
+Attributes:
+    log_prior: ``theta -&gt; log pi(theta)``, the latent nodes&#x27; own densities
+        plus the graph-level ``joint_prior``.
+    log_likelihood: ``theta -&gt; log L(theta)``, the observed nodes&#x27; densities
+        (honouring ``observed_mask``) plus every graph-level
+        ``evidence_terms`` entry. Those hold graph-level LIKELIHOOD factors
+        despite the field&#x27;s name, which the R4 PLAN records and declines to
+        rename (`2026-09-04-r4-evidence.md:650`; the close-out does not
+        mention the field at all, and an earlier version of this line cited
+        it). The assignment is asserted by consequence -- the prior side
+        integrates to one -- and never by the name.
+    prior_sample: ``key -&gt; theta``, a draw from the prior. Strictly
+        stronger than a prior that integrates to one, and it is what a
+        nested sampler actually needs: ``improper_outside_prior`` raises
+        here rather than returning a number.
+    exact_elimination: latents already integrated in closed form.
+    residual_parameters: latents the backend must integrate. Disjoint from
+        ``exact_elimination`` -- ``InferencePlanRecord`` already refuses a
+        name in both, and the two would otherwise disagree about which
+        parameters a backend was handed.
+    shapes: the parameter layout, ``(name, shape)`` per residual parameter.
+    prior_terms, likelihood_terms: which term went to which side. Carried
+        as data so that a test can assert every term is filed exactly once
+        without re-deriving the partition it is grading.</pre></section><section class="api-symbol"><h2 id="compile_evidence_problem">compile_evidence_problem</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 1436.</p><pre><code>compile_evidence_problem(graph: Graph, *, exact_elimination: tuple[str, ...]=()) -&gt; CompiledEvidenceProblem</code></pre><pre class="docstring">Split a graph&#x27;s joint density into a prior and a likelihood.
+
+The partition: latent ``Probabilistic`` nodes and ``joint_prior`` on the
+prior side; observed ``Probabilistic`` nodes and every ``evidence_terms``
+entry on the likelihood side.
+
+**The identity this is graded against is not the obvious one.**
+``log_prior + log_likelihood == log_joint`` bitwise is a property of the
+SUMMATION ORDER, not of the partition: ``log_joint`` accumulates one
+running total and splitting it into two reorders that sum. Measured over
+200 prior draws, ``two_observations`` is bitwise 186/200 and
+``observation_reused_downstream`` 182/200, while single-observation
+fixtures are 200/200. So the test asserts each term is filed exactly once
+-- which is what catches a constant that moved sides -- grades the
+recomposition against a derived band over a declared seed set, and settles
+CORRECTNESS with an oracle that compares no implementations at all: the
+prior side must integrate to one.</pre></section><section class="api-symbol"><h2 id="increments_converge">increments_converge</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 638.</p><pre><code>increments_converge(ratio: float, threshold: float) -&gt; bool</code></pre><pre class="docstring">Whether a window sequence&#x27;s increments are shrinking (D109).
+
+The one predicate that decides PROPER against IMPROPER, extracted so the
+threshold has a name, a boundary grid and a mutation -- the same shape
+``evaluation/sbc.py``&#x27;s ``replicates_meet_floor`` has, and for the same
+reason: a comparison written inline inside a hundred-line function is a
+threshold no grid can reach.
+
+A flat density doubles its mass with its window, so its ratio is exactly 2;
+a ``1/x`` tail adds a constant ``log 2``, ratio exactly 1; every convergent
+density falls strictly below 1. The threshold separates those families and
+carries no units, which is why it is a ratio and not a difference.</pre></section><section class="api-symbol"><h2 id="mass_is_normalised">mass_is_normalised</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 655.</p><pre><code>mass_is_normalised(total: float, uncertainty: float) -&gt; bool</code></pre><pre class="docstring">Whether an extrapolated prior mass is one, to what can be resolved (D110).
+
+The tolerance is ``max(1e-6, uncertainty)`` where the second term is the
+extrapolation&#x27;s own measured error. A fixed tolerance refuses Cauchy for
+being 3.6e-06 from one and InverseGamma(1,1) for 3.7e-04, and both of those
+are the rule&#x27;s error rather than the prior&#x27;s.</pre></section><section class="api-symbol"><h2 id="ConditionalPriorRange">ConditionalPriorRange</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 1031.</p><pre><code>class ConditionalPriorRange
+at_points: tuple[tuple[str, tuple[tuple[float, ...], ...]], ...]
+degenerate: tuple[tuple[str, tuple[str, ...], tuple[tuple[float, ...], ...], str], ...]
+unresolved: tuple[tuple[str, str], ...]</code></pre><pre class="docstring">Where each conditional prior was evaluated, where it was not proper, and
+**where the check declined to run**.
+
+Three states, not two, and the third is why this class was rewritten. An
+adversarial review found ``degenerate == ()`` carrying two meanings --
+&quot;swept, and every cell was a density&quot; and &quot;never swept at all&quot; -- with
+nothing downstream able to tell them apart. A refusal built on the first
+meaning then asserted a coverage the second did not have. That is the
+failure family ``CLAUDE.md`` opens with, reproduced inside a guard written
+to enforce it.
+
+So ``unresolved`` is a separate field from ``degenerate``, and
+:meth:`covers` is the question most callers actually have.
+
+Every field is a tuple. ``at_points`` was a ``dict``, which made this the
+only one of this package&#x27;s registered artifact types carrying a mutable
+container. ``register_artifact_type`` refuses a mutable dataclass -- but it
+reads ``__dataclass_params__.frozen``, a SPELLING, and a ``dict`` field on
+a frozen dataclass walks straight past it. Measured: the instance was
+editable after construction and was the only registered artifact that was
+unhashable. Red line 7&#x27;s subject exactly.</pre><h3 id="ConditionalPriorRange.covers">ConditionalPriorRange.covers</h3><pre><code>covers(self, latent: str) -&gt; bool</code></pre><pre class="docstring">Was ``latent``&#x27;s conditional actually swept?</pre><h3 id="ConditionalPriorRange.points_for">ConditionalPriorRange.points_for</h3><pre><code>points_for(self, parent: str) -&gt; tuple[tuple[float, ...], ...]</code></pre></section><section class="api-symbol"><h2 id="ExactAssembly">ExactAssembly</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 147.</p><pre><code>class ExactAssembly
+log_evidence: float
+components: tuple[EvidenceComponent, ...]</code></pre><pre class="docstring">A log evidence and the terms it is made of.
+
+``log_evidence`` is the assembly&#x27;s own total, computed from the closed form
+rather than by adding the components up. ``log_evidence := sum(components)``
+is an identity a dropped term survives, because dropping one removes it from
+both sides at once.
+
+**That mutant survives the test suite, and the honest thing is to say so.**
+Measured in an isolated worktree at ``ef19106``: ten mutations of this
+module, nine killed, and the one that lives is exactly
+``log_evidence=float(sum(terms.values()))`` -- 15 passed. It cannot be
+killed by any test of CORRECT code, because when every term is right the
+two expressions are the same number; here they differ by one ULP
+(``-4.284669145867042`` against ``-4.284669145867041``), and an assertion
+that they differ bitwise would be a fixture pinning one machine&#x27;s
+arithmetic, which is the failure that cost this project four release tags.
+
+What it is worth was measured rather than argued. Compounding it with each
+single fault changes nothing: ``M5 + drop the prior normaliser`` fails the
+same 10 tests as that fault alone, ``M5 + flip the determinant`` the same
+11, ``M5 + skip the descendant filter`` the same 1. The per-term grading
+against a hand derivation is what catches those, and it catches them
+whichever way the total is spelled. So the separation is defence in depth
+over a defence that already holds, kept because it costs one line and
+because §0.3 asks for it -- not because a test would notice its absence.</pre></section><section class="api-symbol"><h2 id="PriorAudit">PriorAudit</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 439.</p><pre><code>class PriorAudit
+latent: str
+verdict: PriorVerdict
+normalised: bool | None
+mass: float | None
+reason: str</code></pre><pre class="docstring">One latent&#x27;s prior, and the two things an evidence needs of it.
+
+Registered like its own verdict enum. Without it the verdict serialised and
+the record holding it did not, which is the half of a pair going stale that
+this repository has spent the most time repairing.
+
+**The mass check needs float64 and does not open a context to get one.**
+Its only production caller is behind evidence_requires_x64, which
+refuses a float32 environment before any of this runs; a direct call from
+outside that gate integrates at float32 and carries about 1e-7 of error
+against a 1e-6 normalisation tolerance. One decision, one home: the gate
+owns the dtype and this does not re-decide it.</pre></section><section class="api-symbol"><h2 id="PriorVerdict">PriorVerdict</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 418.</p><pre><code>class PriorVerdict(StrEnum)</code></pre><pre class="docstring">What an audit can say about a declared prior&#x27;s own mass.
+
+Four values and not two, because the questions genuinely differ.
+``PROPER`` says the density integrates to something finite; whether that
+something is one is the separate ``normalised`` field.
+``IMPROPER`` says the integral diverges, so there is no ``Z``.
+``UNVERIFIABLE`` says this audit could not tell -- §2.4&#x27;s rule that a method
+which does not apply must not be dressed as a failure.
+``UNDECLARED`` says the latent has no node-level prior to audit because a
+graph-level one covers it (§0.6).</pre><pre><code>PROPER = &#x27;proper&#x27;
+IMPROPER = &#x27;improper&#x27;
+UNVERIFIABLE = &#x27;unverifiable&#x27;
+UNDECLARED = &#x27;undeclared&#x27;</code></pre></section><section class="api-symbol"><h2 id="assemble_exact">assemble_exact</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 353.</p><pre><code>assemble_exact(graph: Graph, exact_names: tuple[str, ...], values: Mapping[str, Any] | None=None) -&gt; ExactAssembly</code></pre><pre class="docstring">``log p(d | values)`` over the exact block, and the five terms of it.
+
+``values`` holds the latents OUTSIDE the block, at which the block&#x27;s
+marginal likelihood is evaluated; for a whole-graph-exact model it is
+empty and the number returned is the model&#x27;s log evidence.</pre></section><section class="api-symbol"><h2 id="audit_graph_priors">audit_graph_priors</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 1274.</p><pre><code>audit_graph_priors(graph: Graph) -&gt; tuple[PriorAudit, ...]</code></pre><pre class="docstring">One :class:`PriorAudit` per latent, in the graph&#x27;s own order.
+
+A latent inside ``graph.joint_prior.over`` is reported ``UNDECLARED`` and
+not audited. Its node-level density is ``ImproperUniform`` BY REQUIREMENT --
+``diagnose/priors.py`` refuses a ``JeffreysPrior`` over a latent that also
+declares a proper prior of its own, because the graph-level term IS the
+declaration. Auditing it would report this package&#x27;s mandated
+configuration as a user error and hand back a remedy that undoes it (§0.6).
+
+**A latent with parents is audited through its CONDITIONAL, which is what
+R5 changed and why.** R4 answered ``UNVERIFIABLE`` here, on the ground that
+a hierarchical prior is not a fixed density -- ``p(w)`` is defined only once
+``s`` is integrated out. That is true of the MARGINAL, and it is the wrong
+question to ask of ``w``: nothing ever integrates against ``p(w)``. The
+joint prior factorises along the graph as ``prod p(theta_i | parents_i)``,
+every factor of that product is a conditional density, and whether each one
+is proper is both answerable and the thing that decides whether ``Z``
+exists. So the conditional is built at the prior centre -- the same anchor
+:func:`~bayesmith.dispatch.classify.prior_environment` gives the classifier,
+rather than a second spelling of &quot;where a latent sits&quot; -- and handed to the
+same one-dimensional rule a root prior gets.
+
+**A latent with NO parents goes through that rule exactly as it did**, and
+measured over every shipped graph the only verdicts this restatement moves
+are the seven latents that have parents, spread over six graphs --
+``three_latent_chain`` carries two of them, which is why the two counts are
+different and why saying &quot;six latents&quot; was wrong. The exact-class census R4
+closed
+on has none, so its census is untouched -- which is asserted rather than
+argued, in ``tests/dispatch/test_evidence_audit.py``.
+
+〔R5 Task 7 write-back. The R5 plan&#x27;s section 0.15 restates propriety as a
+property of *the residual block&#x27;s* joint prior. That cannot be evaluated
+here: this function is a PRE-compile refusal and no block partition exists
+yet, and moving the audit after ``compile_plan`` would turn
+``lying_block_member``&#x27;s ``evidence_prior_normalised`` refusal into a raised
+``StructureError``, measured. It is also weaker than the graph&#x27;s own
+factorisation: three of the four fixtures the plan names as its target carry
+the offending latent in the EXACT block, so a residual-only audit would
+leave them unexamined rather than admitted for a reason. The plan&#x27;s section
+0.20 then rules that such a latent &quot;still passes R4&#x27;s one-dimensional rule&quot;;
+measured, it did not and could not, because that rule short-circuits on
+``node.parents`` and never reaches the density its reasoning describes.〕
+
+The environment is built once, not per latent, and a graph whose centre
+cannot be built keeps R4&#x27;s answer with the failure named -- an audit that
+cannot run is not a verdict that the prior is improper.</pre></section><section class="api-symbol"><h2 id="audit_prior">audit_prior</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 743.</p><pre><code>audit_prior(distribution: Any, latent: str=&#x27;&#x27;) -&gt; PriorAudit</code></pre><pre class="docstring">Whether this declared density has finite mass, and whether it is one.
+
+Decided by integrating the density the model declares, never by reading a
+type name. ``isinstance(d, dist.ImproperUniform)`` is walked past by any
+user subclass whose ``log_prob`` returns a constant -- built and run in
+``tests/dispatch/test_evidence_audit.py`` -- and ``unwrap`` strips only
+``Independent``, so nothing else in the package looks through one either.
+
+**The method is the INCREMENTS of the window sequence, and the first
+version of it read the differences instead.** That version asked whether
+``|mass(W) - mass(W/2)|`` had fallen below ``1e-6 * max(mass, 1)``, which
+is wrong in both directions and an adversarial review measured both:
+
+* too tight for a polynomial tail. ``HalfCauchy(1)`` -- the standard
+  weakly-informative scale prior -- reaches 0.995 of its mass by the last
+  window and was reported IMPROPER. So were ``Cauchy``, ``StudentT(1.5)``,
+  ``Pareto``, ``LogNormal(0,3)`` and ``InverseGamma(0.5,1)``: thirty-one
+  stock priors in all.
+* floored, so the verdict depended on the UNITS. The same flat improper
+  prior on a length was IMPROPER in metres and PROPER in nanometres,
+  because ``max(..., 1.0)`` cannot be tripped by a mass of 1e-8 however
+  fast it doubles.
+
+What separates the two cases cleanly is whether the increments SHRINK. A
+convergent series has a ratio below one; a flat density doubles its mass
+with its window, ratio exactly two; the log-divergent ``1/sigma`` adds a
+constant ``log 2`` each time, ratio exactly one. That is a property of the
+density and carries no units at all.
+
+Where the increments shrink geometrically the tail is extrapolated rather
+than truncated, so ``normalised`` is right for a heavy tail instead of
+being short by the part the last window did not reach.</pre></section><section class="api-symbol"><h2 id="conditional_prior_range_report">conditional_prior_range_report</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 1150.</p><pre><code>conditional_prior_range_report(graph: Graph) -&gt; ConditionalPriorRange</code></pre><pre class="docstring">Is each conditional prior proper across a declared range of its parents?
+
+``p(x | tau)`` proper at the prior centre does not make it proper at every
+``tau`` the outer integral visits, and the identity the residual route
+rests on --
+``Z = INT p(tau) [ INT p(x|tau) p(d|x,tau) dx ] dtau`` -- needs the second.
+
+**The range is over the PARENTS, and the verdict is read off the DENSITY.**
+There is no coordinate on ``tau`` that separates a proper conditional from
+a degenerate one: measured at ``tau = 0``, ``shared_ancestor``&#x27;s ``x`` is
+degenerate while ``three_latent_chain``&#x27;s and ``mixed_radiometer``&#x27;s are
+ordinary, because each declares a different function of ``tau`` as its
+width. Any threshold on ``tau`` would have to admit all three or refuse all
+three. So this pins the parents and asks the one-dimensional rule what the
+realised conditional is.
+
+**Parents, plural, and the PRODUCT of their grids.** This swept one parent
+at a time and left the others at their centres. An adversarial review built
+the two-parent version of the same fault --
+``jnp.where((a &lt; 1) &amp; (b &lt; 1), inf, 1)`` -- and it sailed through: both
+``a = 0.5`` and ``b = 0.5`` were listed as visited, the corner where they
+are low TOGETHER was never asked about, and it carries 5.18e-04 of the
+prior with ``marginal_log_density`` returning ``-inf`` on it. Every shipped
+fixture has exactly one parent per conditioned latent, so nothing separated
+&quot;pin the parents that matter&quot; from &quot;pin one and hope&quot;.
+
+The cost is the product of the grids over ONE conditioned latent&#x27;s own
+latent ancestors, so it is exponential in that number rather than in the
+graph&#x27;s size. Measured over the shipped graphs the largest is 4 cells, and
+the largest reachable with today&#x27;s four-point grid and two ancestors is 16.
+The count is not capped, because a cap is a number and R5 pre-authorises
+none here; a graph that ever makes this expensive is a measurement to act
+on rather than a threshold to guess at now.
+
+**What it does not do, recorded rather than gated.** A degeneracy strictly
+between the grid&#x27;s points, or outside its ends, is not found -- closing
+that needs a claim about the MEASURE of the degenerate set, which is a
+threshold. A conditional whose parents cannot be probed goes to
+``unresolved`` rather than passing quietly.</pre></section><section class="api-symbol"><h2 id="conditional_prior_verdicts">conditional_prior_verdicts</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 1005.</p><pre><code>conditional_prior_verdicts(graph: Graph, at: Mapping[str, Any]) -&gt; dict[str, PriorVerdict]</code></pre><pre class="docstring">One verdict per latent WITH parents, with ``at``&#x27;s latents pinned.
+
+The verdict for a latent whose conditional cannot be built or cannot be
+integrated is ``UNVERIFIABLE``, which is the same answer R4&#x27;s rule gives to
+a density it cannot resolve: not proper, and not a claim that it diverges.</pre></section><section class="api-symbol"><h2 id="residual_backend">residual_backend</h2><p class="source-note">Defined in <code>bayesmith.dispatch.evidence</code>, line 914.</p><pre><code>residual_backend() -&gt; Any | None</code></pre><pre class="docstring">The adapter that runs a residual integral, or ``None`` if there is none.
+
+R5 widens the admitted structure class before it chooses a backend, and the
+two are separate steps on purpose: the bake-off&#x27;s legal answers include
+&quot;no candidate passed&quot;. So the widened classes must not be admitted with
+nothing behind them, and this is where that is decided -- one function,
+returning ``None`` today, so that a graph which now passes every premise
+about the MODEL is refused for the reason that is actually true of it,
+which is a missing capability rather than a defect in the model.
+
+A function rather than a module constant because a constant read at import
+time cannot answer &quot;is the optional extra installed&quot; without importing it,
+and importing an optional dependency to find out whether it is optional is
+the failure the extra exists to avoid.
+
+**R5 Task 6 does NOT flip this, and the flip was measured before it was
+declined.** The backend evaluation&#x27;s answer is jaxns
+(``docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md`` §9, both
+owner decisions ruled), and the adapter exists at
+``bayesmith.bridge.jaxns_bridge``. What is missing is not the sampler.
+
+Returning it would be four lines -- ask ``importlib.metadata`` whether
+``jaxns`` is installed, and hand back ``nested_evidence`` -- and that much
+is safe on its own: measured 2026-09-07, asking imports no jaxns and leaves
+``jax_enable_x64`` alone, because the adapter defers its own import to
+inside the call.
+
+**What is missing is everything downstream of the answer.** With the flip
+in place and jaxns installed: ``tests/dispatch/test_backend_absent.py`` and
+``tests/dispatch/test_evidence_task.py`` go **27 failed / 50 passed**, and
+**two of those fail with jaxns ABSENT** as well, because they construct an
+installed-looking environment and assert the capability refusal still
+comes. That assertion is R4&#x27;s shipped semantics, not an accident: this
+function returning ``None`` is what makes a widened structure class refuse
+for a MISSING CAPABILITY rather than for a defect in the model. Flipping it
+rewrites what the package promises on that path, and ``_run_evidence`` has
+no residual branch to promise anything else -- it handles the whole-graph
+exact case only.
+
+So the flip belongs with the branch, the box plumbing and a pass over those
+tests, in one change that can be argued about as a whole. Task 6 below
+names it.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#EVIDENCE_COMPONENT_NAMES">EVIDENCE_COMPONENT_NAMES</a><a href="#CompiledEvidenceProblem">CompiledEvidenceProblem</a><a href="#compile_evidence_problem">compile_evidence_problem</a><a href="#increments_converge">increments_converge</a><a href="#mass_is_normalised">mass_is_normalised</a><a href="#ConditionalPriorRange">ConditionalPriorRange</a><a href="#ExactAssembly">ExactAssembly</a><a href="#PriorAudit">PriorAudit</a><a href="#PriorVerdict">PriorVerdict</a><a href="#assemble_exact">assemble_exact</a><a href="#audit_graph_priors">audit_graph_priors</a><a href="#audit_prior">audit_prior</a><a href="#conditional_prior_range_report">conditional_prior_range_report</a><a href="#conditional_prior_verdicts">conditional_prior_verdicts</a><a href="#residual_backend">residual_backend</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

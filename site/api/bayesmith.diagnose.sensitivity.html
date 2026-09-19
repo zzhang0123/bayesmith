@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.diagnose.sensitivity"><title>bayesmith.diagnose.sensitivity · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.diagnose.sensitivity</span></nav>
+<article><h1>bayesmith.diagnose.sensitivity</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Prior sensitivity: how far each latent&#x27;s own prior moved the answer.
+
+Every latent in a graph carries a density, and every exit reads it. None of
+them says what the prior *did*. That is a different question from &quot;is the
+posterior right&quot;, and it is the one a referee asks: the mode you report sits
+somewhere between where the data put it and where the prior wanted it, and
+the only honest way to quote it is with the distance stated.
+
+**A chain cannot answer this about itself.** On the tour&#x27;s nonlinear pair
+(the cross-check fixture shared with rheplicant) the declared
+``fg_beta ~ Normal(2.3, 0.3)`` moves the mode by **0.0069 sigma**. The Monte
+Carlo standard error of a posterior mean from ``n_eff`` draws is
+``1/sqrt(n_eff)`` sigma, so seeing 0.0069 sigma at all needs ``n_eff`` of
+order 2 x 10^4, and *measuring* it needs a second chain with the prior
+removed to difference against -- two chains whose noise adds in quadrature.
+Running longer is not a small ask, it is a 10^4-fold one, and it answers a
+question two Newton solves answer exactly.
+
+Two routes, and they are both deterministic.
+
+**The closed form.** Write the negative log-posterior as ``l(x) + 0.5 *
+sum(((x - m) / s)^2)``, where ``l`` is every probabilistic term EXCEPT the
+selected latents&#x27; own priors (the observed nodes, and any unselected latent
+whose density the selection parameterises), and ``(m, s)`` are the selected
+priors&#x27; location and scale. The direction convention, stated once and
+unambiguously because its ancestor&#x27;s docstring was read both ways:
+
+    ``theta_hat - theta_L  =  H^{-1} P (m - theta_hat)``,   ``P = diag(s^-2)``
+
+where ``theta_hat`` is the MAP, ``theta_L`` the mode of ``l`` alone, and
+``H`` is ``l``&#x27;s curvature at ``theta_hat``. The left side is **MAP minus
+likelihood-only mode**: a positive entry means the prior pulled that latent
+UP relative to where the data alone would put it, and that is the sign
+:attr:`PriorSensitivityReport.shift_sigma` reports. ``H`` is the
+LIKELIHOOD&#x27;s curvature, not the posterior&#x27;s ``H + P`` already in hand for
+``sigma_post``: putting that here is wrong by ``diag((H + P)^-1 P)``, the
+prior&#x27;s share of the posterior precision -- invisible where the prior is
+weak and unbounded as it tightens, which is the regime the report exists to
+describe.
+
+Per latent the diagonal law is ``sigma_post * |m - theta_hat| / s^2`` --
+what :attr:`PriorSensitivityReport.criterion_std` inverts -- plus a cross
+term from every OTHER latent&#x27;s prior. The cross term is not decoration: on
+the tour&#x27;s pair it is ten times the amplitude&#x27;s own pull and of the opposite
+sign, so a per-latent scalar formula would report the direction of the bias
+wrongly, which is worse than reporting its size wrongly.
+
+**The refit.** Newton to the mode with the selected priors in the
+objective, Newton again with them removed, difference the two. No
+expansion, no linearisation -- the answer the closed form is approximating.
+Which of the two is the approximate one depends on the model, which is the
+reason for shipping both rather than picking: on a latent the prediction is
+affine in, the log-posterior is exactly quadratic, the closed form is exact
+and the refit loses digits to cancellation; on a nonlinear pair the roles
+reverse. :attr:`PriorSensitivityReport.verified` says whether they agreed.
+
+Three things this does NOT do, stated so they are not assumed.
+
+It is **local**. Both routes expand about one mode; a multimodal posterior
+has more than one, and the prior&#x27;s job there may be to select between them,
+which is not a displacement and is not measured here.
+
+It reads each selected latent&#x27;s **own declared density** only. A selected
+latent whose ``dist_fn`` is not a Gaussian with parameters fixed under the
+selection is refused by name rather than approximated -- see
+:func:`prior_sensitivity`&#x27;s ``Raises``. Two refusal classes its rheplicant
+ancestor needed have no bayesmith shape at all: a latent with *no* prior
+cannot be declared here (every ``sample`` node carries a density), and a
+prior living at a solver call-site cannot either (the graph is the single
+statement of the model).
+
+It needs the **likelihood&#x27;s** mode to exist. Along a direction the rest
+term does not hold there is no such mode, only a ray, and the displacement
+from a ray is not a number -- so a selection whose rest-term curvature is
+singular or digit-starved at the mode is refused. The verdict is taken on
+that curvature rather than on the observed Jacobian&#x27;s rank, because in a
+graph the two can disagree where they never could in rheplicant: a latent
+that reaches no observed node can still be held by a downstream latent&#x27;s
+density, which is part of the rest term. The refusal delegates its NAMING
+to :func:`~bayesmith.diagnose.identifiability.identifiability` where the
+two verdicts agree, since that is the tool that attributes a null
+direction to latents in scale-free coordinates.</pre></details><div class="symbol-index"><a href="#CRITERION_SHIFT">CRITERION_SHIFT</a> <a href="#MAX_BACKTRACKS">MAX_BACKTRACKS</a> <a href="#MAX_JITTER_ESCALATIONS">MAX_JITTER_ESCALATIONS</a> <a href="#MAX_NEWTON_STEPS">MAX_NEWTON_STEPS</a> <a href="#NEWTON_TOL">NEWTON_TOL</a> <a href="#VERIFY_ATOL">VERIFY_ATOL</a> <a href="#VERIFY_RTOL">VERIFY_RTOL</a> <a href="#PriorSensitivityReport">PriorSensitivityReport</a> <a href="#prior_sensitivity">prior_sensitivity</a></div><section class="api-symbol"><h2 id="CRITERION_SHIFT">CRITERION_SHIFT</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 128.</p><pre><code>CRITERION_SHIFT: float = 0.1</code></pre></section><section class="api-symbol"><h2 id="MAX_BACKTRACKS">MAX_BACKTRACKS</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 171.</p><pre><code>MAX_BACKTRACKS: int = 40</code></pre></section><section class="api-symbol"><h2 id="MAX_JITTER_ESCALATIONS">MAX_JITTER_ESCALATIONS</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 179.</p><pre><code>MAX_JITTER_ESCALATIONS: int = 30</code></pre></section><section class="api-symbol"><h2 id="MAX_NEWTON_STEPS">MAX_NEWTON_STEPS</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 157.</p><pre><code>MAX_NEWTON_STEPS: int = 100</code></pre></section><section class="api-symbol"><h2 id="NEWTON_TOL">NEWTON_TOL</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 165.</p><pre><code>NEWTON_TOL: float = 1e-13</code></pre></section><section class="api-symbol"><h2 id="VERIFY_ATOL">VERIFY_ATOL</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 150.</p><pre><code>VERIFY_ATOL: float = 1e-06</code></pre></section><section class="api-symbol"><h2 id="VERIFY_RTOL">VERIFY_RTOL</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 141.</p><pre><code>VERIFY_RTOL: float = 0.003</code></pre></section><section class="api-symbol"><h2 id="PriorSensitivityReport">PriorSensitivityReport</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 425.</p><pre><code>class PriorSensitivityReport
+names: tuple[str, ...]
+shapes: tuple[tuple[int, ...], ...]
+spans: tuple[tuple[int, int], ...]
+n_par: int
+mode: np.ndarray
+prior_loc: np.ndarray
+prior_std: np.ndarray
+mean_offset: np.ndarray
+sigma_post: np.ndarray
+shift_sigma: np.ndarray
+shift_sigma_refit: np.ndarray
+verified: np.ndarray
+criterion_std: np.ndarray
+precision: np.ndarray
+newton_steps: int
+refit_steps: int
+refit_converged: bool
+_PER_ELEMENT: ClassVar[tuple[str, ...]] = (&#x27;mode&#x27;, &#x27;prior_loc&#x27;, &#x27;prior_std&#x27;, &#x27;mean_offset&#x27;, &#x27;sigma_post&#x27;, &#x27;shift_sigma&#x27;, &#x27;shift_sigma_refit&#x27;, &#x27;verified&#x27;, &#x27;criterion_std&#x27;)</code></pre><pre class="docstring">What the selected priors did to the mode, per latent, in posterior sigmas.
+
+A plain frozen dataclass holding **numpy**, for the same reasons
+:class:`~bayesmith.diagnose.identifiability.IdentifiabilityReport` is
+one: a derived verdict rather than a differentiable model, whose float64
+contents would silently truncate the moment a default-precision JAX
+caller touched them, and whose ``verified`` is a decision no traced
+program can branch on.
+
+Every array is flat over the SELECTED latents, in the order they were
+asked for -- :attr:`names` and :attr:`spans` are the only coordinate
+system in the object, and it is the selection&#x27;s own order, not sorted
+order.
+
+Attributes:
+    names: the latents analysed, in the order the caller asked for.
+    shapes: their shapes, in the same order.
+    spans: ``(start, stop)`` of each latent in the flat vector.
+    n_par: total number of real parameters.
+    mode: ``theta_hat``, the MAP found by Newton on the exact
+        log-posterior.
+    prior_loc: the declared ``m``, broadcast per element.
+    prior_std: the declared ``s``, broadcast per element.
+    mean_offset: ``|m - theta_hat|``. A magnitude -- the direction of the
+        pull lives in :attr:`shift_sigma`&#x27;s sign, where a reader will
+        look for it.
+    sigma_post: ``sqrt(diag(Sigma))`` at the mode, from the exact Hessian
+        of the negative log-posterior -- the observed curvature the
+        Newton refit walks on, which is the one the two routes have to
+        share if their agreement is to mean anything.
+    shift_sigma: the closed form, signed, in units of :attr:`sigma_post`.
+        Positive means the prior pulled the latent UP relative to the
+        likelihood-only mode; negative, DOWN.
+    shift_sigma_refit: the same displacement from an actual second Newton
+        solve with the selected priors removed. All-NaN if that solve did
+        not converge, in which case :attr:`refit_converged` is ``False``.
+    verified: per element, whether the two routes agreed to
+        :data:`VERIFY_RTOL` (with :data:`VERIFY_ATOL` underneath).
+    criterion_std: the prior width at which this latent&#x27;s shift would
+        reach :data:`CRITERION_SHIFT`, from the diagonal law
+        ``sqrt(sigma_post * mean_offset / 0.1)``. Compare it with
+        :attr:`prior_std`: a declared width comfortably ABOVE it is the
+        statement that the prior is not driving the fit. ``0.0`` when the
+        prior mean sits exactly on the mode, which means no tightening of
+        it moves anything.
+    precision: the ``(n_par, n_par)`` posterior precision at the mode.
+    newton_steps, refit_steps: what the two solves cost.
+    refit_converged: whether the likelihood-only solve reached a mode.</pre><h3 id="PriorSensitivityReport.for_latent">PriorSensitivityReport.for_latent</h3><pre><code>for_latent(self, name: str) -&gt; dict[str, np.ndarray]</code></pre><pre class="docstring">Every per-element quantity for one latent, reshaped like the latent.
+
+The form a caller acts in:
+``report.for_latent(&quot;fg_beta&quot;)[&quot;shift_sigma&quot;]`` is a number about
+beta, not an offset into a vector whose layout the caller has to
+have got right.</pre><h3 id="PriorSensitivityReport.mode_of">PriorSensitivityReport.mode_of</h3><pre><code>mode_of(self, name: str) -&gt; np.ndarray</code></pre><pre class="docstring">``theta_hat`` for one latent, shaped like it.</pre><h3 id="PriorSensitivityReport.worst">PriorSensitivityReport.worst</h3><pre><code>worst(self) -&gt; tuple[str, int, float]</code></pre><pre class="docstring">``(latent, index within it, signed shift)``, by largest magnitude.
+
+What to print first. An anonymous argmax over the flat vector would
+name a position in a layout the caller did not choose.</pre><h3 id="PriorSensitivityReport.shift_at">PriorSensitivityReport.shift_at</h3><pre><code>shift_at(self, name: str, prior_std: Any) -&gt; np.ndarray</code></pre><pre class="docstring">The shift this latent would suffer under a DIFFERENT prior width.
+
+The counterfactual :attr:`criterion_std` inverts, evaluated exactly
+rather than through the diagonal law: only ``name``&#x27;s entries of
+``P`` are replaced, and
+``(H + P_s)^-1 P_s (I + H^-1 P_d)(m - theta_hat)`` is solved whole.
+Every other latent&#x27;s prior stays as declared, cross terms included
+-- which is why this can return a shift of the opposite sign to
+``name``&#x27;s own pull once ``name``&#x27;s prior is loose enough for a
+neighbour&#x27;s to dominate.
+
+**Anchoring.** That is not the expression :attr:`shift_sigma` uses,
+and the comment on the solve below derives why: the two are the same
+displacement written about different modes, and a counterfactual can
+only stand on the likelihood&#x27;s. The ``(I + H^-1 P_d)`` factor is how
+it gets there without a second fit, and it makes the whole thing
+exact on a quadratic. Two consequences worth stating: at
+``P_s = P_d`` it collapses to :attr:`shift_sigma` algebraically, so
+``shift_at(name, declared_width)`` returns the reported shift to the
+last bit -- if it did not, one of the two would be wrong. And what
+is left at tight widths is the model, not the method.
+
+Reported in the sigma the caller actually HAS -- :attr:`sigma_post`,
+at the declared priors -- not in the sigma the counterfactual prior
+would produce. Dividing each row of a ladder by its own width would
+fold the prior&#x27;s shrinking of the error bar into a number meant to
+report only the movement of the mode, and &#x27;a 0.1 sigma shift&#x27; would
+then mean a different displacement in every row.
+
+Args:
+    name: the latent to re-prior.
+    prior_std: its hypothetical width -- a scalar, or anything
+        broadcastable to the latent&#x27;s shape.
+
+Returns:
+    The signed shift in posterior sigmas, shaped like the latent.
+
+Raises:
+    GraphError: if ``name`` is not in this report, or the width is
+        not positive and finite, or does not broadcast.</pre></section><section class="api-symbol"><h2 id="prior_sensitivity">prior_sensitivity</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 655.</p><pre><code>prior_sensitivity(graph: Graph, *, names: Sequence[str] | str | None=None, at: dict[str, jax.Array] | None=None) -&gt; PriorSensitivityReport</code></pre><pre class="docstring">How far the selected priors moved the mode, in posterior sigmas.
+
+See the module docstring for why a NUTS run cannot be asked this and for
+the two routes taken instead. Both are deterministic; nothing here
+samples. The data and the noise are the graph&#x27;s own -- its observed
+nodes -- so there is nothing separate to pass and nothing that can
+disagree with what a sampler would read.
+
+The work is two Newton solves -- one on the exact log-posterior, one
+with the selected priors removed -- plus one dense Jacobian for the rank
+check. That is a design-time cost for tens to a few thousand parameters,
+the same envelope :func:`~bayesmith.diagnose.identifiability.
+identifiability` states, and for the same reason.
+
+Args:
+    graph: the model. Every SELECTED latent must carry a diagonal
+        Gaussian density whose parameters are fixed under the selection.
+    names: which latents to analyse -- a sequence, or a bare string for
+        one. ``None`` means all of them, in declaration order. A subset
+        asks the CONDITIONAL question, holding the rest at ``at``.
+    at: values for the latents NOT selected, and the Newton starting
+        point for those that are. Defaults to each latent&#x27;s prior
+        centre.
+
+Returns:
+    A :class:`PriorSensitivityReport`. The two numbers to read first are
+    ``shift_sigma`` and ``criterion_std``::
+
+        report = prior_sensitivity(graph)
+        name, index, shift = report.worst
+        criterion = report.for_latent(name)[&quot;criterion_std&quot;].ravel()[index]
+        print(f&quot;{name}[{index}] moved {shift:+.4f} sigma by its prior; &quot;
+              f&quot;0.1 sigma would need s = {criterion:.3g}&quot;)
+
+Raises:
+    GraphError: if ``names``/``at`` name an undeclared latent or a value
+        does not broadcast; if a selected latent is complex or
+        non-floating; if a selected latent&#x27;s density is parameterised by
+        the selection itself; if the likelihood&#x27;s own curvature at the
+        mode is singular or digit-starved, so the likelihood-only mode
+        the shift is measured from does not exist; or if the arithmetic
+        comes back float32 -- run the call (graph construction included)
+        inside ``with jax.enable_x64(True):``.
+    NotGaussian: if a selected latent&#x27;s density has no quadratic form (a
+        Uniform, an ImproperUniform, a LogNormal, ...).
+    ConvergenceError: if the Newton solve for the MAP does not converge.
+        (A failed VERIFICATION refit is reported, not raised:
+        ``refit_converged=False`` and an all-NaN refit column.)</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#CRITERION_SHIFT">CRITERION_SHIFT</a><a href="#MAX_BACKTRACKS">MAX_BACKTRACKS</a><a href="#MAX_JITTER_ESCALATIONS">MAX_JITTER_ESCALATIONS</a><a href="#MAX_NEWTON_STEPS">MAX_NEWTON_STEPS</a><a href="#NEWTON_TOL">NEWTON_TOL</a><a href="#VERIFY_ATOL">VERIFY_ATOL</a><a href="#VERIFY_RTOL">VERIFY_RTOL</a><a href="#PriorSensitivityReport">PriorSensitivityReport</a><a href="#prior_sensitivity">prior_sensitivity</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.diagnose.map"><title>bayesmith.diagnose.map · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.diagnose.map</span></nav>
+<article><h1>bayesmith.diagnose.map</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">A graph-native posterior mode, with refusals that belong to MAP.
+
+The objective is exactly ``-log_joint(graph, values)`` over every latent in
+declaration order.  It is not prior sensitivity&#x27;s likelihood-only
+counterfactual and deliberately does not inherit that diagnostic&#x27;s three
+admission rules: hierarchical priors may depend on other latents, densities
+need not be diagonal Gaussians, and the likelihood alone need not anchor a
+direction that the full posterior anchors legitimately.
+
+This remains a local optimisation result.  A successful mode says nothing
+about other basins, posterior mass, or funnel geometry; a Laplace diagnostic
+centred here inherits those blind spots.</pre></details><div class="symbol-index"><a href="#MapEstimate">MapEstimate</a> <a href="#Refused">Refused</a> <a href="#NotApplicable">NotApplicable</a> <a href="#MapResult">MapResult</a> <a href="#map_estimate">map_estimate</a></div><section class="api-symbol"><h2 id="MapEstimate">MapEstimate</h2><p class="source-note">Defined in <code>bayesmith.diagnose.map</code>, line 40.</p><pre><code>class MapEstimate(Mapping[str, jax.Array])
+point: dict[str, jax.Array]
+objective: float
+gradient_norm: float
+steps: int
+verdict: ClassVar[str] = &#x27;measured&#x27;</code></pre><pre class="docstring">A converged local posterior mode and its optimisation evidence.
+
+The object is itself a mapping, so it can be passed directly where graph
+diagnostics expect ``{latent: value}``, including
+``local_block(graph, names, estimate, priors=True)``.</pre></section><section class="api-symbol"><h2 id="Refused">Refused</h2><p class="source-note">Defined in <code>bayesmith.diagnose.coupling</code>, line 65.</p><pre><code>class Refused
+reason: str
+verdict: ClassVar[str] = &#x27;refused&#x27;</code></pre><pre class="docstring">A diagnostic whose arithmetic cannot support a numerical verdict.</pre></section><section class="api-symbol"><h2 id="NotApplicable">NotApplicable</h2><p class="source-note">Defined in <code>bayesmith.diagnose.map</code>, line 65.</p><pre><code>class NotApplicable
+reason: str
+verdict: ClassVar[str] = &#x27;not-applicable&#x27;</code></pre><pre class="docstring">The graph contains no unknown quantity for MAP to estimate.</pre></section><section class="api-symbol"><h2 id="MapResult">MapResult</h2><p class="source-note">Defined in <code>bayesmith.diagnose.map</code>, line 72.</p><pre><code>MapResult = MapEstimate | Refused | NotApplicable</code></pre></section><section class="api-symbol"><h2 id="map_estimate">map_estimate</h2><p class="source-note">Defined in <code>bayesmith.diagnose.map</code>, line 108.</p><pre><code>map_estimate(graph: Graph, *, at: dict[str, jax.Array] | None=None) -&gt; MapResult</code></pre><pre class="docstring">Find a local mode of the graph&#x27;s complete posterior.
+
+Args:
+    graph: the declared model.  Every probabilistic term, observed mask,
+        and graph-level joint prior enters through :func:`log_joint`.
+    at: optional Newton starting point.  Missing latents start at their
+        declared centres; keys and shapes are validated by name.
+
+Returns:
+    :class:`MapEstimate` on convergence, :class:`Refused` when the
+    arithmetic or local optimisation cannot support a MAP, and
+    :class:`NotApplicable` for a graph with no latents.  Every refusal
+    includes an actionable alternative rather than leaking the last
+    iterate as if it had converged.
+
+Raises:
+    GraphError: for a malformed ``at`` mapping or a latent with no
+        real-valued continuous derivative.  Those are caller/graph
+        contract errors, not optimisation verdicts.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#MapEstimate">MapEstimate</a><a href="#Refused">Refused</a><a href="#NotApplicable">NotApplicable</a><a href="#MapResult">MapResult</a><a href="#map_estimate">map_estimate</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

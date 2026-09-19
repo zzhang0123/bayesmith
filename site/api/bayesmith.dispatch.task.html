@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.dispatch.task"><title>bayesmith.dispatch.task · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.task</span></nav>
+<article><h1>bayesmith.dispatch.task</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The bridge: a Graph and its plan, projected into artifacts (§0 ruling 5).
+
+This orchestration adapter and its private identity projection connect runtime
+objects -- a :class:`~bayesmith.graph.graph.Graph`, an
+:class:`~bayesmith.dispatch.plan.InferencePlan`, a JAX array -- to the
+artifact protocol. :mod:`bayesmith.artifacts` imports
+neither the graph layer nor JAX. The Graph-to-artifact boundary stays within
+dispatch.
+
+**A manifest is what the artifacts layer hashes; the Graph never crosses.**
+:func:`graph_manifest` and :func:`data_manifest` are re-exported here from
+:mod:`bayesmith.dispatch._task_identity`. They read a Graph and return
+canonical values -- strings, tuples, numpy
+arrays -- which :func:`~bayesmith.artifacts.identity.fingerprint` then digests.
+The split is the whole of §0 ruling 4 at this seam: the layer that knows what a
+node is does not know what a digest is, and the layer that takes digests never
+sees a node.
+
+**The slots are independent or they are not slots.** An observed value, a mask
+bit and a Const move the DATA slot; a parent order, a plate, a declared
+``linear_in``, a support and the module-and-qualname of an operator move the
+GRAPH_STRUCTURE slot; the model&#x27;s own text moves MODEL_SOURCE alone. An array&#x27;s
+shape and dtype travel with its bytes, in the data slot, rather than being
+restated in the structure one -- two slots answering for one input is how a
+matrix of invalidation rules becomes a table of coincidences.
+
+**A callable has no canonical form, and ``repr`` is not a fallback.** An
+operator is identified by its module and qualname. Where those are missing --
+a function built by ``exec``, one typed into a REPL -- the manifest writes a
+placeholder rather than an address, and :func:`compile_task` refuses unless the
+caller pinned the model themselves with a ``ModelRef`` source digest. An
+address changes on every restart and stays put across a genuine edit, so a
+digest that degraded to one would be wrong in both directions at once.
+
+**A refusal&#x27;s code comes from a structured field.** The adapters below read
+``NotGaussian.reason``, ``NotLogLinear.reason`` and the ``verdict`` class
+variable that :mod:`bayesmith.diagnose.map`&#x27;s results carry; a human message
+is stored as a message and parsed by nothing.
+:class:`~bayesmith.errors.AffinityRefused` is absent from that table on
+purpose: it says a declared affinity claim is FALSE, which is a fault in the
+model, and a fault adapted into &quot;this route does not apply&quot; is a broken
+declaration wearing the schema of an ordinary fallback.
+
+**Nothing here decides a number.** :func:`execute_task` calls
+:meth:`~bayesmith.dispatch.plan.InferencePlan.sample`,
+:meth:`~bayesmith.dispatch.plan.InferencePlan.estimate`,
+:func:`~bayesmith.diagnose.map.map_estimate` or :func:`~bayesmith.optimize.fit`
+exactly once, with the key it was given and no extra split, and projects what
+comes back. The runtime defaults are READ from the signatures that own them
+rather than restated here, so a default cannot drift into a second home.</pre></details><div class="symbol-index"><a href="#PRODUCER">PRODUCER</a> <a href="#SUPPORTED_BACKENDS">SUPPORTED_BACKENDS</a> <a href="#SUPPORTED_TASK_KINDS">SUPPORTED_TASK_KINDS</a> <a href="#MAP_METHODS">MAP_METHODS</a> <a href="#graph_manifest">graph_manifest</a> <a href="#data_manifest">data_manifest</a> <a href="#model_identity_gap">model_identity_gap</a> <a href="#input_fingerprints">input_fingerprints</a> <a href="#node_scope">node_scope</a> <a href="#plan_ref">plan_ref</a> <a href="#refusal_from_verdict">refusal_from_verdict</a> <a href="#PlannedTask">PlannedTask</a> <a href="#compile_task">compile_task</a> <a href="#execute_task">execute_task</a></div><section class="api-symbol"><h2 id="PRODUCER">PRODUCER</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 183.</p><pre><code>PRODUCER = ProducerRef(package=&#x27;bayesmith&#x27;, version=__version__)</code></pre></section><section class="api-symbol"><h2 id="SUPPORTED_BACKENDS">SUPPORTED_BACKENDS</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 190.</p><pre><code>SUPPORTED_BACKENDS: frozenset[str] = frozenset({&#x27;auto&#x27;})</code></pre></section><section class="api-symbol"><h2 id="SUPPORTED_TASK_KINDS">SUPPORTED_TASK_KINDS</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 342.</p><pre><code>SUPPORTED_TASK_KINDS: frozenset[TaskKind] = frozenset({TaskKind.POSTERIOR, TaskKind.POINT_ESTIMATE, TaskKind.PREDICTIVE, TaskKind.SIMULATION, TaskKind.EVIDENCE})</code></pre></section><section class="api-symbol"><h2 id="MAP_METHODS">MAP_METHODS</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 363.</p><pre><code>MAP_METHODS: tuple[str, ...] = (&#x27;newton&#x27;, &#x27;adam&#x27;, &#x27;gradient&#x27;)</code></pre></section><section class="api-symbol"><h2 id="graph_manifest">graph_manifest</h2><p class="source-note">Defined in <code>bayesmith.dispatch._task_identity</code>, line 120.</p><pre><code>graph_manifest(graph: Graph, model_ref: ModelRef) -&gt; dict[str, Any]</code></pre><pre class="docstring">What the GRAPH_STRUCTURE slot is taken over: the declaration, no values.
+
+The model&#x27;s identifier travels with it because a structure is somebody&#x27;s
+structure -- two models that happen to declare the same shape are two
+models -- while the source digest and the build arguments stay in the
+MODEL_SOURCE slot, so reformatting a model does not read as restructuring
+it.</pre></section><section class="api-symbol"><h2 id="data_manifest">data_manifest</h2><p class="source-note">Defined in <code>bayesmith.dispatch._task_identity</code>, line 178.</p><pre><code>data_manifest(graph: Graph, extra_data: tuple[tuple[str, Any], ...]=()) -&gt; dict[str, Any]</code></pre><pre class="docstring">What the DATA slot is taken over: every Const, observation and mask.
+
+In declaration order, which is the graph&#x27;s own topological order, plus any
+``extra_data`` the caller conditions on that the graph does not carry. The
+bytes are what is hashed, so a single flipped bit is a different data set
+-- and so is the same array at a different dtype, which is why the bytes
+are hashed rather than the values.</pre></section><section class="api-symbol"><h2 id="model_identity_gap">model_identity_gap</h2><p class="source-note">Defined in <code>bayesmith.dispatch._task_identity</code>, line 202.</p><pre><code>model_identity_gap(graph: Graph, model_ref: ModelRef) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The nodes whose operator this package cannot identify, or ``()``.
+
+Empty whenever the caller pinned the model&#x27;s own source: a ``ModelRef``
+carrying a ``source_digest`` identifies the whole text the callables were
+written in, which is the explicit answer §0.3 offers where
+``inspect.getsource`` cannot serve.</pre></section><section class="api-symbol"><h2 id="input_fingerprints">input_fingerprints</h2><p class="source-note">Defined in <code>bayesmith.dispatch._task_identity</code>, line 226.</p><pre><code>input_fingerprints(graph: Graph, task: Task, *, model_ref: ModelRef, extra_data: tuple[tuple[str, Any], ...]=()) -&gt; FingerprintBundle</code></pre><pre class="docstring">The four slots every artifact has, taken over this graph and this task.
+
+``compilation``, ``evaluation`` and ``environment`` are left empty here:
+nothing has been compiled, judged or run yet, and a slot holding a digest
+of something that has not happened is worse than an empty one.</pre></section><section class="api-symbol"><h2 id="node_scope">node_scope</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 382.</p><pre><code>node_scope(name: str) -&gt; ScopeRef</code></pre><pre class="docstring">The scope of a verdict about one node.</pre></section><section class="api-symbol"><h2 id="plan_ref">plan_ref</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 391.</p><pre><code>plan_ref(record: InferencePlanRecord) -&gt; ArtifactRef</code></pre><pre class="docstring">The version reference to a plan record: id AND revision (§0.2).</pre></section><section class="api-symbol"><h2 id="refusal_from_verdict">refusal_from_verdict</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 678.</p><pre><code>refusal_from_verdict(verdict: Any, *, task: Task, model_ref: ModelRef, fingerprints: FingerprintBundle, artifact_type: ArtifactKind=ArtifactKind.PLAN) -&gt; Refusal</code></pre><pre class="docstring">The typed :class:`~bayesmith.artifacts.refusal.Refusal` for a verdict.
+
+By exact type, never by ``isinstance``: a subclass carries state this table
+cannot see, and :class:`~bayesmith.errors.AffinityRefused` is exactly such a
+subclass in the direction that matters -- adapting it would downgrade a
+contradicted declaration into an ordinary &quot;this route does not apply&quot;.</pre></section><section class="api-symbol"><h2 id="PlannedTask">PlannedTask</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 757.</p><pre><code>class PlannedTask
+task: Task
+analysis: AnalysisReport
+record: InferencePlanRecord
+runtime_plan: InferencePlan | ProposalRuntimePlan = dataclasses.field(compare=False, repr=False)</code></pre><pre class="docstring">A task, what compiling it concluded, and the plan that will run it.
+
+``runtime_plan`` is out of the identity (``compare=False``) and out of the
+repr: it is the live equinox module, and two plans compiled from one graph
+are the same PLANNED TASK even though the objects underneath them are two.
+It is also the one field here that is not an artifact, which is why it is
+named for what it is rather than hidden behind a friendlier word.</pre></section><section class="api-symbol"><h2 id="compile_task">compile_task</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 1954.</p><pre><code>compile_task(graph: Graph, task: Task, *, model_ref: ModelRef, key: jax.Array | None=None, extra_data: tuple[tuple[str, Any], ...]=()) -&gt; PlannedTask | Refusal</code></pre><pre class="docstring">Compile a task against a graph: a :class:`PlannedTask`, or a Refusal.
+
+The refusals are verdicts a caller can branch on -- a task kind this
+release does not answer, a backend it cannot dispatch to, an option it
+would otherwise ignore, an operator it cannot identify, a point estimate
+with no solve to be the estimate of. What is NOT a refusal is a fault: a
+:class:`~bayesmith.errors.GraphError` or
+:class:`~bayesmith.errors.StructureError` raised while the graph is read
+travels out of here as an exception, because a contradicted declaration is
+a broken model rather than a route that does not apply.
+
+Args:
+    graph: the model.
+    task: one of the five §0.4 tasks.
+    model_ref: what the graph was built from. Never the callable itself (§0
+        ruling 4); see :func:`model_identity_gap` for when its
+        ``source_digest`` is required rather than optional.
+    key: PRNG key for the compile-time probes, passed through to
+        :func:`~bayesmith.dispatch.plan.compile`. ``None`` leaves that
+        function&#x27;s own default in place, so a task compiled without a key
+        and a graph compiled directly agree block for block.
+    extra_data: data the caller conditions on that the graph does not
+        carry, hashed into the DATA slot.</pre></section><section class="api-symbol"><h2 id="execute_task">execute_task</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 3104.</p><pre><code>execute_task(planned: PlannedTask, *, key: jax.Array | None=None, source_posterior: PosteriorResult | None=None) -&gt; Result | Refusal</code></pre><pre class="docstring">Run a compiled task and project what came back into a Result.
+
+One call to one seam, with the key it was given and no extra split, timed
+from just before to just after. Nothing here decides a number: the method,
+the tolerance, the budget and the fallback policy were all fixed by
+:func:`compile_task` and by the plan it holds.
+
+Args:
+    planned: what :func:`compile_task` produced.
+    key: the PRNG key a posterior, predictive or simulation run draws
+        from. Required there, and unused by a point estimate -- which
+        splits nothing, so its run record carries no seed rather than one
+        it never consumed.
+    source_posterior: the :class:`~bayesmith.artifacts.results.PosteriorResult`
+        a predictive task pushes forward. Required for a predictive task
+        and for a simulation task whose parameter source is a posterior
+        result; in both, its id/revision and its data/graph/model
+        fingerprints are checked against the task&#x27;s before anything is
+        generated.
+
+Returns:
+    A :class:`~bayesmith.artifacts.results.PosteriorResult`,
+    :class:`~bayesmith.artifacts.results.PointEstimateResult`,
+    :class:`~bayesmith.artifacts.results.PredictiveResult`,
+    :class:`~bayesmith.artifacts.results.SimulationResult` or
+    :class:`~bayesmith.artifacts.results.EvidenceResult`, or a
+    :class:`~bayesmith.artifacts.refusal.Refusal` where the method turned
+    out not to apply. A genuine execution failure --
+    :class:`~bayesmith.errors.ConvergenceError` above all -- is raised, not
+    refused: a run that broke is an ERROR for a workflow to mark, and
+    filing it as &quot;this method does not apply&quot; would lose that distinction.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#PRODUCER">PRODUCER</a><a href="#SUPPORTED_BACKENDS">SUPPORTED_BACKENDS</a><a href="#SUPPORTED_TASK_KINDS">SUPPORTED_TASK_KINDS</a><a href="#MAP_METHODS">MAP_METHODS</a><a href="#graph_manifest">graph_manifest</a><a href="#data_manifest">data_manifest</a><a href="#model_identity_gap">model_identity_gap</a><a href="#input_fingerprints">input_fingerprints</a><a href="#node_scope">node_scope</a><a href="#plan_ref">plan_ref</a><a href="#refusal_from_verdict">refusal_from_verdict</a><a href="#PlannedTask">PlannedTask</a><a href="#compile_task">compile_task</a><a href="#execute_task">execute_task</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

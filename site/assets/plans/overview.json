@@ -1,0 +1,85 @@
+{
+  "snippet": "overview_plan.py",
+  "snippet_sha256": "4bb3dc03573ed5f168a62501d66604209e04c76aeb7fc3e80c97b8c5b1e5cd94",
+  "environment": {
+    "recorded": "2026-09-19",
+    "git_head": "f53e10afc6b01640fd23febb3161d89dc89512a8",
+    "src_differs_from_head": true,
+    "src_sha256": "22abe9ba078e5a5b81e3a3cf2744f418b3812586c992f1dfa7c9a68421dfb369",
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine": "arm64",
+    "python": "3.12.9",
+    "bayesmith": "0.9.0",
+    "jax": "0.11.1",
+    "numpy": "2.5.2",
+    "numpyro": "0.21.0",
+    "blas": "accelerate",
+    "jax_enable_x64": true
+  },
+  "plans": {
+    "mixed": {
+      "text": "block 0  {x}              GCR exact         structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)\n         kappa=72.652432 -> tol=1.3764164e-05, guard hoisted out of the sweep\n         exact block ['x']: sigma does not move with the block (0.000e+00 relative,\n         rtol=1.0e-08), so the covariance is fixed and one Wiener solve is exact; the\n         linearity check held ['nu'] at their prior centre rather than drawing them --\n         they are not Gaussian, so their prior has no draw this module will take; the\n         kappa sweep held ['nu'] at their prior centre rather than moving them -- they\n         are not Gaussian, so this module has no prior width to sweep them by, and the\n         interval is not an interval in them\nblock 1  {nu}             NUTS\n         outside the exact block ['x']: sampled by NUTS, and the exact block is solved\n         CONDITIONAL on them, once per sweep\nexecution: HMCGibbs(inner=NUTS, gibbs_sites=['x']); noise_std rebuilt every sweep",
+      "blocks": [
+        {
+          "latents": [
+            "x"
+          ],
+          "method": "gcr",
+          "route": "GCR exact",
+          "evidence": "structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)",
+          "refused_claim": false
+        },
+        {
+          "latents": [
+            "nu"
+          ],
+          "method": "nuts",
+          "route": "NUTS",
+          "evidence": "outside the exact block ['x']: sampled by NUTS, and the exact block is solved CONDITIONAL on them, once per sweep",
+          "refused_claim": false
+        }
+      ],
+      "execution": "HMCGibbs(inner=NUTS, gibbs_sites=['x']); noise_std rebuilt every sweep"
+    },
+    "curved": {
+      "text": "block 0  {x}              NUTS\n         'x': latent 'x' is declared linear, but the prediction is not affine in it:\n         departure from its own linearization is too large at [0.001, 1.0, 1000.0] times\n         each latent's declared prior width, evaluated at the caller's own `at`. Two\n         criteria, per element, over the elements clearing the per-element roundoff\n         floor -- either alone is a refusal: the relative departure against\n         rtol=2.22e-12, and the departure in units of the noise sigma against\n         weighted_rtol=1.00e-03. Worst per probe (relative | sigma-weighted): 0.001x ->\n         1.01e-03 | 4.06e-06, 1x -> 1.30e+00 | 1.84e+01, 1000x -> nan | nan. An\n         `unresolved:` entry there is a departure the roundoff floor declined to judge,\n         not one measured as zero -- it is not what refused this claim, and `with\n         jax.enable_x64(True):` is what settles it. Either drop the linear_in\n         declaration, or re-parameterize so the model really is affine there. For a\n         group that is only pairwise affine, split it into separate blocks and\n         alternate.\nexecution: NUTS",
+      "blocks": [
+        {
+          "latents": [
+            "x"
+          ],
+          "method": "nuts",
+          "route": "NUTS",
+          "evidence": "'x': latent 'x' is declared linear, but the prediction is not affine in it: departure from its own linearization is too large at [0.001, 1.0, 1000.0] times each latent's declared prior width, evaluated at the caller's own `at`.",
+          "refused_claim": true
+        }
+      ],
+      "execution": "NUTS"
+    },
+    "mixed_declared": {
+      "text": "block 0  {x}              GCR exact         structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)\n         kappa=72.652432 -> tol=1.3764164e-05, guard hoisted out of the sweep\n         exact block ['x']: sigma does not move with the block (0.000e+00 relative,\n         rtol=1.0e-08), so the covariance is fixed and one Wiener solve is exact; the\n         linearity check held ['nu'] at their prior centre rather than drawing them --\n         they are not Gaussian, so their prior has no draw this module will take; the\n         kappa sweep held ['nu'] at their prior centre rather than moving them -- they\n         are not Gaussian, so this module has no prior width to sweep them by, and the\n         interval is not an interval in them\nblock 1  {nu}             NUTS\n         outside the exact block ['x']: sampled by NUTS, and the exact block is solved\n         CONDITIONAL on them, once per sweep\nexecution: HMCGibbs(inner=NUTS, gibbs_sites=['x']); noise_std rebuilt every sweep",
+      "blocks": [
+        {
+          "latents": [
+            "x"
+          ],
+          "method": "gcr",
+          "route": "GCR exact",
+          "evidence": "structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)",
+          "refused_claim": false
+        },
+        {
+          "latents": [
+            "nu"
+          ],
+          "method": "nuts",
+          "route": "NUTS",
+          "evidence": "outside the exact block ['x']: sampled by NUTS, and the exact block is solved CONDITIONAL on them, once per sweep",
+          "refused_claim": false
+        }
+      ],
+      "execution": "HMCGibbs(inner=NUTS, gibbs_sites=['x']); noise_std rebuilt every sweep"
+    }
+  },
+  "tables": {}
+}

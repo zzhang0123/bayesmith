@@ -1,6 +1,133 @@
 # From operators to recovered parameters
 
+## Gaussian sampling with non-Gaussian posterior reweighting
+
+[`non_gaussian_reweight.py`](non_gaussian_reweight.py) draws a Gaussian
+reference posterior with GCR, reweights against a full non-Gaussian target
+graph, and fits the mixture-prior hyperparameter by marginal MAP. It checks
+the result against an analytic convolution and a fresh reference sample bank.
+Run `.venv/bin/python examples/inference/non_gaussian_reweight.py` from the
+repository root. The [module specification](../../docs/reweight.md) defines
+the objective, graph contract and weight-diagnostic limits.
+
+For a spatial field with known higher cumulants, run
+`.venv/bin/python -m examples.inference.campbell_sky_validation`. The
+[Campbell-sky experiment](../../docs/campbell-sky-validation.md) compares two
+GCR sample banks against an analytic Poisson–Gaussian evidence, checks
+connected spatial cumulants, and records an explicit negative-density
+counterexample for the order-four Edgeworth approximation.
+
+### Larger sky and the Bayesian inference notebook
+
+The large experiment fits **128 × 128 = 16,384 coefficients**, with two
+independent banks of 2,048 Gaussian draws, and separately benchmarks drawing
+1,024 maps up to **256 × 256**. It compares whole-map importance weights with
+an independence-factorized evidence estimator and the analytic answer. The
+factorization relies on this model's source coordinates and beam-correlated
+noise; it is not available for arbitrary skies.
+
+```bash
+.venv/bin/python -m examples.inference.campbell_sky_scaling --output runs/campbell-large-128
+.venv/bin/python -m examples.inference.campbell_notebook --input runs/campbell-large-128 --notebook runs/inference-demo-verified
+```
+
+Open `runs/inference-demo-verified/index.html#case=campbell_sky&step=model`.
+Chapter **07 · Poisson sky & Gaussian draws** is a continuous eight-section
+discussion with a linked contents list. It includes saved-map histograms and
+PDFs for both source coefficients and beam-smoothed pixels, comparing the
+actual Poisson–Gaussian mixture with a matched Gaussian; and a two-cell
+posterior reweighting illustration. A dedicated prior-choice section groups
+mixture, normalising flow and Edgeworth. Linear-scale examples at λ=8 and 32
+show Edgeworth's improved accuracy, with integrated absolute errors recorded
+in the figure and density audit. The expansion formula and a separate λ=2
+signed-tail stress case remain in an optional expansion. The recorded inference uses
+only the mixture; the sampling, weighting and recovery discussion is independent
+of Edgeworth. Responsive figures keep labels readable in narrow panels.
+It explains Campbell's theorem,
+Gaussian conditional draws, full-posterior ratios, marginal hyperparameter
+MAP, ESS, and the scope of exact factorization in English and 中文. Timings,
+source hashes, independent-bank results and plots come from the saved run.
+The installer updates the presentation and adds this chapter while preserving
+the existing demos' numerical results. `plot_results.py` also recognizes the
+saved Campbell case when re-rendering the full notebook.
+
 ## Real observations: TRIS × Haslam
+
+**Current analysis entry:** [physical-model acceptance overview](PHYSICAL_SKY_ACCEPTANCE_20260915.md)
+(in progress), [current numerical stop and diagnosis at 2000 draws](PHYSICAL_SKY_STOP_2000_20260916.md),
+[actual setup, priors, beams and intermediate products](PHYSICAL_SKY_SETUP_REVIEW_20260916.md),
+[existing mapmaker: bounded local comparison](PHYSICAL_SKY_MAPMAKER_20260916.md),
+[exact-target mapmaker proposals: low acceptance, not adopted](PHYSICAL_SKY_MAPMAKER_PROPOSALS_20260916.md),
+[covariance diagnosis and failed shared-covariance candidate](PHYSICAL_SKY_MAPMAKER_COVARIANCE_20260917.md),
+[condition-specific reference covariance: verified target, failed efficiency](PHYSICAL_SKY_MAPMAKER_CONDITIONALREF_20260917.md),
+[local node blocks: finite screen passed, cross-block mixing still open](PHYSICAL_SKY_MAPMAKER_NODEBLOCKS_20260917.md),
+[slow-direction maps and overlapping caps: all 288 proposals verified, no posterior chain](PHYSICAL_SKY_MAPMAKER_OVERLAP_20260917.md),
+[sequential conditional A: 144 diagnostic transitions verified, joint kernel pending](PHYSICAL_SKY_MAPMAKER_SEQUENTIAL_20260917.md),
+[fixed-A theta target and NUTS cache controls passed; physical joint kernel pending](PHYSICAL_SKY_MAPMAKER_THETA_20260917.md),
+[physical hybrid: 24 diagnostic rounds verified; depth proxy subsequently checked](PHYSICAL_SKY_MAPMAKER_HYBRID_20260917.md),
+[paired depth replay and A-update schedule: K=8 selected for recovery validation, no posterior admission](PHYSICAL_SKY_MAPMAKER_SCHEDULE_20260917.md),
+[new NSIDE256 injection: target verified; transferred theta metric fails in an H-alpha direction](PHYSICAL_SKY_MAPMAKER_SIMBRIDGE_20260917.md),
+[D22 calibrated screening and resumable multichain budget](PHYSICAL_SKY_MULTICHAIN_BUDGET_20260915.md),
+[D21 joint EM slice updates with reference amplitude](PHYSICAL_SKY_JOINT_SLICE_20260915.md),
+[D20 calibration-aware amplitude reference and saved chain prefixes](PHYSICAL_SKY_CALIBRATION_REFERENCE_20260915.md),
+[D19 joint amplitude compensation and exact reference coordinates](PHYSICAL_SKY_JOINT_COMPENSATION_20260915.md),
+[D18 EM block experiments and fail-closed ESS screening](PHYSICAL_SKY_EM_BLOCKS_20260915.md),
+[D17 exact 820-MHz calibration and spectral coordinates](PHYSICAL_SKY_SCAN_COORDINATE_20260915.md),
+[D16 recovery, sampler repairs and integration sensitivity](PHYSICAL_SKY_RECOVERY_20260915.md),
+[D15 local fields, source epochs and staged validation](PHYSICAL_SKY_LOCAL_FIELDS_20260915.md),
+[bright-source measurement contract](BRIGHT_SOURCE_CONTRACT_20260915.md),
+[HartRAO 2326 MHz product and file contract](HARTRAO_CONTRACT_20260916.md),
+[S-PASS I/Q/U product and shared-zero contract](SPASS_CONTRACT_20260916.md),
+[D14 spatial, optical-mask and Galactic-source audit](PHYSICAL_SKY_SPATIAL_AUDIT_20260914.md),
+[D13 spatial-mode experiments and actual stage outcomes](PHYSICAL_SKY_MODES_20260914.md),
+[staged inference workflow](PHYSICAL_INFERENCE_WORKFLOW.md),
+[D12 joint physical pilot and sampling diagnostics](PHYSICAL_SKY_JOINT_20260914.md),
+[D11 physical implementation and input diagnostics](PHYSICAL_SKY_IMPLEMENTATION_20260914.md),
+[original physical design](PHYSICAL_SKY_MODEL_REPORT_20260914.md),
+and [versioned modelling decisions](RSB_DEFINITIONS.md). The joint component model includes independent optical H-alpha.
+The restricted D13 model passed controlled multichain recovery; the expanded
+D15 local-field simulation stopped after a divergent first chain. D16 preserves
+those failures, repairs antithetic ESS, integrates the Haslam common zero exactly,
+and tests a fixed reference metric without changing the physical model or priors.
+D17 addresses the measured 820-MHz calibration boundary using an equivalent joint parameterization.
+Its first formal chain has no divergences but fails EM mixing; a conditional EM-shape
+control and local information diagnostics identify the next problem to address.
+D18 preserves the full target in two EM block experiments; both stop at the pilot.
+Its ESS aggregation repair rejects invalid parameters regardless of dictionary order.
+D19 measures the missing amplitude compensation, implements an exact nonlinear
+reference coordinate, and stops a divergence-free first chain for poor EM mixing.
+D20 restores the original explicit Haslam zero for the reference and checks saved
+250-draw formal prefixes; its first prefix stops for low ESS. D21 tests conditional
+EM slice sweeps while physical amplitude follows its reference. Chunked Gibbs/NUTS
+and uninterrupted known-target streams agree bitwise; 140 TRIS regression tests pass.
+D21's first formal prefix stops at ESS/draw 0.037281. D22 demonstrates false
+short-prefix rejection on a known stationary target and keeps the final diagnostic
+thresholds unchanged. The fixed-prior control completes its original four-chain,
+8,000-draw budget but fails independent mixing and critical zero-point recovery
+checks. The hierarchical angular-variance model passes independent sampling
+and fixed-injection recovery on the coarse grid, but its quadrature check fails.
+The fine-grid simulation passes independent four-chain diagnostics at 2,000 draws,
+fixed-injection recovery, PPC and posterior quadrature checks. The real-data pilot
+has started from the separately prepared real-data initialization.
+Real-data sampling
+and scientific validation remain open; the stopped chains are not accepted posterior constraints.
+
+The separately executed
+[2026-09-16 research snapshot](/Users/zzhang/projects/bayesmith/runs/tris-physical-inference-notebook-20260915/research-snapshot-20260916/index.html)
+adds the failed sampler candidates, unaccepted chain traces and HartRAO product
+diagnostics (23 cells, 14 figures). It is not a final real-data posterior.
+The primary notebook is generated by
+[`tris_physical_notebook.py`](tris_physical_notebook.py). Run
+`.venv/bin/python -m examples.inference.tris_physical_notebook --output runs/tris-physical-inference-notebook-20260915 --rheplicant /Users/zzhang/projects/rheplicant`.
+It reads verified raw-chain assessments, records incomplete stages, and embeds
+its figures in both the notebook and HTML. The current preview is in
+`runs/tris-physical-inference-notebook-20260915/index.html`; a real beta map requires
+both real sampling and numerical gates to pass.
+
+The walkthrough below
+describes the original three-region demo. Later conditional continuous-field
+fits still do not separate free-free: their beta is an effective foreground
+index, not an independently measured pure synchrotron index.
 
 The notebook has a separate **Real observations / 真实观测** section. Its TRIS
 case uses actual LAMBDA archive data, with no simulated input or recovery score.
@@ -50,8 +177,10 @@ and Haslam zero-level/calibration errors remain unmodelled.
 The 600.5/817.8 MHz rings each contain 120 samples. The measured TRIS beam cuts,
 pointing conventions and a 0.004-K floor for the one zero-error row per ring
 come through limTOD. The six 2427.8-MHz measurements are displayed separately:
-their supplied uncertainty is a shared zero level, and no statistical errors
-are published. They do not enter the fit. A shared nuisance correction per
+their supplied uncertainty is a shared zero level, and the archive contains no
+per-row statistical-error column. TRIS I Table 12 reports statistical summaries;
+their mapping to these rows remains to be established (see the physical-model
+report). The six points do not enter this fit. A shared nuisance correction per
 fitted frequency carries the 0.066-K and −0.300/+0.430-K zero-level scales;
 the asymmetric range already uses astrophysical constraints (TRIS I §5).
 Its probability density is an explicit equal-side-mass half-normal assumption.

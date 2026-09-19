@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.dispatch.streaming"><title>bayesmith.dispatch.streaming · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.streaming</span></nav>
+<article><h1>bayesmith.dispatch.streaming</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Whether a graph&#x27;s exact block can be executed one epoch at a time.
+
+``evidence/`` answers &quot;fold this campaign&quot;; it does not answer &quot;is this a
+campaign, and on which axis&quot;. That second question is a dispatch question --
+the same shape as &quot;which latents does an exact method apply to&quot; that
+:mod:`~bayesmith.dispatch.classify` already answers -- and until this module
+existed nothing asked it. The evidence layer was complete, validated against
+dense oracles at every level and cross-checked bitwise against rheplicant&#x27;s
+``inference.sqrtinfo``, with **no caller anywhere in this package**.
+
+**Not a new method, and not a new kind.** Measured on the four-epoch scalar
+campaign: ``compile()`` already accepts such a graph and plans one joint
+``GCR exact`` block over ``{g, n}`` -- the survivor and all E copies of the
+per-epoch nuisance at once. The streamed route solves the SAME problem, so
+the plan gains a note rather than a branch::
+
+    compile()-&gt;estimate()       g = -0.10616253398516946   (8.8e-15 from oracle)
+    compress_campaign + prior   g = -0.1061625339851607    (5.6e-17 from oracle)
+    dense marginal oracle       g = -0.10616253398516065
+
+What differs is scaling, not the answer: the joint block&#x27;s solve grows with
+``1 + E`` latents, and the fold holds one epoch at a time.
+
+**The route is derived by TRYING, never by guessing.** A plate is an epoch
+plate only if the evidence layer&#x27;s own structural checks accept it, so this
+module runs those checks and forwards their refusals verbatim. It deliberately
+declines to pick when more than one plate qualifies: which axis indexes
+epochs is a modelling fact the graph does not carry, and a dispatcher that
+guessed would be right until it silently was not.</pre></details><div class="symbol-index"><a href="#StreamingRoute">StreamingRoute</a> <a href="#streaming_route">streaming_route</a></div><section class="api-symbol"><h2 id="StreamingRoute">StreamingRoute</h2><p class="source-note">Defined in <code>bayesmith.dispatch.streaming</code>, line 48.</p><pre><code>class StreamingRoute(eqx.Module)
+plate: str | None = eqx.field(static=True)
+survivors: tuple[str, ...] = eqx.field(static=True)
+per_epoch: tuple[str, ...] = eqx.field(static=True)
+refused: tuple[tuple[str, str], ...] = eqx.field(static=True)</code></pre><pre class="docstring">Whether a campaign fold applies to this graph, and on which plate.
+
+Attributes:
+    plate: the epoch plate, or ``None`` when no plate qualifies or more
+        than one does. ``None`` is never &quot;we could not be bothered&quot; --
+        :attr:`refused` says which it is.
+    survivors: latents outside that plate, which a streamed term is over.
+        ``()`` when there is no route.
+    per_epoch: latents inside it, integrated away within their own epoch.
+    refused: ``(plate name, why not)`` per rejected candidate, in plate
+        order, **in the evidence layer&#x27;s own words**. A graph with no
+        plates refuses nothing and this is empty -- an absence of
+        candidates, not a rejection of any.</pre><h3 id="StreamingRoute.available">StreamingRoute.available</h3><pre><code>available(self) -&gt; bool</code></pre><pre class="docstring">Whether ``compress_campaign(graph, route.plate)`` will run.
+
+Both directions are pinned by
+``tests/dispatch/test_streaming.py::TestTheRouteDoesNotLie`` against
+the real call, because a route that reports a plate the fold then
+refuses is worse than no route at all.</pre><h3 id="StreamingRoute.line">StreamingRoute.line</h3><pre><code>line(self) -&gt; str</code></pre><pre class="docstring">The one line :class:`~bayesmith.dispatch.plan.InferencePlan` prints.
+
+Empty when there is nothing to say, so a graph that is not a campaign
+prints byte-identically to what it printed before this module
+existed -- which is what keeps the twenty existing assertions on
+``str(plan)`` measuring what they were written to measure.</pre></section><section class="api-symbol"><h2 id="streaming_route">streaming_route</h2><p class="source-note">Defined in <code>bayesmith.dispatch.streaming</code>, line 121.</p><pre><code>streaming_route(graph: Graph, *, at: dict[str, Any] | None=None) -&gt; StreamingRoute</code></pre><pre class="docstring">Try every plate, and report which one the evidence layer accepts.
+
+Runs the two STRUCTURAL checks ``epoch_terms`` makes before it folds --
+:func:`~bayesmith.marginal.factorize.factorize` (plate membership, then
+``epoch_leakage`` to test it) and &quot;exactly one observed node is plated on
+this axis&quot;. Running only the first would produce a route that reports a
+plate ``compress_campaign`` then refuses, which is the failure this
+module&#x27;s own tests are built around.
+
+It does NOT run the fold, so the one refusal it cannot anticipate is
+``_refuse_unconstrained_epochs`` -- a rank verdict on the assembled
+pivots, which exists only once the arithmetic has been done. That is
+stated rather than hidden: :attr:`StreamingRoute.available` promises the
+structural checks pass, which is what a plan can honestly record.
+
+Cost is flat in the campaign length -- measured 0.278 s at E=4 and 0.342 s
+at E=512, against ``compile()``&#x27;s own 1.0-1.3 s -- because the leakage
+probe is one ``jacfwd`` of the whole plate, not one per epoch. A graph
+with no plates costs nothing: the loop below does not run.
+
+Args:
+    graph: the model.
+    at: values the leakage check holds fixed, forwarded to ``factorize``.
+        Defaults to zeros, which is enough because an affine model&#x27;s
+        leakage does not depend on the point, and a model that is not
+        affine in its per-epoch latents cannot be folded at all.
+
+Returns:
+    A :class:`StreamingRoute`. Does not raise for a graph the evidence
+    layer declines OR one it cannot analyse: a refusal is the ANSWER
+    here, not an error, because ``compile()`` calls this on every graph
+    and must not start rejecting graphs it accepts today. The two are
+    recorded distinguishably -- see the ``ValueError`` clause below.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#StreamingRoute">StreamingRoute</a><a href="#streaming_route">streaming_route</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

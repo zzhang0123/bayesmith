@@ -833,3 +833,12 @@ def test_every_premise_in_the_vocabulary_can_actually_be_refused():
             assert len(remedy.message) >= 40, (
                 f"{premise}: {remedy.message!r} does not say what to do"
             )
+
+
+def test_manifest_helpers_remain_identical_at_the_public_task_seam():
+    from bayesmith.dispatch import _task_identity, task
+
+    for name in (
+        "data_manifest", "graph_manifest", "input_fingerprints", "model_identity_gap"
+    ):
+        assert getattr(task, name) is getattr(_task_identity, name)

@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
     [
         ("linear_gaussian", "nuts"),
         ("power_law", "nuts"),
-        ("hierarchical", "nuts"),
+        ("hierarchical", "gcr+nuts"),
         ("bernoulli", "nuts"),
         ("multiplicative_noise", "bias_corrected_log_linear+mh+iterative_gls+mh"),
         ("composed_process", "iterative_gls+mh+nuts"),
@@ -100,8 +100,10 @@ def test_demo_executes_and_reports_actual_recovery(tmp_path, case, method):
         assert report["checks"]["quadrature_oracle"]["passed"]
         assert report["checks"]["repeated_reference"]["passed"]
         assert report["signal"]["view"]["model_kind"] == "power_law_regression"
-        assert any(f["code"] == "block_0_jeffreys" and f["conclusion"] == "nonflat"
-                   for f in report["preflight"])
+        assert any(
+            f["code"] == "block_0_jeffreys" and f["conclusion"] == "nonflat"
+            for f in report["preflight"]
+        )
     blocking = report["blocking"]
     assert blocking["executed"]["executed"] is True
     assert {
@@ -110,7 +112,10 @@ def test_demo_executes_and_reports_actual_recovery(tmp_path, case, method):
     assert all(block["reason"] for block in blocking["executed"]["blocks"])
     assert blocking["factor_comparison"]["executed"] is False
     if case == "multiplicative_noise":
-        assert [b["latents"] for b in blocking["executed"]["blocks"]] == [["p_g"], ["p_n"]]
+        assert [b["latents"] for b in blocking["executed"]["blocks"]] == [
+            ["p_g"],
+            ["p_n"],
+        ]
         assert [b["coordinates"] for b in blocking["executed"]["blocks"]] == [2, 2]
         assert report["proposal_selection"] == "automatic"
         assert blocking["factor_comparison"]["status"] == "refused"
@@ -125,11 +130,17 @@ def test_demo_executes_and_reports_actual_recovery(tmp_path, case, method):
         }
         assert large["executed"]["executed"] is False
         assert [b["coordinates"] for b in large["executed"]["blocks"]] == [2, 500]
-        assert [b["method"] for b in large["executed"]["blocks"]] == ["bias_corrected_log_linear+mh", "nuts"]
+        assert [b["method"] for b in large["executed"]["blocks"]] == [
+            "bias_corrected_log_linear+mh",
+            "nuts",
+        ]
         assert large["factor_comparison"]["status"] == "refused"
         assert large["factor_comparison"]["exception"] == "NotGaussian"
     if case == "composed_process":
-        assert blocking["executed"]["blocks"][0]["latents"] == ["instance", "background"]
+        assert blocking["executed"]["blocks"][0]["latents"] == [
+            "instance",
+            "background",
+        ]
         assert blocking["executed"]["blocks"][0]["coordinates"] == 14
         assert blocking["executed"]["blocks"][1]["coordinates"] == 6
     assert report["parameters"]

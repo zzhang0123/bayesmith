@@ -30,6 +30,7 @@ from .block_inspection import inspect_blocks
 from .common import diagnostic_checks, graph_rows, mermaid, require_result, samples
 from .tris_prepare import sha256
 from .tris_rsb_diagnostics import posterior_checks
+from .tris_rsb_external import load_external
 from .tris_rsb_initialization import data_initialization
 from .tris_rsb_sky import model, model_inputs
 
@@ -56,23 +57,16 @@ def _load_npz(path):
 def load_common_inputs(tris_directory: Path, external_directory: Path) -> CommonInputs:
     tris_directory, external_directory = map(Path, (tris_directory, external_directory))
     tris_manifest = json.loads((tris_directory / "manifest.json").read_text())
-    external_manifest = json.loads((external_directory / "external_manifest.json").read_text())
+    external, external_manifest = load_external(external_directory)
     if tris_manifest.get("schema") != "bayesmith.tris.maps.v1":
         raise ValueError("unsupported TRIS map schema")
-    if external_manifest.get("schema") != "bayesmith.tris.rsb.external.v1":
-        raise ValueError("unsupported external-background schema")
     for directory, filename, manifest in (
         (tris_directory, "maps.npz", tris_manifest),
         (external_directory, "external.npz", external_manifest),
     ):
         if sha256(directory / filename) != manifest.get("input_sha256"):
             raise ValueError(f"{filename} hash differs from its provenance manifest")
-    tris_bundle, external = _load_npz(tris_directory / "maps.npz"), _load_npz(external_directory / "external.npz")
-    required = {"frequency_mhz", "temperature_rj_k", "sigma_independent_rj_k", "tau_rj_k", "survey_code", "survey"}
-    if required - set(external):
-        raise ValueError("external input lacks required likelihood arrays")
-    if not {"LWA", "ARCADE"}.issubset(set(external["survey"].tolist())):
-        raise ValueError("external input must include the approved survey labels")
+    tris_bundle = _load_npz(tris_directory / "maps.npz")
     return CommonInputs(tris_directory, external_directory, tris_manifest, external_manifest, tris_bundle, external)
 
 
@@ -84,7 +78,10 @@ def build_common_manifest(common: CommonInputs) -> dict:
         "external_rows": len(common.external["frequency_mhz"]),
         "external_surveys": list(dict.fromkeys(str(name) for name in common.external["survey"])),
         "frequency_mhz": np.asarray(common.external["frequency_mhz"]).tolist(),
-        "calibration_tau_rj_k": np.asarray(common.external["tau_rj_k"]).tolist(),
+        "calibration_tau_rj_k": np.asarray(common.external.get("tau_rj_k", [])).tolist(),
+        "external_schema": common.external_manifest["schema"],
+        "covariance_model": ("inclusive published covariance; no added calibration latent"
+                             if "covariance_rj_k2" in common.external else "legacy survey rank-one approximation"),
         "frozen_reference_case": "tris_haslam",
     }
     return {**content, "common_input_sha256": _canonical_digest(content)}
@@ -158,6 +155,10 @@ def run_variant(common, *, variant, included_surveys, output, seed, draws, warmu
     }
     output = Path(output)
     report["execution"].update(initialization=initialization_record, nuts_options=dict(kernel_options))
+    if "covariance_rj_k2" in common.external:
+        report["priors"].pop("calibration_standard", None)
+        report["external_covariance"] = "published inclusive covariance; calibration marginalized already"
+        report["note"] += " External foreground errors shared with Haslam are not jointly propagated; conditional diagnostic only."
     output.mkdir(parents=True, exist_ok=True)
     (output / "result.json").write_text(json.dumps(finite_json(report), indent=2) + "\n")
     np.savez_compressed(output / "posterior.npz", **posterior_samples)
@@ -189,6 +190,9 @@ def main():
     parser.add_argument("--heldout", action="store_true", help="also refit each variant with one external survey omitted")
     args = parser.parse_args()
     common = load_common_inputs(args.tris_input, args.external_input)
+    surveys = tuple(dict.fromkeys(common.external["survey"].tolist()))
+    if args.heldout and len(surveys) < 2:
+        parser.error("survey holdout requires at least two actual surveys")
     variants = ("no_rsb", "rsb") if args.variant == "both" else (args.variant,)
     with jax.enable_x64(True):
         for index, variant in enumerate(variants):
@@ -196,10 +200,10 @@ def main():
                 report = run_variant(common, variant=variant, included_surveys=(args.train_survey,), output=args.output / "heldout" / f"{variant}_train_{args.train_survey}", seed=args.seed + index, draws=args.draws, warmup=args.warmup, chains=args.chains, target_accept=args.target_accept)
                 print(variant, args.train_survey, report["checks"]["chain_diagnostics"], flush=True)
                 continue
-            report = run_variant(common, variant=variant, included_surveys=("LWA", "ARCADE"), output=args.output / f"tris_haslam_{variant}", seed=args.seed + index, draws=args.draws, warmup=args.warmup, chains=args.chains, target_accept=args.target_accept)
+            report = run_variant(common, variant=variant, included_surveys=surveys, output=args.output / f"tris_haslam_{variant}", seed=args.seed + index, draws=args.draws, warmup=args.warmup, chains=args.chains, target_accept=args.target_accept)
             print(variant, report["checks"]["chain_diagnostics"], flush=True)
             if args.heldout:
-                for fold, survey in enumerate(("LWA", "ARCADE")):
+                for fold, survey in enumerate(surveys):
                     report = run_variant(common, variant=variant, included_surveys=(survey,), output=args.output / "heldout" / f"{variant}_train_{survey}", seed=args.seed + 10 + 2 * index + fold, draws=args.draws, warmup=args.warmup, chains=args.chains, target_accept=args.target_accept)
                     print(variant, survey, report["checks"]["chain_diagnostics"], flush=True)
 

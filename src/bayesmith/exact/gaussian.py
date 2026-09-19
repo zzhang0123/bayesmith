@@ -74,8 +74,21 @@ def unwrap(distribution: Any) -> Any:
     reading underneath is what the exact solves want -- a diagonal covariance
     is diagonal whether or not its log-density was summed -- so the wrapper is
     removed rather than refused.
+
+    ``ExpandedDistribution`` is what ``.expand(shape)`` produces, and it is
+    stripped for the same reason: its ``log_prob`` is the base's ``log_prob``
+    broadcast to the larger batch shape, and its draws are independent
+    copies, so its per-element density IS the base's. The base keeps its own
+    smaller ``loc``, which is the "scalar loc, larger value" case a plated
+    latent already has; :func:`node_shape` reads the value's shape off the
+    unstripped distribution. Matched by exact type, as ``diagnose.structure``
+    does, so a subclass that changes the broadcast is not assumed away -- and
+    the base is returned, never rebuilt, so :func:`check_gaussian` still
+    probes the node's own density.
     """
-    while isinstance(distribution, dist.Independent):
+    while isinstance(distribution, dist.Independent) or (
+        type(distribution) is dist.ExpandedDistribution
+    ):
         distribution = distribution.base_dist
     return distribution
 
@@ -108,7 +121,7 @@ def gaussian_parts(
         raise NotGaussian(
             f"node {node.name!r} returns {type(distribution).__name__}; the exact "
             "linear-Gaussian path needs a diagonal Normal (a Normal, one "
-            "wrapped by .to_event(...), or a ComplexNormal). A "
+            "wrapped by .to_event(...) or .expand(...), or a ComplexNormal). A "
             "MultivariateNormal with a dense "
             "covariance is a different solve and is not implemented. This is a "
             "classification outcome, not a defect in the model.",
@@ -168,9 +181,18 @@ def node_shape(graph: Graph, node: Node, env: dict[str, Any]) -> tuple[int, ...]
     This must agree with what ``to_numpyro`` opens the site at, or the block's
     domain is a different space from the one NUTS samples --
     ``test_node_shape_agrees_with_the_numpyro_bridge`` pins it.
+
+    The distribution's batch and event shape are read off the node's own,
+    UNSTRIPPED distribution as well as off ``loc``: ``.expand`` enlarges the
+    batch shape while the base it wraps keeps its scalar ``loc``, so ``loc``
+    alone would report a scalar for an eight-element value.
     """
-    loc = _loc_of(graph, node, env)
-    shapes: list[tuple[int, ...]] = [jnp.shape(loc)]
+    distribution = apply_probabilistic(graph, node, env)
+    loc = _checked_loc(node, unwrap(distribution).loc)
+    shapes: list[tuple[int, ...]] = [
+        jnp.shape(loc),
+        tuple(distribution.batch_shape) + tuple(distribution.event_shape),
+    ]
     if node.plate:
         shapes.append((graph.plate_size(node.plate[0]),))
     if isinstance(node, Probabilistic) and node.observed is not None:

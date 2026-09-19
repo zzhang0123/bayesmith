@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.evaluation.checks"><title>bayesmith.evaluation.checks · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.evaluation.checks</span></nav>
+<article><h1>bayesmith.evaluation.checks</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Prior and posterior predictive checks: does the model generate data like this?
+
+One question, asked twice from different parameter sources, and answered as an
+:class:`~bayesmith.artifacts.reports.EvaluationReport` on §0 ruling 7&#x27;s two
+axes.  A *posterior* predictive check reads a
+:class:`~bayesmith.artifacts.results.PredictiveResult` -- replicated datasets
+drawn at the posterior&#x27;s own draws -- and asks whether the observed data look
+like one of them.  A *prior* predictive check reads a
+:class:`~bayesmith.artifacts.results.SimulationResult` whose parameter source
+is the PRIOR and asks the same question of the prior predictive distribution,
+which is a question about the priors rather than about the fit.
+
+**A PASS here does not mean the model is correct, and this module is required
+to say so where it cannot be skipped over.**  Measured, on this checkout, by
+``docs/probes/probe_28_model_checking_seams.py`` §1 and re-measured through the
+typed path while writing this file: a straight line fitted to data with a real
+quadratic term of curvature 0.6 scores ``p = 0.0000`` on ``sd`` and on
+``residual_sd`` -- caught, loudly.  The SAME model with curvature 0.15 scores
+``0.5495`` and ``0.3410``: a misspecification of exactly the kind this check
+exists to find, sitting comfortably inside the band.  So the honest reading of
+a pass is &quot;these statistics of these replicated datasets do not separate the
+model from the data&quot;, and nothing wider.  It is written into every report&#x27;s
+``meta.summary`` as well as here, because a summary travels with the artifact
+and a module docstring does not.
+
+**The discrepancy contract (§0.3).**  A discrepancy is a callable
+``(y, loc) -&gt; one scalar per draw``.  Both arguments arrive already flattened
+to ``(draws, units)``: ``y`` is the replicated (or the observed, broadcast)
+data and ``loc`` is the observation&#x27;s mean at the same draw, recomputed from
+the latent draws through :func:`~bayesmith.exact.gaussian.observation_parts` --
+the same loc/scale walk R2&#x27;s predictive seam uses, never a second forward
+model.  Five defaults are provided; four read only ``y`` and the fifth reads
+``y - loc``.  A user callable is recorded by its IMPORTABLE IDENTITY and never
+as an object: see :func:`discrepancy_identity`.
+
+**Two registered thresholds and no third.**  :data:`ALPHA
+&lt;bayesmith.evaluation.ALPHA&gt;` (D104) is the declared two-sided false-positive
+rate; :data:`DRAW_FLOOR` (D105) is derived from it.  Everything else here --
+the band, the tail mass, the weighting -- is arithmetic on those two.
+
+**The report-level rate is not α, and the reason is arithmetic.**  §0.4 fixes
+the band at ``[α/2, 1 - α/2]`` PER discrepancy and reserves Bonferroni for
+held-out points and SBC coordinates, so a report over ``K`` cells fails a
+correct model with probability up to ``1 - (1 - α)**K`` -- 0.23 at the default
+five.  That is the frozen ruling&#x27;s consequence, not a defect to be corrected
+here by inventing a factor §0.4 did not grant; what it obliges is that the
+number be COUNTABLE, which is why every cell gets its own finding and why the
+close-out multiplies cells by α rather than guessing.  This package&#x27;s own
+acceptance tests pin measured p-values at fixed seeds, so none of them is a
+random trial in the first place.
+
+Layering: ``artifacts``, ``exact.gaussian``, ``graph`` and this package&#x27;s own
+``ALPHA``.  Deliberately NOT ``dispatch``: ``tests/test_layering.py``&#x27;s
+``test_graph_is_the_foundation_and_dispatch_is_the_top`` asserts that nothing
+depends on ``dispatch`` at module scope, and this module needs nothing from it
+that ``exact.gaussian`` does not already provide.</pre></details><div class="symbol-index"><a href="#DRAW_FLOOR">DRAW_FLOOR</a> <a href="#DEFAULT_DISCREPANCIES">DEFAULT_DISCREPANCIES</a> <a href="#PRODUCER">PRODUCER</a> <a href="#mean">mean</a> <a href="#sd">sd</a> <a href="#smallest">smallest</a> <a href="#largest">largest</a> <a href="#residual_sd">residual_sd</a> <a href="#discrepancy_identity">discrepancy_identity</a> <a href="#tail_mass_within_rate">tail_mass_within_rate</a> <a href="#draws_resolve_the_band">draws_resolve_the_band</a> <a href="#posterior_predictive_check">posterior_predictive_check</a> <a href="#prior_predictive_check">prior_predictive_check</a></div><section class="api-symbol"><h2 id="DRAW_FLOOR">DRAW_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 138.</p><pre><code>DRAW_FLOOR: int = math.ceil(1.0 / (ALPHA / 2.0))</code></pre></section><section class="api-symbol"><h2 id="DEFAULT_DISCREPANCIES">DEFAULT_DISCREPANCIES</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 218.</p><pre><code>DEFAULT_DISCREPANCIES: tuple[Callable[..., Any], ...] = (mean, sd, smallest, largest, residual_sd)</code></pre></section><section class="api-symbol"><h2 id="PRODUCER">PRODUCER</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 183.</p><pre><code>PRODUCER = ProducerRef(package=&#x27;bayesmith&#x27;, version=__version__)</code></pre></section><section class="api-symbol"><h2 id="mean">mean</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 174.</p><pre><code>mean(y: np.ndarray, loc: np.ndarray) -&gt; np.ndarray</code></pre><pre class="docstring">The mean of the observations, per draw.  Reads ``y`` only.</pre></section><section class="api-symbol"><h2 id="sd">sd</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 180.</p><pre><code>sd(y: np.ndarray, loc: np.ndarray) -&gt; np.ndarray</code></pre><pre class="docstring">The spread of the observations, per draw.  Reads ``y`` only.</pre></section><section class="api-symbol"><h2 id="smallest">smallest</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 186.</p><pre><code>smallest(y: np.ndarray, loc: np.ndarray) -&gt; np.ndarray</code></pre><pre class="docstring">The minimum observation, per draw.  §0.3&#x27;s ``min``.  Reads ``y`` only.
+
+Spelled ``smallest`` rather than ``min`` because a module-level ``min``
+would shadow the builtin this module calls a few lines away, and the
+recorded identity of a discrepancy is its module and qualname -- so the
+name is not a private detail that can be renamed later without notice.</pre></section><section class="api-symbol"><h2 id="largest">largest</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 198.</p><pre><code>largest(y: np.ndarray, loc: np.ndarray) -&gt; np.ndarray</code></pre><pre class="docstring">The maximum observation, per draw.  §0.3&#x27;s ``max``.  Reads ``y`` only.</pre></section><section class="api-symbol"><h2 id="residual_sd">residual_sd</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 204.</p><pre><code>residual_sd(y: np.ndarray, loc: np.ndarray) -&gt; np.ndarray</code></pre><pre class="docstring">The spread of ``y - loc``, per draw.  The one default that reads ``loc``.
+
+The sharpest of the five on this package&#x27;s own fixtures, and the reason
+the default set is not &quot;four functions of the data&quot;: a quadratic term the
+linear model cannot express leaves the data&#x27;s residuals wider than any
+replicated dataset&#x27;s, which is what scores 0.0000 on ``curved_line(0.6)``.</pre></section><section class="api-symbol"><h2 id="discrepancy_identity">discrepancy_identity</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 227.</p><pre><code>discrepancy_identity(discrepancy: object) -&gt; str</code></pre><pre class="docstring">``module.qualname``, and only when importing it back returns THIS object.
+
+§0.3 says a user discrepancy is recorded by its importable identity, on
+:func:`bayesmith.dispatch.amortized._embed_identity`&#x27;s rule -- and adds
+that a lambda or a REPL function is refused.  Those two clauses do not
+agree as written, which was measured rather than assumed:
+``_embed_identity`` reads ``__module__`` and ``__qualname__`` and refuses
+only when one of them is empty, and a lambda has ``__qualname__ ==
+&#x27;&lt;lambda&gt;&#x27;``, which is not empty.  Handed one, it returns
+``&#x27;__main__.&lt;lambda&gt;&#x27;`` -- an address that will never resolve again.
+
+So the rule here is the same identity with the missing half supplied: the
+identity must RESOLVE, by importing the module and walking the qualname,
+and the object it resolves to must be the one that was passed.  That
+refuses a lambda (``getattr(module, &#x27;&lt;lambda&gt;&#x27;)`` does not exist), a
+closure (``&#x27;outer.&lt;locals&gt;.inner&#x27;``), a REPL function (``__main__`` has no
+file to re-import from in another process), and the subtler case neither
+of the first two covers: a module-level name that has since been rebound
+to something else, where the address survives and its meaning does not.
+
+Raises:
+    ValueError: when there is no identity, or it does not resolve back.</pre></section><section class="api-symbol"><h2 id="tail_mass_within_rate">tail_mass_within_rate</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 152.</p><pre><code>tail_mass_within_rate(tail_mass: float) -&gt; bool</code></pre><pre class="docstring">D104: ``tail_mass &gt;= ALPHA / 2`` -- the p-value is inside the band.
+
+``tail_mass`` is ``min(p, 1 - p)``, so this ONE comparison is the whole
+two-sided band ``[ALPHA/2, 1 - ALPHA/2]``: a p below the lower edge and a
+p above the upper edge both give a tail mass below ``ALPHA/2``.  Written
+as one number against one threshold rather than as two comparisons because
+the report records what was compared, and ``1 - p &gt;= ALPHA/2`` and
+``p &lt;= 1 - ALPHA/2`` are not the same floating-point question -- a reader
+recomputing the verdict from the finding would occasionally get the other
+answer at the last ULP.
+
+Closed at the boundary: the declared rate is the mass a correct model is
+ALLOWED to put in the tails, so a p-value sitting exactly on the edge has
+not exceeded it.</pre></section><section class="api-symbol"><h2 id="draws_resolve_the_band">draws_resolve_the_band</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 141.</p><pre><code>draws_resolve_the_band(draws: int) -&gt; bool</code></pre><pre class="docstring">D105: ``draws &gt;= DRAW_FLOOR`` -- this many draws can resolve a tail.
+
+Closed at the boundary: at exactly ``DRAW_FLOOR`` draws the resolution
+``1/N`` equals the tail width ``ALPHA/2``, so a p-value can reach the
+tail&#x27;s edge, which is the least this check needs to be able to say
+anything.  Below it the tail is narrower than one draw.</pre></section><section class="api-symbol"><h2 id="posterior_predictive_check">posterior_predictive_check</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 611.</p><pre><code>posterior_predictive_check(graph: Graph, predictive: PredictiveResult, *, source_posterior: PosteriorResult, discrepancies: Sequence[Callable[..., Any]]=DEFAULT_DISCREPANCIES) -&gt; EvaluationReport</code></pre><pre class="docstring">Do the observed data look like the model&#x27;s replicated datasets? (§0.2)
+
+Args:
+    graph: the model the predictive result was produced from.  It carries
+        the observed data and the loc/scale walk; the result carries the
+        draws.
+    predictive: the subject.  Its ``replicated_draws`` are the replicated
+        datasets and its ``meta`` is what the report&#x27;s ``subject_ref``
+        points at.
+    source_posterior: the posterior ``predictive.source_posterior_ref``
+        names.  Required, and checked by id and revision, for the same
+        reason :func:`bayesmith.dispatch.task.execute_task` requires it:
+        there is no artifact store to load one from, and §0.3 computes the
+        p-value with the SOURCE posterior&#x27;s weights -- a weighted
+        posterior scored as though it were iid is a different number that
+        looks exactly like this one.
+    discrepancies: callables on §0.3&#x27;s ``(y, loc) -&gt; per-draw scalar``
+        contract, defaulting to :data:`DEFAULT_DISCREPANCIES`.  Each is
+        recorded by :func:`discrepancy_identity` and never as an object.
+
+Returns:
+    An :class:`~bayesmith.artifacts.reports.EvaluationReport` of kind
+    ``posterior_predictive_check``: APPLICABLE and PASS when every cell&#x27;s
+    p-value is inside the declared band, APPLICABLE and FAIL when one is
+    outside, APPLICABLE and ABSTAIN below :data:`DRAW_FLOOR` draws, and
+    UNVERIFIABLE where the discrepancy has no definition on this subject.
+
+Raises:
+    TypeError: for the wrong kind of argument, for a source posterior that
+        is not the one the result names, or for an empty discrepancy set.
+    ValueError: for a discrepancy with no importable identity.</pre></section><section class="api-symbol"><h2 id="prior_predictive_check">prior_predictive_check</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 696.</p><pre><code>prior_predictive_check(graph: Graph, simulation: SimulationResult, *, discrepancies: Sequence[Callable[..., Any]]=DEFAULT_DISCREPANCIES) -&gt; EvaluationReport</code></pre><pre class="docstring">Could the PRIORS have generated data like this? (§0.2)
+
+The same procedure as :func:`posterior_predictive_check` over a different
+parameter source, and a different question: this one is answerable before
+any fit, and what it catches is a prior so wide (or so narrow) that the
+data it implies are nothing like the data in hand.  Measured on this
+checkout: ``straight_line``&#x27;s own ``w ~ N(0, 2)`` puts all five default
+cells inside the band, and the same model under ``w ~ N(0, 1e6)`` saturates
+``sd`` at 1.0000 and ``residual_sd`` at 0.0000 -- while ``mean``,
+``smallest`` and ``largest`` stay comfortably inside it, which is the
+limited-power sentence at the top of this module, measured again.
+
+Args:
+    graph: the model, carrying the observed data the prior draws are
+        compared against.
+    simulation: the subject.  Its ``parameter_source`` must be the PRIOR:
+        a simulation from a posterior or from fixed values answers a
+        different question, and is reported INAPPLICABLE rather than
+        silently scored as though it were this one.
+    discrepancies: as in :func:`posterior_predictive_check`.
+
+Returns:
+    An :class:`~bayesmith.artifacts.reports.EvaluationReport` of kind
+    ``prior_predictive_check``.  Prior draws are iid, so every draw
+    carries weight ``1/N``: there is no source posterior to read weights
+    from and none is invented.
+
+Raises:
+    TypeError: for the wrong kind of argument, or an empty discrepancy set.
+    ValueError: for a discrepancy with no importable identity.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#DRAW_FLOOR">DRAW_FLOOR</a><a href="#DEFAULT_DISCREPANCIES">DEFAULT_DISCREPANCIES</a><a href="#PRODUCER">PRODUCER</a><a href="#mean">mean</a><a href="#sd">sd</a><a href="#smallest">smallest</a><a href="#largest">largest</a><a href="#residual_sd">residual_sd</a><a href="#discrepancy_identity">discrepancy_identity</a><a href="#tail_mass_within_rate">tail_mass_within_rate</a><a href="#draws_resolve_the_band">draws_resolve_the_band</a><a href="#posterior_predictive_check">posterior_predictive_check</a><a href="#prior_predictive_check">prior_predictive_check</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

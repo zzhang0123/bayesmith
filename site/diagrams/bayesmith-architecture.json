@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "bayesmith 0.9 \u2014 model to verified result",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1380,
+      600
+    ]
+  },
+  "layout": {
+    "mode": "grid",
+    "origin": [
+      70,
+      150
+    ],
+    "cols": 4,
+    "gapX": 100,
+    "gapY": 130,
+    "cellW": 240,
+    "cellH": 90
+  },
+  "components": [
+    {
+      "id": "graph",
+      "type": "frontend",
+      "label": "Model graph",
+      "sublabel": "Variables and joint density",
+      "row": 0,
+      "col": 0,
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "structure",
+      "type": "backend",
+      "label": "Structural analysis",
+      "sublabel": "Affinity and Gaussian blocks",
+      "row": 0,
+      "col": 1,
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "dispatch",
+      "type": "backend",
+      "label": "Task planning",
+      "sublabel": "Posterior \u00b7 predictive \u00b7 evidence",
+      "row": 0,
+      "col": 2,
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "results",
+      "type": "database",
+      "label": "Typed results",
+      "sublabel": "Artifacts and provenance",
+      "row": 0,
+      "col": 3,
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "exact",
+      "type": "backend",
+      "label": "Exact solvers",
+      "sublabel": "Gaussian algebra and marginalization",
+      "row": 1,
+      "col": 1,
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "backend",
+      "type": "cloud",
+      "label": "Numerical execution",
+      "sublabel": "NumPyro adapters and diagnostics",
+      "row": 1,
+      "col": 2,
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "evaluation",
+      "type": "security",
+      "label": "Evaluation",
+      "sublabel": "Owning checks decide acceptance",
+      "row": 1,
+      "col": 3,
+      "size": [
+        240,
+        90
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "graph",
+      "to": "structure",
+      "label": "inspect",
+      "variant": "emphasis"
+    },
+    {
+      "from": "structure",
+      "to": "dispatch",
+      "label": "classify",
+      "variant": "emphasis"
+    },
+    {
+      "from": "dispatch",
+      "to": "results",
+      "label": "return",
+      "variant": "emphasis"
+    },
+    {
+      "from": "dispatch",
+      "to": "exact",
+      "label": "analytic route"
+    },
+    {
+      "from": "dispatch",
+      "to": "backend",
+      "label": "sampling route",
+      "labelDy": 90
+    },
+    {
+      "from": "results",
+      "to": "evaluation",
+      "label": "assess",
+      "labelDy": 90
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Maintained baseline",
+      "items": [
+        "Existing public task and artifact contracts",
+        "One owner per numerical decision"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Explicit research boundary",
+      "items": [
+        "Reweighting and cumulants remain experimental",
+        "Public residual evidence execution is unavailable"
+      ]
+    }
+  ]
+}

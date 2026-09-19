@@ -1,0 +1,35 @@
+{
+  "seed": 948764,
+  "draws": 65536,
+  "displayed_draws": 520,
+  "highlighted_draw_index": 175,
+  "highlighted_weights": [
+    3.293327095730883,
+    2.6308663301868127,
+    2.2002674823244397
+  ],
+  "observed_cells": [
+    0.5,
+    -1.1
+  ],
+  "noise_std": 0.45,
+  "reference": "Gaussian proposal with 1.8x conjugate standard deviation; full likelihood/prior/proposal ratio",
+  "proposal_std_inflation": 1.8,
+  "proposal_variance": 0.5456133056133056,
+  "max_target_variance_over_scan": 0.25746021319560625,
+  "max_target_mass_outside_proposal_99_interval": 8.452641194735307e-06,
+  "weight_scale": "divided by a lambda-independent baseline evidence Z0",
+  "target": "centred Poisson + diffuse Gaussian; variances 0.8 and 0.2",
+  "hyperprior": "uniform on [0.15,5]",
+  "fixed_lambda": 0.3,
+  "scan_rates": [
+    0.3,
+    0.65,
+    3.0
+  ],
+  "analytic_MAP": 0.643210040503717,
+  "weighted_MAP": 0.6500911769793773,
+  "max_log_evidence_error": 0.006381631968376489,
+  "fixed_lambda_ESS": 30159.707350787845,
+  "interpretation": "Distinct two-cell teaching example, not the saved large-map recovery."
+}

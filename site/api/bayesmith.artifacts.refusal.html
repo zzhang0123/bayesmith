@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.artifacts.refusal"><title>bayesmith.artifacts.refusal · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.artifacts.refusal</span></nav>
+<article><h1>bayesmith.artifacts.refusal</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Structured refusal: why a route does not apply, and what to do instead.
+
+§0 ruling 3 in code. A refusal is a JUDGEMENT -- the premise this route needs
+is false -- and it is carried as data: a stable ``failed_premise`` code, a
+non-empty tuple of :class:``Finding`` with the numbers that were measured, a
+:class:``ScopeRef`` saying what it is about, and a non-empty tuple of
+:class:``Remedy`` saying where to go. The human messages explain; nothing reads
+them.
+
+**The field is called ``grounds`` and never ``evidence``.** Frozen by §0 ruling
+3, and not a matter of taste: this package computes marginal likelihoods, and
+&quot;evidence&quot; is already the name of a number here. A refusal field with that
+name would collide with the quantity in the next module along, in a codebase
+whose sibling repository has to translate one refusal into the other.
+
+**A refusal is not an exception wearing a schema.** A malformed Graph, a
+programming error, an exhausted device: those stay exceptions. What becomes a
+Refusal is the statistical case -- the likelihood is not Gaussian, the operator
+is not affine, the condition number is past what the tolerance allows.
+
+**Both lists are non-empty.** No grounds is a verdict with nothing behind it;
+no remedies is a dead end. Each is refused where the caller who could still
+supply them is standing.
+
+Layering: ``base`` and ``tasks`` (§0.1). A refusal holds the whole Task it
+refused, because &quot;which question was this an answer to&quot; is the first thing a
+consumer asks and a task id would send them looking.</pre></details><div class="symbol-index"><a href="#ScopeKind">ScopeKind</a> <a href="#ScopeRef">ScopeRef</a> <a href="#Finding">Finding</a> <a href="#Remedy">Remedy</a> <a href="#Conservatism">Conservatism</a> <a href="#FallbackOption">FallbackOption</a> <a href="#Refusal">Refusal</a> <a href="#CAPABILITY_UNAVAILABLE_R1">CAPABILITY_UNAVAILABLE_R1</a> <a href="#PREMISES">PREMISES</a></div><section class="api-symbol"><h2 id="ScopeKind">ScopeKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 174.</p><pre><code>class ScopeKind(StrEnum)</code></pre><pre class="docstring">What a finding or a refusal is ABOUT.
+
+Kept small and structural: these are the things this package can name and
+a consumer can look up. A free-text scope would be a second message field.</pre><pre><code>MODEL = &#x27;model&#x27;
+NODE = &#x27;node&#x27;
+PARAMETER = &#x27;parameter&#x27;
+PLATE = &#x27;plate&#x27;
+BLOCK = &#x27;block&#x27;
+DATA = &#x27;data&#x27;
+TASK = &#x27;task&#x27;
+BACKEND = &#x27;backend&#x27;</code></pre></section><section class="api-symbol"><h2 id="ScopeRef">ScopeRef</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 193.</p><pre><code>class ScopeRef
+kind: ScopeKind
+name: str</code></pre><pre class="docstring">One thing, named by kind and by name.</pre></section><section class="api-symbol"><h2 id="Finding">Finding</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 206.</p><pre><code>class Finding
+code: str
+message: str
+observed: object = None
+expected: object = None
+artifact_refs: tuple[ArtifactRef, ...] = ()</code></pre><pre class="docstring">One measured reason, with the numbers that produced it.
+
+``observed`` and ``expected`` are the pair a consumer compares: what was
+measured, and what the premise required. They are canonical values -- a
+scalar or a tuple of them -- so they survive the codec and cannot become a
+runtime handle. G11&#x27;s lesson is exactly this class: the failing path must
+return what the passing path measured, because a number rendered into a
+sentence is a number nobody downstream can use.</pre></section><section class="api-symbol"><h2 id="Remedy">Remedy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 233.</p><pre><code>class Remedy
+action: str
+message: str
+parameters: tuple[tuple[str, object], ...] = ()</code></pre><pre class="docstring">Somewhere to go: an action code, an explanation, and its arguments.
+
+``parameters`` is sorted and key-unique like every other option table here,
+so &quot;the same remedy&quot; is one value however the caller spelled it.</pre></section><section class="api-symbol"><h2 id="Conservatism">Conservatism</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 255.</p><pre><code>class Conservatism(StrEnum)</code></pre><pre class="docstring">How a fallback compares to the route that refused.
+
+Named rather than assumed. &quot;We fell back&quot; reads as &quot;we were careful&quot;, and
+sometimes the offered route is the cheaper, weaker one -- a caller
+consenting to an automatic fallback needs to know which of those they are
+consenting to.</pre><pre><code>EQUIVALENT = &#x27;equivalent&#x27;
+MORE_CONSERVATIVE = &#x27;more_conservative&#x27;
+LESS_CONSERVATIVE = &#x27;less_conservative&#x27;</code></pre></section><section class="api-symbol"><h2 id="FallbackOption">FallbackOption</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 271.</p><pre><code>class FallbackOption
+task_kind: TaskKind
+backend: str
+conservatism: Conservatism = Conservatism.EQUIVALENT
+automatic: bool = False</code></pre><pre class="docstring">A route the caller could take instead, and whether it would be automatic.</pre></section><section class="api-symbol"><h2 id="Refusal">Refusal</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 289.</p><pre><code>class Refusal
+meta: ArtifactMeta
+task: Task
+failed_premise: str
+grounds: tuple[Finding, ...]
+scope: ScopeRef
+remedies: tuple[Remedy, ...]
+fallback: FallbackOption | None = None</code></pre><pre class="docstring">What is returned when a task cannot be answered as asked (§0 ruling 1).
+
+It stands in for the artifact that did not happen -- a plan that could not
+be compiled, or a result that could not be produced -- so its envelope
+carries that kind. It is never filed as an evaluation report: a report is a
+judgement ABOUT an artifact, and a refusal is the absence of one.</pre></section><section class="api-symbol"><h2 id="CAPABILITY_UNAVAILABLE_R1">CAPABILITY_UNAVAILABLE_R1</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 66.</p><pre><code>CAPABILITY_UNAVAILABLE_R1: str = &#x27;capability_unavailable_r1&#x27;</code></pre></section><section class="api-symbol"><h2 id="PREMISES">PREMISES</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 93.</p><pre><code>PREMISES: frozenset[str] = frozenset({CAPABILITY_UNAVAILABLE_R1, &#x27;backend_supported&#x27;, &#x27;model_source_identified&#x27;, &#x27;task_options_recognised&#x27;, &#x27;gaussian_likelihood&#x27;, &#x27;affine_prediction&#x27;, &#x27;log_linear_route&#x27;, &#x27;whole_graph_exact_solve&#x27;, &#x27;local_mode_certified&#x27;, &#x27;graph_has_latents&#x27;, &#x27;named_latents_declared&#x27;, &#x27;posterior_data_mismatch&#x27;, &#x27;predictive_noise_unsupported&#x27;, &#x27;evidence_prior_proper&#x27;, &#x27;evidence_prior_normalised&#x27;, &#x27;evidence_prior_undeclared&#x27;, &#x27;evidence_residual_integral_required&#x27;, &#x27;evidence_requires_x64&#x27;, &#x27;evidence_residual_method_unsupported&#x27;, &#x27;evidence_conditional_prior_proper&#x27;})</code></pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#ScopeKind">ScopeKind</a><a href="#ScopeRef">ScopeRef</a><a href="#Finding">Finding</a><a href="#Remedy">Remedy</a><a href="#Conservatism">Conservatism</a><a href="#FallbackOption">FallbackOption</a><a href="#Refusal">Refusal</a><a href="#CAPABILITY_UNAVAILABLE_R1">CAPABILITY_UNAVAILABLE_R1</a><a href="#PREMISES">PREMISES</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

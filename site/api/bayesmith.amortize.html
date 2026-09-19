@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.amortize"><title>bayesmith.amortize · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.amortize</span></nav>
+<article><h1>bayesmith.amortize</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Amortized posterior estimation -- inference that never writes a likelihood.
+
+Every other route in this package evaluates a density. NUTS does it once per
+leapfrog step; :func:`~bayesmith.exact.solve.wiener_solve` exploits its
+conjugate form; :func:`~bayesmith.optimize.fit` descends it. Simulation-based
+inference evaluates none at all. It is handed pairs ``(theta, x)`` drawn from
+the joint, fits a conditional density ``q(theta | x)`` to them, and reads the
+posterior off ``q`` at the observation actually in hand.
+
+Two properties follow, and they are why this lives beside the exact solvers
+rather than instead of them:
+
+* **Amortized.** The training cost is paid once. A new observation costs a
+  forward pass -- no chain, no burn-in, no re-solve. Over many observations
+  that is the difference between hours and milliseconds.
+* **Likelihood-free.** Nothing here needs the noise to be Gaussian, the
+  forward model to be differentiable, or a normalization to be tractable.
+
+The price is that ``q`` has **no internal notion of being wrong**. A
+badly-trained estimator returns a smooth, confident, incorrect distribution
+and reports nothing amiss. So this module is built to be checkable: on a
+linear-Gaussian problem the exact posterior is available in closed form, and
+this package&#x27;s tests hold the estimator to it. Validate on a case you can
+solve before trusting one you cannot.
+
+**The simulator is deliberately NOT here, and that is a ruling rather than an
+omission** (D10(2) and D42 in the migration ledger). Drawing ``(theta, x)``
+means generating data, and a generative law is not the density this package&#x27;s
+graphs carry: for a multiplicative instrument model the two differ by an
+absolute value and a floor, so a node&#x27;s ``dist_fn`` pressed into service as a
+simulator would silently swap one law for the other. Generation belongs to
+whoever owns the noise physics. This module&#x27;s contract is a bank of arrays,
+which is also why every entry point here is array-level and takes no
+:class:`~bayesmith.graph.graph.Graph`.
+
+**Single precision is accepted, and that too is deliberate** -- unlike
+:mod:`bayesmith.exact.reduced_basis` (D41) or
+:mod:`bayesmith.diagnose.local`, which refuse ambient float32 because a
+rank verdict or a Gram matrix sits underneath the rounding. Nothing here
+returns a verdict. An approximate density fitted by a network is limited by
+the fit long before it is limited by the arithmetic, and float32 is the
+precision such a network is normally trained in.
+
+The density is a **conditional Gaussian mixture** -- an MLP mapping a summary
+of the data to the weights, means and scales of a mixture over the latent
+vector. A normalizing flow is more expressive; a mixture is a few dozen lines,
+is exact for a Gaussian posterior at one component, and keeps the failure
+modes legible. Adam is hand-rolled here for the same reason it is in
+:mod:`bayesmith.optimize`: no optax dependency.
+
+Usage::
+
+    q = NeuralPosterior.create(thetas, bank, key=jax.random.key(1))
+    q, losses = train_posterior(q, thetas, bank, key=jax.random.key(2))
+    draws = q.sample(observed, key=jax.random.key(3), n_samples=4000)</pre></details><div class="symbol-index"><a href="#MIN_SCALE">MIN_SCALE</a> <a href="#NeuralPosterior">NeuralPosterior</a> <a href="#TrainingHistory">TrainingHistory</a> <a href="#train_posterior">train_posterior</a></div><section class="api-symbol"><h2 id="MIN_SCALE">MIN_SCALE</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 86.</p><pre><code>MIN_SCALE: float = 0.001</code></pre></section><section class="api-symbol"><h2 id="NeuralPosterior">NeuralPosterior</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 106.</p><pre><code>class NeuralPosterior(eqx.Module)
+net: eqx.nn.MLP
+embed: Callable[[jax.Array], jax.Array] = eqx.field(static=True)
+n_components: int = eqx.field(static=True)
+n_params: int = eqx.field(static=True)
+theta_mean: jax.Array
+theta_scale: jax.Array
+data_mean: jax.Array
+data_scale: jax.Array
+min_scale: float = eqx.field(static=True, default=MIN_SCALE)</code></pre><pre class="docstring">``q(theta | x)``: a conditional Gaussian mixture over the latent vector.
+
+An ``eqx.nn.MLP`` maps ``embed(x)`` to the mixture&#x27;s log-weights, means and
+log-scales. Both ``theta`` and the embedded data are standardized using
+statistics taken from the training bank, which is why :meth:`create` needs
+the bank rather than only its shapes: an unstandardized network trained on
+instrument-scale data and unit-scale parameters does not converge, and
+reports that as a mediocre fit rather than as an error.
+
+Attributes:
+    net: the MLP.
+    embed: ``x -&gt; feature vector`` for ONE datum (static). Defaults to
+        ``jnp.ravel``. This is where a large observation is summarized and
+        where uninformative samples are dropped.
+    n_components: mixture components (static). One is exact for a Gaussian
+        posterior, which is what makes the linear-Gaussian check sharp.
+    n_params: length of the latent vector (static).
+    theta_mean, theta_scale, data_mean, data_scale: standardization,
+        derived from the bank.
+    min_scale: floor on a component&#x27;s standardized scale (static).</pre><h3 id="NeuralPosterior.create">NeuralPosterior.create</h3><pre><code>create(cls, thetas: jax.Array, data: jax.Array, *, key: jax.Array, embed: Callable[[jax.Array], jax.Array]=jnp.ravel, n_components: int=4, width: int=64, depth: int=3, min_scale: float=MIN_SCALE) -&gt; NeuralPosterior</code></pre><pre class="docstring">Build an untrained estimator sized and standardized to a bank.
+
+Args:
+    thetas: ``(n_simulations, n_params)``, the latent half of the bank.
+    data: ``(n_simulations, *datum_shape)``, the observed half. The
+        two halves must be the same pairs, in the same order.
+    key: PRNG key for the network&#x27;s initialization.
+    embed: summary applied to ONE datum before the network sees it.
+    n_components: mixture components.
+    width, depth: the MLP&#x27;s hidden size and hidden-layer count.
+    min_scale: floor on a component&#x27;s standardized scale.
+
+Raises:
+    StructureError: if ``thetas`` is not a two-dimensional stack, if
+        the two halves disagree on how many simulations there are, if
+        ``n_components`` is not positive, or if ``min_scale`` is
+        negative.</pre><h3 id="NeuralPosterior.log_prob">NeuralPosterior.log_prob</h3><pre><code>log_prob(self, theta: jax.Array, datum: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``log q(theta | x)`` for one pair, in the latent&#x27;s own units.</pre><h3 id="NeuralPosterior.sample">NeuralPosterior.sample</h3><pre><code>sample(self, datum: jax.Array, key: jax.Array, n_samples: int) -&gt; jax.Array</code></pre><pre class="docstring">Draw ``(n_samples, n_params)`` from ``q(theta | x)``.</pre></section><section class="api-symbol"><h2 id="TrainingHistory">TrainingHistory</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 262.</p><pre><code>class TrainingHistory(NamedTuple)
+train: jax.Array
+validation: jax.Array
+best_step: jax.Array</code></pre><pre class="docstring">Per-step losses from :func:`train_posterior`.
+
+* ``train`` -- mean negative log-density on the minibatch, ``(n_steps,)``.
+* ``validation`` -- the same on the held-out split, ``(n_steps,)``, or an
+  empty array when ``validation_fraction`` is zero.
+* ``best_step`` -- the step whose validation loss was lowest, and the
+  parameters that were returned. **Zero means no step ever improved on the
+  estimator that was passed in**, which is what a run that went non-finite
+  immediately looks like; the returned estimator is then the input.
+
+**The validation curve is the only instrument that reports over-fitting.**
+The training loss falls monotonically past the point where the fit stops
+being a posterior; what over-fitting does to ``q`` is make it too NARROW,
+so the failure presents as an unusually confident answer rather than a
+visibly bad one.
+
+Non-finite entries are left in place rather than scrubbed. A diverged run
+is a fact about the run, and the only record of it is here -- the returned
+estimator, having been selected on the held-out split, is usually finite
+and says nothing.</pre></section><section class="api-symbol"><h2 id="train_posterior">train_posterior</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 290.</p><pre><code>train_posterior(posterior: NeuralPosterior, thetas: jax.Array, data: jax.Array, *, key: jax.Array, n_steps: int=3000, batch_size: int=256, learning_rate: float=0.001, validation_fraction: float=0.1, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; tuple[NeuralPosterior, TrainingHistory]</code></pre><pre class="docstring">Maximize the mean ``log q(theta | x)`` over the simulation bank.
+
+That objective is what makes ``q`` a posterior rather than a fit to
+anything else: its population optimum is the true ``p(theta | x)``, because
+the pairs are drawn from the joint.
+
+Adam, hand-rolled, matching :func:`~bayesmith.optimize.minimize` -- this
+package does not depend on optax.
+
+Args:
+    posterior: from :meth:`NeuralPosterior.create` (or a partly trained one;
+        training resumes from wherever it is).
+    thetas, data: the bank.
+    key: PRNG key for the split and the minibatching.
+    n_steps: Adam steps.
+    batch_size: simulations per step; capped at the training split.
+    learning_rate, beta1, beta2, eps: Adam settings.
+    validation_fraction: share of the bank held out. **Defaults to 0.1, and
+        the returned estimator is the one from the best validation step,
+        not the last one** -- see the note below. Set to ``0.0`` to train on
+        everything and return the final parameters, which is the faster and
+        more dangerous option.
+
+Returns:
+    ``(posterior, history)`` -- the estimator at its best validation step and
+    a :class:`TrainingHistory`.
+
+Raises:
+    StructureError: for a non-positive step count, a ``validation_fraction``
+        outside ``[0, 1)``, or a fraction that holds out zero simulations.
+    Exception: from ``eqx.error_if`` if the returned estimator is not
+        finite. See the second note.
+
+Note:
+    **Over-fitting an NPE makes it over-confident, which is the failure that
+    does not look like one.** Measured here, on the linear-Gaussian problem
+    this module&#x27;s tests use (exact posterior width 0.134): a bank of 512
+    with four components, run 8000 steps with ``validation_fraction=0.0``,
+    returns a posterior **0.271** of the exact width while its training loss
+    is still improving. Nothing about that density looks wrong -- it is
+    smooth, it integrates to one, and it is centred correctly. The same run
+    with a 20% split comes back at **0.844** of the exact width, returned
+    from step **423** of 8000, and its validation loss goes from a minimum
+    of -0.605 to +34.1 by the last step. Holding out a split and returning
+    the best step is what turns the failure into something visible, and it
+    is the default for that reason.
+
+    **Steps alone do not cause it, and that correction is worth stating**
+    because the upstream implementation this was migrated from carries the
+    claim that 4000 steps costs a factor 0.60 in width. Re-measured here,
+    that number is a property of the *bank*, not of the step count: with
+    8192 simulations and four components, 4000 steps returns **1.002** of
+    the exact width. Over-fitting arrives when capacity outruns the bank.
+
+    Relatedly, prefer few components. A Gaussian posterior is exact at
+    ``n_components=1``, and extra components mostly buy capacity to memorize
+    the bank.
+
+Note:
+    **A diverged run has two outcomes here, and only one of them is
+    refused** (D43). Measured, at a rate three orders of magnitude above
+    the working one:
+
+    * with a held-out split, the best-validation selection keeps the last
+      finite parameters, so the estimator that comes back is finite and
+      usable. It is reported, not refused: ``best_step`` collapses to 1
+      and ``history.validation`` carries the NaNs.
+    * with ``validation_fraction=0.0`` there is no such selection, and the
+      final parameters themselves are NaN. Every subsequent ``log_prob``
+      and ``sample`` then returns NaN, shaped correctly, from an object
+      that looks like any other estimator. **That is refused**, on the
+      same reasoning as :func:`~bayesmith.optimize.minimize`: a NaN answer
+      that arrives looking like an answer is the failure this package
+      spends the most effort making impossible.
+
+    Divergence does not always reach NaN -- at a rate a further thousandfold
+    higher the same run came back finite with a hopeless loss. Nothing here
+    refuses a bad fit, only an absent one.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#MIN_SCALE">MIN_SCALE</a><a href="#NeuralPosterior">NeuralPosterior</a><a href="#TrainingHistory">TrainingHistory</a><a href="#train_posterior">train_posterior</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

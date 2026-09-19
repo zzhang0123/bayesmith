@@ -1,6 +1,40 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 — stable baseline (publication pending)
+
+- Bound NumPyro below 0.22: its changed validation and Gibbs support contracts are not yet compatible with the verified 0.9 baseline.
+
+The architecture and compatibility boundary are recorded in `docs/stability.md`
+and the normative design. The maintained Graph / Task / Result surface remains
+compatible. Reweighting and cumulant expansions are explicitly experimental;
+residual evidence execution remains unavailable.
+
+### Stabilization
+
+- Read a `Normal` written with `.expand(...)` as the diagonal Normal it expands
+  to, as `.to_event(...)` already was. A hierarchy whose group prior is spelled
+  that way now compiles to an exact conditional block inside NUTS instead of
+  routing the whole model to NUTS. The reading is still verified against the
+  node's own `log_prob`.
+- Recorded `NotGaussian` as a refusal in the streaming probe instead of letting
+  it escape `compile()`. A plated hierarchy whose population latent is an
+  ancestor of the plated latent now plans an exact block plus a NUTS remainder,
+  where it previously raised.
+- Moved shared prior anchoring below dispatch and separated task identity helpers
+  from orchestration, retaining public imports and numerical behavior.
+- Corrected graph-based reweighting to check coordinate measures and support,
+  including wrapped atomic distributions. Out-of-support target draws carry zero
+  weight; invalid reference draws are refused.
+- Refused component masks on joint event densities and prevented invalid missing
+  observations from contaminating scalar-event likelihood gradients.
+- Added a reproducible, offline documentation site with executable tutorials,
+  source-derived API reference, architecture and stability guidance.
+- Made the source distribution rebuildable with a self-contained core test suite;
+  added archive byte checks, installed-wheel and minimum-Python CI, and strict
+  documentation validation. Research examples and repository governance tests
+  remain in the repository.
+
+The following additions accumulated since 0.8.0 and are included in this baseline.
 
 ### Added
 

@@ -36,7 +36,7 @@ from typing import Any
 import equinox as eqx
 import jax.numpy as jnp
 
-from bayesmith.errors import GraphError, StructureError
+from bayesmith.errors import GraphError, NotGaussian, StructureError
 from bayesmith.exact.block import _partition_probe_operator, isolate
 from bayesmith.graph.graph import Graph
 from bayesmith.marginal.campaign import epoch_observation
@@ -160,10 +160,19 @@ def streaming_route(graph: Graph, *, at: dict[str, Any] | None = None) -> Stream
             found = factorize(graph, name, at=at)
             epoch_observation(graph, name)
             _forward_runs(graph, found.survivors + found.per_epoch)
-        except (StructureError, GraphError) as refusal:
+        except (StructureError, GraphError, NotGaussian) as refusal:
             # Forwarded verbatim, not restated. This sentence is what tells a
             # user what to change about their model, and a second spelling of
             # it here is the copy that would go stale.
+            #
+            # NotGaussian belongs here too, and its absence was measured: it is
+            # a TypeError, not a StructureError, and `factorize`'s linearity
+            # check raises it for the ancestry between a population latent and
+            # the plated latent drawn around it. That escaped, and `compile()`
+            # raised on the textbook plated hierarchy -- a graph it plans as
+            # exact levels inside NUTS once this refusal is recorded instead.
+            # It is a classification outcome by its own docstring, which is
+            # what this clause records.
             refused.append((name, str(refusal)))
         except ValueError as unanalysable:
             # CONTAINMENT, and no longer the handler for the case that

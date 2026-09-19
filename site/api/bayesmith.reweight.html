@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.reweight"><title>bayesmith.reweight · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.reweight</span></nav>
+<article><h1>bayesmith.reweight</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><div class="warning"><p>Experimental composition surface. These primitives do not certify evidence, convergence, global density validity or reference-target overlap. Read the <a href="../experimental.html">experimental guide</a> before use.</p></div><details><summary>Module contract</summary><pre class="docstring">Fit hyperparameters by recycling a fixed reference posterior sample.
+
+For draws x_i from p_0(x | d), log weights are
+log p_eta(x_i, d) - log p_0(x_i, d). Their log mean estimates
+log Z_eta - log Z_0. Add log p(eta) and maximize to obtain a Monte Carlo
+marginal hyperparameter MAP, integrating out x rather than maximizing x.
+
+The reference need not be Gaussian. A fixed linear-Gaussian reference is
+particularly useful because its draws can come from GCR. This module owns
+the density-ratio objective; sampling remains with the existing compiler and
+optimization with bayesmith.optimize.minimize. See docs/reweight.md.</pre></details><div class="symbol-index"><a href="#HyperparameterFit">HyperparameterFit</a> <a href="#ImportanceEstimate">ImportanceEstimate</a> <a href="#PosteriorReweighting">PosteriorReweighting</a></div><section class="api-symbol"><h2 id="HyperparameterFit">HyperparameterFit</h2><p class="source-note">Defined in <code>bayesmith.reweight</code>, line 58.</p><pre><code>class HyperparameterFit(NamedTuple)
+parameters: Any
+log_objective: jax.Array
+history: jax.Array
+importance: ImportanceEstimate
+gradient_norm: jax.Array</code></pre><pre class="docstring">Point reached after a fixed step budget, without a convergence verdict.
+
+Objective and history use the MAXIMIZATION sign. ``parameters`` are in
+exactly the coordinates supplied to ``fit``. ``gradient_norm`` is the
+Euclidean norm in those coordinates. ``importance`` is evaluated at the
+returned point, so its weights describe the plug-in target posterior.</pre></section><section class="api-symbol"><h2 id="ImportanceEstimate">ImportanceEstimate</h2><p class="source-note">Defined in <code>bayesmith.reweight</code>, line 41.</p><pre><code>class ImportanceEstimate(NamedTuple)
+log_mean_weight: jax.Array
+weights: jax.Array
+ess: jax.Array
+ess_fraction: jax.Array
+max_weight: jax.Array</code></pre><pre class="docstring">Raw Monte Carlo normalization estimate and weight concentration.
+
+``log_mean_weight`` is log(Z_target/Z_reference) when both callbacks
+score joint densities. With a normalized proposal denominator it instead
+estimates log Z_target. It is NOT an absolute log evidence by default.
+Kish ``ess`` measures weight concentration only, not MCMC autocorrelation
+or unseen target mass. No field certifies overlap or convergence.</pre></section><section class="api-symbol"><h2 id="PosteriorReweighting">PosteriorReweighting</h2><p class="source-note">Defined in <code>bayesmith.reweight</code>, line 217.</p><pre><code>PosteriorReweighting(samples: Any, *, reference_log_density: Callable[[Any], jax.Array], target_log_density: Callable[[Any, Any], jax.Array])</code></pre><pre class="docstring">A fixed sample bank, cached reference scores and a target family.
+
+``samples`` is an array or pytree with one common leading draw axis;
+combine chain and draw axes explicitly before construction. The bank
+must contain unweighted draws from the declared reference law.
+``reference_log_density(draw)`` may score a normalized proposal or an
+unnormalized reference joint. ``target_log_density(parameters, draw)``
+scores the FULL target joint, including every parameter-dependent
+normalizer. Only terms identical in both models can be canceled.
+
+The bank and cached denominator are held fixed while optimizing.
+The reference must cover the target support; this cannot be established
+from a finite bank. Callbacks must be deterministic and JAX compatible.</pre><h3 id="PosteriorReweighting.from_graphs">PosteriorReweighting.from_graphs</h3><pre><code>from_graphs(cls, reference: Graph, samples: Mapping[str, jax.Array], target: Callable[[Any], Graph]) -&gt; PosteriorReweighting</code></pre><pre class="docstring">Use complete graph joints, preserving all likelihood/prior terms.
+
+``target(parameters)`` builds the non-Gaussian graph. Both graphs
+must have the same latent names and condition on the same observed
+values and masks. All nuisance latents are included in each draw.
+A conditional block at held nuisance values is not a sample of this
+full reference posterior. The caller owns reference sampling and its
+convergence; passing a Gaussian approximation&#x27;s draws while scoring
+some other reference joint is invalid.
+
+Latent value shapes and supported coordinate measures must agree;
+batch/event regrouping and same-measure support restrictions are allowed.
+Draws outside target support receive zero weight. Unsupported custom
+constraints require the explicit callback constructor. These checks do
+not establish proposal coverage or a graph-level factor&#x27;s normalization.</pre><h3 id="PosteriorReweighting.log_weights">PosteriorReweighting.log_weights</h3><pre><code>log_weights(self, parameters: Any) -&gt; jax.Array</code></pre><pre class="docstring">Full target minus fixed reference scores; zeros remain -inf.
+
+NaN, positive infinity, and an all-zero-weight bank are refused,
+including under JIT. In particular, a negative Edgeworth correction
+cannot be clipped or silently dropped to make optimization proceed.</pre><h3 id="PosteriorReweighting.estimate">PosteriorReweighting.estimate</h3><pre><code>estimate(self, parameters: Any) -&gt; ImportanceEstimate</code></pre><pre class="docstring">Evaluate the raw log mean and normalized posterior weights.</pre><h3 id="PosteriorReweighting.log_objective">PosteriorReweighting.log_objective</h3><pre><code>log_objective(self, parameters: Any, *, log_hyperprior: Callable[[Any], jax.Array] | None=None) -&gt; jax.Array</code></pre><pre class="docstring">Log mean weight + log hyperprior, up to a fixed additive constant.
+
+This is a Monte Carlo marginal likelihood objective, not the mean
+log weight, a joint MAP over the field, or an EM lower bound.
+``log_hyperprior`` defines the MAP coordinates. For eta=exp(u),
+log p_eta(exp(u)) finds a mode in eta; adding u changes the density
+to one in u and generally changes that mode. No Jacobian is added
+automatically. Without a hyperprior this is marginal ML.</pre><h3 id="PosteriorReweighting.fit">PosteriorReweighting.fit</h3><pre><code>fit(self, at: Any, *, log_hyperprior: Callable[[Any], jax.Array] | None=None, min_ess: float | None=None, **optimizer_options: Any) -&gt; HyperparameterFit</code></pre><pre class="docstring">Maximize on this fixed bank using ``optimize.minimize`` settings.
+
+Optional ``min_ess`` is an explicit final Kish-ESS floor, not a
+certification of reliability. A finite objective and gradient are
+required at entry and exit. Steps do not redraw the reference or
+clip/smooth the importance ratios. Validate with a fresh bank and
+reference-chain diagnostics before trusting an optimized result.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#HyperparameterFit">HyperparameterFit</a><a href="#ImportanceEstimate">ImportanceEstimate</a><a href="#PosteriorReweighting">PosteriorReweighting</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

@@ -1,0 +1,37 @@
+{
+  "snippet": "first_model.py",
+  "snippet_sha256": "a2a7151767844c128929a411fd57eb2b2d34f290788d8baf15a596a2c5ac90c2",
+  "environment": {
+    "recorded": "2026-09-19",
+    "git_head": "f53e10afc6b01640fd23febb3161d89dc89512a8",
+    "src_differs_from_head": true,
+    "src_sha256": "22abe9ba078e5a5b81e3a3cf2744f418b3812586c992f1dfa7c9a68421dfb369",
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine": "arm64",
+    "python": "3.12.9",
+    "bayesmith": "0.9.0",
+    "jax": "0.11.1",
+    "numpy": "2.5.2",
+    "numpyro": "0.21.0",
+    "blas": "accelerate",
+    "jax_enable_x64": true
+  },
+  "plans": {
+    "level": {
+      "text": "block 0  {level}          GCR exact         structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)\n         kappa=49 -> tol=2.0408163e-05, guard reachable, off by default\n         (require_convergence=)\n         exact block ['level']: sigma does not move with the block (0.000e+00 relative,\n         rtol=1.0e-08), so the covariance is fixed and one Wiener solve is exact\nexecution: iid draws, no chain",
+      "blocks": [
+        {
+          "latents": [
+            "level"
+          ],
+          "method": "gcr",
+          "route": "GCR exact",
+          "evidence": "structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)",
+          "refused_claim": false
+        }
+      ],
+      "execution": "iid draws, no chain"
+    }
+  },
+  "tables": {}
+}

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.dispatch.collapse"><title>bayesmith.dispatch.collapse · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.collapse</span></nav>
+<article><h1>bayesmith.dispatch.collapse</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Collapsed-target sampling: integrate the exact block out of the NUTS target (P6).
+
+**Scope, narrowed before it is widened.** Collapse is a small-block specialty,
+not a general accelerator. Measured in this checkout, float64, mu = th . (B x):
+
+* at k=8 collapse already wins for c &gt;= ~0.95; at k=512 it needs c &gt;= ~0.9995;
+* the truncated trace-log does NOT rescue large k: it is 25-33% slower than
+  QR by scalar-order count and 95-130% slower by CERTIFIED order (gradient
+  error 2.803e-06). The reason is not numerical: rho(X) reads 0.85-0.93 on
+  every fixture, so the order m has to be 135-212, and the hundreds of
+  operator applications spend everything that never materialising the matrix
+  saved. The root cause is that P = A S A^T is simply NOT small next to
+  Lambda = N, and there is no physically grounded generic Lambda selector
+  (D83).
+
+So the collapsed route materialises the dense design and does one QR per
+gradient -- which is exactly the side of the package exact/solve.py exists to
+avoid -- and it is only worth it when the coupling is strong enough that the
+Gibbs sweep&#x27;s tau(c) amplification outweighs that cost. Nothing here decides
+when; the cost scoreboard (dispatch/costs.py) reports the numbers, and the
+caller chooses.
+
+The arithmetic was verified end to end before this module existed:
+
+    unchecked_operator(probe_gaussian=False) -&gt; dense_operator -&gt; compress
+    -&gt; SqrtInfo.combine(nuisance_prior) -&gt; marginalise_arrays
+
+against a dense slogdet oracle gives 1.8e-14 on the value and 2.6e-08 on the
+gradient, and traces cleanly under jit and hessian. The
+-sum(log pivots[:n_block]) folded into the offset by marginalise_arrays is
+-0.5 * logdet(F_bb) -- measured -2.1914870216494005 against -2.1914870216494.
+
+That sentence read `IS 0.5 * logdet(F_bb)` until R4, with the sign the wrong
+way round. The code was right and only the prose was wrong, which is the worse
+of the two: this is the sentence an evidence assembler copies, and the copy
+would have been off by logdet(F_bb) with every quantity in it finite and
+plausible. A docstring cannot be pinned, so the convention now has a test --
+`test_the_block_determinant_enters_with_a_minus_one_half`, which asserts it
+through the determinant lemma using only public API.</pre></details><div class="symbol-index"><a href="#CollapsedEvidence">CollapsedEvidence</a> <a href="#collapse_graph">collapse_graph</a> <a href="#marginal_log_density">marginal_log_density</a> <a href="#observed_descendants">observed_descendants</a> <a href="#pivots_are_finite">pivots_are_finite</a> <a href="#pivots_constrain_block">pivots_constrain_block</a></div><section class="api-symbol"><h2 id="CollapsedEvidence">CollapsedEvidence</h2><p class="source-note">Defined in <code>bayesmith.dispatch.collapse</code>, line 235.</p><pre><code>class CollapsedEvidence(eqx.Module)
+graph: Graph
+exact_names: tuple[str, ...] = eqx.field(static=True)
+over: tuple[str, ...] = eqx.field(static=True)</code></pre><pre class="docstring">The marginal likelihood log p(d | theta) as a graph evidence term.
+
+Carries the ORIGINAL graph and the integrated block, because the reduced
+graph it is attached to no longer contains them; log_density rebuilds the
+block operator from the stored graph at the passed values.</pre><h3 id="CollapsedEvidence.log_density">CollapsedEvidence.log_density</h3><pre><code>log_density(self, graph: Graph, values: dict[str, Any]) -&gt; jax.Array</code></pre></section><section class="api-symbol"><h2 id="collapse_graph">collapse_graph</h2><p class="source-note">Defined in <code>bayesmith.dispatch.collapse</code>, line 252.</p><pre><code>collapse_graph(graph: Graph, exact_names: Iterable[str], nuts_names: Iterable[str]) -&gt; ReducedGraph</code></pre><pre class="docstring">Reduce the graph: exact block integrated out, marginal term attached.
+
+Atomic by construction -- reduce_with_evidence returns the reduced graph
+and the evidence term as one value, so the data cannot be evaluated twice.
+nuts_names is the explicit NUTS witness the reduced graph is sampled over.</pre></section><section class="api-symbol"><h2 id="marginal_log_density">marginal_log_density</h2><p class="source-note">Defined in <code>bayesmith.dispatch.collapse</code>, line 116.</p><pre><code>marginal_log_density(graph: Graph, exact_names: tuple[str, ...], values: dict[str, Any]) -&gt; jax.Array</code></pre><pre class="docstring">log p(d | theta) -- the exact block integrated out of the joint.
+
+The exact block is affine given the outside latents, so its marginal
+likelihood is a Gaussian integral in square-root form: whiten the dense
+design, append the block&#x27;s prior rows, and drop the leading columns. The
+offset that falls out of that drop is the marginal log-density,
+normalisation included.</pre></section><section class="api-symbol"><h2 id="observed_descendants">observed_descendants</h2><p class="source-note">Defined in <code>bayesmith.dispatch.collapse</code>, line 67.</p><pre><code>observed_descendants(graph: Graph, remove: Iterable[str]) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The observed nodes reachable from the removed latents, transitively.
+
+These, and only these, have their likelihood moved into the marginal
+evidence term. An observed node independent of the removed block stays an
+explicit likelihood in the reduced graph; absorbing it would count its
+density twice.</pre></section><section class="api-symbol"><h2 id="pivots_are_finite">pivots_are_finite</h2><p class="source-note">Defined in <code>bayesmith.dispatch.collapse</code>, line 91.</p><pre><code>pivots_are_finite(pivots: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">Whether every pivot of the marginal QR is finite (D97).
+
+A non-finite pivot means the re-triangularisation itself carried nan/inf,
+so the marginal log-density is not a number. Under the eager
+marginalise() this is the finiteness check; here it is traced and handed
+to eqx.error_if by marginal_log_density.</pre></section><section class="api-symbol"><h2 id="pivots_constrain_block">pivots_constrain_block</h2><p class="source-note">Defined in <code>bayesmith.dispatch.collapse</code>, line 102.</p><pre><code>pivots_constrain_block(pivots: jax.Array, n_block: int) -&gt; jax.Array</code></pre><pre class="docstring">Whether the block&#x27;s pivots all sit above the relative floor (D98).
+
+The floor is sqrt(eps) times the largest pivot -- the same relative floor
+the eager marginalise() applies. A pivot at or below it means the block
+does not constrain one of its own directions, so the Gaussian integral
+diverges and finite arithmetic would hand back a large plausible number
+instead of an infinity anyone notices.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#CollapsedEvidence">CollapsedEvidence</a><a href="#collapse_graph">collapse_graph</a><a href="#marginal_log_density">marginal_log_density</a><a href="#observed_descendants">observed_descendants</a><a href="#pivots_are_finite">pivots_are_finite</a><a href="#pivots_constrain_block">pivots_constrain_block</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

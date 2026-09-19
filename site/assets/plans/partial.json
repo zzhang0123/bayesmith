@@ -1,0 +1,143 @@
+{
+  "snippet": "partial_structure.py",
+  "snippet_sha256": "f3c62e8ce1265e986f1d7197bb9e2a22c1e8af29237716ed473164f5b09d97a3",
+  "environment": {
+    "recorded": "2026-09-19",
+    "git_head": "f53e10afc6b01640fd23febb3161d89dc89512a8",
+    "src_differs_from_head": true,
+    "src_sha256": "22abe9ba078e5a5b81e3a3cf2744f418b3812586c992f1dfa7c9a68421dfb369",
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine": "arm64",
+    "python": "3.12.9",
+    "bayesmith": "0.9.0",
+    "jax": "0.11.1",
+    "numpy": "2.5.2",
+    "numpyro": "0.21.0",
+    "blas": "accelerate",
+    "jax_enable_x64": true
+  },
+  "plans": {
+    "hierarchy": {
+      "text": "block 0  {groups}         GCR exact         structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)\n         kappa=29.8 -> tol=3.3557047e-05, guard hoisted out of the sweep\n         exact block ['groups']: sigma does not move with the block (0.000e+00 relative,\n         rtol=1.0e-08), so the covariance is fixed and one Wiener solve is exact\nblock 1  {population}     NUTS\n         outside the exact block ['groups']: sampled by NUTS, and the exact block is\n         solved CONDITIONAL on them, once per sweep\nexecution: HMCGibbs(inner=NUTS, gibbs_sites=['groups']); noise_std rebuilt every sweep",
+      "blocks": [
+        {
+          "latents": [
+            "groups"
+          ],
+          "method": "gcr",
+          "route": "GCR exact",
+          "evidence": "structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)",
+          "refused_claim": false
+        },
+        {
+          "latents": [
+            "population"
+          ],
+          "method": "nuts",
+          "route": "NUTS",
+          "evidence": "outside the exact block ['groups']: sampled by NUTS, and the exact block is solved CONDITIONAL on them, once per sweep",
+          "refused_claim": false
+        }
+      ],
+      "execution": "HMCGibbs(inner=NUTS, gibbs_sites=['groups']); noise_std rebuilt every sweep"
+    }
+  },
+  "tables": {
+    "recovery": {
+      "columns": [
+        {
+          "key": "name",
+          "label": "Parameter"
+        },
+        {
+          "key": "truth",
+          "label": "Truth",
+          "format": ".3f"
+        },
+        {
+          "key": "exact_mean",
+          "label": "Exact mean",
+          "format": ".4f"
+        },
+        {
+          "key": "sampled_mean",
+          "label": "Sampled mean",
+          "format": ".4f"
+        },
+        {
+          "key": "exact_sd",
+          "label": "Exact sd",
+          "format": ".4f"
+        },
+        {
+          "key": "sampled_sd",
+          "label": "Sampled sd",
+          "format": ".4f"
+        }
+      ],
+      "rows": [
+        {
+          "name": "population",
+          "truth": 0.8,
+          "exact_mean": 0.8066622261463738,
+          "sampled_mean": 0.8096294769839594,
+          "exact_sd": 0.24725386818167924,
+          "sampled_sd": 0.24598056573512178
+        },
+        {
+          "name": "groups[0]",
+          "truth": 0.875438132656036,
+          "exact_mean": 0.8566354434433405,
+          "sampled_mean": 0.8543252298901411,
+          "exact_sd": 0.11022422121129466,
+          "sampled_sd": 0.10932142982334919
+        },
+        {
+          "name": "groups[1]",
+          "truth": 0.7207370820252189,
+          "exact_mean": 0.5071046487373335,
+          "sampled_mean": 0.5067142079555279,
+          "exact_sd": 0.11022422121129465,
+          "sampled_sd": 0.10776240958050934
+        },
+        {
+          "name": "groups[2]",
+          "truth": 1.1842535902659692,
+          "exact_mean": 1.1940549588945293,
+          "sampled_mean": 1.1955770079854415,
+          "exact_sd": 0.11022422121129465,
+          "sampled_sd": 0.1088610803612553
+        },
+        {
+          "name": "groups[3]",
+          "truth": 0.8629400702918238,
+          "exact_mean": 0.9601245835439577,
+          "sampled_mean": 0.9573482906888868,
+          "exact_sd": 0.11022422121129466,
+          "sampled_sd": 0.10942764468923226
+        },
+        {
+          "name": "groups[4]",
+          "truth": 0.4785983761033335,
+          "exact_mean": 0.3488750873013724,
+          "sampled_mean": 0.3475319921810927,
+          "exact_sd": 0.11022422121129466,
+          "sampled_sd": 0.10784069793168358
+        },
+        {
+          "name": "groups[5]",
+          "truth": 1.016957032945691,
+          "exact_mean": 1.045778235310884,
+          "sampled_mean": 1.0472495495245628,
+          "exact_sd": 0.11022422121129466,
+          "sampled_sd": 0.11123252088165698
+        }
+      ],
+      "settings": {
+        "seed": 1,
+        "num_warmup": 1000,
+        "num_samples": 4000
+      }
+    }
+  }
+}

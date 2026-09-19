@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.dispatch.costs"><title>bayesmith.dispatch.costs · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.costs</span></nav>
+<article><h1>bayesmith.dispatch.costs</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Read-only cost scoreboard for the split / collapse / joint tradeoff (P5).
+
+This module is the independently useful half of Wave 2: it tells a user what
+the canonical coupling ``rho`` and the three strategy condition numbers ARE,
+and how much a collapsed sampler would save -- without changing any routing.
+``compile(strategy=&quot;cost&quot;)`` builds it and prints it; the declared plan&#x27;s
+blocks and methods are untouched.
+
+Three hard constraints, each one measured before it was written down:
+
+1. **No elimination is asserted anywhere.** The CG term appears ``tau*m``
+   times in the split numerator and once in the collapse/joint term, and it
+   is never cancelled.  ``split_cost``, ``collapse_cost`` and ``joint_cost``
+   each spell their CG term out independently.
+2. **There is no closed-form crossover in ``c``.** ``kappa_marg`` is not a
+   function of ``c`` -- measured: ``F_tt = diag(1,100)`` and ``diag(100,1)``
+   give true ``kappa(Schur)`` of 5025 and 1.99 at the same ``c=0.99``, while
+   ``kappa(F_tt)/(1-c^2)`` says 5025 both times, a 2525x miss.  The crossover
+   is numeric-only; nothing here solves for ``c``.
+3. **``c_gtheta``, ``c_gc``, ``c_A`` are measured, never modelled.**  The
+   grad / (A + A^T) ratio moves in opposite directions with ``n`` on the two
+   reference fixtures, so a formula in ``n`` or ``k`` would be a lie.  They
+   are inputs (:class:`TimingConstants`), not functions of the graph size.
+
+The ESS trap, also written down because rules rot: **never put Kish ESS and
+chain ESS in the same argmin, and never compare a whole-graph row against a
+chain row.**  ``plated_radiometer(n=25, kappa=0.4)`` at N=1200: SNIS is 1.40
+posterior-sd from the truth, NUTS 18.5, yet NUTS&#x27;s chain ESS (33) exceeds
+the Kish ESS (14) -- an ESS-priced objective picks the answer 13x further
+from the truth.  The scoreboard therefore compares COST, never ESS, and each
+row carries a :attr:`CostRow.kind` so the two ESS currencies can be kept in
+separate comparisons when the collapse arm lands.
+
+Abstention: any ``+inf`` input makes its row ineligible to win; if every row
+is ``+inf`` the scoreboard abstains, ``compile()`` falls back to today&#x27;s
+behaviour, and ``str(plan)`` is byte-identical to the declared plan.
+
+**The reconciliation ledger (P7) is the part of this module that stays useful
+even if every expression above is wrong.**  :class:`CostReconciliation` records
+what was PREDICTED (a row&#x27;s cost interval), what was MEASURED (seconds per
+effective sample), and which of the cost expression&#x27;s own terms dominated the
+prediction -- so a miss can be located at ``c`` (the coupling: a funnel reads
+0.0 to a Laplace measurement and the amplification term is then priced off a
+number that describes nothing), at ``a`` (the leapfrog constant: a calibration
+that did not transfer), or at an interval so wide that satisfying it proved
+nothing.  None of that depends on the three cost expressions being right; it
+depends only on their inputs having been written down.  Every predicted/measured
+pair a run produces is one row of calibration data for a cost model that does
+not have any yet.</pre></details><div class="symbol-index"><a href="#CONTESTED_BANDWIDTH">CONTESTED_BANDWIDTH</a> <a href="#DOMINANCE_SHARE">DOMINANCE_SHARE</a> <a href="#TIMING_NOISE_TOLERANCE">TIMING_NOISE_TOLERANCE</a> <a href="#K_CG_TOL">K_CG_TOL</a> <a href="#CostReconciliation">CostReconciliation</a> <a href="#CostRow">CostRow</a> <a href="#LadderInputs">LadderInputs</a> <a href="#LadderRecord">LadderRecord</a> <a href="#Scoreboard">Scoreboard</a> <a href="#TimingConstants">TimingConstants</a> <a href="#build_ladder">build_ladder</a> <a href="#cg_tol_positive">cg_tol_positive</a> <a href="#collapse_cost">collapse_cost</a> <a href="#cost_shares">cost_shares</a> <a href="#dominant_input">dominant_input</a> <a href="#gap_is_contested">gap_is_contested</a> <a href="#joint_cost">joint_cost</a> <a href="#k_cg">k_cg</a> <a href="#reconcile">reconcile</a> <a href="#recorded_inputs">recorded_inputs</a> <a href="#relative_gap">relative_gap</a> <a href="#relative_width">relative_width</a> <a href="#scoreboard">scoreboard</a> <a href="#share_is_dominant">share_is_dominant</a> <a href="#split_cost">split_cost</a> <a href="#tau">tau</a> <a href="#timing_noise_in_domain">timing_noise_in_domain</a> <a href="#timing_reference">timing_reference</a></div><section class="api-symbol"><h2 id="CONTESTED_BANDWIDTH">CONTESTED_BANDWIDTH</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 62.</p><pre><code>CONTESTED_BANDWIDTH: float = 0.25</code></pre></section><section class="api-symbol"><h2 id="DOMINANCE_SHARE">DOMINANCE_SHARE</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 235.</p><pre><code>DOMINANCE_SHARE: float = 0.5</code></pre></section><section class="api-symbol"><h2 id="TIMING_NOISE_TOLERANCE">TIMING_NOISE_TOLERANCE</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 75.</p><pre><code>TIMING_NOISE_TOLERANCE: float = 0.1</code></pre></section><section class="api-symbol"><h2 id="K_CG_TOL">K_CG_TOL</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 86.</p><pre><code>K_CG_TOL: float = 0.001</code></pre></section><section class="api-symbol"><h2 id="CostReconciliation">CostReconciliation</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 601.</p><pre><code>class CostReconciliation
+strategy: str
+predicted_lo: float
+predicted_hi: float
+measured: float
+seconds: float
+ess: float
+within: bool
+width: float
+shares: tuple[tuple[str, float], ...]
+dominant: str
+rho: float
+a: float
+kappa_cond: float
+kappa_marg: float
+kappa_joint: float
+kappa_x: float
+m: int
+fingerprint: str</code></pre><pre class="docstring">One run&#x27;s predicted-versus-measured pair, and what it was made of.
+
+**This is the part of the module that is worth having even if every cost
+expression above is wrong.** It does not assert that the prediction was
+right; it records the prediction, the measurement, and the inputs both
+were computed from -- which is what a cost model needs to be calibrated
+against, and what this package has never collected.
+
+Attributes:
+    strategy: which row this run is reconciled against -- the row for what
+        RAN, not the row the scoreboard would have picked. The scoreboard
+        changes no routing, so those are frequently different, and
+        reconciling against the winner would compare a measurement of one
+        thing with a prediction of another.
+    predicted_lo, predicted_hi: the row&#x27;s cost interval, in seconds per
+        effective sample.
+    measured: ``seconds / ess`` actually observed, same units.
+    seconds, ess: the two numbers ``measured`` was formed from, kept apart
+        because a miss caused by a slow wall clock and a miss caused by a
+        chain that did not mix are different diagnoses.
+    within: whether ``measured`` landed inside the predicted interval.
+        **A ``True`` here is only as strong as ``width``**: an interval
+        opened wide enough is satisfied by anything.
+    width: ``predicted_hi / predicted_lo``. With only the timing noise
+        declared as uncertainty this is exactly
+        ``(1 + t) / (1 - t) = 1.2222`` at ``t = 0.10``; anything wider came
+        from an input the model does not declare, and that is the third
+        place a missed prediction can be located.
+    shares: each cost term&#x27;s share of the prediction, in ``(&quot;c&quot;, &quot;a&quot;,
+        &quot;cg&quot;)`` order -- see :func:`cost_shares`.
+    dominant: the term above :data:`DOMINANCE_SHARE`, or ``&quot;&quot;``.
+    rho, a, kappa_cond, kappa_marg, kappa_joint, kappa_x, m: the inputs,
+        recorded verbatim, because &quot;the inputs were written down&quot; is the
+        claim this record actually makes.
+    fingerprint: the scoreboard&#x27;s own input fingerprint, so a ledger row
+        can be matched to the prediction it came from.</pre><h3 id="CostReconciliation.line">CostReconciliation.line</h3><pre><code>line(self) -&gt; str</code></pre><pre class="docstring">The ledger&#x27;s one printed line: predicted, measured, attribution.</pre></section><section class="api-symbol"><h2 id="CostRow">CostRow</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 261.</p><pre><code>class CostRow
+strategy: str
+kind: Literal[&#x27;chain&#x27;, &#x27;whole-graph&#x27;]
+cost_lo: float
+cost_hi: float
+m: int | None = None</code></pre><pre class="docstring">One strategy row: its cost interval, and which ESS currency it owns.
+
+Attributes:
+    strategy: ``&quot;split&quot;``, ``&quot;collapse&quot;`` or ``&quot;joint&quot;``.
+    kind: ``&quot;chain&quot;`` for the split (its samples come from a Gibbs chain) or
+        ``&quot;whole-graph&quot;`` for collapse/joint (a reduced or full graph NUTS,
+        whose diagnostic is chain ESS too).  Carried so that a future
+        ESS-based comparator keeps Kish ESS and chain ESS in separate
+        comparisons -- see the module docstring.
+    cost_lo, cost_hi: the cost interval from input uncertainty (timing noise,
+        conditioning bound).  ``cost_hi`` is what the argmin reads.
+    m: the split&#x27;s multiplier, ``None`` for rows that have none.
+    </pre></section><section class="api-symbol"><h2 id="LadderInputs">LadderInputs</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 328.</p><pre><code>class LadderInputs
+rho: float
+kappa_cond: float
+kappa_marg: float
+kappa_joint: float
+kappa_x: float
+a: float
+timing: TimingConstants
+m: int</code></pre><pre class="docstring">The measured inputs one scoreboard is built from (all scalars).</pre></section><section class="api-symbol"><h2 id="LadderRecord">LadderRecord</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 391.</p><pre><code>class LadderRecord(eqx.Module)
+strategy: str = eqx.field(static=True)
+winner: str = eqx.field(static=True)
+rho: float = eqx.field(static=True)
+kappa_cond: float = eqx.field(static=True)
+kappa_marg: float = eqx.field(static=True)
+kappa_joint: float = eqx.field(static=True)
+cost_split: float = eqx.field(static=True)
+cost_collapse: float = eqx.field(static=True)
+cost_joint: float = eqx.field(static=True)
+contested: tuple[str, ...] = eqx.field(static=True)
+abstained: bool = eqx.field(static=True)
+fingerprint: str = eqx.field(static=True)
+kappa_x: float = eqx.field(static=True)
+a: float = eqx.field(static=True)
+c_gtheta: float = eqx.field(static=True)
+c_gc: float = eqx.field(static=True)
+c_A: float = eqx.field(static=True)
+c_g_all: float = eqx.field(static=True)
+m: int = eqx.field(static=True)</code></pre><pre class="docstring">The scalar-only, all-static scoreboard a plan can carry and print.
+
+Every field is ``eqx.field(static=True)`` and holds a scalar, string or tuple
+of them -- never a numpy array -- because an array-valued static field makes
+a SECOND trace compare array pytree metadata and raise (it passes the first,
+    so it is the kind of bug that only shows up in production).
+    </pre><h3 id="LadderRecord.line">LadderRecord.line</h3><pre><code>line(self) -&gt; str</code></pre><pre class="docstring">The scoreboard&#x27;s one printed line, or ``&quot;&quot;`` when it abstained.
+
+Empty on abstention on purpose: :meth:`InferencePlan.__str__` appends it
+        under the same guard as the streaming line, so an abstained plan prints
+        byte-identically to a declared one.
+        </pre></section><section class="api-symbol"><h2 id="Scoreboard">Scoreboard</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 284.</p><pre><code>class Scoreboard
+winner: CostRow | None
+contested: tuple[CostRow, ...]
+abstained: bool</code></pre><pre class="docstring">The argmin verdict over :class:`CostRow` rows, cost-only, never ESS.
+
+``winner`` is the row with the smallest ``cost_hi``; ``contested`` lists
+every other row whose interval overlaps the winner&#x27;s or whose gap is
+within :data:`CONTESTED_BANDWIDTH`; ``abstained`` is set when every
+row&#x27;s ``cost_hi`` is non-finite (``+inf``), in which case there is no
+verdict to print and the caller falls back to the declared plan.</pre></section><section class="api-symbol"><h2 id="TimingConstants">TimingConstants</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 165.</p><pre><code>class TimingConstants
+c_gtheta: float
+c_gc: float
+c_A: float
+c_g_all: float</code></pre><pre class="docstring">Measured per-gradient wall-clock reference magnitudes, in seconds.
+
+Measured with ``time.perf_counter`` around the actual operation, never
+derived from ``n`` or ``k`` -- the grad / (A + A^T) ratio moves in opposite
+directions with ``n``, so a formula would be wrong in one direction or the
+other (see the module docstring).  ``c_g_all`` is the full-joint gradient.
+    </pre></section><section class="api-symbol"><h2 id="build_ladder">build_ladder</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 450.</p><pre><code>build_ladder(inputs: LadderInputs, *, strategy: Literal[&#x27;declared&#x27;, &#x27;cost&#x27;]=&#x27;declared&#x27;) -&gt; LadderRecord | None</code></pre><pre class="docstring">Build the printable record, or ``None`` when the strategy is declared.
+
+``strategy=&quot;declared&quot;`` means &quot;do not build a scoreboard at all&quot;, so the
+    returned value is ``None`` and every declared plan stays byte-identical.
+    ``strategy=&quot;cost&quot;`` builds the three rows, runs the argmin, and returns a
+    record whose :meth:`LadderRecord.line` is empty exactly when the
+    scoreboard abstained.
+    </pre></section><section class="api-symbol"><h2 id="cg_tol_positive">cg_tol_positive</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 225.</p><pre><code>cg_tol_positive(tol: float) -&gt; bool</code></pre><pre class="docstring">D95: ``tol &gt; 0.0`` -- the CG tolerance ``k_cg`` prices a solve at.
+
+``log(2 / tol)`` is undefined for ``tol &lt;= 0``, so a non-positive
+tolerance cannot name a finite CG iteration count.</pre></section><section class="api-symbol"><h2 id="collapse_cost">collapse_cost</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 138.</p><pre><code>collapse_cost(kappa_marg: float, kappa_x: float, a: float, c_gc: float, c_A: float, *, tol_x: float=K_CG_TOL) -&gt; float</code></pre><pre class="docstring">``a*sqrt(kappa_marg)*c_gc + k_cg(kappa_x, tol_x)*c_A``.
+
+The collapsed route solves the marginal once per gradient; its CG term is
+one ``k_cg`` rather than the split&#x27;s ``tau*m`` copies.
+    </pre></section><section class="api-symbol"><h2 id="cost_shares">cost_shares</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 527.</p><pre><code>cost_shares(inputs: LadderInputs, strategy: str) -&gt; tuple[tuple[str, float], ...]</code></pre><pre class="docstring">Each term&#x27;s share of one row&#x27;s predicted cost, summing to one.
+
+A partition, not a sensitivity: it says which term the PREDICTION is made
+of, which is the question a missed prediction has to start from. The joint
+row is all gradient by construction (share 1.0 on ``a``), the collapse row
+has no amplification (share 0.0 on ``c``), and only the split row can put
+weight on all three.
+
+A non-finite or non-positive total yields all-zero shares rather than a
+nan: a row priced at ``+inf`` has no attribution to give, and a nan share
+would win no comparison and be skipped by the dominance test in silence.</pre></section><section class="api-symbol"><h2 id="dominant_input">dominant_input</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 550.</p><pre><code>dominant_input(shares: tuple[tuple[str, float], ...]) -&gt; str</code></pre><pre class="docstring">The one term above :data:`DOMINANCE_SHARE`, or ``&quot;&quot;`` where none is.
+
+``&quot;&quot;`` is abstention and is the honest answer whenever two terms could be
+tied for largest -- see :data:`DOMINANCE_SHARE`. The caller still has the
+shares.</pre></section><section class="api-symbol"><h2 id="gap_is_contested">gap_is_contested</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 205.</p><pre><code>gap_is_contested(gap: float) -&gt; bool</code></pre><pre class="docstring">D93: ``gap &lt; CONTESTED_BANDWIDTH`` -- the argmin contested verdict.
+
+A relative cost gap below the contested bandwidth is not evidence that
+the winner would still win on a re-measure, so the scoreboard marks the
+row contested instead of a decision.</pre></section><section class="api-symbol"><h2 id="joint_cost">joint_cost</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 155.</p><pre><code>joint_cost(kappa_joint: float, a: float, c_gall: float) -&gt; float</code></pre><pre class="docstring">``a*sqrt(kappa_joint)*c_g_all`` -- NUTS over the full joint graph.
+
+No split and no marginal, so no CG term; the whole cost is one leapfrog
+gradient against the joint conditioning.
+    </pre></section><section class="api-symbol"><h2 id="k_cg">k_cg</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 95.</p><pre><code>k_cg(kappa: float, tol: float) -&gt; int</code></pre><pre class="docstring">``ceil(0.5 * sqrt(kappa) * log(2/tol))`` -- CG iterations for one solve.
+
+The ``1/2 * sqrt(kappa)`` factor is the textbook CG convergence rate; the
+``log(2/tol)`` is the number of halvings needed to reach ``tol``.  Rounded
+UP because a solve cannot take a fraction of an iteration.
+    </pre></section><section class="api-symbol"><h2 id="reconcile">reconcile</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 677.</p><pre><code>reconcile(record: LadderRecord, strategy: str, *, seconds: float, ess: float) -&gt; CostReconciliation</code></pre><pre class="docstring">Build the ledger row for a run against the scoreboard that predicted it.
+
+``ess`` is the posterior&#x27;s own effective sample size, MIN over every site
+and coordinate. A zero makes ``measured`` ``+inf`` rather than raising: a run
+that produced no effective samples took infinitely long per one of them,
+which is both the true statement and the one that lands outside every
+finite interval.</pre></section><section class="api-symbol"><h2 id="recorded_inputs">recorded_inputs</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 577.</p><pre><code>recorded_inputs(record: LadderRecord) -&gt; LadderInputs</code></pre><pre class="docstring">The :class:`LadderInputs` a :class:`LadderRecord` was built from.
+
+Every field round-trips as a scalar, which is why the record can carry
+them at all -- see :class:`LadderRecord`.</pre></section><section class="api-symbol"><h2 id="relative_gap">relative_gap</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 195.</p><pre><code>relative_gap(low: float, high: float) -&gt; float</code></pre><pre class="docstring">``|high - low| / max(high, low)``, so the gap is a fraction of the row.
+
+Used by both contested tests; spelled once so the two cannot drift.
+    </pre></section><section class="api-symbol"><h2 id="relative_width">relative_width</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 563.</p><pre><code>relative_width(low: float, high: float) -&gt; float</code></pre><pre class="docstring">``high / low`` -- how much room a predicted interval left itself.
+
+Reported rather than gated. With only :data:`TIMING_NOISE_TOLERANCE`
+declared, every row of :func:`_rows` is linear in the timing constants, so
+this is ``(1 + t) / (1 - t)`` exactly and identically on all three rows; a
+wider one is evidence that an undeclared uncertainty got in, and a reader
+who sees it does not need a threshold to know what to think.</pre></section><section class="api-symbol"><h2 id="scoreboard">scoreboard</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 299.</p><pre><code>scoreboard(rows: tuple[CostRow, ...]) -&gt; Scoreboard</code></pre><pre class="docstring">Pick the winner by minimum ``cost_hi``; mark overlapping rows contested.
+
+A ``+inf`` ``cost_hi`` makes a row ineligible to win; if every row is
+``+inf`` the scoreboard abstains.  A row is contested when its ``cost_lo``
+is below the winner&#x27;s ``cost_hi`` (the intervals overlap) or its gap to the
+winner is within :data:`CONTESTED_BANDWIDTH` of the row cost.
+
+Nothing here reads an ESS.  The winner is a cost winner; whether to trust it
+as a sampling decision is a separate question the collapse arm answers.
+    </pre></section><section class="api-symbol"><h2 id="share_is_dominant">share_is_dominant</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 251.</p><pre><code>share_is_dominant(share: float) -&gt; bool</code></pre><pre class="docstring">D103: ``share &gt; DOMINANCE_SHARE`` -- this term owns the prediction.
+
+Open at the boundary: a term at exactly one half leaves the rest of the
+partition summing to one half too, so it is not uniquely the largest.</pre></section><section class="api-symbol"><h2 id="split_cost">split_cost</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 116.</p><pre><code>split_cost(kappa_cond: float, kappa_x: float, c: float, a: float, c_gtheta: float, c_A: float, *, tol_x: float=K_CG_TOL, m: int=1) -&gt; float</code></pre><pre class="docstring">``tau(c) * [ a*sqrt(kappa_cond)*c_gtheta + m*k_cg(kappa_x, tol_x)*c_A ]``.
+
+``m`` is 1 for the plain GCR split and 3 for the GCR + Metropolis-Hastings
+sweep, which re-solves for every proposed draw and its proposal.  The CG
+term is spelled out inside the brackets and is NOT cancelled against the
+collapse/joint CG terms -- see the module docstring.
+    </pre></section><section class="api-symbol"><h2 id="tau">tau</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 107.</p><pre><code>tau(c: float) -&gt; float</code></pre><pre class="docstring">``(1 + c^2) / (1 - c^2)`` -- the Gibbs sweep amplification of coupling.
+
+The number of outer sweeps the split route pays per independent sample,
+growing without bound as the canonical correlation ``c`` approaches one.
+    </pre></section><section class="api-symbol"><h2 id="timing_noise_in_domain">timing_noise_in_domain</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 215.</p><pre><code>timing_noise_in_domain(tol: float) -&gt; bool</code></pre><pre class="docstring">D94: ``tol &lt; 1.0`` -- a timing noise tolerance is a proper fraction.
+
+The spread on the measured timing constants must keep ``1.0 - tol``
+positive, or a row ``cost_lo`` would be negative and its cost interval
+meaningless.</pre></section><section class="api-symbol"><h2 id="timing_reference">timing_reference</h2><p class="source-note">Defined in <code>bayesmith.dispatch.costs</code>, line 180.</p><pre><code>timing_reference() -&gt; TimingConstants</code></pre><pre class="docstring">The plan&#x27;s measured float64 reference, ``mu = theta . B x``, n=100 k=8.
+
+c_gc 43.2us, c_gtheta 5.2us, c_A 6.8us (ratio 8.3).  ``c_g_all`` is the
+full-joint gradient, which spans both blocks; the reference pins it to the
+collapse gradient plus the theta gradient -- the two gradients a full-joint
+step must form -- and is the only entry here that is a composition rather
+than a direct single-operation measurement.
+    </pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#CONTESTED_BANDWIDTH">CONTESTED_BANDWIDTH</a><a href="#DOMINANCE_SHARE">DOMINANCE_SHARE</a><a href="#TIMING_NOISE_TOLERANCE">TIMING_NOISE_TOLERANCE</a><a href="#K_CG_TOL">K_CG_TOL</a><a href="#CostReconciliation">CostReconciliation</a><a href="#CostRow">CostRow</a><a href="#LadderInputs">LadderInputs</a><a href="#LadderRecord">LadderRecord</a><a href="#Scoreboard">Scoreboard</a><a href="#TimingConstants">TimingConstants</a><a href="#build_ladder">build_ladder</a><a href="#cg_tol_positive">cg_tol_positive</a><a href="#collapse_cost">collapse_cost</a><a href="#cost_shares">cost_shares</a><a href="#dominant_input">dominant_input</a><a href="#gap_is_contested">gap_is_contested</a><a href="#joint_cost">joint_cost</a><a href="#k_cg">k_cg</a><a href="#reconcile">reconcile</a><a href="#recorded_inputs">recorded_inputs</a><a href="#relative_gap">relative_gap</a><a href="#relative_width">relative_width</a><a href="#scoreboard">scoreboard</a><a href="#share_is_dominant">share_is_dominant</a><a href="#split_cost">split_cost</a><a href="#tau">tau</a><a href="#timing_noise_in_domain">timing_noise_in_domain</a><a href="#timing_reference">timing_reference</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.optimize"><title>bayesmith.optimize · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.optimize</span></nav>
+<article><h1>bayesmith.optimize</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Gradient MAP -- the exit an exact solve does not have.
+
+``wiener_solve`` and ``iterative_gls`` answer a model that is affine in its
+latents; everything else has only a gradient. This module is that other exit:
+descend the NEGATIVE joint log-density and report where you got to.
+
+**The objective is the FULL density, and that is a decision rather than an
+implementation detail** (D7 in the migration ledger). For a
+prediction-dependent sigma the joint carries a ``sum log sigma`` term that a
+GLS-flavoured potential drops, and dropping it moves the optimum -- so a point
+estimate and a draw from the same declaration would target different
+distributions. :func:`fit` reads :func:`~bayesmith.graph.evaluate.log_joint`,
+which is also what ``to_numpyro`` samples, so there is one density and not
+two.
+
+Three things are public, and the split is the one the callers need:
+
+* :func:`minimize` -- the optimiser on any scalar objective. A calibrator
+  scoring a PREDICTION against DATA is not maximising a joint, and forcing it
+  through a graph would mean inventing a model for a least-squares fit.
+* :func:`fit` -- the graph entry. Joint MAP over every latent, or block
+  coordinate over ``names=`` with the rest held, which is what a gradient
+  block inside a Gibbs sweep is.
+* :func:`check_loss_sense` -- the direction guard. A log-density has an
+  error&#x27;s signature and the opposite optimum, so a minimiser handed one
+  descends a function unbounded below while the loss history looks like
+  textbook convergence.
+
+**What this is not.** There is no convergence verdict. ``steps`` steps are
+taken and the objective reached is reported; a caller who needs a verdict
+compares it against something, and this module has no opinion about what.
+That is deliberate and matches the exact route&#x27;s own division of labour,
+where the verdict is raised one level up by whoever knows the tolerance.</pre></details><div class="symbol-index"><a href="#MAXIMIZE">MAXIMIZE</a> <a href="#MINIMIZE">MINIMIZE</a> <a href="#Fit">Fit</a> <a href="#check_loss_sense">check_loss_sense</a> <a href="#fit">fit</a> <a href="#minimize">minimize</a> <a href="#sense_of">sense_of</a></div><section class="api-symbol"><h2 id="MAXIMIZE">MAXIMIZE</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 64.</p><pre><code>MAXIMIZE: str = &#x27;maximize&#x27;</code></pre></section><section class="api-symbol"><h2 id="MINIMIZE">MINIMIZE</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 61.</p><pre><code>MINIMIZE: str = &#x27;minimize&#x27;</code></pre></section><section class="api-symbol"><h2 id="Fit">Fit</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 71.</p><pre><code>class Fit(NamedTuple)
+values: dict[str, Any]
+objective: jax.Array
+history: jax.Array</code></pre><pre class="docstring">Where a descent got to, and how it got there.
+
+Attributes:
+    values: the fitted point. For :func:`fit` this is EVERY latent, with
+        the ones outside ``names`` at the values they were held at -- a
+        caller stepping one block of a sweep gets back a complete
+        environment rather than a fragment to merge itself.
+    objective: the objective AT :attr:`values`, evaluated after the last
+        step. Deliberately not ``history[-1]``, which is the value one
+        step earlier: reporting that one beside this point is an
+        off-by-one that reads as a converged fit.
+    history: the objective at the start of each step, shape ``(steps,)``.
+        So ``history[0]`` is the objective the caller started from, and
+        ``objective &lt; history[0]`` is what &quot;it improved&quot; means.</pre></section><section class="api-symbol"><h2 id="check_loss_sense">check_loss_sense</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 104.</p><pre><code>check_loss_sense(loss_fn: Callable[[jax.Array, jax.Array], jax.Array], predicted: jax.Array, observed: jax.Array) -&gt; None</code></pre><pre class="docstring">Refuse a scoring function whose optimum lies the way a minimiser walks.
+
+Measured on a one-parameter gain fit with truth ``g = 1.0``, before this
+guard existed::
+
+    mean_squared_error       -&gt;  g = +0.9999    loss  2499  -&gt;  0.002617
+    GaussianLikelihood(0.05) -&gt;  g = -30.7349   loss -3.2e7 -&gt; -1.3e11
+
+Both runs report a monotonically improving loss, which is the only
+evidence a caller has.
+
+The measured half evaluates the score where its direction is unambiguous:
+at the PERFECT prediction, ``loss_fn(observed, observed)``. An error
+attains its minimum there and a log-density its maximum, so a perfect
+prediction scoring ABOVE the current one means the function increases
+toward the truth. That holds for any callable, declaration or not.
+
+Args:
+    loss_fn: ``f(predicted, observed) -&gt; scalar``.
+    predicted: the prediction at the starting point.
+    observed: the data.
+
+Raises:
+    StructureError: if the sense is wrong by either test, or if either
+        score is not finite. The last is not scope creep: NaN compares
+        False against everything, so treating a non-finite score as
+        &quot;cannot tell, proceed&quot; would wave through exactly the case this
+        guard exists for whenever it arrives with a NaN attached.</pre></section><section class="api-symbol"><h2 id="fit">fit</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 374.</p><pre><code>fit(graph: Graph, at: Mapping[str, Any] | None=None, *, names: tuple[str, ...] | None=None, method: str=&#x27;adam&#x27;, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; Fit</code></pre><pre class="docstring">Gradient MAP: maximise the graph&#x27;s joint log-density over its latents.
+
+Args:
+    graph: the model. Its ``log_joint`` is the objective, negated -- the
+        FULL density, ``sum log sigma`` and any declared ``joint_prior``
+        included, which is the same density ``to_numpyro`` samples (D7).
+    at: where to start, ``{latent: value}``. Any latent left out starts at
+        its prior centre, which is where
+        :func:`~bayesmith.dispatch.classify.block_at` anchors a block, so
+        the two entries agree about &quot;before seeing anything&quot;. Defaults to
+        every latent there.
+    names: the latents to MOVE; the rest are held at their value in
+        ``at``. ``None`` moves all of them (joint MAP). A subset is block
+        coordinate, which is what a gradient block inside a sweep is.
+    method, steps, learning_rate, step_sizes, beta1, beta2, eps: see
+        :func:`minimize`. ``step_sizes`` is per latent, in the latent&#x27;s own
+        units -- a caller who knows the declared scales should use it,
+        because one global rate cannot serve two latents whose units are
+        orders of magnitude apart.
+
+Returns:
+    A :class:`Fit` whose ``values`` covers EVERY latent, held ones
+    included.
+
+Raises:
+    StructureError: for a graph with no latents, a ``names`` entry the
+        graph does not declare, an empty ``names``, or anything
+        :func:`minimize` refuses.</pre></section><section class="api-symbol"><h2 id="minimize">minimize</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 268.</p><pre><code>minimize(objective: Callable[[Any], jax.Array], at: Any, *, method: str=&#x27;adam&#x27;, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; Fit</code></pre><pre class="docstring">Descend ``objective`` from ``at`` for ``steps`` steps.
+
+Args:
+    objective: ``f(values) -&gt; scalar``, MINIMISED. Handing it something
+        that should be maximised is the failure :func:`check_loss_sense`
+        exists for; this function cannot detect it, because a bare
+        objective has no perfect-prediction point to evaluate at.
+    at: the starting point -- any pytree, or a ``{name: value}`` mapping
+        if ``step_sizes`` is used.
+    method: ``&quot;adam&quot;`` or ``&quot;gradient&quot;``.
+    steps: how many to take. There is no early stop, so this is also
+        exactly how many are taken.
+    learning_rate: the step size for every leaf without one of its own.
+    step_sizes: per-name step sizes, in each parameter&#x27;s own units.
+    beta1, beta2, eps: Adam&#x27;s, ignored by ``&quot;gradient&quot;``.
+
+Returns:
+    A :class:`Fit`.
+
+Raises:
+    StructureError: for an unknown method, a non-positive step count or
+        rate, a NaN rate, a complex starting value, or a ``step_sizes``
+        naming something not being moved.
+    Exception: from ``eqx.error_if`` if the objective at the point
+        reached is not finite -- a diverged descent, which otherwise
+        comes back looking like any other answer.
+
+Note:
+    **The two methods do not accept the same rates**, and that is
+    arithmetic rather than taste: plain gradient descent diverges for any
+    rate above ``2/L``, where ``L`` is the objective&#x27;s curvature, and
+    Adam&#x27;s step is bounded by its rate regardless. Measured on a
+    one-latent Gaussian with ``L = 231`` (limit 0.00865): ``&quot;gradient&quot;``
+    converges at 0.006 and returns NaN at 0.02, while ``&quot;adam&quot;``
+    converges at both. Switching ``method=`` without revisiting
+    ``learning_rate=`` is therefore a real hazard, which is why the
+    non-finite result is refused rather than returned.</pre></section><section class="api-symbol"><h2 id="sense_of">sense_of</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 93.</p><pre><code>sense_of(scoring: Any) -&gt; str</code></pre><pre class="docstring">:data:`MAXIMIZE` if ``scoring`` declares it, :data:`MINIMIZE` otherwise.
+
+A declaration is cheap and exact and gives the best message, but on its
+own it is a whitelist -- and a whitelist is wrong about precisely the code
+it has not met. :func:`check_loss_sense` therefore uses this as its first
+half and measures the second.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#MAXIMIZE">MAXIMIZE</a><a href="#MINIMIZE">MINIMIZE</a><a href="#Fit">Fit</a><a href="#check_loss_sense">check_loss_sense</a><a href="#fit">fit</a><a href="#minimize">minimize</a><a href="#sense_of">sense_of</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

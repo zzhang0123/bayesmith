@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="Five questions, one model"><title>Five questions, one model · bayesmith</title>
+<link rel="stylesheet" href="assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="assets/docs.css"><script defer src="assets/vendor/katex/katex.min.js"></script><script defer src="assets/search-index.js"></script><script defer src="assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="index.html">Overview</a><a href="installation.html">Installation</a><a href="quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="nonlinear.html">Partial structure</a><a href="notebook.html">Hierarchical notebook</a><a href="reweighting.html">Near-Gaussian targets</a><a href="predictive.html">Prediction and simulation</a><a href="tasks.html" aria-current="page">Five questions</a></section><section><h2>Concepts</h2><a href="concepts.html">Core concepts</a><a href="modeling.html">Graph and hierarchy</a><a href="inference.html">Inference routes</a><a href="policies.html">Sampling policies</a><a href="artifacts.html">Results and provenance</a><a href="diagnostics.html">Diagnostics</a><a href="evidence.html">Evidence</a><a href="experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="architecture.html">Architecture</a><a href="principles.html">Principles and verification</a><a href="extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="reference.html">API reference</a></section><section><h2>Project</h2><a href="project.html">Release status</a><a href="contributing.html">Contributing</a><a href="records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span>/</span><span>Worked examples</span><span>/</span><span aria-current="page">Five questions, one model</span></nav>
+<article><h1>Five questions, one model</h1><p class="lede">Use an explicit task when the question, budget and provenance must travel with the answer.</p>
+<h2 id="questions">Pick the statistical quantity first</h2><table><tr><th>Question</th><th>Task → Result</th></tr><tr><td>What remains uncertain about the parameters?</td><td><code>PosteriorTask → PosteriorResult</code></td></tr><tr><td>Which point summary do I want?</td><td><code>PointEstimateTask → PointEstimateResult</code></td></tr><tr><td>What observations could this posterior predict?</td><td><code>PredictiveTask → PredictiveResult</code></td></tr><tr><td>What does the forward model generate?</td><td><code>SimulationTask → SimulationResult</code></td></tr><tr><td>What is the normalized probability of these data?</td><td><code>EvidenceTask → EvidenceResult</code></td></tr></table>
+<p>Compilation and execution can return <code>Refusal</code>. Check both boundaries before consuming the result. A numerical execution failure can raise an exception; it is not a statistical conclusion about the model.</p>
+<h2 id="run">Run the complete workflow</h2><p>Save the script as a file so the model source can be fingerprinted. Run <code>JAX_ENABLE_X64=1 python five_tasks.py</code>. Each successful stage prints its Result type; the final round trip checks artifact identity.</p><details><summary>Complete runnable script</summary><div class="code-caption">five_tasks.py</div><pre><code class="language-python">&quot;&quot;&quot;Run with JAX_ENABLE_X64=1 python five_tasks.py.&quot;&quot;&quot;
+
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import jax
+import jax.numpy as jnp
+import numpyro.distributions as dist
+
+import bayesmith as bs
+from bayesmith.artifacts import (
+    ArtifactKind,
+    ArtifactRef,
+    ComputeBudget,
+    Estimand,
+    EvidenceResult,
+    EvidenceTask,
+    ParameterSource,
+    ParameterSourceKind,
+    PointEstimateResult,
+    PointEstimateTask,
+    PosteriorResult,
+    PosteriorTask,
+    PredictiveResult,
+    PredictiveTask,
+    Refusal,
+    SimulationResult,
+    SimulationTask,
+    dump_artifact,
+    load_artifact,
+    model_ref_from_callable,
+    new_task_meta,
+)
+
+
+def model(data):
+    level = bs.sample(&quot;level&quot;, lambda: dist.Normal(0.0, 2.0))
+    bs.observe(&quot;signal&quot;, lambda x: dist.Normal(x, 0.5), level, obs=data)
+
+
+def main():
+    graph = bs.trace(model, jnp.array([0.8, 1.0, 1.2]))
+    model_ref = model_ref_from_callable(model, identifier=&quot;level-example&quot;)
+    keys = iter(jax.random.split(jax.random.key(7), 10))
+
+    def run(task, expected, source=None):
+        planned = bs.compile_task(graph, task, model_ref=model_ref, key=next(keys))
+        if isinstance(planned, Refusal):
+            raise SystemExit(planned.failed_premise)
+        result = bs.execute_task(planned, key=next(keys), source_posterior=source)
+        if isinstance(result, Refusal):
+            raise SystemExit(result.failed_premise)
+        assert isinstance(result, expected)
+        print(type(result).__name__)
+        return result
+
+    # 1. Posterior: retain uncertainty about the latent level.
+    posterior = run(
+        PosteriorTask(
+            meta=new_task_meta(label=&quot;level posterior&quot;),
+            budget=ComputeBudget(draws=256),
+        ),
+        PosteriorResult,
+    )
+
+    # 2. Point estimate: ask explicitly for the posterior mean.
+    point = run(
+        PointEstimateTask(
+            meta=new_task_meta(label=&quot;level mean&quot;),
+            estimand=Estimand.POSTERIOR_MEAN,
+        ),
+        PointEstimateResult,
+    )
+    print({array.name: array.value for array in point.values})
+
+    # 3. Predictive: replicate the measurements using this posterior.
+    source_ref = ArtifactRef(
+        artifact_id=posterior.meta.artifact_id,
+        revision=posterior.meta.revision,
+        artifact_type=ArtifactKind.RESULT,
+    )
+    predictive = run(
+        PredictiveTask(
+            meta=new_task_meta(label=&quot;replicate signal&quot;),
+            source_posterior_ref=source_ref,
+            conditioned_sites=(&quot;signal&quot;,),
+            replicated_sites=(&quot;signal&quot;,),
+            latent_sites=(&quot;level&quot;,),
+        ),
+        PredictiveResult,
+        source=posterior,
+    )
+    print(predictive.replicated_draws[0].value.shape)
+
+    # 4. Simulation: sample from the declared prior, then generate data.
+    run(
+        SimulationTask(
+            meta=new_task_meta(label=&quot;prior simulation&quot;),
+            parameter_source=ParameterSource(kind=ParameterSourceKind.PRIOR),
+            latent_sites=(&quot;level&quot;,),
+            observed_sites=(&quot;signal&quot;,),
+            budget=ComputeBudget(draws=32),
+        ),
+        SimulationResult,
+    )
+
+    # 5. Evidence: x64 and a fully normalized linear-Gaussian model.
+    evidence = run(
+        EvidenceTask(meta=new_task_meta(label=&quot;analytic evidence&quot;)), EvidenceResult
+    )
+    print(&quot;log p(data):&quot;, evidence.log_evidence)
+
+    # Store data artifacts, never a live Graph or compiled executable.
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / &quot;posterior.json&quot;
+        dump_artifact(posterior, path)
+        restored = load_artifact(path)
+        assert isinstance(restored, PosteriorResult)
+        assert restored.meta.artifact_id == posterior.meta.artifact_id
+    return graph, model_ref, posterior, predictive, evidence
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre><p><a download href="snippets/five_tasks.py">Download this example</a></p></details>
+<h2 id="relationships">Understand the references</h2><p>A predictive task stores a reference to its source posterior; execution receives the actual posterior separately. <a href="artifacts.html">Results and provenance</a> explains identity checks and reuse.</p><p>The point task requests <code>POSTERIOR_MEAN</code>. Changing it to <code>MAP</code> changes the estimand even when both coincide in this symmetric Gaussian example. The simulation task draws from the prior; it does not reuse the posterior unless you declare that parameter source.</p>
+<h2 id="limits">Supported models</h2><p>These five tasks work on this deliberately simple graph. General posterior sampling has wider support than replicated prediction, and whole-graph analytic evidence has stronger normalization and structure requirements than posterior sampling. A successful Gaussian tutorial does not certify arbitrary graphs.</p><p>Next: <a href="predictive.html">prediction and simulation</a>, or <a href="artifacts.html">results and provenance</a>.</p>
+</article><footer><p>Version 0.9.0 · <a href="project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#questions">Pick the statistical quantity first</a><a href="#run">Run the complete workflow</a><a href="#relationships">Understand the references</a><a href="#limits">Supported models</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

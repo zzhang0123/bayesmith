@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.reduced_basis"><title>bayesmith.exact.reduced_basis · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.reduced_basis</span></nav>
+<article><h1>bayesmith.exact.reduced_basis</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Reduced-basis selection and orthonormalisation.
+
+A reduced basis is a dictionary of directions in the DATA space such that a
+model&#x27;s prediction is well approximated by a combination of them:
+``mu(theta) ~ sum_k c_k(theta) s_k``. The scheme is Field, Galley, Hesthaven,
+Kaye &amp; Tiglio (2014, PRX 4, 031006); the special case ``s_k = d mu / d
+theta_k`` at a fiducial point is MOPED (Heavens, Jimenez &amp; Lahav 2000) and
+score compression (Alsing &amp; Wandelt 2018).
+
+**What is here is the array-level linear algebra and nothing else.** Choosing
+candidate directions from a bank, and turning candidates into a basis. What is
+NOT here, deliberately:
+
+* the **containers** -- a basis object carrying its raw and whitened rows, and
+  a fidelity report. The migration ledger&#x27;s D12 keeps those upstream, because
+  their constructor-time refusals are part of a published exception identity;
+* the **declaration layer** that produces a bank from a parameter space and a
+  pipeline. That is a question about a model&#x27;s own vocabulary, and this
+  package has no opinion about pipelines.
+
+**Selection and basis are different things, and that separation is
+load-bearing.** :func:`select_svd` and :func:`select_greedy` choose
+CANDIDATES; :func:`orthonormalise` turns candidates into a basis. Storing raw
+candidates gives a Gram matrix that no float64 quadratic form survives --
+``c^T G c`` then returns a finite and occasionally negative number rather than
+raising. That is also why :func:`numerical_rank` cuts at ``sqrt(eps)`` and not
+at ``eps``: the quadratic form squares the conditioning, so a set that is
+merely invertible is not usable.
+
+**The metric is the caller&#x27;s, applied before anything here runs.** Every
+routine takes rows already whitened -- multiplied by the likelihood&#x27;s own
+``N^-1/2`` -- so &quot;orthonormal in the metric the likelihood uses&quot; is just
+&quot;orthonormal&quot;, the Gram matrix is the identity and the projector is a matrix
+product. With any other convention the projector is not self-adjoint in the
+likelihood&#x27;s inner product, the truncation residual stops being orthogonal to
+the span, and the score at the truth acquires a term that does not vanish: a
+BIAS, not a loss of sensitivity.
+
+Ported from ``rheplicant.inference.reduced_basis``.</pre></details><div class="symbol-index"><a href="#numerical_rank">numerical_rank</a> <a href="#orthonormal_transform">orthonormal_transform</a> <a href="#orthonormalise">orthonormalise</a> <a href="#select_greedy">select_greedy</a> <a href="#select_svd">select_svd</a></div><section class="api-symbol"><h2 id="numerical_rank">numerical_rank</h2><p class="source-note">Defined in <code>bayesmith.exact.reduced_basis</code>, line 192.</p><pre><code>numerical_rank(whitened_bank: jax.Array) -&gt; int</code></pre><pre class="docstring">Largest ``k`` with ``s_k / s_0 &gt; sqrt(eps)``.
+
+**Not a tuning knob.** Beyond this cut the Gram matrix of the retained set
+is numerically singular in float64, and ``c^T G c`` returns a finite,
+occasionally negative number rather than raising.
+
+``sqrt(eps)`` rather than ``eps`` because the quadratic form SQUARES the
+conditioning: a set that is merely invertible is not usable in one. The
+two answers differ on real inputs -- a direction at ``1e-10`` of the
+leading one is above ``eps`` and below this cut -- and
+``test_the_cut_is_sqrt_eps_and_not_eps`` is constructed to separate them,
+because every other test in that class passes under either.
+
+An empty bank, or one whose leading singular value is zero, is rank zero:
+answered before the ratio rather than by it, since neither has a ratio to
+take.</pre></section><section class="api-symbol"><h2 id="orthonormal_transform">orthonormal_transform</h2><p class="source-note">Defined in <code>bayesmith.exact.reduced_basis</code>, line 121.</p><pre><code>orthonormal_transform(candidates: jax.Array, rtol: float | None=None) -&gt; tuple[jax.Array, tuple[int, ...]]</code></pre><pre class="docstring">``(M, kept)`` with ``M @ candidates`` orthonormal in the rows&#x27; metric.
+
+Modified Gram-Schmidt with **one reorthogonalisation pass**, in numpy,
+because the TRANSFORM is what a caller needs and a QR only hands back the
+result. ``M`` is what lets the same combination be applied to the RAW
+rows: a basis has to be usable by an epoch whose flag pattern differs from
+the reference&#x27;s, and the whitened copy is infinite at exactly the samples
+the reference could not see -- there is no inverse back to unwhitened data
+there, and that is what a zero weight MEANS rather than a limitation.
+
+The second pass is not defensive. On a near-dependent set one pass loses
+orthogonality and two recover it, measured in
+``tests/exact/test_reduced_basis.py`` against a single-pass reference
+computed in that file.
+
+**Order is preserved**, so ``span(row_1..row_j)`` is nested. That is the
+property seeding depends on: a direction placed first survives whatever
+the later candidates do, which is how a science direction three orders
+below the foregrounds is retained by construction rather than by choosing
+the basis size large enough.
+
+Args:
+    candidates: ``(k, n_data)`` rows, **already whitened**.
+    rtol: drop a direction whose residual norm falls below
+        ``rtol * max_row_norm``. Defaults to ``sqrt(eps)``, for the reason
+        :func:`numerical_rank` gives.
+
+Returns:
+    ``(M, kept)``. ``M`` is ``(r, k)`` with ``r &lt;= k``, and ``kept`` names
+    which candidate indices survived. ``r &lt; k`` means the candidate set
+    was rank-deficient -- a fact about the model, which the caller decides
+    what to do about, so it is reported rather than raised.
+
+Raises:
+    StructureError: if ``candidates`` is not two-dimensional.</pre></section><section class="api-symbol"><h2 id="orthonormalise">orthonormalise</h2><p class="source-note">Defined in <code>bayesmith.exact.reduced_basis</code>, line 186.</p><pre><code>orthonormalise(candidates: jax.Array, rtol: float | None=None) -&gt; jax.Array</code></pre><pre class="docstring">The orthonormal rows themselves, when the transform is not needed.</pre></section><section class="api-symbol"><h2 id="select_greedy">select_greedy</h2><p class="source-note">Defined in <code>bayesmith.exact.reduced_basis</code>, line 239.</p><pre><code>select_greedy(whitened_bank: jax.Array, count: int) -&gt; jax.Array</code></pre><pre class="docstring">Greedy EIM-style selection: the worst-represented row, repeatedly.
+
+Returns rows OF THE BANK, in the order chosen -- the selection step of
+Field/Galley/Puerrer and nothing more. Orthonormalising them is a separate
+call, because storing the raw picks is what makes the Gram matrix
+unusable.
+
+Not the same as sorting by norm, and the difference is the point: after
+the first pick, a second row nearly parallel to it is almost entirely
+explained, so greedy takes a smaller ORTHOGONAL row instead. Pinned in
+``test_it_picks_a_SPANNING_set_rather_than_the_largest_rows``.
+
+Stops early when the residual is exhausted -- a rank-``r`` bank yields
+``r`` picks however many are asked for, rather than repeating one.</pre></section><section class="api-symbol"><h2 id="select_svd">select_svd</h2><p class="source-note">Defined in <code>bayesmith.exact.reduced_basis</code>, line 220.</p><pre><code>select_svd(whitened_bank: jax.Array, count: int) -&gt; jax.Array</code></pre><pre class="docstring">The ``count`` leading right singular directions of the bank.
+
+**Candidates, not a basis.** They happen to be orthonormal here, which is
+a property of the SVD rather than of the pipeline; :func:`orthonormalise`
+is still what makes that a claim the code depends on.
+
+Singular values of a bank of prior draws order modes by prior-induced
+AMPLITUDE, which is why a caller with a small signal of interest seeds the
+candidate set with its score direction first and relies on the nesting
+:func:`orthonormal_transform` guarantees.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#numerical_rank">numerical_rank</a><a href="#orthonormal_transform">orthonormal_transform</a><a href="#orthonormalise">orthonormalise</a><a href="#select_greedy">select_greedy</a><a href="#select_svd">select_svd</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

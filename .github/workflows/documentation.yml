@@ -1,0 +1,38 @@
+name: Documentation and lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: astral-sh/setup-uv@v5
+      - name: Install development dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install -e . --group dev
+      - name: Check maintained Python sources
+        run: .venv/bin/ruff check --no-cache src/ tests/ tools/build_docs.py tools/check_distribution.py site/snippets/
+      - name: Check reproducible documentation and links
+        run: .venv/bin/python tools/build_docs.py --check
+      - name: Validate mathematical typesetting
+        run: node tools/check_docs_math.cjs
+      - name: Execute the documented workflows
+        run: |
+          .venv/bin/python site/snippets/first_model.py
+          .venv/bin/python site/snippets/hierarchical_model.py
+          JAX_ENABLE_X64=1 .venv/bin/python site/snippets/five_tasks.py
+          .venv/bin/python site/snippets/nonlinear.py
+          .venv/bin/python site/snippets/cumulant_field.py

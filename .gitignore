@@ -53,3 +53,6 @@ verify*.junit.xml
 # point rather than left reading as complete.
 runs/
 scratchpad/
+
+# Local agent handoffs and installation backups
+/.agent-state/

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.graph.reduction"><title>bayesmith.graph.reduction · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.graph.reduction</span></nav>
+<article><h1>bayesmith.graph.reduction</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Atomically remove an integrated block and attach its evidence density.
+
+There is intentionally no public operation here that performs only one half.
+A caller either receives one :class:`ReducedGraph` whose underlying graph has
+reduced ``nodes`` and whose ``evidence_terms`` carry the replacement density,
+or receives no result at all. Keeping those facts in two fields of one returned
+value is the structural guard against evaluating the data twice.
+
+The wrapper is deliberately NUTS-only. Generic compilation starts by reading
+``latents`` or ``nodes`` and is refused before an exact conditional sampler can
+silently omit the graph-level term.</pre></details><div class="symbol-index"><a href="#ReducedGraph">ReducedGraph</a> <a href="#as_graph">as_graph</a> <a href="#check_evidence_nuts_boundary">check_evidence_nuts_boundary</a> <a href="#reduce_with_evidence">reduce_with_evidence</a></div><section class="api-symbol"><h2 id="ReducedGraph">ReducedGraph</h2><p class="source-note">Defined in <code>bayesmith.graph.reduction</code>, line 26.</p><pre><code>class ReducedGraph(eqx.Module)
+_graph: Graph</code></pre><pre class="docstring">An atomically reduced graph that may only enter evidence-aware scans.
+
+``log_joint`` and the NumPyro bridge unwrap this value explicitly. The
+``nodes`` and ``evidence_terms`` remain inspectable as the two atomic
+products. The ``latents`` query that starts generic dispatch instead raises
+with the safe route, because those consumers do not read ``evidence_terms``.
+
+**The safe list is four, not three, and the fourth is not a new capability.**
+:func:`as_graph` has always been the documented route for &quot;explicitly
+evidence-aware code&quot;; what R5 found was that the refusal&#x27;s own message named
+``log_joint``, ``to_numpyro`` and ``nuts`` and not that, so a caller with
+exactly the consumer the escape hatch exists for was misdirected by it. Five
+of the R5 bake-off&#x27;s twenty-one rows crashed here.
+``compile_evidence_problem`` reads ``graph.latents`` on its first line and
+files every ``evidence_terms`` entry on the likelihood side, so it is the
+consumer this guard is protecting rather than one it should stop -- and the
+protection is real on its side, where a test asserts each term is filed
+exactly once. The guard is therefore left as it stands and the message is
+completed; ``ReducedGraph`` gains no fourth property, because a guard that
+special-cases one caller by name is a guard read by its spelling.</pre><h3 id="ReducedGraph.nodes">ReducedGraph.nodes</h3><pre><code>nodes(self) -&gt; tuple[Any, ...]</code></pre><pre class="docstring">Retained nodes, in their original topological order.</pre><h3 id="ReducedGraph.latents">ReducedGraph.latents</h3><pre><code>latents(self) -&gt; tuple[str, ...]</code></pre><h3 id="ReducedGraph.names">ReducedGraph.names</h3><pre><code>names(self) -&gt; tuple[str, ...]</code></pre><pre class="docstring">Retained node names, in their original topological order.</pre><h3 id="ReducedGraph.evidence_terms">ReducedGraph.evidence_terms</h3><pre><code>evidence_terms(self) -&gt; tuple[Any, ...]</code></pre><pre class="docstring">The evidence declarations atomically attached by reduction.</pre><h3 id="ReducedGraph.as_graph">ReducedGraph.as_graph</h3><pre><code>as_graph(self) -&gt; Graph</code></pre><pre class="docstring">Expose the underlying graph to explicitly evidence-aware code.</pre></section><section class="api-symbol"><h2 id="as_graph">as_graph</h2><p class="source-note">Defined in <code>bayesmith.graph.reduction</code>, line 90.</p><pre><code>as_graph(graph: Graph | ReducedGraph) -&gt; Graph</code></pre><pre class="docstring">Unwrap a reduced graph for an explicitly evidence-aware consumer.</pre></section><section class="api-symbol"><h2 id="check_evidence_nuts_boundary">check_evidence_nuts_boundary</h2><p class="source-note">Defined in <code>bayesmith.graph.reduction</code>, line 109.</p><pre><code>check_evidence_nuts_boundary(graph: Graph, nuts_latents: Iterable[str]) -&gt; None</code></pre><pre class="docstring">Refuse a graph-level likelihood that an exact block would omit.</pre></section><section class="api-symbol"><h2 id="reduce_with_evidence">reduce_with_evidence</h2><p class="source-note">Defined in <code>bayesmith.graph.reduction</code>, line 128.</p><pre><code>reduce_with_evidence(graph: Graph, *, remove_latents: Iterable[str], absorb_observed: Iterable[str], evidence_term: Any, nuts_latents: Iterable[str]) -&gt; ReducedGraph</code></pre><pre class="docstring">Return the reduced graph with its replacement likelihood attached.
+
+``remove_latents`` names the variables integrated out by
+``evidence_term``. ``absorb_observed`` names the data whose likelihood is
+already inside that term. Deterministic descendants of either set are
+removed automatically; a probabilistic descendant must be named in the
+corresponding set, because silently pruning one would integrate a density
+the term did not declare.
+
+``nuts_latents`` is an explicit witness supplied by the plan that will run
+the returned graph. The graph layer cannot import dispatch without
+reversing the package dependency, but it must still refuse a term over a
+non-NUTS block: the exact conditional samplers do not read graph-level
+density terms.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#ReducedGraph">ReducedGraph</a><a href="#as_graph">as_graph</a><a href="#check_evidence_nuts_boundary">check_evidence_nuts_boundary</a><a href="#reduce_with_evidence">reduce_with_evidence</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.bridge.numpyro_bridge"><title>bayesmith.bridge.numpyro_bridge · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.bridge.numpyro_bridge</span></nav>
+<article><h1>bayesmith.bridge.numpyro_bridge</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Turning a graph into a NumPyro model, and running NUTS on it.
+
+This is the last row of the dispatch table: whatever structure bayesmith
+cannot solve exactly is handed to NumPyro. It is also the oracle every exact
+path is checked against, because a graph that qualifies for an exact method
+always also qualifies for NUTS.</pre></details><div class="symbol-index"><a href="#to_numpyro">to_numpyro</a> <a href="#init_to_declared">init_to_declared</a> <a href="#nuts">nuts</a> <a href="#predict">predict</a></div><section class="api-symbol"><h2 id="to_numpyro">to_numpyro</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 40.</p><pre><code>to_numpyro(graph: Graph | ReducedGraph) -&gt; Callable[..., dict[str, Any]]</code></pre><pre class="docstring">Build a NumPyro model that declares the same joint distribution.
+
+Latent and observed nodes become ``numpyro.sample`` sites carrying the
+graph&#x27;s own node names, so posterior samples come back keyed by them.
+Deterministic nodes are recorded with ``numpyro.deterministic`` so they
+appear in traces and predictives without contributing a density.
+
+The model takes ONE optional argument, ``observed``, which is the
+migration&#x27;s stated bridge convention:
+
+==================  ==================================================
+``observed``        what the observed nodes are conditioned on
+==================  ==================================================
+``None`` (default)  each node&#x27;s own declared data -- today&#x27;s behaviour,
+                    so every existing caller reads unchanged
+a mapping           that node&#x27;s entry, or ``None`` for a node the
+                    mapping omits, which UNconditions it
+``{}``              nothing at all: the prior predictive
+==================  ==================================================
+
+**Why the unconditioned mode is worth having, measured.** ``Predictive``
+over a model whose ``obs=`` is baked in returns the observed node&#x27;s DATA,
+identical in every draw -- standard deviation ``0`` across 3000 draws
+against a prediction spread of 0.26. That is correct of NumPyro and is
+not what &quot;posterior predictive&quot; usually means, so the mode that gives the
+other reading has to exist rather than be assumed.</pre></section><section class="api-symbol"><h2 id="init_to_declared">init_to_declared</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 201.</p><pre><code>init_to_declared(graph: Graph | ReducedGraph) -&gt; Any</code></pre><pre class="docstring">A NumPyro init strategy that starts where the graph&#x27;s priors sit.
+
+Pass it as ``nuts(graph, key, nuts_options={&quot;init_strategy&quot;:
+init_to_declared(graph)})``.
+
+**Not a tuning knob.** NumPyro&#x27;s default is ``init_to_uniform``, which
+draws in the UNCONSTRAINED space with no knowledge of where the graph&#x27;s
+priors are; a posterior far narrower than its prior is a needle,
+``init_to_uniform`` lands in the haystack, and warmup then adapts a step
+size for wherever it landed. Measured on a power law whose amplitude has a
+prior of 1e4 and a posterior width of 0.4, two chains of 400:
+
+==============================================  ======  ======
+init                                            r_hat   ESS
+==============================================  ======  ======
+default (``init_to_uniform``)                    1609     1.0
+the declared values                              1.006  138.6
+==============================================  ======  ======
+
+``nuts``&#x27;s own docstring already recorded that measurement and named the
+remedy; what was missing was the remedy itself, spelled once. Written by
+hand, &quot;the declared values&quot; is a second statement of the prior centres,
+and the whole reason
+:func:`~bayesmith.dispatch.classify.prior_environment` is public is that a
+second spelling of that point lets the sampler start somewhere the
+classifier never looked.
+
+The declared point does not have to be GOOD -- only somewhere a gradient
+can be followed.</pre></section><section class="api-symbol"><h2 id="nuts">nuts</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 241.</p><pre><code>nuts(graph: Graph | ReducedGraph, key: jax.Array, *, num_warmup: int=1000, num_samples: int=2000, num_chains: int=1, chain_method: str=&#x27;sequential&#x27;, progress_bar: bool=False, nuts_options: Mapping[str, Any] | None=None, _control: Any=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Sample the posterior of ``graph`` with NUTS.
+
+``chain_method`` and ``nuts_options`` are here because
+:meth:`~bayesmith.dispatch.plan.InferencePlan.sample` promises them on
+every path, and two of its five shapes -- the graph with no exact block,
+and the SNIS collapse -- run through this function. Until they existed
+those two shapes silently ignored both keywords while the mixed shape,
+which reaches ``HMCGibbs`` through
+:func:`~bayesmith.exact.gibbs.assemble`, honoured them. The names and the
+defaults are ``assemble``&#x27;s, so the two spellings of &quot;run a chain&quot; take
+the same words.
+
+Args:
+    graph: the model.
+    key: a PRNG key.
+    num_warmup: adaptation draws, discarded.
+    num_samples: retained draws per chain.
+    num_chains: independent chains.
+    chain_method: how ``num_chains`` are run -- ``&quot;sequential&quot;``,
+        ``&quot;parallel&quot;`` or ``&quot;vectorized&quot;``. All three are numpyro&#x27;s own
+        and all three are legal here; ``assemble`` refuses
+        ``&quot;vectorized&quot;`` for a Gibbs sweep, but that refusal is about
+        ``HMCGibbs.init`` and does not apply to a bare kernel.
+    progress_bar: whether NumPyro prints progress.
+    nuts_options: keywords for the ``NUTS`` kernel itself
+        (``target_accept_prob``, ``max_tree_depth``, ``dense_mass``, ...).
+
+        **``init_strategy`` goes here, and on a narrow posterior it is
+        not a tuning knob.** NumPyro&#x27;s default is ``init_to_uniform``,
+        which draws in the UNCONSTRAINED space with no knowledge of
+        where the graph&#x27;s priors sit; a posterior far narrower than its
+        prior is a needle, and warmup then adapts a step size for
+        wherever it landed in the haystack. Measured on a power law
+        whose amplitude has a prior of 1e4 and a posterior width of
+        0.4, two chains of 400:
+
+        ==============================================  ======  ======
+        init                                            r_hat   ESS
+        ==============================================  ======  ======
+        default (``init_to_uniform``)                    1609     1.0
+        ``init_to_value`` at the declared values          1.006  138.6
+        ==============================================  ======  ======
+
+        The declared point does not have to be good -- only somewhere a
+        gradient can be followed. This is rheplicant&#x27;s
+        ``init_to_declared`` lesson, and the lesson is what was carried:
+        the remedy already exists here as a keyword, so what was missing
+        was the sentence saying so.
+
+Returns:
+    A mapping from latent node name to its draws.</pre></section><section class="api-symbol"><h2 id="predict">predict</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 320.</p><pre><code>predict(graph: Graph | ReducedGraph, samples: Mapping[str, Any], key: jax.Array | None=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Posterior predictive: every node&#x27;s value over a stack of draws.
+
+Args:
+    graph: the model the draws came from.
+    samples: ``{latent name: (n_draws, *latent shape)}`` -- what
+        :func:`nuts` returns, unchanged.
+    key: PRNG key for any node the draws do not fix. Fixed by default,
+        so a predictive is reproducible.
+
+Returns:
+    ``{node name: (n_draws, *node shape)}``, deterministic nodes
+    included. **An OBSERVED node comes back as its data**, identical in
+    every draw, because the model is conditioned on it -- measured, a
+    standard deviation of ``0`` across 3000 draws against a prediction
+    spread of 0.26. For the noiseless prediction over the same draws use
+    :func:`~bayesmith.exact.fisher.push_forward`; for a genuine
+    predictive, call this graph&#x27;s model with ``observed={}`` so the
+    observed sites are drawn rather than conditioned.
+
+Raises:
+    GraphError: if a latent is missing from ``samples``; if a stack&#x27;s
+        PER-SAMPLE shape is not the latent&#x27;s own; or if the stacks
+        disagree about how many draws there are.
+
+Note:
+    **Why the per-sample shape is checked and not just the name.** This
+    is rheplicant&#x27;s ``predict_from_samples`` guard, ported because the
+    failure it prevents is reachable here and is silent. Measured on a
+    length-3 latent with three draws: handing the stack in TRANSPOSED
+    returns a finite, correctly-shaped ``(3, 3)`` predictive whose every
+    entry is wrong --
+
+        correct     [[0, 2, 6], [3, 8, 15], [6, 14, 24]]
+        transposed  [[0, 6, 18], [1, 8, 21], [2, 10, 24]]
+
+    -- because NumPyro&#x27;s ``Predictive`` maps over the leading axis and
+    has no independent statement of what the latent&#x27;s shape is. The
+    graph does have one: each latent&#x27;s ``dist_fn``. A non-square
+    transposition raises a broadcast error from three layers down that
+    names neither the site nor the axis; a square one raises nothing at
+    all.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#to_numpyro">to_numpyro</a><a href="#init_to_declared">init_to_declared</a><a href="#nuts">nuts</a><a href="#predict">predict</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

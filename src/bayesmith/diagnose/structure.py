@@ -131,17 +131,22 @@ def _combined(states, *, degree=None, unsupported=()):
 def _walk(jaxpr, inputs, constants=None):
     """Follow only the primal ancestors of outputs, including inside JIT."""
     env = dict(zip(jaxpr.invars, inputs, strict=True))
-    if constants is None:
-        env.update((var, _Dependence()) for var in jaxpr.constvars)
-    else:
-        env.update((var, _Dependence(zero=bool(np.all(np.asarray(value) == 0))))
-                   for var, value in zip(jaxpr.constvars, constants, strict=True))
     needed = {var for var in jaxpr.outvars if isinstance(var, core.Var)}
     live = []
     for equation in reversed(jaxpr.eqns):
         if any(var in needed for var in equation.outvars):
             live.append(equation)
             needed.update(var for var in equation.invars if isinstance(var, core.Var))
+
+    if constants is None:
+        env.update((var, _Dependence()) for var in jaxpr.constvars if var in needed)
+    else:
+        # Dead constants are not part of the proof. In particular, instrument
+        # state can retain an unused typed PRNG key, which cannot be converted
+        # to NumPy and says nothing about the live prediction's affinity.
+        env.update((var, _Dependence(zero=bool(np.all(np.asarray(value) == 0))))
+                   for var, value in zip(jaxpr.constvars, constants, strict=True)
+                   if var in needed)
 
     def read(var):
         return (_Dependence(zero=bool(np.all(np.asarray(var.val) == 0)))

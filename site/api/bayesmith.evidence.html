@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.evidence"><title>bayesmith.evidence · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.evidence</span></nav>
+<article><h1>bayesmith.evidence</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><div class="warning"><p>Deprecated compatibility namespace. Use bayesmith.marginal. This namespace must not be reused for graph-level EvidenceTask semantics.</p></div><details><summary>Module contract</summary><pre class="docstring">Deprecated alias for :mod:`bayesmith.marginal`. Retires at 1.0.
+
+This subpackage was called ``evidence`` through 0.4.0. The name claimed
+something the package does not do: the Bayesian evidence is
+``p(d) = INT p(theta) PROD_i L_i(theta) d theta``, a number obtained by
+integrating the parameters OUT, and nothing here computes or consumes one.
+The package computes it elsewhere: an ``EvidenceTask`` answered by
+:mod:`bayesmith.dispatch.evidence` for a graph that is one exact
+linear-Gaussian block, and compared across two results by
+:mod:`bayesmith.evaluation.evidence`. What the modules under here actually
+build is each dataset&#x27;s MARGINAL LIKELIHOOD
+``L_i(theta)``, with its own nuisances integrated away: a function of the
+parameters, not a number. Hence ``marginal``.
+
+The rename is not cosmetic bookkeeping. ``evidence`` is a word this package
+uses correctly in fifteen other places, in its ordinary English sense of
+&quot;the grounds for a verdict&quot; -- including in ``errors.py``, which is the only
+eagerly imported module and so the first bayesmith prose a user reads. A
+subpackage holding the term made every one of those ambiguous, and no
+disclaimer written inside the subpackage can reach the prose outside it.
+
+**Everything still works through this path**, including deep imports::
+
+    from bayesmith.evidence import SqrtInfo          # fine, warns
+    from bayesmith.evidence.compress import compress # fine, warns
+    import bayesmith.evidence.chain                  # fine, warns
+
+Deep imports are aliased through ``sys.modules`` rather than left to a
+module-level ``__getattr__``, because a ``__getattr__`` shim does NOT support
+them -- ``from pkg.old.kernel import helper`` raises ``ModuleNotFoundError``
+against one. That distinction is load-bearing here: of the seventeen names
+0.4.0 published from this subpackage, the intersection with bayesmith&#x27;s
+top-level ``__all__`` was EMPTY, so every one of them was reachable only by
+the deep path this file has to keep working.</pre></details><div class="symbol-index"><a href="#SqrtInfo">SqrtInfo</a> <a href="#marginalise">marginalise</a> <a href="#marginalise_arrays">marginalise_arrays</a> <a href="#compress">compress</a> <a href="#compress_epoch">compress_epoch</a> <a href="#epoch_joint">epoch_joint</a> <a href="#nuisance_prior">nuisance_prior</a> <a href="#observed_mask">observed_mask</a> <a href="#Factorization">Factorization</a> <a href="#factorize">factorize</a> <a href="#epoch_leakage">epoch_leakage</a> <a href="#compress_campaign">compress_campaign</a> <a href="#epoch_terms">epoch_terms</a> <a href="#epoch_observation">epoch_observation</a> <a href="#coherent_mode">coherent_mode</a> <a href="#epoch_chi_square">epoch_chi_square</a> <a href="#refuse_undeclared_coherent_error">refuse_undeclared_coherent_error</a> <a href="#ResidualSummary">ResidualSummary</a> <a href="#residual_summary">residual_summary</a> <a href="#epoch_residuals">epoch_residuals</a> <a href="#refuse_mixed_templates">refuse_mixed_templates</a> <a href="#template_modes">template_modes</a> <a href="#held_out_z">held_out_z</a> <a href="#shrinkage_power">shrinkage_power</a> <a href="#shrinkage_report">shrinkage_report</a> <a href="#systematic_floor">systematic_floor</a> <a href="#tightest_direction">tightest_direction</a></div><section class="api-symbol"><h2 id="SqrtInfo">SqrtInfo</h2><p class="source-note">Defined in <code>bayesmith.marginal.sqrtinfo</code>, line 56.</p><pre><code>class SqrtInfo(eqx.Module)
+factor: jax.Array
+target: jax.Array
+offset: jax.Array
+names: tuple[str, ...] = eqx.field(static=True)
+shapes: tuple[tuple[int, ...], ...] = eqx.field(static=True)</code></pre><pre class="docstring">``log L(x) = -0.5 ||R x - z||^2 + offset`` over a flat, named vector.
+
+Attributes:
+    factor: ``(r, n)`` array ``R``. ``r &lt; n`` means the term constrains
+        only an ``r``-dimensional subspace -- the normal case for a single
+        epoch, not an error.
+    target: ``(r,)`` array ``z``.
+    offset: scalar; every part of the log-density that does not depend on
+        the latents -- the residual chi-square about the storage origin
+        and the (masked) Gaussian normalisation.
+    names: the latents this term is over, in the order they are ravelled.
+    shapes: each latent&#x27;s shape, in the same order. ``()`` for a scalar.</pre><h3 id="SqrtInfo.width">SqrtInfo.width</h3><pre><code>width(self) -&gt; int</code></pre><pre class="docstring">Number of columns the named latents ravel to.</pre><h3 id="SqrtInfo.ravel">SqrtInfo.ravel</h3><pre><code>ravel(self, values: dict[str, Any]) -&gt; jax.Array</code></pre><pre class="docstring">Flatten ``{name: array}`` into this term&#x27;s column order.</pre><h3 id="SqrtInfo.log_prob">SqrtInfo.log_prob</h3><pre><code>log_prob(self, values: dict[str, Any]) -&gt; jax.Array</code></pre><pre class="docstring">The log-density this term encodes, at the given latent values.</pre><h3 id="SqrtInfo.information">SqrtInfo.information</h3><pre><code>information(self) -&gt; jax.Array</code></pre><pre class="docstring">``F = R^T R`` -- the information this term carries.
+
+May legitimately be singular: one epoch usually constrains only a
+subspace, and only the campaign total plus the prior need be positive
+definite. Named ``information`` rather than ``fisher`` because it is
+the observed information of a stored term, not a Fisher matrix of a
+model -- ``exact/fisher.py`` owns that word here.</pre><h3 id="SqrtInfo.null">SqrtInfo.null</h3><pre><code>null(cls, names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; SqrtInfo</code></pre><pre class="docstring">A term that says nothing -- the identity of :meth:`combine`.
+
+Square rather than zero-row so an accumulator&#x27;s pytree keeps a fixed
+treedef across a whole campaign, which is what stops ``jit`` retracing
+once per epoch.</pre><h3 id="SqrtInfo.combine">SqrtInfo.combine</h3><pre><code>combine(cls, first: SqrtInfo, second: SqrtInfo) -&gt; SqrtInfo</code></pre><pre class="docstring">The term whose log-density is the sum of the two given ones.
+
+Stack the augmented factors and re-triangularise. Writing
+``y = [x; -1]`` so that ``[R | z] y = R x - z``, the stacked product
+has the same norm as its triangular factor because ``Q`` has
+orthonormal columns::
+
+    ||R_a x - z_a||^2 + ||R_b x - z_b||^2 = ||R_tot x - z_tot||^2 + rho^2
+
+``rho`` is the corner of the triangular factor -- the part of the two
+residuals that no single quadratic form in ``x`` can express. It is a
+constant, so it belongs in the offset; dropping it leaves every
+combined term wrong by an amount that grows with the campaign and is
+invisible in the posterior&#x27;s SHAPE, which is why the tests here
+compare absolute log-densities.</pre></section><section class="api-symbol"><h2 id="marginalise">marginalise</h2><p class="source-note">Defined in <code>bayesmith.marginal.sqrtinfo</code>, line 290.</p><pre><code>marginalise(info: SqrtInfo, block: Sequence[str]) -&gt; SqrtInfo</code></pre><pre class="docstring">Integrate named latents out of a square-root information form, exactly.
+
+Permute the block&#x27;s columns first, re-triangularise, and drop the leading
+rows and columns. That drop **is** the Schur complement, and the Gaussian
+integral over the block contributes exactly
+
+``+ (n_block/2) log(2 pi)  -  sum log|R_bb,ii|  -  0.5 rho^2``
+
+and nothing else. In particular it does **not** contribute the block&#x27;s own
+prior normalisation: whoever appended the prior rows owns
+``-sum(log(std)) - (n/2) log(2 pi)``, and the two ``2 pi`` halves cancel
+while ``sum(log(std))`` has nothing to cancel against. rheplicant shipped
+that second term missing once -- 1.07 nats for three nuisances at
+``std=0.7``, 27.47 for twenty-five at ``std=3``, and **exactly zero at**
+``std=1``, which is how a probe built on unit priors passed. A constant is
+invisible in a posterior&#x27;s shape, so the tests here compare ABSOLUTE
+log-densities and use a non-unit prior.
+
+Marginalising **every** name is legal and returns a zero-width term whose
+``log_prob({})`` is the marginal likelihood; marginalising **nothing** is
+likewise legal and is the identity on the log-density.
+
+Args:
+    info: the joint form, prior rows already appended by the caller.
+    block: which names to integrate out.
+
+Returns:
+    A term over ``info``&#x27;s remaining names, in their original relative
+    order, whose log-density is the integral of ``info``&#x27;s over ``block``.
+
+Raises:
+    StructureError: if a name is repeated or not in ``info``; if the
+        re-triangularisation is not finite; or if the block is not
+        constrained -- an unconstrained direction makes the integral
+        divergent, and finite arithmetic returns a large plausible number
+        for it rather than an infinity anyone would notice.</pre></section><section class="api-symbol"><h2 id="marginalise_arrays">marginalise_arrays</h2><p class="source-note">Defined in <code>bayesmith.marginal.sqrtinfo</code>, line 230.</p><pre><code>marginalise_arrays(factor: jax.Array, target: jax.Array, offset: jax.Array, n_block: int) -&gt; tuple[jax.Array, jax.Array, jax.Array, jax.Array]</code></pre><pre class="docstring">The Schur complement in square-root form, with no Python control flow.
+
+The block is the **leading** ``n_block`` columns; permuting is the
+caller&#x27;s job, because a caller that already knows its layout should not
+pay for a name lookup once per epoch inside a ``lax.scan``.
+
+This exists because :func:`marginalise` cannot be traced: it concretises
+twice, for the pivot scale and for the dtype&#x27;s floor. A filter that
+evaluates this arithmetic inside a likelihood -- under ``scan``, and
+DIFFERENTIATED with respect to a transition&#x27;s own parameters -- needs the
+half that traces. ``grad`` is the half that matters: a correlation time
+inferred rather than pinned is differentiated on every leapfrog step.
+
+**The refusal is not weakened, it is moved -- and this function cannot
+make it.** What :func:`marginalise` catches is a block that does not
+constrain itself, which makes the integral divergent. Under a trace that
+judgement is unavailable: it needs a comparison against a value, and there
+is no value. What this hands back instead is the evidence -- ``pivots``,
+as data -- so an eager caller can judge them and a traced one can carry
+them out.
+
+Args:
+    factor: ``(r, n)`` array ``R``, block columns first.
+    target: ``(r,)`` array ``z``.
+    offset: scalar; the constant this term already carries.
+    n_block: how many leading columns to integrate out. ``0`` is legal and
+        is the identity on the density -- the re-triangularisation folds
+        any excess rows into the corner and the offset absorbs it.
+
+Returns:
+    ``(factor, target, offset, pivots)`` -- the retained form, the offset
+    with the Gaussian integral&#x27;s constant folded in, and ``|diag(R)|`` of
+    the re-triangularisation so a checked caller can test it.</pre></section><section class="api-symbol"><h2 id="compress">compress</h2><p class="source-note">Defined in <code>bayesmith.marginal.compress</code>, line 67.</p><pre><code>compress(design: Mapping[str, jax.Array], data: jax.Array, precision: Any, shapes: Mapping[str, tuple[int, ...]], *, offset_prediction: jax.Array | None=None) -&gt; SqrtInfo</code></pre><pre class="docstring">One epoch&#x27;s likelihood as a sufficient statistic over the named latents.
+
+Args:
+    design: ``{latent: (n_data, n_i)}`` blocks. **Column order follows
+        this mapping&#x27;s iteration order**, which becomes the term&#x27;s latent
+        order -- the same convention rheplicant&#x27;s compressor uses, and the
+        one :meth:`~bayesmith.marginal.sqrtinfo.SqrtInfo.combine` needs
+        two terms to agree on.
+    data: ``(n_data,)`` this epoch&#x27;s observations.
+    precision: the epoch&#x27;s ``N^-1``, from
+        :func:`~bayesmith.exact.gaussian.precision_at` or built directly.
+    shapes: ``{latent: shape}``, so the term can ravel a value dict back.
+    offset_prediction: the part of the prediction that does not depend on
+        the latents, subtracted from ``data`` before whitening. ``None``
+        means zero.
+
+Returns:
+    A :class:`~bayesmith.marginal.sqrtinfo.SqrtInfo` whose ``log_prob``
+    is this epoch&#x27;s exact Gaussian log-likelihood -- **normalisation
+    included**, because that constant is what a campaign&#x27;s evidence is
+    made of and dropping it is invisible in every posterior.
+
+Raises:
+    StructureError: if a design block&#x27;s rows do not match the data; if a
+        block&#x27;s columns do not match its declared shape; or if the
+        covariance is correlated AND reports an unobserved sample, which
+        has no exact meaning -- the observed submatrix of a stationary
+        covariance is not stationary.</pre></section><section class="api-symbol"><h2 id="compress_epoch">compress_epoch</h2><p class="source-note">Defined in <code>bayesmith.marginal.compress</code>, line 318.</p><pre><code>compress_epoch(global_design: Mapping[str, jax.Array], data: jax.Array, precision: Any, global_shapes: Mapping[str, tuple[int, ...]], *, nuisance_design: Mapping[str, jax.Array] | None=None, nuisance_shapes: Mapping[str, tuple[int, ...]] | None=None, nuisance_prior_std: Mapping[str, Any] | None=None, nuisance_prior_mean: Mapping[str, Any] | None=None, offset_prediction: jax.Array | None=None) -&gt; SqrtInfo</code></pre><pre class="docstring">One epoch, with its own nuisances integrated out, over the globals.
+
+The streaming analysis in one call: compress the epoch over BOTH sets,
+append the nuisances&#x27; prior rows, and marginalise them. What comes back is
+a term over the globals alone, and folding those across a campaign is
+:meth:`~bayesmith.marginal.sqrtinfo.SqrtInfo.combine`.
+
+**The prior rows go in before the marginalisation, not after**, and that
+is not a convenience. A per-epoch nuisance is integrated exactly once, so
+a prior that arrives later has nowhere to be applied -- and without one
+the block need not constrain itself, which makes the integral divergent.
+:func:`~bayesmith.marginal.sqrtinfo.marginalise` refuses that case rather
+than returning the large plausible number finite arithmetic would give.
+
+Args:
+    global_design: ``{latent: (n_data, n_i)}`` for the latents that
+        SURVIVE the epoch.
+    data: ``(n_data,)`` this epoch&#x27;s observations.
+    precision: the epoch&#x27;s ``N^-1``.
+    global_shapes: ``{latent: shape}`` for the survivors.
+    nuisance_design: ``{latent: (n_data, n_i)}`` for the latents
+        integrated away inside the epoch. ``None`` means there are none,
+        and this reduces to :func:`compress`.
+    nuisance_shapes, nuisance_prior_std, nuisance_prior_mean: the
+        nuisances&#x27; shapes, prior widths and prior centres.
+        ``nuisance_prior_mean`` defaults to zero.
+    offset_prediction: as for :func:`compress`.
+
+Returns:
+    A term over ``global_design``&#x27;s latents whose ``log_prob`` is the
+    epoch&#x27;s marginal log-likelihood -- exactly
+    ``log N(d | A_g x_g + A_n m_n + c, N + A_n S_n A_n^T)``, which is the
+    independent formula the tests compare against.
+
+Raises:
+    StructureError: from :func:`compress` or from
+        :func:`~bayesmith.marginal.sqrtinfo.marginalise`; and if
+        nuisances are named without a prior, which the marginalisation
+        has no way to make convergent.</pre></section><section class="api-symbol"><h2 id="epoch_joint">epoch_joint</h2><p class="source-note">Defined in <code>bayesmith.marginal.compress</code>, line 268.</p><pre><code>epoch_joint(global_design: Mapping[str, jax.Array], data: jax.Array, precision: Any, global_shapes: Mapping[str, tuple[int, ...]], *, nuisance_design: Mapping[str, jax.Array] | None=None, nuisance_shapes: Mapping[str, tuple[int, ...]] | None=None, nuisance_prior_std: Mapping[str, Any] | None=None, nuisance_prior_mean: Mapping[str, Any] | None=None, offset_prediction: jax.Array | None=None) -&gt; tuple[SqrtInfo, tuple[str, ...]]</code></pre><pre class="docstring">The epoch&#x27;s term over BOTH sets, prior rows appended -- before integrating.
+
+Split out of :func:`compress_epoch` so the assembly exists once and the
+two marginalisers can both use it. ``compress_epoch`` passes the result
+to :func:`~bayesmith.marginal.sqrtinfo.marginalise`, which checks and
+cannot be traced; a campaign passes it to
+:func:`~bayesmith.marginal.sqrtinfo.marginalise_arrays`, which traces and
+hands back ``pivots`` for the caller to check on every epoch at once.
+The same split as ``marginalise``/``marginalise_arrays`` one level down,
+and for the same reason.
+
+**The nuisances are the LEADING columns**, which is what lets a traced
+caller skip the name permutation entirely.
+
+Returns:
+    ``(joint term, nuisance names)``.</pre></section><section class="api-symbol"><h2 id="nuisance_prior">nuisance_prior</h2><p class="source-note">Defined in <code>bayesmith.marginal.compress</code>, line 203.</p><pre><code>nuisance_prior(names: tuple[str, ...], shapes: Mapping[str, tuple[int, ...]], prior_std: Mapping[str, Any], prior_mean: Mapping[str, Any] | None, over: tuple[str, ...], over_shapes: Mapping[str, tuple[int, ...]]) -&gt; SqrtInfo</code></pre><pre class="docstring">``N(x_n | m_n, S_n)`` as a ``[R | z]`` term over the FULL column set.
+
+Rows ``I/std`` in the nuisance columns, zero everywhere else, target
+``m_n/std``, and the offset the prior&#x27;s own normalisation:
+``-sum(log std) - (n/2) log 2 pi``.
+
+**That offset is the caller&#x27;s, and this is the caller.**
+:func:`~bayesmith.marginal.sqrtinfo.marginalise` contributes
+``+(n/2) log 2 pi - sum log|R_bb,ii| - 1/2 rho^2`` and deliberately not
+the prior&#x27;s normalisation -- the two ``2 pi`` halves cancel and
+``sum(log std)`` has nothing to cancel against, which is how rheplicant
+shipped it missing and why a unit-prior fixture could not see it.
+
+Emitted over the full column set rather than over the nuisances alone so
+it can be :meth:`~bayesmith.marginal.sqrtinfo.SqrtInfo.combine`d with the
+epoch&#x27;s own term, which is what puts the prior rows in BEFORE the
+marginalisation rather than after.</pre></section><section class="api-symbol"><h2 id="observed_mask">observed_mask</h2><p class="source-note">Defined in <code>bayesmith.marginal.compress</code>, line 49.</p><pre><code>observed_mask(precision: Any) -&gt; jax.Array | None</code></pre><pre class="docstring">Which samples this covariance says were taken, or ``None``.
+
+``None`` when the question does not apply -- a covariance with no
+per-sample sigma has no per-sample &quot;was this taken&quot;, and
+:func:`compress` refuses to guess one. Otherwise a boolean array, ``True``
+where ``sigma`` is finite.
+
+Reads through :func:`~bayesmith.exact.precision.per_sample_sigma`, which
+is the one place in the package that asks which implementation a
+``Precision`` is, rather than adding a second.</pre></section><section class="api-symbol"><h2 id="Factorization">Factorization</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 86.</p><pre><code>class Factorization(eqx.Module)
+epoch_plate: str = eqx.field(static=True)
+survivors: tuple[str, ...] = eqx.field(static=True)
+per_epoch: tuple[str, ...] = eqx.field(static=True)</code></pre><pre class="docstring">A campaign&#x27;s latents, split by the extent of data they are constant over.
+
+Attributes:
+    epoch_plate: the plate whose axis indexes epochs.
+    survivors: latents outside that plate -- constant over the whole
+        campaign, so they are what a streamed term is over.
+    per_epoch: latents inside it -- integrated away within their own
+        epoch, and therefore never accumulated.</pre></section><section class="api-symbol"><h2 id="factorize">factorize</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 184.</p><pre><code>factorize(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, rtol: float=LEAK_RTOL) -&gt; Factorization</code></pre><pre class="docstring">Derive the campaign&#x27;s factorization from the graph, and check it.
+
+Plate membership gives the partition; :func:`epoch_leakage` and
+:func:`~bayesmith.exact.linearity.check_linearity` decide whether it is
+TRUE. Both are refusals rather than diagnostics, for measured reasons:
+
+* a per-epoch latent that reaches its neighbours&#x27; data would be integrated
+  once per epoch instead of once, and the wrong answer is finite and
+  plausible;
+* a map that is not affine in the survivors and per-epoch latents JOINTLY
+  makes the fold&#x27;s design -- one jacobian, taken at zeros -- describe the
+  point rather than the model. Measured on `mu = g * n`: the jacobian
+  at zeros is identically zero, so the leakage probe read 0.0 and the
+  folded term was a finite constant independent of the data.
+
+Affinity is checked BEFORE leakage, because the leakage score is one of
+those jacobians at one point -- on a non-affine map it is meaningless.
+
+Args:
+    graph: the model.
+    epoch_plate: the plate whose axis indexes epochs.
+    at: values for the latents this check holds fixed. Defaults to zeros,
+        which is enough because the leakage of an affine model does not
+        depend on the point -- and a model that is not affine in its
+        per-epoch latents cannot be folded at all.
+    rtol: relative leakage above which a latent is refused.
+
+Raises:
+    StructureError: if the plate is not in the graph; if no latent
+        survives the epoch, which would leave nothing to accumulate; if
+        the observed predictions are not jointly affine in the survivors
+        and per-epoch latents; or if a per-epoch latent is not
+        epoch-local.</pre></section><section class="api-symbol"><h2 id="epoch_leakage">epoch_leakage</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 102.</p><pre><code>epoch_leakage(graph: Graph, name: str, epoch_plate: str, at: dict[str, Any]) -&gt; float</code></pre><pre class="docstring">How far outside its own epoch a per-epoch latent reaches, relatively.
+
+``0.0`` means the latent touches only its own epoch&#x27;s observations, which
+is what makes integrating it once per epoch the same as integrating it
+once. Anything else means it does not.
+
+The measurement is one forward-mode jacobian of the observed predictions
+with respect to the latent -- the same map :func:`compress` will build a
+design from -- so it asks about the model the fold will actually see,
+not about a declaration.
+
+Returns:
+    ``max |off-epoch| / max |any|`` over every observed node, or ``0.0``
+    if the latent moves nothing at all. Relative to the latent&#x27;s OWN
+    largest sensitivity, so a latent the model barely uses is judged on
+    the same scale as one it leans on -- an absolute floor would wave
+    through a leak in a weakly-used nuisance and refuse a well-used one
+    for roundoff.</pre></section><section class="api-symbol"><h2 id="compress_campaign">compress_campaign</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 273.</p><pre><code>compress_campaign(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None) -&gt; SqrtInfo</code></pre><pre class="docstring">Fold every epoch into one term over the survivors.
+
+Holds one epoch&#x27;s term at a time, which is the point of the exercise: the
+raw data and the forward evaluation are gone by the end, and what remains
+is a sufficient statistic whose size does not grow with the campaign.</pre></section><section class="api-symbol"><h2 id="epoch_terms">epoch_terms</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 47.</p><pre><code>epoch_terms(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None, stacked_only: bool=False) -&gt; list[SqrtInfo]</code></pre><pre class="docstring">One ``[R | z]`` term per epoch, over the survivors.
+
+Each epoch&#x27;s own per-epoch latents are integrated out inside it, at the
+prior the graph declares for them -- so what comes back is a list of terms
+all over the same latents, ready to fold.
+
+Args:
+    graph: the model. Exactly one observed node, plated on ``epoch_plate``.
+    epoch_plate: the plate whose axis indexes epochs.
+    at: values for latents this holds fixed. Defaults to zeros, which is
+        what an affine model&#x27;s design does not depend on.
+    factorization: a partition already derived and checked. ``None``
+        derives one, **including the leakage check** -- pass one only if
+        you have already run that.
+    stacked_only: return the terms as STACKED arrays rather than a list,
+        so :func:`compress_campaign` can fold them under ``lax.scan``
+        instead of unpacking E of them only to re-stack. Internal; the
+        list is the shape a caller wants.
+
+Raises:
+    StructureError: from :func:`factorize`; or if the graph does not have
+        exactly one observed node plated on ``epoch_plate``, which is what
+        makes &quot;one epoch&#x27;s data&quot; a thing that can be sliced.</pre></section><section class="api-symbol"><h2 id="epoch_observation">epoch_observation</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 296.</p><pre><code>epoch_observation(graph: Graph, epoch_plate: str) -&gt; str</code></pre><pre class="docstring">The one observed node whose data IS this plate&#x27;s epochs, or a refusal.
+
+PUBLIC because a caller deciding *whether* to fold needs the same
+structural verdict the fold itself makes, and cannot get it from
+``factorize`` alone -- see
+:func:`~bayesmith.dispatch.streaming.streaming_route`, which was the
+package&#x27;s only cross-module private import until this name lost its
+underscore.</pre></section><section class="api-symbol"><h2 id="coherent_mode">coherent_mode</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 68.</p><pre><code>coherent_mode(terms: Sequence[SqrtInfo], values: Mapping[str, Any]) -&gt; dict[str, float]</code></pre><pre class="docstring">Is there a fault common to every epoch? -- the detectable half.
+
+A common mode contributes no variance, so it is invisible to split-half,
+to leave-one-out and to the posterior width. What it moves is the MEAN of
+the per-epoch residual, and a mean over ``N`` epochs is resolved at
+``sqrt(N)`` -- which is why this reports a z-score rather than a
+magnitude.
+
+``scatter`` is reported beside the mean and is the part to read second: a
+mean-level fault leaves it near 1, while an under-estimated noise model
+raises both together. The two failing differently is what tells them
+apart.
+
+**Not the same statistic as :func:`template_modes`, and the pair is worth
+reading together** (ledger D45). This one evaluates ``||R x - z||^2`` at a
+point YOU choose and can be re-asked at any value of the survivors; that
+one reads what was recorded when the raw data still existed -- the
+residual left after each epoch&#x27;s own best fit, which no later call can
+recompute -- and it carries the named template projections this one has
+no way to know about. They coincide only at the per-epoch minimiser, which
+is not the point a campaign evaluates at. This one also reads its dof off
+the FIRST term&#x27;s row count, so a campaign whose epochs differ in flagging
+wants ``template_modes``, which sums each epoch&#x27;s own.
+
+Args:
+    terms: the campaign&#x27;s stored per-epoch terms.
+    values: the point to evaluate the residual at -- normally the
+        campaign&#x27;s own posterior mean.
+
+Returns:
+    ``{&quot;n_epochs&quot;, &quot;chi2_mean&quot;, &quot;chi2_dof&quot;, &quot;chi2_z&quot;, &quot;scatter&quot;}``.
+
+Raises:
+    StructureError: if the campaign is empty, or if the epochs do not
+        agree about which latents they are over -- a mean over terms that
+        describe different parameters is not a mean of anything.</pre></section><section class="api-symbol"><h2 id="epoch_chi_square">epoch_chi_square</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 45.</p><pre><code>epoch_chi_square(terms: Sequence[SqrtInfo], values: Mapping[str, Any]) -&gt; np.ndarray</code></pre><pre class="docstring">``||R x - z||^2`` per epoch, at one point over the survivors.
+
+The residual each stored term still carries -- computed from the term
+alone, which is what makes it available a thousand epochs after the data
+was discarded.</pre></section><section class="api-symbol"><h2 id="refuse_undeclared_coherent_error">refuse_undeclared_coherent_error</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 142.</p><pre><code>refuse_undeclared_coherent_error(declared: bool, *, what: str=&#x27;a coherent error shared by every epoch&#x27;) -&gt; None</code></pre><pre class="docstring">Refuse to report on the half no statistic can see.
+
+**There is no number to return here, and that is the point.** The in-span
+half of a coherent error is absorbed into the survivors identically in
+every epoch: it leaves no residual, so :func:`coherent_mode` reads noise,
+a held-out epoch reads noise, split-half agrees to roundoff -- and the
+answer is biased, without limit, as the campaign grows. Measured in this
+package&#x27;s own tests: an in-span injection leaves ``chi2_z`` inside its
+noise band while displacing the estimate by exactly the injected amount.
+
+So the honest interface is a refusal keyed on what the analyst DECLARES,
+not a report keyed on what the numbers show. A campaign that has not
+declared this class is not clean; it is unexamined, and the two must not
+read the same.
+
+Args:
+    declared: whether the analyst has stated that this error class has
+        been bounded by some means OUTSIDE the campaign&#x27;s own residuals --
+        an end-to-end simulation, a redundant instrument, an independent
+        measurement of the shared component.
+    what: names the class, for the message.
+
+Raises:
+    StructureError: unless ``declared``.</pre></section><section class="api-symbol"><h2 id="ResidualSummary">ResidualSummary</h2><p class="source-note">Defined in <code>bayesmith.marginal.compress</code>, line 407.</p><pre><code>class ResidualSummary(NamedTuple)
+chi2: float
+dof: int
+reduced_chi2: float
+template_names: tuple[str, ...]
+projections: Any</code></pre><pre class="docstring">A hundred bytes saying what one epoch&#x27;s residual shows, after the fit.
+
+The design this implements asks for &quot;a fixed-size (~100 byte) per-epoch
+residual summary: chi-square, DOF, and the residual projected onto a
+handful of NAMED systematic templates&quot;, so that &quot;a common mode then shows
+as a nonzero MEAN at sqrt(N) significance with correct scatter&quot;. That
+sentence is quoted rather than cited: it lived in a numbered list item of
+an rheplicant design note which is untracked there, so no reader of this
+repository could reach it, and the &quot;Section 9.3&quot; this docstring used to
+say resolved to nothing -- while THIS repository has since grown an
+unrelated `### 9.3`, so grepping the number returns a confident wrong
+answer (R9).
+
+Recorded at compression time because that is the last moment the raw data
+exists. A campaign keeps these and discards everything else, so a fault
+found a thousand epochs later is found in these numbers or not at all.
+
+Attributes:
+    chi2: the whitened residual left AFTER the epoch&#x27;s own best fit -- the
+        part no value of the latents could have absorbed.
+    dof: observed samples minus the rank of what the epoch fitted.
+    reduced_chi2: ``chi2 / dof``, or ``nan`` when ``dof`` is zero. An
+        epoch whose design saturates its data has no residual to speak of,
+        and a zero here would read as a perfect fit.
+    template_names: the named systematic shapes, in the stored order.
+    projections: ``(len(template_names),)`` -- each a standard normal
+        under the null -- or ``None`` when no templates were given. Stored
+        positionally, which is why :func:`epoch_residuals` refuses a
+        campaign whose epochs name them differently.</pre></section><section class="api-symbol"><h2 id="residual_summary">residual_summary</h2><p class="source-note">Defined in <code>bayesmith.marginal.compress</code>, line 446.</p><pre><code>residual_summary(fitted: SqrtInfo, precision: Any, *, templates: Mapping[str, jax.Array] | None=None) -&gt; ResidualSummary</code></pre><pre class="docstring">One epoch&#x27;s out-of-span residual and its named template projections.
+
+**``fitted`` must be the term over EVERY column the epoch fits, nuisances
+included, and it must not have been marginalised or QR&#x27;d yet** -- so it is
+what :func:`compress` returns for the union of the global and nuisance
+designs, whose ``factor`` is the whitened design and whose ``target`` is
+the whitened residual.
+
+Passing the GLOBAL block alone is wrong wherever nuisances are used, and
+wrong in a way no shape catches: the nuisance&#x27;s contribution stays in the
+residual, so the chi-square is inflated by whatever the nuisance explained
+while the dof is over-counted by its rank. Upstream measured that over
+4000 clean epochs of a two-global design with a three-column nuisance --
+including the nuisance gives ``dof = 3`` and a mean chi-square of 3.0000,
+excluding it gives ``dof = 6`` against 28.44, which is a nine-sigma
+per-epoch detection of nothing at all.
+
+The residual is taken after the epoch&#x27;s own best fit, so what is left is
+the OUT-OF-SPAN half of any error. That is deliberate and it is also the
+limit: the in-span half is absorbed into the latents identically in every
+epoch and leaves nothing here, which is why a systematic floor is a
+declaration rather than a measurement.
+
+Templates are projected onto the part of themselves that is also out of
+span. One lying inside the design&#x27;s column space projects to exactly
+``0.0`` and says so, rather than reporting a small number that reads like
+a null result -- and that reading of zero is exclusive, because a
+non-finite or wrongly shaped template is refused by name first.
+
+**&quot;Inside the span&quot; is a RELATIVE test, and it has to be.** What is left
+of an in-span template after projection is roundoff, not zero -- measured
+at ``6.0e-07`` of its own norm in float32 for a template that is literally
+a design column -- and dividing by that norm returns an arbitrary unit
+vector&#x27;s dot with the residual, measured ``-0.2517``. The cut is
+``sqrt(eps)`` of the arithmetic in hand. It is the same FORMULA
+:func:`~bayesmith.exact.reduced_basis.numerical_rank` uses and a different
+RULE: that one is generous because a quadratic form squares the
+conditioning, this one because declaring a template in-span makes it
+quieter, and quieter is the safe direction for a detection statistic.
+
+The projector is the flat-prior one: everything the columns COULD explain
+is removed. That is the conservative direction -- it can only make a
+template quieter -- and it is what makes the null exact rather than
+dependent on whatever prior the marginalisation used.
+
+Args:
+    fitted: the pre-marginalisation term over every fitted column.
+    precision: the epoch&#x27;s ``N^-1``, so a template given in the model&#x27;s own
+        units is whitened the same way the design was. The SAME object
+        :func:`compress` was given.
+    templates: ``{name: (n_data,)}`` named systematic shapes, in model
+        units. ``None`` for an epoch that names none.
+
+Returns:
+    A :class:`ResidualSummary`.
+
+Raises:
+    StructureError: if a template is not finite where the epoch observed,
+        or does not have one entry per sample.</pre></section><section class="api-symbol"><h2 id="epoch_residuals">epoch_residuals</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 192.</p><pre><code>epoch_residuals(summaries: Sequence[ResidualSummary]) -&gt; tuple[dict[str, Any], ...]</code></pre><pre class="docstring">The per-epoch table, in the order the summaries were given.
+
+Per-epoch half of the design quoted in
+:class:`~bayesmith.marginal.compress.ResidualSummary` (R9).
+
+Order is preserved rather than sorted by anything. For a chained campaign
+the archive order IS the time order, and a diagnostic that reordered it
+would make a drift look like scatter.
+
+**Distinct from :func:`coherent_mode`, and the difference is the input.**
+That one evaluates ``||R x - z||^2`` at a point you choose, from the
+stored term, and can be re-asked at any value of the survivors. This one
+reads what :func:`~bayesmith.marginal.compress.residual_summary` recorded
+when the raw data still existed: the residual left after the epoch&#x27;s OWN
+best fit, which no later call can recompute. The two coincide only at the
+per-epoch minimiser, which is not the point a campaign evaluates at.
+
+Args:
+    summaries: one per epoch, from
+        :func:`~bayesmith.marginal.compress.residual_summary`.
+
+Returns:
+    One dict per epoch with ``&quot;chi2&quot;``, ``&quot;dof&quot;``, ``&quot;reduced_chi2&quot;`` and
+    ``&quot;templates&quot;``, the last being ``{name: projection}``.
+
+Raises:
+    StructureError: for an empty campaign, or one whose epochs name
+        different templates -- see :func:`refuse_mixed_templates`.</pre></section><section class="api-symbol"><h2 id="refuse_mixed_templates">refuse_mixed_templates</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 240.</p><pre><code>refuse_mixed_templates(summaries: Sequence[ResidualSummary]) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The one template list this campaign shares, or a refusal.
+
+The projections are stored as a bare array whose meaning is POSITIONAL,
+and the summary is read by name across a whole campaign. Two epochs naming
+``(&quot;gain_ripple&quot;, &quot;ground_pickup&quot;)`` and ``(&quot;ground_pickup&quot;,
+&quot;gain_ripple&quot;)`` have compatible shapes and incompatible contents, so
+averaging them positionally reports each template&#x27;s mean as a mixture of
+both -- a finite, plausible number about nothing.</pre></section><section class="api-symbol"><h2 id="template_modes">template_modes</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 271.</p><pre><code>template_modes(summaries: Sequence[ResidualSummary]) -&gt; dict[str, Any]</code></pre><pre class="docstring">Is there a fault shaped like one of the named templates?
+
+Named-template half of the design quoted in
+:class:`~bayesmith.marginal.compress.ResidualSummary` (R9), counterpart to
+:func:`coherent_mode`&#x27;s unnamed one. Neither substitutes for the other: a
+chi-square z needs no guess about what the fault looks like and therefore
+cannot say what it IS, while a named template says what it is and is
+silent when the guess was wrong.
+
+Under the null each projection is a standard normal in its own right --
+that is what the whitening buys -- so the campaign mean is a z-score at
+``sqrt(N)`` with no calibration step.
+
+``scatter`` is reported beside every mean and is the part to read second.
+A mean-level fault leaves it at 1.0 while an under-estimated noise model
+raises both together, and the two failing differently is what tells them
+apart. It is the population spread about the sample mean (``ddof=0``), so
+a shifted mean does not inflate it.
+
+**The chi-square z here uses each epoch&#x27;s OWN dof**, summed, rather than
+the first epoch&#x27;s. A campaign whose nights differ in flagging has a
+different null per night, and it is the SUM that is chi-square distributed:
+``Var(sum chi2_k) = 2 sum k``. That reduces to the textbook form for a
+uniform campaign and stays exact for a ragged one, which
+:func:`coherent_mode` -- reading a row count off the first term -- cannot
+do.
+
+Returns:
+    ``{&quot;n_epochs&quot;, &quot;chi2_mean&quot;, &quot;chi2_dof&quot;, &quot;chi2_z&quot;, &quot;templates&quot;}``,
+    where ``chi2_dof`` is the shared dof or ``None`` for a ragged
+    campaign, and ``templates`` is ``{name: {&quot;mean&quot;, &quot;scatter&quot;, &quot;z&quot;}}``.
+
+Raises:
+    StructureError: for an empty campaign or mixed template lists.</pre></section><section class="api-symbol"><h2 id="held_out_z">held_out_z</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 372.</p><pre><code>held_out_z(terms: Sequence[SqrtInfo], prior_fisher: Any, prior_mean: Any=None) -&gt; tuple[dict[str, float], ...]</code></pre><pre class="docstring">How surprising is each epoch to the rest of the campaign?
+
+For a linear-Gaussian model this is exact and needs no simulation. Write
+the leave-one-out posterior ``N(mu_-e, Sigma_-e)`` and the epoch&#x27;s own
+factor ``[R_e | z_e]``. Then ``z_e = R_e theta + eps`` with unit-covariance
+``eps`` -- that is what the square-root form MEANS -- and ``mu_-e - theta``
+is independent of ``eps``, so::
+
+    m = R_e mu_-e - z_e  ~  N(0, I + R_e Sigma_-e R_e^T)
+
+and ``m^T (I + V)^-1 m`` is chi-square on ``rank(R_e)`` degrees of
+freedom. The returned ``z`` is that, standardised.
+
+**Computed by subtracting one summand, never by downdating the
+accumulator.** A QR accumulation cannot be un-summed stably. The campaign
+total is formed once in ``(F, b)`` form and one epoch&#x27;s contribution
+subtracted per row, which is ``O(N)`` rather than ``O(N^2)`` and loses at
+most ``log10(N)`` of float64&#x27;s sixteen digits -- affordable because this
+is offline, and safe because it removes one positive-semidefinite summand
+out of N rather than a triangular factor out of its own product.
+
+**What it can see, and what it cannot.** A single rogue epoch stands out
+by a wide margin, and so does a campaign whose epochs genuinely differ.
+But where every epoch carries the SAME design -- the realistic case -- a
+coherent error&#x27;s in-span half shifts ``z_e`` and ``mu_-e`` by amounts that
+cancel in ``m``, and the clean and biased campaigns return the same
+scores. ``tests/marginal/test_held_out.py`` measures both directions
+rather than asserting them. Read this beside
+:func:`refuse_undeclared_coherent_error`, never instead of it.
+
+Args:
+    terms: the campaign&#x27;s stored terms, in any order -- this statistic is
+        exchangeable even when the campaign is not, because each epoch is
+        scored against all the others.
+    prior_fisher: ``F_prior`` over the same latents in the same column
+        order. **Required, not optional**: ``Sigma_-e`` is singular at
+        small N without one.
+    prior_mean: the prior&#x27;s mean over the raveled columns. Zero if absent.
+
+Returns:
+    One dict per epoch, in the order given, with ``&quot;chi2&quot;``, ``&quot;dof&quot;`` and
+    ``&quot;z&quot;``.
+
+Raises:
+    StructureError: for an empty campaign, epochs over different latents, a
+        prior over a different number of columns, a singular leave-one-out
+        information, or a score that comes out non-finite.</pre></section><section class="api-symbol"><h2 id="shrinkage_power">shrinkage_power</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 551.</p><pre><code>shrinkage_power(sigmas: Mapping[int, Any]) -&gt; float</code></pre><pre class="docstring">The fitted exponent of ``sigma_N ~ N^p``. **A sanity check, not a test.**
+
+Returned as a bare float only from here; :func:`shrinkage_report` is what
+a caller should print, because it carries the caveat in the same object as
+the number.
+
+For a Gaussian model ``sigma_N = (sum_e F_e + F_prior)^-1/2`` does not read
+the data. So this quantity is **data-independent**, ``p = -0.5`` holds by
+construction, and a uniform rescaling ``F_e -&gt; (1+c) F_e`` cannot move it
+at all -- the intercept is free. A diagnostic that could be fooled by
+injecting a shared systematic and watching this number is therefore no
+diagnostic, which is the whole reason
+:func:`refuse_undeclared_coherent_error` exists.
+
+Args:
+    sigmas: ``{campaign size: posterior widths}``. A scalar width is
+        accepted and treated as a one-element array. Every size must
+        report the same number of widths, in the same order.
+
+Returns:
+    The ordinary-least-squares slope of ``log sigma`` on ``log N``, pooled
+    over the widths.
+
+Raises:
+    StructureError: for fewer than two campaign sizes, a non-positive
+        size, a ragged table, or a sigma that is not finite and strictly
+        positive.</pre></section><section class="api-symbol"><h2 id="shrinkage_report">shrinkage_report</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 585.</p><pre><code>shrinkage_report(sigmas: Mapping[int, Any]) -&gt; dict[str, Any]</code></pre><pre class="docstring">:func:`shrinkage_power` with its limits attached to it.
+
+``detects_coherent_bias`` is ``False``, always, and it is a FIELD rather
+than a sentence in a docstring because a number and its caveat travel
+together or they do not travel. A deterministic error shared across
+epochs contributes no variance at all, so the posterior width is the same
+array element for element on a clean campaign and on a badly biased one,
+and this power is the same to every digit either way.</pre></section><section class="api-symbol"><h2 id="systematic_floor">systematic_floor</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 647.</p><pre><code>systematic_floor(term: SqrtInfo, prior_fisher: Any, floors: Mapping[str, Any], n_epochs: int) -&gt; dict[str, dict[str, Any]]</code></pre><pre class="docstring">Has this campaign out-run its own calibration?
+
+The floor is the declared width of a shared calibration product -- one
+solution, one beam model, one flag table serving every epoch --
+**projected into the latents&#x27; units by the analyst**. It is a declaration
+and not a measurement, and that is forced rather than lazy: the in-span
+half of a coherent error biases the survivors identically in every epoch
+and leaves no residual anywhere, so it passes per-epoch chi-square,
+split-half and leave-one-out, and NO statistic computed from the stored
+terms can recover it.
+
+What the campaign does know is its own width, and that width falls as
+``N^-1/2`` while the shared product&#x27;s does not fall at all. So the whole
+content of this function is: when does one pass under the other.
+
+``crossing_epoch`` is **computed from the observed width**, not quoted:
+``sigma_N`` is extrapolated as ``sigma_N sqrt(N / N&#x27;)`` and solved for
+``sigma_N&#x27; = floor``, giving ``N&#x27; = ceil(N (sigma_N / floor)^2)``. That
+extrapolation ignores the prior&#x27;s share, which shrinks as N grows, so it
+predicts the crossing marginally early -- the conservative direction.
+
+Args:
+    term: the campaign&#x27;s folded term over the survivors.
+    prior_fisher: ``F_prior`` over the same columns, added to the term&#x27;s
+        own information before inverting.
+    floors: ``{latent: declared width in that latent&#x27;s units}``. Every
+        entry must name a latent the term is over and be finite and
+        strictly positive.
+    n_epochs: how many epochs the term was folded from. Used only for the
+        extrapolation.
+
+Returns:
+    One entry per named latent, each a dict of ``&quot;sigma&quot;``, ``&quot;floor&quot;``,
+    ``&quot;below_floor&quot;``, ``&quot;crossing_epoch&quot;`` and ``&quot;direction&quot;``.
+
+Raises:
+    StructureError: for a campaign of no epochs, a floor naming a latent
+        the term is not over, a floor that is not a finite positive width,
+        a prior of the wrong shape, or information that is not positive
+        definite.</pre></section><section class="api-symbol"><h2 id="tightest_direction">tightest_direction</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 609.</p><pre><code>tightest_direction(block: Any) -&gt; tuple[float, Any]</code></pre><pre class="docstring">``(width, unit direction)`` of the narrowest direction of a covariance block.
+
+**The tightest DIRECTION, not the tightest coordinate**, and the
+difference is a basis rotation wide. For any correlated posterior the
+smallest eigen-direction is below every diagonal entry, so a refusal
+keyed on ``min(diag(block))`` watches a quantity that is not the first to
+go under. ``tests/marginal/test_systematic_floor.py`` measures the gap on
+a near-collinear campaign, where the coordinate widths sit an order of
+magnitude ABOVE a floor that the tightest direction is well below.
+
+The direction is returned because a bare number is half the value: &quot;your
+error bar is too tight&quot; is not actionable, &quot;your error bar on
+``0.707 x0 + 0.707 x1`` is too tight&quot; is. Its sign is fixed by making the
+largest-magnitude component positive, so the same posterior reports the
+same vector rather than one that flips with LAPACK&#x27;s mood.
+
+``(nan, None)`` for a block that is not finite: NaN cannot be
+eigendecomposed, and a poisoned campaign must report ``nan`` and be
+refused by the NaN-safe comparison in :func:`systematic_floor` rather than
+raise a linear-algebra error here.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#SqrtInfo">SqrtInfo</a><a href="#marginalise">marginalise</a><a href="#marginalise_arrays">marginalise_arrays</a><a href="#compress">compress</a><a href="#compress_epoch">compress_epoch</a><a href="#epoch_joint">epoch_joint</a><a href="#nuisance_prior">nuisance_prior</a><a href="#observed_mask">observed_mask</a><a href="#Factorization">Factorization</a><a href="#factorize">factorize</a><a href="#epoch_leakage">epoch_leakage</a><a href="#compress_campaign">compress_campaign</a><a href="#epoch_terms">epoch_terms</a><a href="#epoch_observation">epoch_observation</a><a href="#coherent_mode">coherent_mode</a><a href="#epoch_chi_square">epoch_chi_square</a><a href="#refuse_undeclared_coherent_error">refuse_undeclared_coherent_error</a><a href="#ResidualSummary">ResidualSummary</a><a href="#residual_summary">residual_summary</a><a href="#epoch_residuals">epoch_residuals</a><a href="#refuse_mixed_templates">refuse_mixed_templates</a><a href="#template_modes">template_modes</a><a href="#held_out_z">held_out_z</a><a href="#shrinkage_power">shrinkage_power</a><a href="#shrinkage_report">shrinkage_report</a><a href="#systematic_floor">systematic_floor</a><a href="#tightest_direction">tightest_direction</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

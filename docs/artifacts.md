@@ -50,15 +50,28 @@ predictive task conditions on data, names the posterior it came from, and
 distinguishes replicated sites from carried-forward latents; a simulation has
 none of those.
 
-Four of the five are executed and one is not. `SUPPORTED_TASK_KINDS` in
-`bayesmith.dispatch.task` is `{POSTERIOR, POINT_ESTIMATE, PREDICTIVE,
-SIMULATION}` -- R1 answered the first two, R2 added the third and R3 the
-fourth. `EvidenceTask` alone remains frozen schema and nothing else: the
-runtime bridge refuses it in `_refuse_before_compiling`, before a plan is paid
-for, with the code `capability_unavailable_r1` and a `Finding` whose `expected`
-field is that same supported set. A caller therefore reads which questions are
-answered off the refusal it just received, not off this page, which is the only
-version of that list that cannot go stale.
+All five are executed. `SUPPORTED_TASK_KINDS` in `bayesmith.dispatch.task` is
+`{POSTERIOR, POINT_ESTIMATE, PREDICTIVE, SIMULATION, EVIDENCE}`: R1 answered
+the first two, R2 added the third, R3 the fourth and R4 the fifth.
+`EvidenceTask` is answered for one structure class: a graph whose whole plan is
+a single exact `gcr` block, run under float64. `bayesmith.dispatch.evidence`
+assembles that `EvidenceResult` as named terms. Every other case returns a
+`Refusal` before a number is computed:
+
+* float32 arithmetic: `evidence_requires_x64`;
+* a factor plan, or an exact block solved by a method other than `gcr`:
+  `evidence_residual_method_unsupported`;
+* a graph with no latent to integrate over: `evidence_residual_integral_required`;
+* an exact block plus a sampled remainder whose premises all hold:
+  `capability_unavailable_r1`, because `residual_backend()` in
+  `bayesmith.dispatch.evidence` returns `None` in this release;
+* a prior that is not a declared, normalised, proper density:
+  `evidence_prior_normalised`, `evidence_prior_proper`,
+  `evidence_prior_undeclared` or `evidence_conditional_prior_proper`.
+
+`_refuse_before_compiling` still refuses a task kind outside the supported set
+with `capability_unavailable_r1` and a `Finding` whose `expected` field is that
+set. With all five kinds supported, no current Task class reaches that branch.
 
 R3's `SimulationTask` runs from all three `ParameterSource` kinds, and all
 three reach the observations through primitives R2 already built rather than
@@ -194,7 +207,7 @@ payload bytes. The bundle has seven fixed slots, each with a stated boundary:
 | `evaluation` | report kind, threshold, grouping, repeats, applicability policy, gate definition/version | the Result arrays themselves |
 | `environment` | Python/bayesmith/backend/JAX versions, x64/dtype/device platform | host path, scratch directories |
 
-`ModelRef.from_callable()` only derives a source digest when `inspect.getsource()`
+`model_ref_from_callable()` only derives a source digest when `inspect.getsource()`
 finds stable source; otherwise the caller must supply the digest -- never a
 `repr()` fallback.
 

@@ -74,15 +74,14 @@ jobs:
         run: |
           uv pip install --no-deps \
             "rheplicant @ git+https://github.com/RHINO-Experiment/rheplicant@main"
-          uv run python - <<'PY'
-          import pathlib, rheplicant
+          .venv/bin/python - <<'PY'
+          import json, pathlib, rheplicant
+          from importlib.metadata import distribution
           print("rheplicant version :", rheplicant.__version__)
           print("rheplicant located :", pathlib.Path(rheplicant.__file__).parent)
+          origin = json.loads(distribution("rheplicant").read_text("direct_url.json"))
+          print("installed commit   :", origin["vcs_info"]["commit_id"])
           PY
-          # The resolved commit, asked of git rather than of the package: the
-          # version string did not move across those 385 commits, so it cannot
-          # answer the question.
-          git ls-remote https://github.com/RHINO-Experiment/rheplicant.git main
 
       # Measured: without this, eleven cross-checks skip saying "the tour twin
       # cannot be built". They are the sensitivity rows, so skipping them is a

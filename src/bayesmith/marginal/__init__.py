@@ -8,8 +8,11 @@ the campaign that produced them can be trusted.
 **This layer does not compute the Bayesian evidence, and the name is chosen to
 stop implying that it does.** The evidence is
 ``p(d) = INT p(theta) PROD_i L_i(theta) d theta`` -- the parameters integrated
-OUT, a single number, the thing model comparison needs. Nothing here computes
-or consumes one. What a term stores is ``L_i(theta)``: dataset ``i``'s
+OUT, a single number, the thing model comparison needs. Nothing in this
+subpackage computes or consumes one; the package computes it elsewhere, as an
+``EvidenceTask`` answered by :mod:`bayesmith.dispatch.evidence` for a graph
+that is one exact linear-Gaussian block, and that route does not go through
+this layer. What a term stores is ``L_i(theta)``: dataset ``i``'s
 likelihood with its OWN nuisances integrated away, a function of the
 parameters. Every "marginal" in this subpackage is marginal over nuisances and
 conditional on theta.

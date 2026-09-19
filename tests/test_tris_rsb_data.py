@@ -55,7 +55,7 @@ def test_transcription_pins_all_source_table_values_and_convention():
     ]
     assert {row.convention for row in rows} == {"thermodynamic_temperature"}
     assert {row.table for row in rows if row.survey == "LWA"} == {"Dowell & Taylor (2018), Table 2"}
-    assert {row.table for row in rows if row.survey == "ARCADE"} == {"Fixsen et al. (2011), Table 4"}
+    assert {row.table for row in rows if row.survey == "ARCADE"} == {"Fixsen et al. (2009), arXiv:0901.0555v1, Table 4"}
 
 
 def test_rj_conversion_is_identity_at_low_frequency_and_has_analytic_sigma_derivative():

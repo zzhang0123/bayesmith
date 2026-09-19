@@ -1,0 +1,187 @@
+[
+  {
+    "path": "index.html",
+    "title": "What bayesmith does and why",
+    "group": "Start",
+    "source": "index.html",
+    "lang": "en",
+    "nav_title": "Overview",
+    "summary": "bayesmith compiles a Bayesian model written as a graph of operators into an auditable inference procedure: it finds and checks structure, solves exact parts in closed form and hands the rest to a numerical backend."
+  },
+  {
+    "path": "installation.html",
+    "title": "Installation and precision",
+    "group": "Start",
+    "source": "installation.html",
+    "lang": "en",
+    "nav_title": "Installation"
+  },
+  {
+    "path": "quickstart.html",
+    "title": "First model",
+    "group": "Start",
+    "source": "quickstart.html",
+    "lang": "en",
+    "nav_title": "First model"
+  },
+  {
+    "path": "nonlinear.html",
+    "title": "Partial structure in a hierarchy",
+    "group": "Worked examples",
+    "source": "nonlinear.html",
+    "lang": "en",
+    "nav_title": "Partial structure"
+  },
+  {
+    "path": "notebook.html",
+    "title": "Hierarchical inference notebook",
+    "nav_title": "Hierarchical notebook",
+    "group": "Worked examples",
+    "source": "notebook.html",
+    "lang": "en"
+  },
+  {
+    "path": "reweighting.html",
+    "source": "reweighting.html",
+    "title": "Reweighting a Gaussian sample bank",
+    "nav_title": "Near-Gaussian targets",
+    "group": "Worked examples",
+    "lang": "en"
+  },
+  {
+    "path": "predictive.html",
+    "title": "Prediction, simulation and checking",
+    "group": "Worked examples",
+    "source": "predictive.html",
+    "lang": "en",
+    "nav_title": "Prediction and simulation"
+  },
+  {
+    "path": "tasks.html",
+    "title": "Five questions, one model",
+    "group": "Worked examples",
+    "source": "tasks.html",
+    "lang": "en",
+    "nav_title": "Five questions"
+  },
+  {
+    "path": "concepts.html",
+    "title": "Core concepts",
+    "group": "Concepts",
+    "source": "concepts.html",
+    "lang": "en",
+    "nav_title": "Core concepts"
+  },
+  {
+    "path": "modeling.html",
+    "title": "Graph: the hierarchical model",
+    "group": "Concepts",
+    "source": "modeling.html",
+    "lang": "en",
+    "nav_title": "Graph and hierarchy"
+  },
+  {
+    "path": "inference.html",
+    "title": "Structure and inference routes",
+    "group": "Concepts",
+    "source": "inference.html",
+    "lang": "en",
+    "nav_title": "Inference routes"
+  },
+  {
+    "path": "policies.html",
+    "title": "Budgets, initialization and stopping",
+    "group": "Concepts",
+    "source": "policies.html",
+    "lang": "en",
+    "nav_title": "Sampling policies"
+  },
+  {
+    "path": "artifacts.html",
+    "title": "Results, provenance and reuse",
+    "group": "Concepts",
+    "source": "artifacts.html",
+    "lang": "en",
+    "nav_title": "Results and provenance"
+  },
+  {
+    "path": "diagnostics.html",
+    "title": "Diagnostics and model checks",
+    "group": "Concepts",
+    "source": "diagnostics.html",
+    "lang": "en",
+    "nav_title": "Diagnostics"
+  },
+  {
+    "path": "evidence.html",
+    "title": "Evidence and model comparison",
+    "group": "Concepts",
+    "source": "evidence.html",
+    "lang": "en",
+    "nav_title": "Evidence"
+  },
+  {
+    "path": "experimental.html",
+    "title": "Posterior reweighting and field cumulants",
+    "group": "Concepts",
+    "source": "experimental.html",
+    "lang": "en",
+    "nav_title": "Experimental primitives"
+  },
+  {
+    "path": "architecture.html",
+    "title": "Architecture",
+    "group": "Design",
+    "source": "architecture.html",
+    "lang": "en",
+    "nav_title": "Architecture"
+  },
+  {
+    "path": "principles.html",
+    "title": "Principles and verification",
+    "group": "Design",
+    "source": "principles.html",
+    "lang": "en",
+    "nav_title": "Principles and verification"
+  },
+  {
+    "path": "extensions.html",
+    "title": "Extension contracts",
+    "group": "Design",
+    "source": "extensions.html",
+    "lang": "en",
+    "nav_title": "Extensions"
+  },
+  {
+    "path": "reference.html",
+    "title": "API reference",
+    "group": "Reference",
+    "source": "reference.html",
+    "lang": "en",
+    "nav_title": "API reference"
+  },
+  {
+    "path": "project.html",
+    "title": "Capabilities and release status",
+    "group": "Project",
+    "source": "project.html",
+    "lang": "en",
+    "nav_title": "Release status"
+  },
+  {
+    "path": "contributing.html",
+    "title": "Contributing and verification",
+    "group": "Project",
+    "source": "contributing.html",
+    "lang": "en",
+    "nav_title": "Contributing"
+  },
+  {
+    "path": "records.html",
+    "title": "Research records and design sources",
+    "group": "Project",
+    "source": "records.html",
+    "lang": "en",
+    "nav_title": "Research records"
+  }
+]

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.diagnose.coupling"><title>bayesmith.diagnose.coupling · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.diagnose.coupling</span></nav>
+<article><h1>bayesmith.diagnose.coupling</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Local coupling between two latent blocks, measured from precision.
+
+The number controlling a two-block Gaussian Gibbs sweep is the largest
+canonical correlation, not the largest entry of a correlation matrix.  This
+module measures it at a caller-supplied point and also reports the condition
+numbers paid by conditional, marginalised, and joint dynamics.
+
+The implementation never forms a covariance.  If ``F`` is the local Fisher
+information plus prior precision and ``L_x L_x.T = F_xx`` and
+``L_t L_t.T = F_tt``, the canonical correlations are the singular values of
+``L_x^-1 F_xt L_t^-T``.  The marginal precision is measured as
+``L_t (I - M.T M) L_t.T``; it is not inferred from the largest correlation.
+
+``block_coupling`` itself is an eager design-time diagnostic.  A future
+traced consumer must build affine blocks with
+``unchecked_operator(..., probe_gaussian=False)`` after an eager Gaussian
+check.  ``local_block(..., priors=True)`` performs a concrete Gaussian probe
+and raises ``TracerBoolConversionError`` under ``jit`` (M3).
+
+This is a Laplace quantity: it describes one tangent and can miss multimodal
+or scale-dependent geometry completely.  ``blind_to`` therefore travels in
+every report rather than living only in this prose.</pre></details><div class="symbol-index"><a href="#Measured">Measured</a> <a href="#Refused">Refused</a> <a href="#CorrelationVerdict">CorrelationVerdict</a> <a href="#CouplingReport">CouplingReport</a> <a href="#block_coupling">block_coupling</a></div><section class="api-symbol"><h2 id="Measured">Measured</h2><p class="source-note">Defined in <code>bayesmith.diagnose.coupling</code>, line 55.</p><pre><code>class Measured
+value: float
+floor: float
+n_correlations: int
+verdict: ClassVar[str] = &#x27;measured&#x27;</code></pre><pre class="docstring">A numerical coupling that stands above its arithmetic noise floor.</pre></section><section class="api-symbol"><h2 id="Refused">Refused</h2><p class="source-note">Defined in <code>bayesmith.diagnose.coupling</code>, line 65.</p><pre><code>class Refused
+reason: str
+verdict: ClassVar[str] = &#x27;refused&#x27;</code></pre><pre class="docstring">A diagnostic whose arithmetic cannot support a numerical verdict.</pre></section><section class="api-symbol"><h2 id="CorrelationVerdict">CorrelationVerdict</h2><p class="source-note">Defined in <code>bayesmith.diagnose.coupling</code>, line 72.</p><pre><code>CorrelationVerdict = Measured | Refused</code></pre></section><section class="api-symbol"><h2 id="CouplingReport">CouplingReport</h2><p class="source-note">Defined in <code>bayesmith.diagnose.coupling</code>, line 76.</p><pre><code>class CouplingReport
+first: tuple[str, ...]
+second: tuple[str, ...]
+correlation: CorrelationVerdict
+canonical_correlations: np.ndarray
+kappa_cond: float
+kappa_marg: float
+kappa_joint: float
+blind_to: tuple[str, ...] = (&#x27;gaussian-only&#x27;,)</code></pre><pre class="docstring">Canonical coupling and the three condition numbers at one point.
+
+Arrays are NumPy values on purpose.  A frozen dataclass can carry them as
+ordinary eager results; putting them in an ``eqx.Module`` static field
+makes a second trace compare array-valued pytree metadata.</pre></section><section class="api-symbol"><h2 id="block_coupling">block_coupling</h2><p class="source-note">Defined in <code>bayesmith.diagnose.coupling</code>, line 174.</p><pre><code>block_coupling(graph: Graph, first: Sequence[str] | str, second: Sequence[str] | str, *, at: dict[str, jnp.ndarray]) -&gt; CouplingReport</code></pre><pre class="docstring">Measure local coupling and three strategy condition numbers.
+
+Args:
+    graph: model whose observed densities and declared priors define the
+        local posterior precision.
+    first, second: disjoint, non-empty latent blocks.  A bare name is
+        accepted for a one-latent block.
+    at: the linearisation point.  It is deliberately required: this
+        module does not choose a mode.  Missing latent values use their
+        declared centres in the same way as other local diagnostics.
+
+Returns:
+    A frozen :class:`CouplingReport`.  ``correlation`` is two-valued; a
+    value at either whitening boundary is :class:`Refused`, never a claim
+    of low coupling or a roundoff-perfect ridge.
+
+Raises:
+    GraphError: if the blocks overlap, or from the graph/local diagnostic
+        guards for invalid names, dtypes, points, or likelihoods.
+    NotGaussian: if a selected latent has no Gaussian prior curvature.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#Measured">Measured</a><a href="#Refused">Refused</a><a href="#CorrelationVerdict">CorrelationVerdict</a><a href="#CouplingReport">CouplingReport</a><a href="#block_coupling">block_coupling</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

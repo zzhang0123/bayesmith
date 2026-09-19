@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.dispatch.amortized"><title>bayesmith.dispatch.amortized · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.amortized</span></nav>
+<article><h1>bayesmith.dispatch.amortized</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Encode a trained NeuralPosterior as an ESTIMATOR artifact, and back.
+
+R2 Task 7, and the one place R2 reaches into R1&#x27;s frozen schema.  A trained
+:class:`bayesmith.amortize.NeuralPosterior` is an eqx.Module plus a static
+embed callable plus standardization arrays, and none of that has a canonical
+artifact form -- a callable has no canonical form (§0 ruling 4), and an
+eqx.Module is a runtime object.  It is therefore encoded as the estimator arm
+of :class:`bayesmith.artifacts.results.FittedConditionalPosterior`: a
+REFERENCE to an artifact of the new :class:`ArtifactKind.ESTIMATOR`, never the
+object itself (§0.7).
+
+The estimator artifact is a frozen dataclass holding an opaque
+`blob` -- the bytes `equinox.tree_serialise_leaves` writes for the MLP&#x27;s
+parameter leaves -- and a `manifest` -- the static facts a deserializer needs
+to rebuild the estimator: the embed callable&#x27;s importable identity, the mixture
+shape, the minimum scale, the MLP&#x27;s own structure, and the standardization
+arrays taken from the training bank.  The blob is `bytes` to the codec, so
+the artifacts layer never imports JAX or equinox; this module is where that
+stack is allowed, on the dispatch side of the bridge.
+
+Layering: this module imports equinox/JAX (the bridge), reads
+`bayesmith.amortize`, and reaches the artifact protocol
+(`bayesmith.artifacts.*`).  It is NOT imported by `bayesmith.artifacts`, and
+nothing in the artifacts layer sees a single jax array.</pre></details><div class="symbol-index"><a href="#EstimatorManifest">EstimatorManifest</a> <a href="#EstimatorArtifact">EstimatorArtifact</a> <a href="#encode_estimator">encode_estimator</a> <a href="#decode_estimator">decode_estimator</a> <a href="#estimator_ref">estimator_ref</a> <a href="#fitted_conditional_posterior">fitted_conditional_posterior</a></div><section class="api-symbol"><h2 id="EstimatorManifest">EstimatorManifest</h2><p class="source-note">Defined in <code>bayesmith.dispatch.amortized</code>, line 57.</p><pre><code>class EstimatorManifest
+embed_identity: str
+n_components: int
+n_params: int
+min_scale: float
+in_size: int
+out_size: int
+width_size: int
+depth: int
+theta_mean: np.ndarray
+theta_scale: np.ndarray
+data_mean: np.ndarray
+data_scale: np.ndarray</code></pre><pre class="docstring">The static half of an estimator artifact: what rebuilds the estimator.
+
+Everything here is canonical (str / int / float / numpy arrays), so the
+whole manifest round-trips through the codec without the estimator object.
+The embed callable is recorded as its importable identity -- module and
+qualname -- never as the callable itself, and resolved back on deserialize.</pre></section><section class="api-symbol"><h2 id="EstimatorArtifact">EstimatorArtifact</h2><p class="source-note">Defined in <code>bayesmith.dispatch.amortized</code>, line 104.</p><pre><code>class EstimatorArtifact
+artifact_id: str
+revision: int
+blob: bytes
+manifest: EstimatorManifest</code></pre><pre class="docstring">A fitted estimator, as identity + an opaque blob + a static manifest.
+
+The `blob` is whatever `equinox.tree_serialise_leaves` wrote for the
+MLP&#x27;s parameter leaves -- opaque bytes to the artifact codec, decoded only
+by :func:`decode_estimator`.  `artifact_id` and `revision` give it the
+same version identity every artifact carries, so :func:`estimator_ref`
+can point at it.</pre></section><section class="api-symbol"><h2 id="encode_estimator">encode_estimator</h2><p class="source-note">Defined in <code>bayesmith.dispatch.amortized</code>, line 173.</p><pre><code>encode_estimator(posterior: NeuralPosterior, *, artifact_id: str | None=None) -&gt; EstimatorArtifact</code></pre><pre class="docstring">Serialize a trained posterior&#x27;s estimator into an ESTIMATOR artifact.
+
+The MLP&#x27;s parameter leaves are written with `equinox.tree_serialise_leaves`
+into an opaque blob; every static fact (embed identity, mixture shape,
+minimum scale, MLP structure, standardization) goes into the manifest.  The
+result is a frozen dataclass the artifact codec can dump and load, with no
+jax or equinox object in it.</pre></section><section class="api-symbol"><h2 id="decode_estimator">decode_estimator</h2><p class="source-note">Defined in <code>bayesmith.dispatch.amortized</code>, line 210.</p><pre><code>decode_estimator(artifact: EstimatorArtifact) -&gt; NeuralPosterior</code></pre><pre class="docstring">Rebuild the NeuralPosterior an estimator artifact encodes.
+
+The manifest&#x27;s facts rebuild the MLP&#x27;s structure and the standardization;
+`equinox.tree_deserialise_leaves` fills the weights back into a fresh MLP
+of the same shape; the embed callable is re-imported from its identity.  The
+returned estimator samples exactly as the one that was encoded.</pre></section><section class="api-symbol"><h2 id="estimator_ref">estimator_ref</h2><p class="source-note">Defined in <code>bayesmith.dispatch.amortized</code>, line 243.</p><pre><code>estimator_ref(artifact: EstimatorArtifact) -&gt; ArtifactRef</code></pre><pre class="docstring">The version reference to an estimator artifact: id AND revision (§0.2).</pre></section><section class="api-symbol"><h2 id="fitted_conditional_posterior">fitted_conditional_posterior</h2><p class="source-note">Defined in <code>bayesmith.dispatch.amortized</code>, line 254.</p><pre><code>fitted_conditional_posterior(posterior: NeuralPosterior, *, simulation_bank_ref: ArtifactRef, training_run_id: str, validation_report_refs: tuple[ArtifactRef, ...]=(), artifact_id: str | None=None) -&gt; tuple[FittedConditionalPosterior, EstimatorArtifact]</code></pre><pre class="docstring">Encode a trained posterior as a FittedConditionalPosterior reference.
+
+Returns the fitted reference AND the estimator artifact it points at, so the
+caller can persist the latter and keep the former&#x27;s `estimator_ref` in
+agreement.  The simulation bank, training run and validation reports are
+references the caller already holds; only the estimator is produced here,
+because that is the one thing §0.7 adds to the frozen schema.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#EstimatorManifest">EstimatorManifest</a><a href="#EstimatorArtifact">EstimatorArtifact</a><a href="#encode_estimator">encode_estimator</a><a href="#decode_estimator">decode_estimator</a><a href="#estimator_ref">estimator_ref</a><a href="#fitted_conditional_posterior">fitted_conditional_posterior</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

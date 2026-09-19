@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.correct"><title>bayesmith.exact.correct · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.correct</span></nav>
+<article><h1>bayesmith.exact.correct</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Correcting a frozen-sigma proposal back to the exact conditional.
+
+Freezing sigma makes each step a linear-Gaussian problem, which is the whole
+reason GCR applies -- and it is also exactly the step :mod:`bayesmith.exact.gls`
+names as the reason its fixed point is the GLS optimum rather than the
+likelihood&#x27;s: &quot;the log-determinant&#x27;s dependence on the solution is held fixed
+rather than differentiated&quot;. The importance weight below contains precisely
+the two terms that were frozen. This is not a patch on an approximation; it is
+putting a recorded discrepancy back.
+
+**What is being corrected, quantitatively.** ``gls.py``&#x27;s own docstring
+measures the gap on ``radiometer()``: 0.08% at its default ``kappa=0.05``,
+19.5% at ``kappa=1``, and ~50% with the two estimates on OPPOSITE sides of
+the truth by ``kappa=3.5``. That is the quantity these weights exist to
+remove, and it is why the diagnostics below matter as much as the weight
+itself -- a correction whose effective sample size is 1 has not corrected
+anything, it has just relabelled one draw.
+
+**Where the diagnostics run.** Nowhere near a trace. :func:`self_normalise`
+is two jittable lines, but :func:`khat` and :func:`unreliable` are Python:
+``_psis_khat`` sorts and then indexes with a data-dependent boolean mask, and
+``unreliable`` branches on the result. That costs nothing, because SNIS has no
+loop to jit -- the expensive part is generating the draws, which happens
+before any of this.</pre></details><div class="symbol-index"><a href="#FINITE_VARIANCE_KHAT">FINITE_VARIANCE_KHAT</a> <a href="#FINITE_MEAN_KHAT">FINITE_MEAN_KHAT</a> <a href="#KHAT_THRESHOLD_CAP">KHAT_THRESHOLD_CAP</a> <a href="#KHAT_MIN_DRAWS">KHAT_MIN_DRAWS</a> <a href="#FrozenSigmaMismatch">FrozenSigmaMismatch</a> <a href="#check_frozen_sigma">check_frozen_sigma</a> <a href="#log_weight">log_weight</a> <a href="#self_normalise">self_normalise</a> <a href="#khat">khat</a> <a href="#unreliable">unreliable</a></div><section class="api-symbol"><h2 id="FINITE_VARIANCE_KHAT">FINITE_VARIANCE_KHAT</h2><p class="source-note">Defined in <code>bayesmith.exact.correct</code>, line 47.</p><pre><code>FINITE_VARIANCE_KHAT: float = 0.5</code></pre></section><section class="api-symbol"><h2 id="FINITE_MEAN_KHAT">FINITE_MEAN_KHAT</h2><p class="source-note">Defined in <code>bayesmith.exact.correct</code>, line 48.</p><pre><code>FINITE_MEAN_KHAT: float = 1.0</code></pre></section><section class="api-symbol"><h2 id="KHAT_THRESHOLD_CAP">KHAT_THRESHOLD_CAP</h2><p class="source-note">Defined in <code>bayesmith.exact.correct</code>, line 53.</p><pre><code>KHAT_THRESHOLD_CAP: float = 0.7</code></pre></section><section class="api-symbol"><h2 id="KHAT_MIN_DRAWS">KHAT_MIN_DRAWS</h2><p class="source-note">Defined in <code>bayesmith.exact.correct</code>, line 59.</p><pre><code>KHAT_MIN_DRAWS: int = 10</code></pre></section><section class="api-symbol"><h2 id="FrozenSigmaMismatch">FrozenSigmaMismatch</h2><p class="source-note">Defined in <code>bayesmith.exact.correct</code>, line 62.</p><pre><code>class FrozenSigmaMismatch(Exception)</code></pre><pre class="docstring">``mu`` and ``precision`` describe different frozen Gaussians.</pre></section><section class="api-symbol"><h2 id="check_frozen_sigma">check_frozen_sigma</h2><p class="source-note">Defined in <code>bayesmith.exact.correct</code>, line 66.</p><pre><code>check_frozen_sigma(block: LinearBlock, precision: dict[str, Any], mu: dict[str, Any], *, rtol: float=1e-06, tol: float=1e-10) -&gt; float</code></pre><pre class="docstring">Verify ``mu`` really is the solution at ``precision``.
+
+Call this ONCE per reweighting run, before the vmap -- not inside
+:func:`log_weight`, which is vmapped per draw and must stay jittable. Same
+split as ``gaussian_parts``/``check_gaussian``: the cheap thing traces, the
+checking thing runs eagerly at the boundary.
+
+**This is a guard for a caller who assembles the pair, and nothing in
+``src/`` does.** ``execute._whole_graph`` -- the one freeze this package
+ships -- takes both halves from ONE ``GLSResult``, so ``mu`` is the
+solution at that precision by construction and this reports exactly
+``0.0``. Wiring it there would cost a ``tol=1e-10`` solve per run to
+report zero forever. Measured, and pinned by
+``test_check_frozen_sigma_is_not_wired_into_the_freeze_and_should_not_be``
+so its absence reads as a decision rather than an oversight.
+
+**What it is protecting.** ``log_weight`` takes ``log p`` from the graph&#x27;s
+own distributions and ``q``&#x27;s operator from the ``precision`` dict, in one
+expression, and its own docstring records ``at`` as &quot;Unverifiable here&quot;. If
+the covariance the draws were made at is not the covariance the weight is
+computed at, the estimator no longer targets the posterior -- it targets a TILTED
+distribution. Self-normalised importance sampling is valid for any
+x-independent proposal, but only when the ``q`` in the weight is the ``q``
+the draws came from.
+
+Measured on ``radiometer`` at 4000 draws, freezing at the GLS fixed point,
+against 1-D quadrature (mean 2.946326, sd 0.046652):
+
+==================  =========  ==========  =======
+draws / weight at   bias / sd  weighted sd  ESS/N
+==================  =========  ==========  =======
+honest / honest        +0.010      0.994x    0.998
+3x / 3x                -0.010         --     0.459
+3x draws / honest     +11.235         --     0.000
+honest draws / 3x      -0.004      0.724x    0.883
+==================  =========  ==========  =======
+
+Both mixed rows are wrong and **only one of them is detectable by anything
+the package already has**. Drawing wide and weighting narrow blows the
+estimate up by eleven posterior standard deviations and collapses the ESS
+to zero, so the existing diagnostic catches it. Drawing narrow and
+weighting wide leaves the MEAN right, the ESS at a healthy 0.883 -- and the
+posterior width **30 % too narrow**, saturating at 0.703x by a factor of
+100. An error bar a third too tight, reported by a run whose every
+diagnostic looks well. That is the case this function exists for.
+
+``mu`` is what betrays the mismatch, because it is solved at the draws&#x27;
+sigma and passed in alongside the weight&#x27;s. Measured: exactly 0.0 relative
+difference when they agree, 1.75e-04 when they do not.
+
+Args:
+    block: the block ``q`` was built for.
+    precision: the frozen ``{observed: N^-1}`` ``log_weight`` will be
+        given -- the OPERATOR, not the sigma it may have been built from.
+        What must match between the draws and the weight is the covariance
+        ``q`` was formed at, and that is this object.
+    mu: the centre ``log_weight`` will be given.
+    rtol: relative tolerance on ``mu`` against a fresh solve.
+    tol: CG tolerance for that solve. Tighter than the caller&#x27;s on
+        purpose -- this is comparing against ``mu``, so its own error must
+        be the smaller of the two.
+
+Returns:
+    The relative difference, so a caller can report how far off it is.
+
+Raises:
+    FrozenSigmaMismatch: when it exceeds ``rtol``.</pre></section><section class="api-symbol"><h2 id="log_weight">log_weight</h2><p class="source-note">Defined in <code>bayesmith.exact.correct</code>, line 165.</p><pre><code>log_weight(graph: Graph, block: LinearBlock, x: dict[str, Any], *, at: dict[str, Any], precision: dict[str, Any], mu: dict[str, Any]) -&gt; jax.Array</code></pre><pre class="docstring">``log p(x, z, d) - log q(x)``, up to a constant common to every draw.
+
+``q = N(mu, M^-1)`` with ``M = A^T N^-1 A + S^-1`` at the FROZEN
+covariance, so
+
+    log w = log_joint(graph, {**at, **x}) + 1/2 (x-mu)^T M (x-mu) + C ,
+    C = -1/2 log det M + (n/2) log 2pi .
+
+``C`` is dropped. It is identical for every draw **because the covariance
+is frozen at a value that does not depend on x**: ``precision`` is a
+decided operator, not a rule, so ``M`` -- and therefore ``log det M`` -- is
+the same operator for every draw this function is called on. Both consumers cancel it:
+self-normalisation because ``softmax`` is shift-invariant, an MH ratio
+because it takes a difference.
+
+The sign matters and is easy to get backwards. Since
+``log q(y) = -1/2 r^T M r + 1/2 log det M - (n/2) log 2pi``, subtracting it
+makes the quadratic term and the log-det term carry **OPPOSITE** signs --
+so a ``C`` written with ``+1/2 log det M`` is wrong under every convention
+rather than merely a different one. Both P3&#x27;s spec and P3b&#x27;s first draft
+inverted both signs; measured against a dense reference, the draft&#x27;s ``C``
+is off by +2.396e-01 on a 4-dimensional case while the corrected one is
+bitwise zero. ``test_the_documented_constant_makes_the_weight_the_log_evidence``
+is what keeps that claim live: ``C`` does not appear in this function&#x27;s
+body, so nothing else in the suite can check the sign the docstring states.
+
+Args:
+    graph: the model. ``log p`` is its own ``log_joint``, so this cannot
+        drift from what NUTS targets.
+    block: the block ``q`` was built for, from
+        :func:`~bayesmith.exact.linearity.linear_operator`.
+    x: ``{member: draw}`` over the block&#x27;s domain. ``vmap`` over the draw
+        axis for a whole sample; nothing here branches on a value.
+    at: the latents OUTSIDE the block, exactly as when ``block`` was
+        built. **Unverifiable here** -- a ``LinearBlock`` does not record
+        the ``at`` it was built at, so passing a different one silently
+        weights draws against a ``q`` from a different conditional.
+    precision: the FROZEN ``{observed: N^-1}`` that ``q`` was drawn at --
+        for a prediction-dependent model, ``GLSResult.precision``. Not
+        recomputed at ``x``: recomputing it is precisely the dependence
+        this weight exists to correct, and doing it here would put the
+        correction on both sides and cancel it.
+    mu: ``q``&#x27;s centre, i.e. the GLS/Wiener solution at that same sigma.
+
+Returns:
+    A scalar, up to ``C``. Only differences between draws are meaningful.
+
+Note:
+    Costs ONE application of ``M`` (a JVP plus a VJP) and one graph scan
+    per draw. The plan&#x27;s draft called ``operator(delta)`` inside the
+    summation, i.e. once per block member, which is the same answer at
+    ``len(block.names)`` times the cost -- a five-member block paid five
+    JVP/VJP pairs to use one leaf of each.</pre></section><section class="api-symbol"><h2 id="self_normalise">self_normalise</h2><p class="source-note">Defined in <code>bayesmith.exact.correct</code>, line 252.</p><pre><code>self_normalise(log_weights: Any) -&gt; tuple[jax.Array, jax.Array]</code></pre><pre class="docstring">``(normalised weights, Kish ESS)``. ESS is ``1 / sum(w^2)``.
+
+``softmax`` rather than ``exp``-then-divide, and that is load-bearing
+rather than tidy: importance weights arrive with an arbitrary additive
+constant (see :func:`log_weight`, which drops one), so a naive
+normaliser overflows on exactly the input this function is defined to be
+invariant to. ``test_the_weight_constant_cancels_between_draws`` shifts
+by +800, where ``exp`` is ``inf`` in float64 and softmax is unmoved.
+
+Kish&#x27;s ESS is the count of equally-weighted draws carrying the same
+information: ``N`` when every weight is equal, ``1`` when one draw has all
+of it. An SNIS mean&#x27;s uncertainty is ``variance / ESS``, i.e. ``sd /
+sqrt(ESS)`` -- so ESS is what turns a weighted mean into an error bar, and
+an ESS of 1 says the answer is one draw wearing a sample&#x27;s clothes.
+
+**It degrades exponentially in the number of mismatched coordinates**, not
+gracefully. Measured with ``A = I``, ``sigma_i = 0.3|x_i| + 0.05``, the
+proposal at the GLS fixed point, N=40000: n=1 gives ESS 2509; n=25 gives
+124; n=50 gives 4.5; n=100 gives 6.0; and by n=500 it is 1.00 and stays
+there at n=4000. That is not a pathological input -- it is a mild
+radiometer -- which is why a dispatcher has to read this number rather
+than assume the correction worked.
+
+Args:
+    log_weights: unnormalised log weights, any shape ``softmax`` accepts.
+        Normalisation runs over every axis.
+
+Returns:
+    ``(weights, ess)``. ``weights`` sums to 1; ``ess`` is a scalar.</pre></section><section class="api-symbol"><h2 id="khat">khat</h2><p class="source-note">Defined in <code>bayesmith.exact.correct</code>, line 287.</p><pre><code>khat(log_weights: Any) -&gt; float | None</code></pre><pre class="docstring">PSIS k-hat, or ``None`` if numpyro&#x27;s private entry point is gone.
+
+``numpyro.infer.importance._psis_khat`` is private, so its existence is
+pinned by a test rather than trusted, and its absence degrades to &quot;no
+diagnostic&quot; rather than to a traceback out of a dispatcher --
+``test_khat_is_none_rather_than_an_exception_when_the_private_entry_is_gone``.
+
+It cannot be jitted, and not for the reason its signature suggests:
+returning a Python ``float`` is a symptom. The cause is that it does
+``np.sort`` and then indexes with a boolean mask (``log_weights &gt;
+lw_cutoff``) whose output shape depends on the data, which has no jit
+expression at all. Rewriting the return type would not help.
+
+Args:
+    log_weights: unnormalised log weights, 1-D. ``_psis_khat`` subtracts
+        its own maximum, so the dropped ``C`` of :func:`log_weight` does
+        not reach the fit. Not promoted to float64 first: measured on the
+        same samples cast both ways, f32 and f64 inputs agree to within
+        2.3e-7 in ``k``, so the suite&#x27;s float32 default costs nothing
+        here.
+
+Returns:
+    ``k``, or ``None``. Calibration, so a caller knows what &quot;small&quot; is:
+    for Gaussian log weights of sd 0.5 at N=2000, 20 seeds gave mean
+    0.076, sd 0.066, span -0.017..0.184 -- and it is strongly N-dependent
+    at fixed sd (N=200 -&gt; 0.275, N=2000 -&gt; 0.156, N=20000 -&gt; -0.028), so
+    a bare point value is not a property of the estimator. Raising the sd
+    to 3.0 moves it to 1.0..1.24 across seeds, i.e. past
+    :data:`FINITE_MEAN_KHAT`.</pre></section><section class="api-symbol"><h2 id="unreliable">unreliable</h2><p class="source-note">Defined in <code>bayesmith.exact.correct</code>, line 325.</p><pre><code>unreliable(khat_value: float | None, n: int) -&gt; bool</code></pre><pre class="docstring">PSIS&#x27;s reliability threshold, which is sample-size dependent.
+
+``min(1 - 1/log10(N), 0.7)`` (Vehtari et al. 2024) -- **below 0.7 for
+every N under 2154**, so a hard-wired 0.7 is optimistic exactly where SNIS
+is run without a chain and N is the caller&#x27;s own choice. At N=100 the
+threshold is 0.5; at N=1000, 0.667.
+
+Note also that the moment bands are :data:`FINITE_VARIANCE_KHAT` for a
+finite variance and :data:`FINITE_MEAN_KHAT` for a finite MEAN; 0.7 is an
+empirical reliability threshold, not where the mean stops existing.
+
+Args:
+    khat_value: from :func:`khat`. ``None`` -- the diagnostic being
+        unavailable -- returns ``False``, which is **abstention, not
+        endorsement**: the caller must still read the Kish ESS, which is
+        always available and is the cheaper of the two guards anyway.
+    n: number of draws the k-hat was computed from. At or below
+        :data:`KHAT_MIN_DRAWS` the formula is unusable and every k-hat is
+        reported unreliable -- ``1 - 1/log10(N)`` is &lt;= 0 there, so that
+        branch is the formula&#x27;s own limit and not an extra rule. Clamping
+        ``n`` upward instead (``max(n, 11)``, as the plan&#x27;s draft did)
+        inverts the answer in the one corner it exists for: it reports
+        k=0.02 at N=1 as RELIABLE.
+
+Returns:
+    Whether ``khat_value`` is at or above the threshold for this ``n``.
+    A real ``bool``, not a ``numpy.bool_``, so a caller may write
+    ``is True`` -- the comparison is against a Python float only when
+    :func:`khat` produced the value, and a caller passing a numpy scalar
+    would otherwise get something that fails an identity test.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#FINITE_VARIANCE_KHAT">FINITE_VARIANCE_KHAT</a><a href="#FINITE_MEAN_KHAT">FINITE_MEAN_KHAT</a><a href="#KHAT_THRESHOLD_CAP">KHAT_THRESHOLD_CAP</a><a href="#KHAT_MIN_DRAWS">KHAT_MIN_DRAWS</a><a href="#FrozenSigmaMismatch">FrozenSigmaMismatch</a><a href="#check_frozen_sigma">check_frozen_sigma</a><a href="#log_weight">log_weight</a><a href="#self_normalise">self_normalise</a><a href="#khat">khat</a><a href="#unreliable">unreliable</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

@@ -1,0 +1,16 @@
+<p class="lede">Make the run controls reproducible while keeping prior assumptions in the model.</p>
+<h2 id="budget">Set a budget appropriate to the route</h2><p>{{api:bayesmith.artifacts:ComputeBudget}} records draws, warmup, chains, iteration and wall-clock limits where applicable. <code>None</code> means a knob is unspecified; it is not zero. Not every task can honor every control. Read the compiler's refusal when a required control has no implementation.</p>
+<h2 id="policies">Compose a posterior request</h2><pre><code>from bayesmith.artifacts import (
+    ComputeBudget, DiagnosticPolicy, InitializationPolicy,
+    PosteriorTask, StoppingPolicy, new_task_meta,
+)
+
+task = PosteriorTask(
+    meta=new_task_meta(label="production posterior"),
+    budget=ComputeBudget(draws=2000, warmup=1000, chains=4),
+    diagnostics=DiagnosticPolicy(max_parameters=64),
+    initialization=InitializationPolicy(max_attempts=32),
+    stopping=StoppingPolicy(mode="fixed"),
+)</code></pre><p>The bounded diagnostic preflight can report structural and geometric concerns. Partial initial values are represented as named arrays and masks; they do not redefine the prior. Setting <code>initialization=None</code> retains the legacy NumPyro initializer.</p>
+<h2 id="stopping">Separate a budget stop from convergence</h2><p>Fixed-budget sampling is the default. Checkpoint stopping can inspect cumulative diagnostics on one warmed NUTS/HMCGibbs state, with minimum draws, batch sizes and consecutive successful checks. Consult {{api:bayesmith.artifacts:StoppingPolicy}} for supported modes and fields before enabling it.</p><p>A run should preserve actual draw counts, initial values, diagnostics and stop reasons. Never infer convergence from the fact that the maximum budget was used. A failure to meet required convergence can be an execution error.</p>
+<h2 id="proposals">Declare proposal correction explicitly</h2><p>{{api:bayesmith.artifacts:ProposalBlockPolicy}} describes an ordered block proposal; {{api:bayesmith.artifacts:proposal_options}} serializes it into bounded task options. The default <code>mh_correction=True</code> accounts for both forward and reverse proposal densities against the full target. <code>False</code> marks the schedule approximate; applied proposals and MH acceptances are then different quantities.</p><p>Dense-work controls such as parameter and matrix-element limits are material: a locally Gaussian proposal may require expensive factorizations even if the graph itself is compact. See <a href="diagnostics.html">diagnostics</a> before interpreting acceptance as a model check.</p>

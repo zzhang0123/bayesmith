@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.artifacts"><title>bayesmith.artifacts · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.artifacts</span></nav>
+<article><h1>bayesmith.artifacts</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The public inventory of the artifact protocol, and nothing heavier.
+
+:mod:`bayesmith.artifacts` is the leaf layer: nothing here imports
+:mod:`bayesmith.graph`, :mod:`bayesmith.dispatch`, JAX, Equinox or NumPyro at
+module scope, and nothing here holds a runtime object. An artifact is data --
+a Graph, a callable, a compiled executable or a backend handle is represented
+by a reference, a fingerprint or a runtime attachment, never pickled into the
+artifact itself.
+
+This module is the one public surface for that protocol. Every name below is
+re-exported from the submodule that owns it, and each submodule&#x27;s own __all__
+is the single statement of what it defines -- so the identity test in
+tests/test_public_api.py can require that an attribute IS the owning module&#x27;s
+object rather than settling for hasattr. The canonical codec itself
+(:mod:`bayesmith.artifacts._codec`) stays private: the wire format is this
+package&#x27;s own business, and the two public entry points are dump_artifact
+and load_artifact.
+
+The runtime bridge is NOT here. :mod:`bayesmith.dispatch.task` is the only
+module that meets a Graph and a plan, and its compile_task/execute_task are
+the root-level entry points -- kept there rather than here because importing
+them pulls in JAX and NumPyro, which this layer must not.</pre></details><div class="symbol-index"><a href="#DiagnosticPolicy">DiagnosticPolicy</a> <a href="#InitializationPolicy">InitializationPolicy</a> <a href="#StoppingPolicy">StoppingPolicy</a> <a href="#ProposalBlockPolicy">ProposalBlockPolicy</a> <a href="#proposal_options">proposal_options</a> <a href="#ArtifactCodecError">ArtifactCodecError</a> <a href="#ArtifactFile">ArtifactFile</a> <a href="#UnsupportedSchemaVersion">UnsupportedSchemaVersion</a> <a href="#dump_artifact">dump_artifact</a> <a href="#load_artifact">load_artifact</a> <a href="#FINGERPRINT_ALGORITHM">FINGERPRINT_ALGORITHM</a> <a href="#FingerprintKind">FingerprintKind</a> <a href="#ArtifactKind">ArtifactKind</a> <a href="#Fingerprint">Fingerprint</a> <a href="#FingerprintBundle">FingerprintBundle</a> <a href="#ModelRef">ModelRef</a> <a href="#fingerprint">fingerprint</a> <a href="#model_ref_from_callable">model_ref_from_callable</a> <a href="#changed_fingerprints">changed_fingerprints</a> <a href="#InvalidationPolicy">InvalidationPolicy</a> <a href="#SCHEMA_VERSION">SCHEMA_VERSION</a> <a href="#CanonicalScalar">CanonicalScalar</a> <a href="#CanonicalValue">CanonicalValue</a> <a href="#canonical_scalar_options">canonical_scalar_options</a> <a href="#canonical_value_options">canonical_value_options</a> <a href="#utc_timestamp">utc_timestamp</a> <a href="#NamedArray">NamedArray</a> <a href="#RunWarning">RunWarning</a> <a href="#ErrorRecord">ErrorRecord</a> <a href="#ComputeBudget">ComputeBudget</a> <a href="#SeedRecord">SeedRecord</a> <a href="#DeviceRecord">DeviceRecord</a> <a href="#BackendRef">BackendRef</a> <a href="#TerminationReason">TerminationReason</a> <a href="#TerminationRecord">TerminationRecord</a> <a href="#TimingRecord">TimingRecord</a> <a href="#ApproximationClass">ApproximationClass</a> <a href="#TargetFidelity">TargetFidelity</a> <a href="#ApproximationRecord">ApproximationRecord</a> <a href="#ProducerRef">ProducerRef</a> <a href="#ArtifactStatus">ArtifactStatus</a> <a href="#ArtifactRef">ArtifactRef</a> <a href="#LifecycleRecord">LifecycleRecord</a> <a href="#ArtifactMeta">ArtifactMeta</a> <a href="#RunRecord">RunRecord</a> <a href="#new_artifact_meta">new_artifact_meta</a> <a href="#invalidate_meta">invalidate_meta</a> <a href="#TaskKind">TaskKind</a> <a href="#TaskMeta">TaskMeta</a> <a href="#new_task_meta">new_task_meta</a> <a href="#Estimand">Estimand</a> <a href="#ParameterSourceKind">ParameterSourceKind</a> <a href="#ParameterSource">ParameterSource</a> <a href="#PosteriorTask">PosteriorTask</a> <a href="#EvidenceTask">EvidenceTask</a> <a href="#PredictiveTask">PredictiveTask</a> <a href="#PointEstimateTask">PointEstimateTask</a> <a href="#SimulationTask">SimulationTask</a> <a href="#Task">Task</a> <a href="#TASK_CLASSES">TASK_CLASSES</a> <a href="#task_kind">task_kind</a> <a href="#task_fingerprint">task_fingerprint</a> <a href="#site_names">site_names</a> <a href="#ResultKind">ResultKind</a> <a href="#LogDensityAvailability">LogDensityAvailability</a> <a href="#UncertaintyKind">UncertaintyKind</a> <a href="#UncertaintyRecord">UncertaintyRecord</a> <a href="#DrawsPosterior">DrawsPosterior</a> <a href="#WeightedDrawsPosterior">WeightedDrawsPosterior</a> <a href="#AnalyticPosterior">AnalyticPosterior</a> <a href="#FittedConditionalPosterior">FittedConditionalPosterior</a> <a href="#PosteriorRepresentation">PosteriorRepresentation</a> <a href="#POSTERIOR_REPRESENTATIONS">POSTERIOR_REPRESENTATIONS</a> <a href="#EvidenceComponent">EvidenceComponent</a> <a href="#PosteriorResult">PosteriorResult</a> <a href="#EvidenceResult">EvidenceResult</a> <a href="#PredictiveResult">PredictiveResult</a> <a href="#PointEstimateResult">PointEstimateResult</a> <a href="#SimulationResult">SimulationResult</a> <a href="#Result">Result</a> <a href="#RESULT_CLASSES">RESULT_CLASSES</a> <a href="#result_kind">result_kind</a> <a href="#PRIMARY_RESULT_BY_TASK">PRIMARY_RESULT_BY_TASK</a> <a href="#ScopeKind">ScopeKind</a> <a href="#ScopeRef">ScopeRef</a> <a href="#Finding">Finding</a> <a href="#Remedy">Remedy</a> <a href="#Conservatism">Conservatism</a> <a href="#FallbackOption">FallbackOption</a> <a href="#Refusal">Refusal</a> <a href="#CAPABILITY_UNAVAILABLE_R1">CAPABILITY_UNAVAILABLE_R1</a> <a href="#PREMISES">PREMISES</a> <a href="#AnalysisFinding">AnalysisFinding</a> <a href="#AnalysisReport">AnalysisReport</a> <a href="#PlanBlockRecord">PlanBlockRecord</a> <a href="#InferencePlanRecord">InferencePlanRecord</a> <a href="#Applicability">Applicability</a> <a href="#Conclusion">Conclusion</a> <a href="#EvaluationReport">EvaluationReport</a> <a href="#OperationalStatus">OperationalStatus</a> <a href="#AttemptStatus">AttemptStatus</a> <a href="#ReportRequirement">ReportRequirement</a> <a href="#ReportSlot">ReportSlot</a> <a href="#GateDefinition">GateDefinition</a> <a href="#GateResult">GateResult</a> <a href="#aggregate_gate">aggregate_gate</a></div><section class="api-symbol"><h2 id="DiagnosticPolicy">DiagnosticPolicy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.policies</code>, line 110.</p><pre><code>class DiagnosticPolicy
+enabled: bool = True
+max_parameters: int = 64
+max_matrix_elements: int = 200000
+max_prior_parameters: int = 12
+required: tuple[str, ...] = ()</code></pre><pre class="docstring">Bound dense preflight work; an unperformed check is never a pass.
+
+Bounds count matrix entries and parameter coordinates, not sites.
+Required finding codes block execution unless passed. A resolved Jeffreys
+assessment (flat or nonflat) also satisfies that check without changing priors.</pre></section><section class="api-symbol"><h2 id="InitializationPolicy">InitializationPolicy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.policies</code>, line 136.</p><pre><code>class InitializationPolicy
+values: tuple[NamedArray, ...] = ()
+masks: tuple[NamedArray, ...] = ()
+max_attempts: int = 32
+radius: float = 2.0</code></pre><pre class="docstring">Complete constrained values independently per chain, before warmup.
+
+A leading ``chain`` dimension means per-chain values; otherwise values
+are shared. Boolean masks mark supplied entries. Missing entries are
+starting points, not draws claimed to follow a conditional posterior.</pre></section><section class="api-symbol"><h2 id="StoppingPolicy">StoppingPolicy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.policies</code>, line 190.</p><pre><code>class StoppingPolicy
+mode: str = &#x27;fixed&#x27;
+min_draws: int = 200
+batch_size: int = 200
+consecutive: int = 2
+ess_min: float | None = None
+rhat_max: float | None = None
+mcse_mean: float | None = None
+max_divergences: int = 0</code></pre><pre class="docstring">Fixed budget, or consecutive checks on a continuing warmed chain.
+
+Existing chain diagnostic thresholds always apply. Optional ESS/R-hat
+limits may make the criterion stricter. MCSE is an absolute standard
+error bound on every scalar posterior mean. Time is a soft batch cap.</pre></section><section class="api-symbol"><h2 id="ProposalBlockPolicy">ProposalBlockPolicy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.policies</code>, line 30.</p><pre><code>class ProposalBlockPolicy
+names: tuple[str, ...]
+method: str
+steps: int = 1
+iterations: int = 5
+scale: float = 1.0
+damping: float = 1e-06
+max_parameters: int = 64
+max_matrix_elements: int = 200000
+mh_correction: bool = True</code></pre><pre class="docstring">An explicit proposal block with original-target MH enabled by default.
+
+Dense proposal work has an independent budget. The automatic compiler may
+also instantiate policies to enlarge small moving-noise linear blocks;
+fixed-covariance GCR retains priority and failed enlargement keeps its plan.
+Disabling ``mh_correction`` applies finite, supported proposals without
+an MH test. Such state-dependent updates are approximate and need not
+correspond to any known approximate joint target.</pre><h3 id="ProposalBlockPolicy.as_options">ProposalBlockPolicy.as_options</h3><pre><code>as_options(self)</code></pre><pre class="docstring">Canonical scalar/tuple representation for existing task storage.</pre></section><section class="api-symbol"><h2 id="proposal_options">proposal_options</h2><p class="source-note">Defined in <code>bayesmith.artifacts.policies</code>, line 79.</p><pre><code>proposal_options(*blocks: ProposalBlockPolicy)</code></pre><pre class="docstring">Return backend options while preserving the existing task schema.
+
+Use ``PosteriorTask(..., backend_options=proposal_options(block1, block2))``.
+Other backend options may be concatenated to the returned tuple.</pre></section><section class="api-symbol"><h2 id="ArtifactCodecError">ArtifactCodecError</h2><p class="source-note">Defined in <code>bayesmith.artifacts._codec</code>, line 67.</p><pre><code>class ArtifactCodecError(ValueError)</code></pre><pre class="docstring">A value cannot be encoded, or a payload cannot be decoded, canonically.</pre></section><section class="api-symbol"><h2 id="ArtifactFile">ArtifactFile</h2><p class="source-note">Defined in <code>bayesmith.artifacts._codec</code>, line 577.</p><pre><code>class ArtifactFile
+format: Literal[&#x27;bayesmith-artifact&#x27;]
+codec_version: Literal[1]
+payload_sha256: str
+payload_base64: str</code></pre><pre class="docstring">The canonical JSON transport envelope (§8.2).
+
+Not the artifact, and not a second copy of its digest the artifact
+computes for itself: ``payload_sha256`` is the SHA-256 of the DECODED
+payload bytes -- exactly what ``canonical_dumps`` produced -- and
+``payload_base64`` is those bytes under base64. ``load_artifact`` checks
+the digest before it decodes, so a corrupted payload cannot hand back a
+corrupted object with a freshly matching digest.</pre></section><section class="api-symbol"><h2 id="UnsupportedSchemaVersion">UnsupportedSchemaVersion</h2><p class="source-note">Defined in <code>bayesmith.artifacts._codec</code>, line 567.</p><pre><code>class UnsupportedSchemaVersion(ArtifactCodecError)</code></pre><pre class="docstring">A stored artifact was written in a codec version this package cannot read.
+
+Raised when the envelope names a version NEWER than the one this package
+writes. The caller is expected to upgrade the package rather than guess at
+a migration, so no attempt is made to read the payload.</pre></section><section class="api-symbol"><h2 id="dump_artifact">dump_artifact</h2><p class="source-note">Defined in <code>bayesmith.artifacts._codec</code>, line 611.</p><pre><code>dump_artifact(artifact: object, path: str | os.PathLike[str]) -&gt; None</code></pre><pre class="docstring">Write ``artifact`` to ``path`` as a canonical transport envelope.
+
+The write is atomic at the filesystem level: the bytes are written to a
+temporary file in the same directory and moved into place with
+``os.replace``, so a reader -- including one racing this write -- sees
+either the previous complete file or the new complete file, never a
+half-written one. A failure to serialise the artifact raises before any
+file is touched, because ``canonical_dumps`` runs first.</pre></section><section class="api-symbol"><h2 id="load_artifact">load_artifact</h2><p class="source-note">Defined in <code>bayesmith.artifacts._codec</code>, line 639.</p><pre><code>load_artifact(path: str | os.PathLike[str], *, expected: type[T] | None=None) -&gt; T | object</code></pre><pre class="docstring">Read an artifact written by :func:`dump_artifact`, verifying it first.
+
+Three checks, in the order that closes the most holes first: the envelope
+is what it claims to be and a version this package can read; the decoded
+payload hashes to the digest the envelope states; and the payload decodes
+to the ``expected`` type. A payload byte flipped anywhere, a digest byte
+flipped, or a type name the registry does not know all fail here before
+any object is handed back.</pre></section><section class="api-symbol"><h2 id="FINGERPRINT_ALGORITHM">FINGERPRINT_ALGORITHM</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 79.</p><pre><code>FINGERPRINT_ALGORITHM = &#x27;sha256-v1&#x27;</code></pre></section><section class="api-symbol"><h2 id="FingerprintKind">FingerprintKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 86.</p><pre><code>class FingerprintKind(StrEnum)</code></pre><pre class="docstring">The seven slots of plan §0.3, one per independently changeable input.
+
+Named after the slots of :class:``FingerprintBundle`` and checked against them,
+so a slot cannot come to hold a digest of some other kind -- a ``data`` slot
+holding a task digest would answer &quot;the data changed&quot; for a renamed
+solver, and answer it consistently enough to be believed.</pre><pre><code>MODEL_SOURCE = &#x27;model_source&#x27;
+GRAPH_STRUCTURE = &#x27;graph_structure&#x27;
+DATA = &#x27;data&#x27;
+TASK = &#x27;task&#x27;
+COMPILATION = &#x27;compilation&#x27;
+EVALUATION = &#x27;evaluation&#x27;
+ENVIRONMENT = &#x27;environment&#x27;</code></pre></section><section class="api-symbol"><h2 id="ArtifactKind">ArtifactKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 105.</p><pre><code>class ArtifactKind(StrEnum)</code></pre><pre class="docstring">The rows of the §0.3 invalidation matrix: what invalidation reasons about.
+
+Four members, because the matrix has four columns and each is a distinct
+sensitivity: a Plan is made before compilation, a Result is made by it, an
+EvaluationReport is a judgement about a Result, and an Estimator is the
+fitted weights a heuristic posterior was trained on (§0.7). This is the
+INVALIDATION taxonomy and not a catalogue of artifacts -- which of the five
+Results a
+reference points at is ``ResultKind``&#x27;s business (Task 3), and asking this enum
+to carry that too would put five identical rows in the matrix.</pre><pre><code>PLAN = &#x27;plan&#x27;
+RESULT = &#x27;result&#x27;
+EVALUATION_REPORT = &#x27;evaluation_report&#x27;
+ESTIMATOR = &#x27;estimator&#x27;</code></pre></section><section class="api-symbol"><h2 id="Fingerprint">Fingerprint</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 126.</p><pre><code>class Fingerprint
+kind: FingerprintKind
+algorithm: str
+digest: str</code></pre><pre class="docstring">One slot&#x27;s digest, with the kind it belongs to and the algorithm used.</pre></section><section class="api-symbol"><h2 id="FingerprintBundle">FingerprintBundle</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 175.</p><pre><code>class FingerprintBundle
+model_source: Fingerprint
+graph_structure: Fingerprint
+data: Fingerprint
+task: Fingerprint
+compilation: Fingerprint | None = None
+evaluation: Fingerprint | None = None
+environment: Fingerprint | None = None</code></pre><pre class="docstring">The seven slots of §0.3, in the order the plan lists them.
+
+The first four always exist: every artifact was made from a model, a graph,
+data and a task. The last three are ``None`` when they do not apply -- a Plan
+has no compilation digest before it is compiled, and nothing but a report
+has an evaluation one. ``None`` and a digest are different values, so a slot
+appearing or vanishing is itself a change.</pre><h3 id="FingerprintBundle.slots">FingerprintBundle.slots</h3><pre><code>slots(self) -&gt; tuple[tuple[FingerprintKind, Fingerprint | None], ...]</code></pre><pre class="docstring">The bundle as (kind, fingerprint-or-None) pairs, in slot order.</pre></section><section class="api-symbol"><h2 id="ModelRef">ModelRef</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 220.</p><pre><code>class ModelRef
+identifier: str
+source_digest: str | None = None
+package: str | None = None
+package_version: str | None = None
+build_arguments: tuple[tuple[str, object], ...] = ()</code></pre><pre class="docstring">A stable reference to the model a graph was built from.
+
+Never the callable itself: §0 ruling 4. ``identifier`` is what a human calls
+the model, ``source_digest`` pins its text, and ``package``/``package_version``
+pin a released model whose source is not at hand. At least one of those
+two pins is required, because a reference with only a name is a reference
+to whatever that name means today.
+
+``build_arguments`` carries the state that would otherwise hide in a
+closure -- §0.3 does not promise to discover it, so a builder&#x27;s arguments
+are part of the reference or they are lost. They are canonical values
+(arrays included, since a knot vector is an argument), key-unique, and
+sorted, so two callers who passed the same arguments in different order
+hold the same reference.</pre></section><section class="api-symbol"><h2 id="fingerprint">fingerprint</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 157.</p><pre><code>fingerprint(kind: FingerprintKind, payload: object) -&gt; Fingerprint</code></pre><pre class="docstring">The fingerprint of ``payload`` in slot ``kind``.
+
+What goes into ``payload`` is the §0.3 boundary for that slot, and it is the
+caller&#x27;s to decide: this function hashes what it is handed. A payload the
+codec cannot encode -- a callable, an object array, an unregistered class
+-- raises :class:``ArtifactCodecError`` here rather than being rendered
+best-effort, because a best-effort digest of a callable is its address.</pre></section><section class="api-symbol"><h2 id="model_ref_from_callable">model_ref_from_callable</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 303.</p><pre><code>model_ref_from_callable(fn: Callable[..., object], *, identifier: str, source_digest: str | None=None, package: str | None=None, package_version: str | None=None, build_arguments: tuple[tuple[str, object], ...]=()) -&gt; ModelRef</code></pre><pre class="docstring">A :class:``ModelRef`` for ``fn``, digesting its source or refusing.
+
+§0.3: an automatic source digest exists only when ``inspect.getsource``
+returns stable text. When it does not -- a function built by ``exec``, a
+builtin, a callable defined in a REPL -- the caller must supply
+``source_digest``. There is no fallback, and the missing fallback is the
+feature: ``repr(fn)`` carries a memory address, so a digest that degraded
+to it would report a changed model on every restart and an unchanged one
+for a genuine edit that happened to reuse an address.
+
+``package`` defaults to the top-level package of ``fn.__module__``, which is
+read off the function object rather than imported.</pre></section><section class="api-symbol"><h2 id="changed_fingerprints">changed_fingerprints</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 355.</p><pre><code>changed_fingerprints(before: FingerprintBundle, after: FingerprintBundle) -&gt; frozenset[FingerprintKind]</code></pre><pre class="docstring">The slots whose fingerprint differs between two bundles.
+
+Slot by slot, including the optional ones: a compilation digest that
+appears where there was ``None`` is a change, and so is one that vanishes.
+The result is a frozenset because invalidation is a question about a SET of
+changed inputs -- the order they were discovered in is not part of it.</pre></section><section class="api-symbol"><h2 id="InvalidationPolicy">InvalidationPolicy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 376.</p><pre><code>class InvalidationPolicy
+sensitivities: tuple[tuple[ArtifactKind, tuple[FingerprintKind, ...]], ...]</code></pre><pre class="docstring">The §0.3 matrix: which fingerprint kinds each artifact kind depends on.
+
+A table, and a table for a reason. The rule set is small enough to write as
+branches and exactly the kind of thing that grows an unwritten case when it
+is: &quot;compilation invalidates a Result but not a Plan&quot; and &quot;an evaluation
+threshold invalidates the report but not the Result&quot; are not related
+statements, and nothing but a table keeps them from being merged by
+somebody simplifying.
+
+Not registered with the codec: a policy is code that reads artifacts, not
+an artifact. What an invalidated artifact records is which inputs changed
+(``LifecycleRecord.changed_inputs``), which stays true whoever judged it.</pre><h3 id="InvalidationPolicy.default">InvalidationPolicy.default</h3><pre><code>default(cls) -&gt; InvalidationPolicy</code></pre><pre class="docstring">The §0.3 matrix as shipped.</pre><h3 id="InvalidationPolicy.affected">InvalidationPolicy.affected</h3><pre><code>affected(self, artifact_type: ArtifactKind, changed: Iterable[FingerprintKind]) -&gt; bool</code></pre><pre class="docstring">Does an artifact of this kind stop being current, given ``changed``?
+
+``changed`` is any iterable of :class:``FingerprintKind`` -- normally the
+frozenset :func:``changed_fingerprints`` returned. An empty one answers
+``False`` for every artifact kind, which is the matrix&#x27;s display-option
+row: a display option is in no slot, so nothing moved and everything
+is reusable.</pre></section><section class="api-symbol"><h2 id="SCHEMA_VERSION">SCHEMA_VERSION</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 102.</p><pre><code>SCHEMA_VERSION = 1</code></pre></section><section class="api-symbol"><h2 id="CanonicalScalar">CanonicalScalar</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 107.</p><pre><code>CanonicalScalar = bool | int | float | str | None</code></pre></section><section class="api-symbol"><h2 id="CanonicalValue">CanonicalValue</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 108.</p><pre><code>CanonicalValue = CanonicalScalar | tuple[&#x27;CanonicalValue&#x27;, ...]</code></pre></section><section class="api-symbol"><h2 id="canonical_scalar_options">canonical_scalar_options</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 281.</p><pre><code>canonical_scalar_options(label: str, pairs: object) -&gt; tuple[tuple[str, CanonicalScalar], ...]</code></pre><pre class="docstring">Sorted, key-unique options whose values are :data:``CanonicalScalar``.</pre></section><section class="api-symbol"><h2 id="canonical_value_options">canonical_value_options</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 288.</p><pre><code>canonical_value_options(label: str, pairs: object) -&gt; tuple[tuple[str, CanonicalValue], ...]</code></pre><pre class="docstring">Sorted, key-unique options whose values are :data:``CanonicalValue``.</pre></section><section class="api-symbol"><h2 id="utc_timestamp">utc_timestamp</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 197.</p><pre><code>utc_timestamp(moment: _dt.datetime | None=None) -&gt; str</code></pre><pre class="docstring">``moment`` (default: now) as an RFC 3339 UTC string in the ``Z`` spelling.</pre></section><section class="api-symbol"><h2 id="NamedArray">NamedArray</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 300.</p><pre><code>class NamedArray
+name: str
+value: np.ndarray
+dims: tuple[str, ...]</code></pre><pre class="docstring">The one public container for an array in an artifact (§0.5).
+
+The value is copied in and handed back read-only, and ``dims`` names one axis
+each. A repeated dim name is allowed on purpose: a covariance matrix is
+indexed by the same parameter axis twice, and refusing that would push
+every covariance into an unnamed array.
+
+Equality is over NAME, DIMS and BYTES rather than by ``==`` on the arrays.
+Element-wise comparison would make ``artifact == artifact`` raise for any
+array of more than one element, and byte equality is what a fingerprint
+already means -- which is also why two NaNs with one bit pattern compare
+equal here, while ``np.array_equal`` would call them different.</pre></section><section class="api-symbol"><h2 id="RunWarning">RunWarning</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 375.</p><pre><code>class RunWarning
+code: str
+message: str
+scope: str | None = None</code></pre><pre class="docstring">Something a run noticed and did not fail over.
+
+``scope`` is a plain string here. Task 4 introduces the structured
+``ScopeRef`` that the Refusal family uses, and borrowing it before it
+exists would make this module depend on a type nobody has designed yet.</pre></section><section class="api-symbol"><h2 id="ErrorRecord">ErrorRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 395.</p><pre><code>class ErrorRecord
+code: str
+message: str
+exception_type: str
+traceback_ref: str | None = None</code></pre><pre class="docstring">A serialisable summary of a failure -- never the exception object.
+
+``traceback_ref`` is an opaque external reference (§0.6): a traceback is not
+one of the three :class:``ArtifactKind`` the invalidation matrix reasons
+about, so it is stored beside the artifacts rather than as one.</pre></section><section class="api-symbol"><h2 id="ComputeBudget">ComputeBudget</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 417.</p><pre><code>class ComputeBudget
+draws: int | None = None
+warmup: int | None = None
+chains: int | None = None
+max_iterations: int | None = None
+max_wall_clock_seconds: float | None = None</code></pre><pre class="docstring">What a run was allowed to spend. ``None`` where a count does not apply.
+
+``None`` and ``0`` are different answers -- &quot;this task has no such knob&quot;
+against &quot;you may take none&quot; -- so the field is kept and left empty rather
+than filled with a stand-in.</pre></section><section class="api-symbol"><h2 id="SeedRecord">SeedRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 443.</p><pre><code>class SeedRecord
+seed: int
+key_algorithm: str</code></pre><pre class="docstring">The entropy a run started from, and the key algorithm it was fed to.</pre></section><section class="api-symbol"><h2 id="DeviceRecord">DeviceRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 456.</p><pre><code>class DeviceRecord
+platform: str
+device_kind: str
+device_id: int</code></pre><pre class="docstring">One device a run used, described the way a backend describes it.</pre></section><section class="api-symbol"><h2 id="BackendRef">BackendRef</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 471.</p><pre><code>class BackendRef
+name: str
+version: str | None = None</code></pre><pre class="docstring">The backend that RAN, which is never the policy value ``&quot;auto&quot;``.
+
+A task may ask for ``&quot;auto&quot;`` (§0.4); a run record answering ``&quot;auto&quot;`` would
+be provenance that forgot which backend produced the numbers.</pre></section><section class="api-symbol"><h2 id="TerminationReason">TerminationReason</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 492.</p><pre><code>class TerminationReason(StrEnum)</code></pre><pre class="docstring">Why a run stopped, which is not the same question as whether it worked.</pre><pre><code>COMPLETED = &#x27;completed&#x27;
+CONVERGED = &#x27;converged&#x27;
+BUDGET_EXHAUSTED = &#x27;budget_exhausted&#x27;
+TOLERANCE_UNMET = &#x27;tolerance_unmet&#x27;
+DIVERGED = &#x27;diverged&#x27;
+INTERRUPTED = &#x27;interrupted&#x27;</code></pre></section><section class="api-symbol"><h2 id="TerminationRecord">TerminationRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 505.</p><pre><code>class TerminationRecord
+reason: TerminationReason
+iterations: int | None = None
+message: str = &#x27;&#x27;</code></pre><pre class="docstring">No additional source docstring. Read the signature and owning module contract above.</pre></section><section class="api-symbol"><h2 id="TimingRecord">TimingRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 519.</p><pre><code>class TimingRecord
+started_at: str
+finished_at: str
+wall_clock_seconds: float
+compile_seconds: float | None = None</code></pre><pre class="docstring">When a run ran and how long it took. Wall clock only -- §0.3 keeps
+timing out of every fingerprint, so nothing here can change an identity.</pre></section><section class="api-symbol"><h2 id="ApproximationClass">ApproximationClass</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 550.</p><pre><code>class ApproximationClass(StrEnum)</code></pre><pre class="docstring">How the representation was PRODUCED (§0.2).</pre><pre><code>EXACT = &#x27;exact&#x27;
+CERTIFIED_DETERMINISTIC = &#x27;certified_deterministic&#x27;
+MONTE_CARLO = &#x27;monte_carlo&#x27;
+HEURISTIC = &#x27;heuristic&#x27;</code></pre></section><section class="api-symbol"><h2 id="TargetFidelity">TargetFidelity</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 560.</p><pre><code>class TargetFidelity(StrEnum)</code></pre><pre class="docstring">Whether the TARGET is the intended one, or an approximation of it.</pre><pre><code>EXACT = &#x27;exact&#x27;
+APPROXIMATE = &#x27;approximate&#x27;</code></pre></section><section class="api-symbol"><h2 id="ApproximationRecord">ApproximationRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 569.</p><pre><code>class ApproximationRecord
+representation_class: ApproximationClass
+target_fidelity: TargetFidelity
+details: tuple[tuple[str, CanonicalScalar], ...] = ()</code></pre><pre class="docstring">Two orthogonal answers, kept apart (§0.2).
+
+iid exact-linear draws are ``MONTE_CARLO`` and ``EXACT``: sampled, but from the
+posterior itself. NUTS is ``MONTE_CARLO`` and, with no target approximation,
+also ``EXACT``; an amortized posterior is ``HEURISTIC``/``APPROXIMATE``. One
+enum would have to call the first case something, and every available
+something is a lie about one of the two axes.</pre></section><section class="api-symbol"><h2 id="ProducerRef">ProducerRef</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 593.</p><pre><code>class ProducerRef
+package: str
+version: str</code></pre><pre class="docstring">The package and version that wrote an artifact.</pre></section><section class="api-symbol"><h2 id="ArtifactStatus">ArtifactStatus</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 605.</p><pre><code>class ArtifactStatus(StrEnum)</code></pre><pre class="docstring">No additional source docstring. Read the signature and owning module contract above.</pre><pre><code>CURRENT = &#x27;current&#x27;
+INVALIDATED = &#x27;invalidated&#x27;</code></pre></section><section class="api-symbol"><h2 id="ArtifactRef">ArtifactRef</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 612.</p><pre><code>class ArtifactRef
+artifact_id: str
+revision: int
+artifact_type: ArtifactKind</code></pre><pre class="docstring">A reference to one VERSION of one artifact.
+
+The revision and the kind travel with the id because ``(artifact_id,
+revision)`` is the version identity: a reference carrying only an id would
+be silently satisfied by a later, invalidated revision of the same
+artifact, which is exactly the impersonation §0.2 rules out.</pre></section><section class="api-symbol"><h2 id="LifecycleRecord">LifecycleRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 633.</p><pre><code>class LifecycleRecord
+status: ArtifactStatus
+invalidated_at: str | None = None
+changed_inputs: tuple[FingerprintKind, ...] = ()</code></pre><pre class="docstring">Current, or invalidated with the reason and the time recorded.</pre></section><section class="api-symbol"><h2 id="ArtifactMeta">ArtifactMeta</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 681.</p><pre><code>class ArtifactMeta
+artifact_type: ArtifactKind
+schema_version: int
+artifact_id: str
+revision: int
+created_at: str
+producer: ProducerRef
+parent_refs: tuple[ArtifactRef, ...]
+fingerprints: FingerprintBundle
+lifecycle: LifecycleRecord
+warnings: tuple[RunWarning, ...]
+summary: str</code></pre><pre class="docstring">The §0.2 envelope every artifact carries.</pre></section><section class="api-symbol"><h2 id="RunRecord">RunRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 732.</p><pre><code>class RunRecord
+run_id: str
+plan_ref: ArtifactRef
+fingerprints: FingerprintBundle
+seed: SeedRecord | None
+dtype: str
+devices: tuple[DeviceRecord, ...]
+jax_config: tuple[tuple[str, CanonicalScalar], ...]
+backend: BackendRef
+budget: ComputeBudget
+termination: TerminationRecord
+timing: TimingRecord
+approximation: ApproximationRecord
+warnings: tuple[RunWarning, ...]
+initial_values: tuple[NamedArray, ...] = ()
+sampling_details: tuple[tuple[str, CanonicalValue], ...] = ()</code></pre><pre class="docstring">What one execution of a plan actually did (§0.2).</pre></section><section class="api-symbol"><h2 id="new_artifact_meta">new_artifact_meta</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 783.</p><pre><code>new_artifact_meta(*, artifact_type: ArtifactKind, fingerprints: FingerprintBundle, producer: ProducerRef, summary: str=&#x27;&#x27;, parent_refs: tuple[ArtifactRef, ...]=(), warnings: tuple[RunWarning, ...]=(), schema_version: int=SCHEMA_VERSION, artifact_id: str | None=None, created_at: str | None=None) -&gt; ArtifactMeta</code></pre><pre class="docstring">A CURRENT envelope at revision 0, with a freshly minted UUID4.
+
+``artifact_id`` and ``created_at`` are arguments so that a caller restoring an
+artifact keeps its identity; left out, they are minted here. They are not
+derived from the content: two artifacts with identical fingerprints are
+still two artifacts, with separate lineage and separate verdicts.</pre></section><section class="api-symbol"><h2 id="invalidate_meta">invalidate_meta</h2><p class="source-note">Defined in <code>bayesmith.artifacts.base</code>, line 817.</p><pre><code>invalidate_meta(meta: ArtifactMeta, *, before: FingerprintBundle, after: FingerprintBundle, policy: InvalidationPolicy, at: str | None=None) -&gt; ArtifactMeta</code></pre><pre class="docstring">The INVALIDATED copy of ``meta`` at ``revision + 1`` (§0.2, §0.3).
+
+Same ``artifact_id``, same fingerprints -- the retired revision records what
+it was MADE from, not what replaced it -- with the changed input kinds and
+the time written into its lifecycle. ``meta`` itself is untouched, because
+the point of a revision is that the earlier one survives.
+
+Refused, loudly, in four cases: ``before`` is not this artifact&#x27;s own bundle
+(so the comparison would be about some other artifact), nothing changed,
+the policy says this artifact kind does not depend on what changed, and the
+artifact was already invalidated. Each of these is a caller error that
+would otherwise produce a plausible-looking revision recording a judgement
+nobody made.</pre></section><section class="api-symbol"><h2 id="TaskKind">TaskKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 90.</p><pre><code>class TaskKind(StrEnum)</code></pre><pre class="docstring">The five questions of §0 ruling 1, and no sixth.
+
+The kind is a member of the tagged union rather than a free string because
+it is what every dispatch, every gate and every result pairing branches on.</pre><pre><code>POSTERIOR = &#x27;posterior&#x27;
+EVIDENCE = &#x27;evidence&#x27;
+PREDICTIVE = &#x27;predictive&#x27;
+POINT_ESTIMATE = &#x27;point_estimate&#x27;
+SIMULATION = &#x27;simulation&#x27;</code></pre></section><section class="api-symbol"><h2 id="TaskMeta">TaskMeta</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 267.</p><pre><code>class TaskMeta
+task_id: str
+schema_version: int
+created_at: str
+label: str = &#x27;&#x27;</code></pre><pre class="docstring">Who asked, and when. None of it is part of the task&#x27;s fingerprint.</pre></section><section class="api-symbol"><h2 id="new_task_meta">new_task_meta</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 290.</p><pre><code>new_task_meta(*, label: str=&#x27;&#x27;, task_id: str | None=None, created_at: str | None=None, schema_version: int=SCHEMA_VERSION) -&gt; TaskMeta</code></pre><pre class="docstring">A fresh task envelope, minting the id and the time unless given them.</pre></section><section class="api-symbol"><h2 id="Estimand">Estimand</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 105.</p><pre><code>class Estimand(StrEnum)</code></pre><pre class="docstring">Which point of the posterior a point estimate is of (§0.4).
+
+Two members, and they are not interchangeable: a posterior mean is an
+integral, a MAP is an argmax, and they coincide only for a symmetric
+unimodal posterior. A single &quot;point estimate&quot; with a free-text method would
+let the difference be lost in a string.</pre><pre><code>POSTERIOR_MEAN = &#x27;posterior_mean&#x27;
+MAP = &#x27;map&#x27;</code></pre></section><section class="api-symbol"><h2 id="ParameterSourceKind">ParameterSourceKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 119.</p><pre><code>class ParameterSourceKind(StrEnum)</code></pre><pre class="docstring">Where a simulation&#x27;s parameters come from (§0.4).</pre><pre><code>PRIOR = &#x27;prior&#x27;
+FIXED = &#x27;fixed&#x27;
+POSTERIOR_RESULT = &#x27;posterior_result&#x27;</code></pre></section><section class="api-symbol"><h2 id="ParameterSource">ParameterSource</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 308.</p><pre><code>class ParameterSource
+kind: ParameterSourceKind
+values: tuple[NamedArray, ...] = ()
+posterior_ref: ArtifactRef | None = None</code></pre><pre class="docstring">Where a simulation&#x27;s parameters come from: a three-armed tagged value.
+
+Exactly one arm carries a payload, and the other two must be empty. A
+single class with an unconstrained pair of optional fields would admit
+&quot;fixed values AND a posterior reference&quot;, which is two answers to one
+question -- and whichever one the executor read first would become the
+silent rule.</pre><h3 id="ParameterSource.prior">ParameterSource.prior</h3><pre><code>prior(cls) -&gt; ParameterSource</code></pre><h3 id="ParameterSource.fixed">ParameterSource.fixed</h3><pre><code>fixed(cls, values: tuple[NamedArray, ...]) -&gt; ParameterSource</code></pre><h3 id="ParameterSource.from_posterior_result">ParameterSource.from_posterior_result</h3><pre><code>from_posterior_result(cls, ref: ArtifactRef) -&gt; ParameterSource</code></pre></section><section class="api-symbol"><h2 id="PosteriorTask">PosteriorTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 370.</p><pre><code>class PosteriorTask
+meta: TaskMeta
+backend: str = &#x27;auto&#x27;
+budget: ComputeBudget = _NO_BUDGET
+chain_method: str | None = None
+solver_tolerance: float | None = None
+solver_maxiter: int | None = None
+require_convergence: bool = True
+ess_floor: float | None = None
+nuts_on_collapse: bool = True
+backend_options: tuple[tuple[str, CanonicalValue], ...] = ()
+quality_gate: str | None = None
+diagnostics: DiagnosticPolicy = dataclasses.field(default_factory=DiagnosticPolicy)
+initialization: InitializationPolicy | None = dataclasses.field(default_factory=InitializationPolicy)
+stopping: StoppingPolicy = dataclasses.field(default_factory=StoppingPolicy)
+block_order: tuple[tuple[str, ...], ...] | None = None</code></pre><pre class="docstring">Draw, or represent, the posterior over the model&#x27;s latents.
+
+``nuts_on_collapse`` is a fallback POLICY rather than a fallback: the task
+says whether the caller consents to being moved onto NUTS when an exact
+route collapses, and the run record says whether it happened.</pre><h3 id="PosteriorTask.proposals">PosteriorTask.proposals</h3><pre><code>proposals(self) -&gt; tuple[ProposalBlockPolicy, ...]</code></pre><pre class="docstring">Explicit proposal blocks encoded in the existing backend options.</pre></section><section class="api-symbol"><h2 id="EvidenceTask">EvidenceTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 436.</p><pre><code>class EvidenceTask
+meta: TaskMeta
+backend: str = &#x27;auto&#x27;
+budget: ComputeBudget = _NO_BUDGET
+reconstruct_posterior: bool = False
+repeat_count: int | None = None
+backend_options: tuple[tuple[str, CanonicalValue], ...] = ()
+quality_gate: str | None = None</code></pre><pre class="docstring">The marginal likelihood, and whether a posterior falls out of it.
+
+``repeat_count`` is how many independent runs the caller wants for a
+consistency check. ``None`` is a single run; zero is refused, because
+repeating a run no times is not a second spelling of running it once.</pre></section><section class="api-symbol"><h2 id="PredictiveTask">PredictiveTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 474.</p><pre><code>class PredictiveTask
+meta: TaskMeta
+source_posterior_ref: ArtifactRef
+conditioning_data: Fingerprint | None = None
+prediction_design: Fingerprint | None = None
+conditioned_sites: tuple[str, ...] = ()
+replicated_sites: tuple[str, ...] = ()
+latent_sites: tuple[str, ...] = ()
+budget: ComputeBudget = _NO_BUDGET
+backend: str = &#x27;auto&#x27;
+backend_options: tuple[tuple[str, CanonicalValue], ...] = ()
+quality_gate: str | None = None</code></pre><pre class="docstring">Push an existing posterior forward onto new or replicated observations.
+
+What separates this from :class:``SimulationTask`` is stated in the fields
+rather than in prose (§0.4): a predictive task conditions on data, names
+the posterior it came from, and distinguishes the sites it replicates from
+the latents it carries forward. A simulation has none of those.</pre></section><section class="api-symbol"><h2 id="PointEstimateTask">PointEstimateTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 520.</p><pre><code>class PointEstimateTask
+meta: TaskMeta
+estimand: Estimand
+names: tuple[str, ...] | None = None
+backend: str = &#x27;auto&#x27;
+budget: ComputeBudget = _NO_BUDGET
+optimizer_options: tuple[tuple[str, CanonicalValue], ...] = ()
+quality_gate: str | None = None</code></pre><pre class="docstring">One point of the posterior, for named latents or for all of them.
+
+``names=None`` is &quot;every latent&quot; and an empty tuple is refused: an empty
+request and an unrestricted one are different questions, and a field that
+could mean either would make the answer depend on how the caller spelled
+&quot;I do not care&quot;.</pre></section><section class="api-symbol"><h2 id="SimulationTask">SimulationTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 553.</p><pre><code>class SimulationTask
+meta: TaskMeta
+parameter_source: ParameterSource
+prediction_design: Fingerprint | None = None
+latent_sites: tuple[str, ...] = ()
+observed_sites: tuple[str, ...] = ()
+budget: ComputeBudget = _NO_BUDGET
+backend: str = &#x27;auto&#x27;
+backend_options: tuple[tuple[str, CanonicalValue], ...] = ()</code></pre><pre class="docstring">Generate forward from a parameter source. No conditioning, no gate.
+
+§0.4 gives the other four tasks a ``quality_gate`` and this one none, and
+the omission is deliberate rather than an oversight to be tidied up: a
+simulation makes no statistical claim to check -- it produced what the
+model says, and whether that is a good model is what the OTHER four ask.</pre></section><section class="api-symbol"><h2 id="Task">Task</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 591.</p><pre><code>Task = PosteriorTask | EvidenceTask | PredictiveTask | PointEstimateTask | SimulationTask</code></pre></section><section class="api-symbol"><h2 id="TASK_CLASSES">TASK_CLASSES</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 596.</p><pre><code>TASK_CLASSES: dict[TaskKind, type] = {TaskKind.POSTERIOR: PosteriorTask, TaskKind.EVIDENCE: EvidenceTask, TaskKind.PREDICTIVE: PredictiveTask, TaskKind.POINT_ESTIMATE: PointEstimateTask, TaskKind.SIMULATION: SimulationTask}</code></pre></section><section class="api-symbol"><h2 id="task_kind">task_kind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 607.</p><pre><code>task_kind(task: Task) -&gt; TaskKind</code></pre><pre class="docstring">Which of the five ``task`` is.
+
+By exact type, not ``isinstance``: a subclass of one task carrying extra
+state would be reported as the base kind and executed as it, which is the
+quiet half of §0 ruling 4.</pre></section><section class="api-symbol"><h2 id="task_fingerprint">task_fingerprint</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 623.</p><pre><code>task_fingerprint(task: Task) -&gt; Fingerprint</code></pre><pre class="docstring">The §0.3 task-slot digest of ``task``.
+
+The kind is IN the payload, so two tasks that agree field for field but ask
+different questions are different. ``meta`` is not: its id is minted, its
+time is a clock and its label is for a human, and §0.3 keeps all three out
+of the task slot so that renaming a task cannot invalidate a cached result.</pre></section><section class="api-symbol"><h2 id="site_names">site_names</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 171.</p><pre><code>site_names(label: str, value: object) -&gt; tuple[str, ...]</code></pre><pre class="docstring">Unique, non-empty site names IN THE ORDER THEY WERE DECLARED.
+
+Not sorted: a caller reads these back and the order they wrote is the
+order they mean. Duplicates are refused rather than collapsed -- a repeated
+site would silently shorten a collection whose length a caller may be
+checking.</pre></section><section class="api-symbol"><h2 id="ResultKind">ResultKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 92.</p><pre><code>class ResultKind(StrEnum)</code></pre><pre class="docstring">The five answers of §0 ruling 1, one per task kind.</pre><pre><code>POSTERIOR = &#x27;posterior&#x27;
+EVIDENCE = &#x27;evidence&#x27;
+PREDICTIVE = &#x27;predictive&#x27;
+POINT_ESTIMATE = &#x27;point_estimate&#x27;
+SIMULATION = &#x27;simulation&#x27;</code></pre></section><section class="api-symbol"><h2 id="LogDensityAvailability">LogDensityAvailability</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 103.</p><pre><code>class LogDensityAvailability(StrEnum)</code></pre><pre class="docstring">How much of the log density this result can answer for (§0.5).
+
+Three levels rather than a bool, because &quot;I can score the joint&quot; and &quot;I can
+score each observation&quot; are different capabilities and only the second
+supports pointwise cross-validation.</pre><pre><code>NONE = &#x27;none&#x27;
+JOINT = &#x27;joint&#x27;
+POINTWISE = &#x27;pointwise&#x27;</code></pre></section><section class="api-symbol"><h2 id="UncertaintyKind">UncertaintyKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 117.</p><pre><code>class UncertaintyKind(StrEnum)</code></pre><pre class="docstring">Which of the three an uncertainty record holds (§0.5).
+
+A covariance and a precision are inverses of one another and a standard
+error is neither; a single unlabelled matrix would be read as whichever the
+consumer expected, and would be wrong silently rather than loudly.</pre><pre><code>COVARIANCE = &#x27;covariance&#x27;
+PRECISION = &#x27;precision&#x27;
+STANDARD_ERROR = &#x27;standard_error&#x27;</code></pre></section><section class="api-symbol"><h2 id="UncertaintyRecord">UncertaintyRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 424.</p><pre><code>class UncertaintyRecord
+kind: UncertaintyKind
+arrays: tuple[NamedArray, ...]</code></pre><pre class="docstring">A point estimate&#x27;s uncertainty, labelled with what it actually is.</pre></section><section class="api-symbol"><h2 id="DrawsPosterior">DrawsPosterior</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 236.</p><pre><code>class DrawsPosterior
+draws: tuple[NamedArray, ...]
+chain_shape: tuple[int, int] | None = None
+method: str = &#x27;&#x27;</code></pre><pre class="docstring">Equally weighted draws, with the chain structure that produced them.
+
+``chain_shape`` is ``None`` for iid draws and ``(chains, per_chain)`` for a
+sampler that ran chains. ``None`` is not ``(1, n)``: the first says the
+draws have no chain structure to diagnose, the second says a diagnostic
+over one chain is possible, and R-hat means different things to each.</pre></section><section class="api-symbol"><h2 id="WeightedDrawsPosterior">WeightedDrawsPosterior</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 277.</p><pre><code>class WeightedDrawsPosterior
+draws: tuple[NamedArray, ...]
+log_weights: NamedArray
+ess: float | None = None
+khat: float | None = None
+unreliable: bool = False
+method: str = &#x27;&#x27;</code></pre><pre class="docstring">Importance-weighted draws, with the diagnostics that say whether to
+believe them.
+
+``unreliable`` is a stored verdict rather than something a reader
+recomputes from ``khat``: the threshold that produced it belongs to the run
+that took it, and a consumer applying today&#x27;s threshold to yesterday&#x27;s khat
+would silently re-judge a result nobody re-ran.</pre></section><section class="api-symbol"><h2 id="AnalyticPosterior">AnalyticPosterior</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 319.</p><pre><code>class AnalyticPosterior
+family: str
+parameters: tuple[NamedArray, ...]
+moments: tuple[NamedArray, ...] = ()</code></pre><pre class="docstring">A closed-form posterior: the family and its parameters, not a sample.
+
+The protocol keeps this arm for a genuinely analytic posterior and refuses
+the temptation to fill it from draws (§0.5). Sample moments in the
+``parameters`` of a &quot;gaussian&quot; would be a claim of exactness that nothing
+took.</pre></section><section class="api-symbol"><h2 id="FittedConditionalPosterior">FittedConditionalPosterior</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 344.</p><pre><code>class FittedConditionalPosterior
+estimator_ref: ArtifactRef
+simulation_bank_ref: ArtifactRef | None = None
+training_run_id: str | None = None
+validation_report_refs: tuple[ArtifactRef, ...] = ()</code></pre><pre class="docstring">An amortized posterior, as REFERENCES to what was fitted (§0 ruling 4).
+
+No estimator object, no callable, no weights blob: the estimator and the
+simulation bank it was trained on are artifacts of their own, and this arm
+records which ones plus the run that fitted them. R1 freezes the schema and
+fits nothing.</pre></section><section class="api-symbol"><h2 id="PosteriorRepresentation">PosteriorRepresentation</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 367.</p><pre><code>PosteriorRepresentation = DrawsPosterior | WeightedDrawsPosterior | AnalyticPosterior | FittedConditionalPosterior</code></pre></section><section class="api-symbol"><h2 id="POSTERIOR_REPRESENTATIONS">POSTERIOR_REPRESENTATIONS</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 373.</p><pre><code>POSTERIOR_REPRESENTATIONS: tuple[type, ...] = (DrawsPosterior, WeightedDrawsPosterior, AnalyticPosterior, FittedConditionalPosterior)</code></pre></section><section class="api-symbol"><h2 id="EvidenceComponent">EvidenceComponent</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 395.</p><pre><code>class EvidenceComponent
+name: str
+log_value: float
+standard_error: float | None = None
+method: str = &#x27;&#x27;
+artifact_refs: tuple[ArtifactRef, ...] = ()</code></pre><pre class="docstring">One additive term of a log evidence, and how it was obtained (§0.5).
+
+The split between exact and residual components is what makes a hybrid
+evidence auditable: a number that is closed-form and a number that was
+sampled carry different warrants, and a single total would hide which part
+the error bar belongs to.</pre></section><section class="api-symbol"><h2 id="PosteriorResult">PosteriorResult</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 442.</p><pre><code>class PosteriorResult
+meta: ArtifactMeta
+run: RunRecord
+representation: PosteriorRepresentation
+latent_names: tuple[str, ...]
+eliminated_latents: tuple[str, ...] = ()
+reconstruction_ref: ArtifactRef | None = None
+log_density_availability: LogDensityAvailability = LogDensityAvailability.NONE
+pointwise_log_likelihood: NamedArray | None = None
+predictive_ready: bool = False
+report_refs: tuple[ArtifactRef, ...] = ()</code></pre><pre class="docstring">A posterior over the model&#x27;s latents, in one of four representations.
+
+``latent_names`` and ``eliminated_latents`` are disjoint by construction:
+an eliminated latent is one the plan integrated out, so it is exactly the
+set that has no draws here. ``reconstruction_ref`` points at what can put
+them back, and may only be present when something was eliminated.</pre></section><section class="api-symbol"><h2 id="EvidenceResult">EvidenceResult</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 526.</p><pre><code>class EvidenceResult
+meta: ArtifactMeta
+run: RunRecord
+log_evidence: float
+standard_error: float | None = None
+posterior_representation: PosteriorRepresentation | None = None
+normalization_audit_refs: tuple[ArtifactRef, ...] = ()
+exact_components: tuple[EvidenceComponent, ...] = ()
+residual_component: EvidenceComponent | None = None
+repeat_result_refs: tuple[ArtifactRef, ...] = ()
+consistency_report_ref: ArtifactRef | None = None</code></pre><pre class="docstring">A log marginal likelihood, its error bar, and its decomposition.</pre></section><section class="api-symbol"><h2 id="PredictiveResult">PredictiveResult</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 575.</p><pre><code>class PredictiveResult
+meta: ArtifactMeta
+run: RunRecord
+source_posterior_ref: ArtifactRef
+conditioning_data: Fingerprint | None = None
+prediction_design: Fingerprint | None = None
+conditioned_sites: tuple[str, ...] = ()
+latent_draws: tuple[NamedArray, ...] = ()
+replicated_draws: tuple[NamedArray, ...] = ()
+pointwise_log_density: NamedArray | None = None
+observation_unit: str | None = None
+grouping: str | None = None
+report_refs: tuple[ArtifactRef, ...] = ()</code></pre><pre class="docstring">Draws pushed through the model onto observations, held-out or replicated.
+
+Latent and replicated draws share ONE draw axis, because they are two views
+of the same posterior sample; a result whose halves disagreed about how
+many draws there were could not be zipped back together.</pre></section><section class="api-symbol"><h2 id="PointEstimateResult">PointEstimateResult</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 635.</p><pre><code>class PointEstimateResult
+meta: ArtifactMeta
+run: RunRecord
+estimand: Estimand
+values: tuple[NamedArray, ...]
+objective: float | None = None
+uncertainty: UncertaintyRecord | None = None
+gradient_norm: float | None = None
+residual: float | None = None
+iterations: int | None = None
+local_only: bool = False
+report_refs: tuple[ArtifactRef, ...] = ()</code></pre><pre class="docstring">One point of the posterior, with what the optimiser or solver knows.
+
+``local_only`` is the honest field: an optimiser reports a stationary
+point, and calling it THE MAP would be a global claim nothing verified.</pre></section><section class="api-symbol"><h2 id="SimulationResult">SimulationResult</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 678.</p><pre><code>class SimulationResult
+meta: ArtifactMeta
+run: RunRecord
+parameter_source: ParameterSource
+parameters: tuple[NamedArray, ...] = ()
+latent_draws: tuple[NamedArray, ...] = ()
+observation_draws: tuple[NamedArray, ...] = ()
+prediction_design: Fingerprint | None = None
+report_refs: tuple[ArtifactRef, ...] = ()</code></pre><pre class="docstring">Forward draws from a parameter source. No conditioning, no verdict.</pre></section><section class="api-symbol"><h2 id="Result">Result</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 716.</p><pre><code>Result = PosteriorResult | EvidenceResult | PredictiveResult | PointEstimateResult | SimulationResult</code></pre></section><section class="api-symbol"><h2 id="RESULT_CLASSES">RESULT_CLASSES</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 725.</p><pre><code>RESULT_CLASSES: dict[ResultKind, type] = {ResultKind.POSTERIOR: PosteriorResult, ResultKind.EVIDENCE: EvidenceResult, ResultKind.PREDICTIVE: PredictiveResult, ResultKind.POINT_ESTIMATE: PointEstimateResult, ResultKind.SIMULATION: SimulationResult}</code></pre></section><section class="api-symbol"><h2 id="result_kind">result_kind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 738.</p><pre><code>result_kind(result: Result) -&gt; ResultKind</code></pre><pre class="docstring">Which of the five ``result`` is, by exact type.</pre></section><section class="api-symbol"><h2 id="PRIMARY_RESULT_BY_TASK">PRIMARY_RESULT_BY_TASK</h2><p class="source-note">Defined in <code>bayesmith.artifacts.results</code>, line 752.</p><pre><code>PRIMARY_RESULT_BY_TASK = MappingProxyType({TaskKind.POSTERIOR: ResultKind.POSTERIOR, TaskKind.EVIDENCE: ResultKind.EVIDENCE, TaskKind.PREDICTIVE: ResultKind.PREDICTIVE, TaskKind.POINT_ESTIMATE: ResultKind.POINT_ESTIMATE, TaskKind.SIMULATION: ResultKind.SIMULATION})</code></pre></section><section class="api-symbol"><h2 id="ScopeKind">ScopeKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 174.</p><pre><code>class ScopeKind(StrEnum)</code></pre><pre class="docstring">What a finding or a refusal is ABOUT.
+
+Kept small and structural: these are the things this package can name and
+a consumer can look up. A free-text scope would be a second message field.</pre><pre><code>MODEL = &#x27;model&#x27;
+NODE = &#x27;node&#x27;
+PARAMETER = &#x27;parameter&#x27;
+PLATE = &#x27;plate&#x27;
+BLOCK = &#x27;block&#x27;
+DATA = &#x27;data&#x27;
+TASK = &#x27;task&#x27;
+BACKEND = &#x27;backend&#x27;</code></pre></section><section class="api-symbol"><h2 id="ScopeRef">ScopeRef</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 193.</p><pre><code>class ScopeRef
+kind: ScopeKind
+name: str</code></pre><pre class="docstring">One thing, named by kind and by name.</pre></section><section class="api-symbol"><h2 id="Finding">Finding</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 206.</p><pre><code>class Finding
+code: str
+message: str
+observed: object = None
+expected: object = None
+artifact_refs: tuple[ArtifactRef, ...] = ()</code></pre><pre class="docstring">One measured reason, with the numbers that produced it.
+
+``observed`` and ``expected`` are the pair a consumer compares: what was
+measured, and what the premise required. They are canonical values -- a
+scalar or a tuple of them -- so they survive the codec and cannot become a
+runtime handle. G11&#x27;s lesson is exactly this class: the failing path must
+return what the passing path measured, because a number rendered into a
+sentence is a number nobody downstream can use.</pre></section><section class="api-symbol"><h2 id="Remedy">Remedy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 233.</p><pre><code>class Remedy
+action: str
+message: str
+parameters: tuple[tuple[str, object], ...] = ()</code></pre><pre class="docstring">Somewhere to go: an action code, an explanation, and its arguments.
+
+``parameters`` is sorted and key-unique like every other option table here,
+so &quot;the same remedy&quot; is one value however the caller spelled it.</pre></section><section class="api-symbol"><h2 id="Conservatism">Conservatism</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 255.</p><pre><code>class Conservatism(StrEnum)</code></pre><pre class="docstring">How a fallback compares to the route that refused.
+
+Named rather than assumed. &quot;We fell back&quot; reads as &quot;we were careful&quot;, and
+sometimes the offered route is the cheaper, weaker one -- a caller
+consenting to an automatic fallback needs to know which of those they are
+consenting to.</pre><pre><code>EQUIVALENT = &#x27;equivalent&#x27;
+MORE_CONSERVATIVE = &#x27;more_conservative&#x27;
+LESS_CONSERVATIVE = &#x27;less_conservative&#x27;</code></pre></section><section class="api-symbol"><h2 id="FallbackOption">FallbackOption</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 271.</p><pre><code>class FallbackOption
+task_kind: TaskKind
+backend: str
+conservatism: Conservatism = Conservatism.EQUIVALENT
+automatic: bool = False</code></pre><pre class="docstring">A route the caller could take instead, and whether it would be automatic.</pre></section><section class="api-symbol"><h2 id="Refusal">Refusal</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 289.</p><pre><code>class Refusal
+meta: ArtifactMeta
+task: Task
+failed_premise: str
+grounds: tuple[Finding, ...]
+scope: ScopeRef
+remedies: tuple[Remedy, ...]
+fallback: FallbackOption | None = None</code></pre><pre class="docstring">What is returned when a task cannot be answered as asked (§0 ruling 1).
+
+It stands in for the artifact that did not happen -- a plan that could not
+be compiled, or a result that could not be produced -- so its envelope
+carries that kind. It is never filed as an evaluation report: a report is a
+judgement ABOUT an artifact, and a refusal is the absence of one.</pre></section><section class="api-symbol"><h2 id="CAPABILITY_UNAVAILABLE_R1">CAPABILITY_UNAVAILABLE_R1</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 66.</p><pre><code>CAPABILITY_UNAVAILABLE_R1: str = &#x27;capability_unavailable_r1&#x27;</code></pre></section><section class="api-symbol"><h2 id="PREMISES">PREMISES</h2><p class="source-note">Defined in <code>bayesmith.artifacts.refusal</code>, line 93.</p><pre><code>PREMISES: frozenset[str] = frozenset({CAPABILITY_UNAVAILABLE_R1, &#x27;backend_supported&#x27;, &#x27;model_source_identified&#x27;, &#x27;task_options_recognised&#x27;, &#x27;gaussian_likelihood&#x27;, &#x27;affine_prediction&#x27;, &#x27;log_linear_route&#x27;, &#x27;whole_graph_exact_solve&#x27;, &#x27;local_mode_certified&#x27;, &#x27;graph_has_latents&#x27;, &#x27;named_latents_declared&#x27;, &#x27;posterior_data_mismatch&#x27;, &#x27;predictive_noise_unsupported&#x27;, &#x27;evidence_prior_proper&#x27;, &#x27;evidence_prior_normalised&#x27;, &#x27;evidence_prior_undeclared&#x27;, &#x27;evidence_residual_integral_required&#x27;, &#x27;evidence_requires_x64&#x27;, &#x27;evidence_residual_method_unsupported&#x27;, &#x27;evidence_conditional_prior_proper&#x27;})</code></pre></section><section class="api-symbol"><h2 id="AnalysisFinding">AnalysisFinding</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 101.</p><pre><code>class AnalysisFinding
+code: str
+conclusion: str
+scope: ScopeRef
+measurements: tuple[tuple[str, object], ...] = ()
+grounds: tuple[str, ...] = ()</code></pre><pre class="docstring">One thing compilation concluded about the graph, and what it measured.
+
+``grounds`` is a tuple of reason CODES rather than of nested findings: at
+compile time the support for a conclusion is a set of checks that passed,
+and naming them keeps the record flat enough to read. It is the same idea
+as a refusal&#x27;s ``grounds`` -- what stands behind the claim, structured --
+which is why it carries the same name.</pre></section><section class="api-symbol"><h2 id="AnalysisReport">AnalysisReport</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 138.</p><pre><code>class AnalysisReport
+meta: ArtifactMeta
+model_ref: ModelRef
+graph_fingerprint: Fingerprint
+findings: tuple[AnalysisFinding, ...] = ()
+candidate_routes: tuple[str, ...] = ()</code></pre><pre class="docstring">Compile-time reading of a graph: what it is, and what could run on it.
+
+``candidate_routes`` is a PREFERENCE order, so it is neither sorted nor
+deduplicated into a set -- reordering it would rerank the routes, and a
+repeated route would make one option look like two.</pre></section><section class="api-symbol"><h2 id="PlanBlockRecord">PlanBlockRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 169.</p><pre><code>class PlanBlockRecord
+names: tuple[str, ...]
+method: str
+reason_codes: tuple[str, ...] = ()
+kappa: float | None = None
+tolerance: float | None = None
+approximation: ApproximationRecord | None = None</code></pre><pre class="docstring">One block of the schedule: which parameters, by which method, and why.
+
+``kappa`` and ``tolerance`` are the numbers that justify the method where it
+has them, and ``None`` where the method has no such knob -- an exact
+elimination has no tolerance to report, and reporting 0 would say it had
+one and met it perfectly.</pre></section><section class="api-symbol"><h2 id="InferencePlanRecord">InferencePlanRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 207.</p><pre><code>class InferencePlanRecord
+meta: ArtifactMeta
+task_id: str
+model_ref: ModelRef
+analysis_report_ref: ArtifactRef | None = None
+blocks: tuple[PlanBlockRecord, ...] = ()
+exact_elimination: tuple[str, ...] = ()
+residual_parameters: tuple[str, ...] = ()
+backend: str = &#x27;auto&#x27;
+premises: tuple[str, ...] = ()
+budget: ComputeBudget = _NO_BUDGET
+quality_gate: str | None = None
+fallback_policy: str | None = None</code></pre><pre class="docstring">The compiled plan, as a record: what will run, on what, under what.
+
+The analysis report it was built from is a PARENT, not merely a field.
+§0.3 retires a plan through the inputs it was made from, so a plan whose
+reading of the graph is not in its lineage would outlive a change to that
+reading.</pre></section><section class="api-symbol"><h2 id="Applicability">Applicability</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 276.</p><pre><code>class Applicability(StrEnum)</code></pre><pre class="docstring">Whether the check could say anything about this subject (§0 ruling 7).
+
+``INAPPLICABLE`` and ``UNVERIFIABLE`` are different answers: the first says
+the check does not apply to this kind of result, the second says it applies
+but the inputs it needs are missing. Collapsing them would make &quot;we cannot
+check this&quot; and &quot;there is nothing to check&quot; one status, and only one of
+those is worth chasing.</pre><pre><code>APPLICABLE = &#x27;applicable&#x27;
+INAPPLICABLE = &#x27;inapplicable&#x27;
+UNVERIFIABLE = &#x27;unverifiable&#x27;</code></pre></section><section class="api-symbol"><h2 id="Conclusion">Conclusion</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 292.</p><pre><code>class Conclusion(StrEnum)</code></pre><pre class="docstring">What an applicable check concluded, and what a gate aggregates to.
+
+One enum for both levels on purpose. A report&#x27;s conclusion and a gate&#x27;s
+verdict are the same three answers about different scopes, and two enums
+with identical members would be two types nothing stops a caller swapping
+-- the mistake ``ApproximationClass`` and ``TargetFidelity`` are kept apart
+to avoid is the OPPOSITE case: there, one word means two things.</pre><pre><code>PASS = &#x27;pass&#x27;
+FAIL = &#x27;fail&#x27;
+ABSTAIN = &#x27;abstain&#x27;</code></pre></section><section class="api-symbol"><h2 id="EvaluationReport">EvaluationReport</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 327.</p><pre><code>class EvaluationReport
+meta: ArtifactMeta
+subject_ref: ArtifactRef
+report_kind: str
+applicability: Applicability
+conclusion: Conclusion
+findings: tuple[Finding, ...] = ()</code></pre><pre class="docstring">One check&#x27;s judgement of one result, on the two axes of §0 ruling 7.
+
+The legal combinations are refused HERE, where the report is built, rather
+than where a gate reads it: an inapplicable check reporting PASS has passed
+nothing, and an aggregator handed one would count it faithfully.</pre></section><section class="api-symbol"><h2 id="OperationalStatus">OperationalStatus</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 73.</p><pre><code>class OperationalStatus(StrEnum)</code></pre><pre class="docstring">Whether the gate got to judge at all (§0 ruling 7).
+
+Three of the four say it did not, and each names a different thing to fix:
+a missing prerequisite is upstream work, an invalidated input is a re-run,
+an error is a failure to investigate. Only ``EVALUATED`` carries a verdict.</pre><pre><code>BLOCKED = &#x27;blocked&#x27;
+INVALIDATED = &#x27;invalidated&#x27;
+ERROR = &#x27;error&#x27;
+EVALUATED = &#x27;evaluated&#x27;</code></pre></section><section class="api-symbol"><h2 id="AttemptStatus">AttemptStatus</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 88.</p><pre><code>class AttemptStatus(StrEnum)</code></pre><pre class="docstring">Whether anybody tried to produce this report.
+
+The distinction the truth table turns on: a required report that was never
+attempted leaves the gate undecided (ABSTAIN), while one that was attempted
+and errored is an ERROR. Without this field the two look identical -- no
+report either way -- and the milder answer would win.</pre><pre><code>NOT_ATTEMPTED = &#x27;not_attempted&#x27;
+ATTEMPTED = &#x27;attempted&#x27;</code></pre></section><section class="api-symbol"><h2 id="ReportRequirement">ReportRequirement</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 103.</p><pre><code>class ReportRequirement
+name: str
+required: bool = True
+optional_error_blocks: bool = False</code></pre><pre class="docstring">One check a gate asks for, and how much it matters.
+
+``optional_error_blocks`` answers a question only an OPTIONAL requirement
+has: a required check that errored always blocks. Declaring it on a
+required requirement is refused rather than ignored -- a field that is
+silently ignored somewhere is a field somebody will set and rely on.</pre></section><section class="api-symbol"><h2 id="ReportSlot">ReportSlot</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 130.</p><pre><code>class ReportSlot
+requirement: ReportRequirement
+report: EvaluationReport | None = None
+attempt_status: AttemptStatus = AttemptStatus.NOT_ATTEMPTED
+invalidated: bool = False
+error: ErrorRecord | None = None</code></pre><pre class="docstring">What became of one requirement on one subject.
+
+Exactly one outcome at a time: not attempted, a report, or an error. §0.6
+refuses a slot holding a report AND an error at the boundary, because an
+aggregator reading whichever it checks first would produce a defensible
+answer from an impossible input.</pre></section><section class="api-symbol"><h2 id="GateDefinition">GateDefinition</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 179.</p><pre><code>class GateDefinition
+name: str
+version: int
+requirements: tuple[ReportRequirement, ...]
+blocked_actions: tuple[str, ...] = ()
+remedies: tuple[Remedy, ...] = ()</code></pre><pre class="docstring">The schema of a gate: what it asks for, and what it governs.
+
+``blocked_actions`` and ``remedies`` belong to the DEFINITION, not to any
+one run of it, which is why :func:``aggregate_gate`` copies them into the
+result unedited.</pre><h3 id="GateDefinition.identity">GateDefinition.identity</h3><pre><code>identity(self) -&gt; str</code></pre><pre class="docstring">``name@version``: the spelling a task&#x27;s ``quality_gate`` carries.
+
+One spelling, because a task asks for a gate by string and a result
+must be checkable against the gate that was asked for.</pre><h3 id="GateDefinition.requirement">GateDefinition.requirement</h3><pre><code>requirement(self, name: str) -&gt; ReportRequirement</code></pre><pre class="docstring">The declared requirement called ``name``, or a refusal naming it.</pre></section><section class="api-symbol"><h2 id="GateResult">GateResult</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 238.</p><pre><code>class GateResult
+meta: ArtifactMeta
+definition: GateDefinition
+status: OperationalStatus
+verdict: Conclusion | None = None
+report_refs: tuple[ArtifactRef, ...] = ()
+findings: tuple[Finding, ...] = ()
+blocked_actions: tuple[str, ...] = ()
+remedies: tuple[Remedy, ...] = ()</code></pre><pre class="docstring">One gate&#x27;s answer: a status always, a verdict only when it judged.</pre></section><section class="api-symbol"><h2 id="aggregate_gate">aggregate_gate</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 292.</p><pre><code>aggregate_gate(definition: GateDefinition, *, meta: ArtifactMeta, prerequisites_ready: bool, inputs_current: bool, slots: tuple[ReportSlot, ...]) -&gt; GateResult</code></pre><pre class="docstring">§0.6&#x27;s priority, applied to a schema-checked mapping of slots.
+
+The slots are indexed by requirement name and then read in the order the
+DEFINITION declares, so the caller&#x27;s ordering reaches nothing: not the
+status, not the verdict, not the findings, not the report references.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#DiagnosticPolicy">DiagnosticPolicy</a><a href="#InitializationPolicy">InitializationPolicy</a><a href="#StoppingPolicy">StoppingPolicy</a><a href="#ProposalBlockPolicy">ProposalBlockPolicy</a><a href="#proposal_options">proposal_options</a><a href="#ArtifactCodecError">ArtifactCodecError</a><a href="#ArtifactFile">ArtifactFile</a><a href="#UnsupportedSchemaVersion">UnsupportedSchemaVersion</a><a href="#dump_artifact">dump_artifact</a><a href="#load_artifact">load_artifact</a><a href="#FINGERPRINT_ALGORITHM">FINGERPRINT_ALGORITHM</a><a href="#FingerprintKind">FingerprintKind</a><a href="#ArtifactKind">ArtifactKind</a><a href="#Fingerprint">Fingerprint</a><a href="#FingerprintBundle">FingerprintBundle</a><a href="#ModelRef">ModelRef</a><a href="#fingerprint">fingerprint</a><a href="#model_ref_from_callable">model_ref_from_callable</a><a href="#changed_fingerprints">changed_fingerprints</a><a href="#InvalidationPolicy">InvalidationPolicy</a><a href="#SCHEMA_VERSION">SCHEMA_VERSION</a><a href="#CanonicalScalar">CanonicalScalar</a><a href="#CanonicalValue">CanonicalValue</a><a href="#canonical_scalar_options">canonical_scalar_options</a><a href="#canonical_value_options">canonical_value_options</a><a href="#utc_timestamp">utc_timestamp</a><a href="#NamedArray">NamedArray</a><a href="#RunWarning">RunWarning</a><a href="#ErrorRecord">ErrorRecord</a><a href="#ComputeBudget">ComputeBudget</a><a href="#SeedRecord">SeedRecord</a><a href="#DeviceRecord">DeviceRecord</a><a href="#BackendRef">BackendRef</a><a href="#TerminationReason">TerminationReason</a><a href="#TerminationRecord">TerminationRecord</a><a href="#TimingRecord">TimingRecord</a><a href="#ApproximationClass">ApproximationClass</a><a href="#TargetFidelity">TargetFidelity</a><a href="#ApproximationRecord">ApproximationRecord</a><a href="#ProducerRef">ProducerRef</a><a href="#ArtifactStatus">ArtifactStatus</a><a href="#ArtifactRef">ArtifactRef</a><a href="#LifecycleRecord">LifecycleRecord</a><a href="#ArtifactMeta">ArtifactMeta</a><a href="#RunRecord">RunRecord</a><a href="#new_artifact_meta">new_artifact_meta</a><a href="#invalidate_meta">invalidate_meta</a><a href="#TaskKind">TaskKind</a><a href="#TaskMeta">TaskMeta</a><a href="#new_task_meta">new_task_meta</a><a href="#Estimand">Estimand</a><a href="#ParameterSourceKind">ParameterSourceKind</a><a href="#ParameterSource">ParameterSource</a><a href="#PosteriorTask">PosteriorTask</a><a href="#EvidenceTask">EvidenceTask</a><a href="#PredictiveTask">PredictiveTask</a><a href="#PointEstimateTask">PointEstimateTask</a><a href="#SimulationTask">SimulationTask</a><a href="#Task">Task</a><a href="#TASK_CLASSES">TASK_CLASSES</a><a href="#task_kind">task_kind</a><a href="#task_fingerprint">task_fingerprint</a><a href="#site_names">site_names</a><a href="#ResultKind">ResultKind</a><a href="#LogDensityAvailability">LogDensityAvailability</a><a href="#UncertaintyKind">UncertaintyKind</a><a href="#UncertaintyRecord">UncertaintyRecord</a><a href="#DrawsPosterior">DrawsPosterior</a><a href="#WeightedDrawsPosterior">WeightedDrawsPosterior</a><a href="#AnalyticPosterior">AnalyticPosterior</a><a href="#FittedConditionalPosterior">FittedConditionalPosterior</a><a href="#PosteriorRepresentation">PosteriorRepresentation</a><a href="#POSTERIOR_REPRESENTATIONS">POSTERIOR_REPRESENTATIONS</a><a href="#EvidenceComponent">EvidenceComponent</a><a href="#PosteriorResult">PosteriorResult</a><a href="#EvidenceResult">EvidenceResult</a><a href="#PredictiveResult">PredictiveResult</a><a href="#PointEstimateResult">PointEstimateResult</a><a href="#SimulationResult">SimulationResult</a><a href="#Result">Result</a><a href="#RESULT_CLASSES">RESULT_CLASSES</a><a href="#result_kind">result_kind</a><a href="#PRIMARY_RESULT_BY_TASK">PRIMARY_RESULT_BY_TASK</a><a href="#ScopeKind">ScopeKind</a><a href="#ScopeRef">ScopeRef</a><a href="#Finding">Finding</a><a href="#Remedy">Remedy</a><a href="#Conservatism">Conservatism</a><a href="#FallbackOption">FallbackOption</a><a href="#Refusal">Refusal</a><a href="#CAPABILITY_UNAVAILABLE_R1">CAPABILITY_UNAVAILABLE_R1</a><a href="#PREMISES">PREMISES</a><a href="#AnalysisFinding">AnalysisFinding</a><a href="#AnalysisReport">AnalysisReport</a><a href="#PlanBlockRecord">PlanBlockRecord</a><a href="#InferencePlanRecord">InferencePlanRecord</a><a href="#Applicability">Applicability</a><a href="#Conclusion">Conclusion</a><a href="#EvaluationReport">EvaluationReport</a><a href="#OperationalStatus">OperationalStatus</a><a href="#AttemptStatus">AttemptStatus</a><a href="#ReportRequirement">ReportRequirement</a><a href="#ReportSlot">ReportSlot</a><a href="#GateDefinition">GateDefinition</a><a href="#GateResult">GateResult</a><a href="#aggregate_gate">aggregate_gate</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

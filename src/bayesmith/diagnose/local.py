@@ -110,12 +110,9 @@ def latent_values(graph: Graph, at: dict[str, jax.Array] | None) -> dict[str, ja
         GraphError: if ``at`` names something that is not a latent, or a value
             does not broadcast to its latent's shape.
     """
-    # Imported here rather than at module scope: `dispatch` imports nothing
-    # from `diagnose`, so there is no cycle today, but the dependency points
-    # from the diagnostics INTO the layer that owns the anchoring rule and a
-    # module-scope import would drag the classifier in for every diagnose
-    # import. One function is what is borrowed, so one function is imported.
-    from bayesmith.dispatch.classify import prior_environment
+    # Import lazily to keep diagnostic declarations cheap. The anchor itself
+    # belongs to the exact layer and does not depend on dispatch.
+    from bayesmith.exact._environment import prior_environment
 
     environment = prior_environment(graph)
     values = {name: environment[name] for name in graph.latents}

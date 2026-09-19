@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.marginal.sqrtinfo"><title>bayesmith.marginal.sqrtinfo · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.marginal.sqrtinfo</span></nav>
+<article><h1>bayesmith.marginal.sqrtinfo</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The square-root information form: a log-quadratic that cannot go indefinite.
+
+A term is ``[R | z]`` with ``log L(x) = -0.5 ||R x - z||^2 + offset``, so the
+information it carries is ``F = R^T R`` -- positive semi-definite by
+construction rather than by hope. Three consequences the accumulation layer
+depends on:
+
+* **Rank deficiency is representable and cheap.** One epoch rarely constrains
+  every global parameter; its ``R`` simply has fewer rows than columns. The
+  equivalent statement in ``(F, b)`` form is ``F v = 0``, which survives
+  addition but not the sequence of explicit Schur complements a filter needs.
+* **The working condition number is the square root.**
+  ``kappa(R) = sqrt(kappa(F))``, which is what keeps a thousand-epoch
+  accumulation inside float64. Accumulating ``F`` directly and taking explicit
+  Schur complements goes indefinite in float64 on a realistic near-degenerate
+  campaign.
+* **Accumulation is a QR.** Stacking two factors vertically and
+  re-triangularising *is* the sum of the two quadratic forms, so
+  order-invariance and associativity hold to roundoff by construction.
+
+**Ported, not reinvented.** The migration spec&#x27;s B11 row lists this
+arithmetic among the kernels to preserve EXACTLY, having been checked line by
+line by two reviews. ``tests/crosscheck/test_sqrtinfo_agrees.py`` compares
+every operation here against ``rheplicant.inference.sqrtinfo`` on the same
+inputs, so &quot;preserved&quot; is a measurement rather than an intention. What B11
+rewrites is the layer ABOVE this -- which latents are global, per-epoch or
+linked, and where that is decided; see this package&#x27;s CHANGELOG,
+which measures how much of it the graph can answer.
+
+This module knows nothing about graphs, epochs or plans. That separation is
+what lets the numerics be checked against a dense oracle without a model
+anywhere near them.</pre></details><div class="symbol-index"><a href="#SqrtInfo">SqrtInfo</a> <a href="#marginalise_arrays">marginalise_arrays</a> <a href="#marginalise">marginalise</a></div><section class="api-symbol"><h2 id="SqrtInfo">SqrtInfo</h2><p class="source-note">Defined in <code>bayesmith.marginal.sqrtinfo</code>, line 56.</p><pre><code>class SqrtInfo(eqx.Module)
+factor: jax.Array
+target: jax.Array
+offset: jax.Array
+names: tuple[str, ...] = eqx.field(static=True)
+shapes: tuple[tuple[int, ...], ...] = eqx.field(static=True)</code></pre><pre class="docstring">``log L(x) = -0.5 ||R x - z||^2 + offset`` over a flat, named vector.
+
+Attributes:
+    factor: ``(r, n)`` array ``R``. ``r &lt; n`` means the term constrains
+        only an ``r``-dimensional subspace -- the normal case for a single
+        epoch, not an error.
+    target: ``(r,)`` array ``z``.
+    offset: scalar; every part of the log-density that does not depend on
+        the latents -- the residual chi-square about the storage origin
+        and the (masked) Gaussian normalisation.
+    names: the latents this term is over, in the order they are ravelled.
+    shapes: each latent&#x27;s shape, in the same order. ``()`` for a scalar.</pre><h3 id="SqrtInfo.width">SqrtInfo.width</h3><pre><code>width(self) -&gt; int</code></pre><pre class="docstring">Number of columns the named latents ravel to.</pre><h3 id="SqrtInfo.ravel">SqrtInfo.ravel</h3><pre><code>ravel(self, values: dict[str, Any]) -&gt; jax.Array</code></pre><pre class="docstring">Flatten ``{name: array}`` into this term&#x27;s column order.</pre><h3 id="SqrtInfo.log_prob">SqrtInfo.log_prob</h3><pre><code>log_prob(self, values: dict[str, Any]) -&gt; jax.Array</code></pre><pre class="docstring">The log-density this term encodes, at the given latent values.</pre><h3 id="SqrtInfo.information">SqrtInfo.information</h3><pre><code>information(self) -&gt; jax.Array</code></pre><pre class="docstring">``F = R^T R`` -- the information this term carries.
+
+May legitimately be singular: one epoch usually constrains only a
+subspace, and only the campaign total plus the prior need be positive
+definite. Named ``information`` rather than ``fisher`` because it is
+the observed information of a stored term, not a Fisher matrix of a
+model -- ``exact/fisher.py`` owns that word here.</pre><h3 id="SqrtInfo.null">SqrtInfo.null</h3><pre><code>null(cls, names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; SqrtInfo</code></pre><pre class="docstring">A term that says nothing -- the identity of :meth:`combine`.
+
+Square rather than zero-row so an accumulator&#x27;s pytree keeps a fixed
+treedef across a whole campaign, which is what stops ``jit`` retracing
+once per epoch.</pre><h3 id="SqrtInfo.combine">SqrtInfo.combine</h3><pre><code>combine(cls, first: SqrtInfo, second: SqrtInfo) -&gt; SqrtInfo</code></pre><pre class="docstring">The term whose log-density is the sum of the two given ones.
+
+Stack the augmented factors and re-triangularise. Writing
+``y = [x; -1]`` so that ``[R | z] y = R x - z``, the stacked product
+has the same norm as its triangular factor because ``Q`` has
+orthonormal columns::
+
+    ||R_a x - z_a||^2 + ||R_b x - z_b||^2 = ||R_tot x - z_tot||^2 + rho^2
+
+``rho`` is the corner of the triangular factor -- the part of the two
+residuals that no single quadratic form in ``x`` can express. It is a
+constant, so it belongs in the offset; dropping it leaves every
+combined term wrong by an amount that grows with the campaign and is
+invisible in the posterior&#x27;s SHAPE, which is why the tests here
+compare absolute log-densities.</pre></section><section class="api-symbol"><h2 id="marginalise_arrays">marginalise_arrays</h2><p class="source-note">Defined in <code>bayesmith.marginal.sqrtinfo</code>, line 230.</p><pre><code>marginalise_arrays(factor: jax.Array, target: jax.Array, offset: jax.Array, n_block: int) -&gt; tuple[jax.Array, jax.Array, jax.Array, jax.Array]</code></pre><pre class="docstring">The Schur complement in square-root form, with no Python control flow.
+
+The block is the **leading** ``n_block`` columns; permuting is the
+caller&#x27;s job, because a caller that already knows its layout should not
+pay for a name lookup once per epoch inside a ``lax.scan``.
+
+This exists because :func:`marginalise` cannot be traced: it concretises
+twice, for the pivot scale and for the dtype&#x27;s floor. A filter that
+evaluates this arithmetic inside a likelihood -- under ``scan``, and
+DIFFERENTIATED with respect to a transition&#x27;s own parameters -- needs the
+half that traces. ``grad`` is the half that matters: a correlation time
+inferred rather than pinned is differentiated on every leapfrog step.
+
+**The refusal is not weakened, it is moved -- and this function cannot
+make it.** What :func:`marginalise` catches is a block that does not
+constrain itself, which makes the integral divergent. Under a trace that
+judgement is unavailable: it needs a comparison against a value, and there
+is no value. What this hands back instead is the evidence -- ``pivots``,
+as data -- so an eager caller can judge them and a traced one can carry
+them out.
+
+Args:
+    factor: ``(r, n)`` array ``R``, block columns first.
+    target: ``(r,)`` array ``z``.
+    offset: scalar; the constant this term already carries.
+    n_block: how many leading columns to integrate out. ``0`` is legal and
+        is the identity on the density -- the re-triangularisation folds
+        any excess rows into the corner and the offset absorbs it.
+
+Returns:
+    ``(factor, target, offset, pivots)`` -- the retained form, the offset
+    with the Gaussian integral&#x27;s constant folded in, and ``|diag(R)|`` of
+    the re-triangularisation so a checked caller can test it.</pre></section><section class="api-symbol"><h2 id="marginalise">marginalise</h2><p class="source-note">Defined in <code>bayesmith.marginal.sqrtinfo</code>, line 290.</p><pre><code>marginalise(info: SqrtInfo, block: Sequence[str]) -&gt; SqrtInfo</code></pre><pre class="docstring">Integrate named latents out of a square-root information form, exactly.
+
+Permute the block&#x27;s columns first, re-triangularise, and drop the leading
+rows and columns. That drop **is** the Schur complement, and the Gaussian
+integral over the block contributes exactly
+
+``+ (n_block/2) log(2 pi)  -  sum log|R_bb,ii|  -  0.5 rho^2``
+
+and nothing else. In particular it does **not** contribute the block&#x27;s own
+prior normalisation: whoever appended the prior rows owns
+``-sum(log(std)) - (n/2) log(2 pi)``, and the two ``2 pi`` halves cancel
+while ``sum(log(std))`` has nothing to cancel against. rheplicant shipped
+that second term missing once -- 1.07 nats for three nuisances at
+``std=0.7``, 27.47 for twenty-five at ``std=3``, and **exactly zero at**
+``std=1``, which is how a probe built on unit priors passed. A constant is
+invisible in a posterior&#x27;s shape, so the tests here compare ABSOLUTE
+log-densities and use a non-unit prior.
+
+Marginalising **every** name is legal and returns a zero-width term whose
+``log_prob({})`` is the marginal likelihood; marginalising **nothing** is
+likewise legal and is the identity on the log-density.
+
+Args:
+    info: the joint form, prior rows already appended by the caller.
+    block: which names to integrate out.
+
+Returns:
+    A term over ``info``&#x27;s remaining names, in their original relative
+    order, whose log-density is the integral of ``info``&#x27;s over ``block``.
+
+Raises:
+    StructureError: if a name is repeated or not in ``info``; if the
+        re-triangularisation is not finite; or if the block is not
+        constrained -- an unconstrained direction makes the integral
+        divergent, and finite arithmetic returns a large plausible number
+        for it rather than an infinity anyone would notice.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#SqrtInfo">SqrtInfo</a><a href="#marginalise_arrays">marginalise_arrays</a><a href="#marginalise">marginalise</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

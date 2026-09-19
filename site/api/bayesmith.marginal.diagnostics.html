@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.marginal.diagnostics"><title>bayesmith.marginal.diagnostics · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.marginal.diagnostics</span></nav>
+<article><h1>bayesmith.marginal.diagnostics</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">What a campaign can say about its own trustworthiness, from stored terms.
+
+Nothing here reads a graph, a prediction or a byte of raw data -- only the
+fixed-size ``[R | z]`` terms :func:`~bayesmith.marginal.compress.compress`
+stored while the data still existed. A diagnostic is something you run ON a
+campaign, not something a campaign is.
+
+**The blindness is the design, not a gap.** A deterministic error shared by
+every epoch -- one calibration solution, one beam model, one flag table --
+contributes NO variance. Split-half agrees to roundoff, leave-one-out returns
+the same scores, the posterior width is the same array element for element,
+and the answer is wrong. Such an error splits into two halves, and only one is
+visible from data at all:
+
+* the **out-of-span** half leaves a residual, and :func:`coherent_mode`
+  reports it -- as a z-score, because what a common mode moves is a MEAN, and
+  a mean over N epochs is resolved at ``sqrt(N)``;
+* the **in-span** half is absorbed into the survivors identically in every
+  epoch. It leaves no residual at the displaced point, so it passes every
+  statistic here and biases the answer without limit as the campaign grows.
+
+``tests/marginal/test_diagnostics.py`` measures that second half rather than
+asserting it: an in-span injection of the same size as a detected out-of-span
+one leaves ``chi2_z`` at noise level while displacing the answer by exactly
+the injected amount. **That is not a gap to be closed with a better
+statistic** -- it is why the honest response to an undetectable error class is
+a refusal based on what the analyst declares, and why this module offers one
+(:func:`refuse_undeclared_coherent_error`) instead of a number.</pre></details><div class="symbol-index"><a href="#epoch_chi_square">epoch_chi_square</a> <a href="#coherent_mode">coherent_mode</a> <a href="#refuse_undeclared_coherent_error">refuse_undeclared_coherent_error</a> <a href="#epoch_residuals">epoch_residuals</a> <a href="#refuse_mixed_templates">refuse_mixed_templates</a> <a href="#template_modes">template_modes</a> <a href="#held_out_z">held_out_z</a> <a href="#shrinkage_power">shrinkage_power</a> <a href="#shrinkage_report">shrinkage_report</a> <a href="#tightest_direction">tightest_direction</a> <a href="#systematic_floor">systematic_floor</a></div><section class="api-symbol"><h2 id="epoch_chi_square">epoch_chi_square</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 45.</p><pre><code>epoch_chi_square(terms: Sequence[SqrtInfo], values: Mapping[str, Any]) -&gt; np.ndarray</code></pre><pre class="docstring">``||R x - z||^2`` per epoch, at one point over the survivors.
+
+The residual each stored term still carries -- computed from the term
+alone, which is what makes it available a thousand epochs after the data
+was discarded.</pre></section><section class="api-symbol"><h2 id="coherent_mode">coherent_mode</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 68.</p><pre><code>coherent_mode(terms: Sequence[SqrtInfo], values: Mapping[str, Any]) -&gt; dict[str, float]</code></pre><pre class="docstring">Is there a fault common to every epoch? -- the detectable half.
+
+A common mode contributes no variance, so it is invisible to split-half,
+to leave-one-out and to the posterior width. What it moves is the MEAN of
+the per-epoch residual, and a mean over ``N`` epochs is resolved at
+``sqrt(N)`` -- which is why this reports a z-score rather than a
+magnitude.
+
+``scatter`` is reported beside the mean and is the part to read second: a
+mean-level fault leaves it near 1, while an under-estimated noise model
+raises both together. The two failing differently is what tells them
+apart.
+
+**Not the same statistic as :func:`template_modes`, and the pair is worth
+reading together** (ledger D45). This one evaluates ``||R x - z||^2`` at a
+point YOU choose and can be re-asked at any value of the survivors; that
+one reads what was recorded when the raw data still existed -- the
+residual left after each epoch&#x27;s own best fit, which no later call can
+recompute -- and it carries the named template projections this one has
+no way to know about. They coincide only at the per-epoch minimiser, which
+is not the point a campaign evaluates at. This one also reads its dof off
+the FIRST term&#x27;s row count, so a campaign whose epochs differ in flagging
+wants ``template_modes``, which sums each epoch&#x27;s own.
+
+Args:
+    terms: the campaign&#x27;s stored per-epoch terms.
+    values: the point to evaluate the residual at -- normally the
+        campaign&#x27;s own posterior mean.
+
+Returns:
+    ``{&quot;n_epochs&quot;, &quot;chi2_mean&quot;, &quot;chi2_dof&quot;, &quot;chi2_z&quot;, &quot;scatter&quot;}``.
+
+Raises:
+    StructureError: if the campaign is empty, or if the epochs do not
+        agree about which latents they are over -- a mean over terms that
+        describe different parameters is not a mean of anything.</pre></section><section class="api-symbol"><h2 id="refuse_undeclared_coherent_error">refuse_undeclared_coherent_error</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 142.</p><pre><code>refuse_undeclared_coherent_error(declared: bool, *, what: str=&#x27;a coherent error shared by every epoch&#x27;) -&gt; None</code></pre><pre class="docstring">Refuse to report on the half no statistic can see.
+
+**There is no number to return here, and that is the point.** The in-span
+half of a coherent error is absorbed into the survivors identically in
+every epoch: it leaves no residual, so :func:`coherent_mode` reads noise,
+a held-out epoch reads noise, split-half agrees to roundoff -- and the
+answer is biased, without limit, as the campaign grows. Measured in this
+package&#x27;s own tests: an in-span injection leaves ``chi2_z`` inside its
+noise band while displacing the estimate by exactly the injected amount.
+
+So the honest interface is a refusal keyed on what the analyst DECLARES,
+not a report keyed on what the numbers show. A campaign that has not
+declared this class is not clean; it is unexamined, and the two must not
+read the same.
+
+Args:
+    declared: whether the analyst has stated that this error class has
+        been bounded by some means OUTSIDE the campaign&#x27;s own residuals --
+        an end-to-end simulation, a redundant instrument, an independent
+        measurement of the shared component.
+    what: names the class, for the message.
+
+Raises:
+    StructureError: unless ``declared``.</pre></section><section class="api-symbol"><h2 id="epoch_residuals">epoch_residuals</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 192.</p><pre><code>epoch_residuals(summaries: Sequence[ResidualSummary]) -&gt; tuple[dict[str, Any], ...]</code></pre><pre class="docstring">The per-epoch table, in the order the summaries were given.
+
+Per-epoch half of the design quoted in
+:class:`~bayesmith.marginal.compress.ResidualSummary` (R9).
+
+Order is preserved rather than sorted by anything. For a chained campaign
+the archive order IS the time order, and a diagnostic that reordered it
+would make a drift look like scatter.
+
+**Distinct from :func:`coherent_mode`, and the difference is the input.**
+That one evaluates ``||R x - z||^2`` at a point you choose, from the
+stored term, and can be re-asked at any value of the survivors. This one
+reads what :func:`~bayesmith.marginal.compress.residual_summary` recorded
+when the raw data still existed: the residual left after the epoch&#x27;s OWN
+best fit, which no later call can recompute. The two coincide only at the
+per-epoch minimiser, which is not the point a campaign evaluates at.
+
+Args:
+    summaries: one per epoch, from
+        :func:`~bayesmith.marginal.compress.residual_summary`.
+
+Returns:
+    One dict per epoch with ``&quot;chi2&quot;``, ``&quot;dof&quot;``, ``&quot;reduced_chi2&quot;`` and
+    ``&quot;templates&quot;``, the last being ``{name: projection}``.
+
+Raises:
+    StructureError: for an empty campaign, or one whose epochs name
+        different templates -- see :func:`refuse_mixed_templates`.</pre></section><section class="api-symbol"><h2 id="refuse_mixed_templates">refuse_mixed_templates</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 240.</p><pre><code>refuse_mixed_templates(summaries: Sequence[ResidualSummary]) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The one template list this campaign shares, or a refusal.
+
+The projections are stored as a bare array whose meaning is POSITIONAL,
+and the summary is read by name across a whole campaign. Two epochs naming
+``(&quot;gain_ripple&quot;, &quot;ground_pickup&quot;)`` and ``(&quot;ground_pickup&quot;,
+&quot;gain_ripple&quot;)`` have compatible shapes and incompatible contents, so
+averaging them positionally reports each template&#x27;s mean as a mixture of
+both -- a finite, plausible number about nothing.</pre></section><section class="api-symbol"><h2 id="template_modes">template_modes</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 271.</p><pre><code>template_modes(summaries: Sequence[ResidualSummary]) -&gt; dict[str, Any]</code></pre><pre class="docstring">Is there a fault shaped like one of the named templates?
+
+Named-template half of the design quoted in
+:class:`~bayesmith.marginal.compress.ResidualSummary` (R9), counterpart to
+:func:`coherent_mode`&#x27;s unnamed one. Neither substitutes for the other: a
+chi-square z needs no guess about what the fault looks like and therefore
+cannot say what it IS, while a named template says what it is and is
+silent when the guess was wrong.
+
+Under the null each projection is a standard normal in its own right --
+that is what the whitening buys -- so the campaign mean is a z-score at
+``sqrt(N)`` with no calibration step.
+
+``scatter`` is reported beside every mean and is the part to read second.
+A mean-level fault leaves it at 1.0 while an under-estimated noise model
+raises both together, and the two failing differently is what tells them
+apart. It is the population spread about the sample mean (``ddof=0``), so
+a shifted mean does not inflate it.
+
+**The chi-square z here uses each epoch&#x27;s OWN dof**, summed, rather than
+the first epoch&#x27;s. A campaign whose nights differ in flagging has a
+different null per night, and it is the SUM that is chi-square distributed:
+``Var(sum chi2_k) = 2 sum k``. That reduces to the textbook form for a
+uniform campaign and stays exact for a ragged one, which
+:func:`coherent_mode` -- reading a row count off the first term -- cannot
+do.
+
+Returns:
+    ``{&quot;n_epochs&quot;, &quot;chi2_mean&quot;, &quot;chi2_dof&quot;, &quot;chi2_z&quot;, &quot;templates&quot;}``,
+    where ``chi2_dof`` is the shared dof or ``None`` for a ragged
+    campaign, and ``templates`` is ``{name: {&quot;mean&quot;, &quot;scatter&quot;, &quot;z&quot;}}``.
+
+Raises:
+    StructureError: for an empty campaign or mixed template lists.</pre></section><section class="api-symbol"><h2 id="held_out_z">held_out_z</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 372.</p><pre><code>held_out_z(terms: Sequence[SqrtInfo], prior_fisher: Any, prior_mean: Any=None) -&gt; tuple[dict[str, float], ...]</code></pre><pre class="docstring">How surprising is each epoch to the rest of the campaign?
+
+For a linear-Gaussian model this is exact and needs no simulation. Write
+the leave-one-out posterior ``N(mu_-e, Sigma_-e)`` and the epoch&#x27;s own
+factor ``[R_e | z_e]``. Then ``z_e = R_e theta + eps`` with unit-covariance
+``eps`` -- that is what the square-root form MEANS -- and ``mu_-e - theta``
+is independent of ``eps``, so::
+
+    m = R_e mu_-e - z_e  ~  N(0, I + R_e Sigma_-e R_e^T)
+
+and ``m^T (I + V)^-1 m`` is chi-square on ``rank(R_e)`` degrees of
+freedom. The returned ``z`` is that, standardised.
+
+**Computed by subtracting one summand, never by downdating the
+accumulator.** A QR accumulation cannot be un-summed stably. The campaign
+total is formed once in ``(F, b)`` form and one epoch&#x27;s contribution
+subtracted per row, which is ``O(N)`` rather than ``O(N^2)`` and loses at
+most ``log10(N)`` of float64&#x27;s sixteen digits -- affordable because this
+is offline, and safe because it removes one positive-semidefinite summand
+out of N rather than a triangular factor out of its own product.
+
+**What it can see, and what it cannot.** A single rogue epoch stands out
+by a wide margin, and so does a campaign whose epochs genuinely differ.
+But where every epoch carries the SAME design -- the realistic case -- a
+coherent error&#x27;s in-span half shifts ``z_e`` and ``mu_-e`` by amounts that
+cancel in ``m``, and the clean and biased campaigns return the same
+scores. ``tests/marginal/test_held_out.py`` measures both directions
+rather than asserting them. Read this beside
+:func:`refuse_undeclared_coherent_error`, never instead of it.
+
+Args:
+    terms: the campaign&#x27;s stored terms, in any order -- this statistic is
+        exchangeable even when the campaign is not, because each epoch is
+        scored against all the others.
+    prior_fisher: ``F_prior`` over the same latents in the same column
+        order. **Required, not optional**: ``Sigma_-e`` is singular at
+        small N without one.
+    prior_mean: the prior&#x27;s mean over the raveled columns. Zero if absent.
+
+Returns:
+    One dict per epoch, in the order given, with ``&quot;chi2&quot;``, ``&quot;dof&quot;`` and
+    ``&quot;z&quot;``.
+
+Raises:
+    StructureError: for an empty campaign, epochs over different latents, a
+        prior over a different number of columns, a singular leave-one-out
+        information, or a score that comes out non-finite.</pre></section><section class="api-symbol"><h2 id="shrinkage_power">shrinkage_power</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 551.</p><pre><code>shrinkage_power(sigmas: Mapping[int, Any]) -&gt; float</code></pre><pre class="docstring">The fitted exponent of ``sigma_N ~ N^p``. **A sanity check, not a test.**
+
+Returned as a bare float only from here; :func:`shrinkage_report` is what
+a caller should print, because it carries the caveat in the same object as
+the number.
+
+For a Gaussian model ``sigma_N = (sum_e F_e + F_prior)^-1/2`` does not read
+the data. So this quantity is **data-independent**, ``p = -0.5`` holds by
+construction, and a uniform rescaling ``F_e -&gt; (1+c) F_e`` cannot move it
+at all -- the intercept is free. A diagnostic that could be fooled by
+injecting a shared systematic and watching this number is therefore no
+diagnostic, which is the whole reason
+:func:`refuse_undeclared_coherent_error` exists.
+
+Args:
+    sigmas: ``{campaign size: posterior widths}``. A scalar width is
+        accepted and treated as a one-element array. Every size must
+        report the same number of widths, in the same order.
+
+Returns:
+    The ordinary-least-squares slope of ``log sigma`` on ``log N``, pooled
+    over the widths.
+
+Raises:
+    StructureError: for fewer than two campaign sizes, a non-positive
+        size, a ragged table, or a sigma that is not finite and strictly
+        positive.</pre></section><section class="api-symbol"><h2 id="shrinkage_report">shrinkage_report</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 585.</p><pre><code>shrinkage_report(sigmas: Mapping[int, Any]) -&gt; dict[str, Any]</code></pre><pre class="docstring">:func:`shrinkage_power` with its limits attached to it.
+
+``detects_coherent_bias`` is ``False``, always, and it is a FIELD rather
+than a sentence in a docstring because a number and its caveat travel
+together or they do not travel. A deterministic error shared across
+epochs contributes no variance at all, so the posterior width is the same
+array element for element on a clean campaign and on a badly biased one,
+and this power is the same to every digit either way.</pre></section><section class="api-symbol"><h2 id="tightest_direction">tightest_direction</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 609.</p><pre><code>tightest_direction(block: Any) -&gt; tuple[float, Any]</code></pre><pre class="docstring">``(width, unit direction)`` of the narrowest direction of a covariance block.
+
+**The tightest DIRECTION, not the tightest coordinate**, and the
+difference is a basis rotation wide. For any correlated posterior the
+smallest eigen-direction is below every diagonal entry, so a refusal
+keyed on ``min(diag(block))`` watches a quantity that is not the first to
+go under. ``tests/marginal/test_systematic_floor.py`` measures the gap on
+a near-collinear campaign, where the coordinate widths sit an order of
+magnitude ABOVE a floor that the tightest direction is well below.
+
+The direction is returned because a bare number is half the value: &quot;your
+error bar is too tight&quot; is not actionable, &quot;your error bar on
+``0.707 x0 + 0.707 x1`` is too tight&quot; is. Its sign is fixed by making the
+largest-magnitude component positive, so the same posterior reports the
+same vector rather than one that flips with LAPACK&#x27;s mood.
+
+``(nan, None)`` for a block that is not finite: NaN cannot be
+eigendecomposed, and a poisoned campaign must report ``nan`` and be
+refused by the NaN-safe comparison in :func:`systematic_floor` rather than
+raise a linear-algebra error here.</pre></section><section class="api-symbol"><h2 id="systematic_floor">systematic_floor</h2><p class="source-note">Defined in <code>bayesmith.marginal.diagnostics</code>, line 647.</p><pre><code>systematic_floor(term: SqrtInfo, prior_fisher: Any, floors: Mapping[str, Any], n_epochs: int) -&gt; dict[str, dict[str, Any]]</code></pre><pre class="docstring">Has this campaign out-run its own calibration?
+
+The floor is the declared width of a shared calibration product -- one
+solution, one beam model, one flag table serving every epoch --
+**projected into the latents&#x27; units by the analyst**. It is a declaration
+and not a measurement, and that is forced rather than lazy: the in-span
+half of a coherent error biases the survivors identically in every epoch
+and leaves no residual anywhere, so it passes per-epoch chi-square,
+split-half and leave-one-out, and NO statistic computed from the stored
+terms can recover it.
+
+What the campaign does know is its own width, and that width falls as
+``N^-1/2`` while the shared product&#x27;s does not fall at all. So the whole
+content of this function is: when does one pass under the other.
+
+``crossing_epoch`` is **computed from the observed width**, not quoted:
+``sigma_N`` is extrapolated as ``sigma_N sqrt(N / N&#x27;)`` and solved for
+``sigma_N&#x27; = floor``, giving ``N&#x27; = ceil(N (sigma_N / floor)^2)``. That
+extrapolation ignores the prior&#x27;s share, which shrinks as N grows, so it
+predicts the crossing marginally early -- the conservative direction.
+
+Args:
+    term: the campaign&#x27;s folded term over the survivors.
+    prior_fisher: ``F_prior`` over the same columns, added to the term&#x27;s
+        own information before inverting.
+    floors: ``{latent: declared width in that latent&#x27;s units}``. Every
+        entry must name a latent the term is over and be finite and
+        strictly positive.
+    n_epochs: how many epochs the term was folded from. Used only for the
+        extrapolation.
+
+Returns:
+    One entry per named latent, each a dict of ``&quot;sigma&quot;``, ``&quot;floor&quot;``,
+    ``&quot;below_floor&quot;``, ``&quot;crossing_epoch&quot;`` and ``&quot;direction&quot;``.
+
+Raises:
+    StructureError: for a campaign of no epochs, a floor naming a latent
+        the term is not over, a floor that is not a finite positive width,
+        a prior of the wrong shape, or information that is not positive
+        definite.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#epoch_chi_square">epoch_chi_square</a><a href="#coherent_mode">coherent_mode</a><a href="#refuse_undeclared_coherent_error">refuse_undeclared_coherent_error</a><a href="#epoch_residuals">epoch_residuals</a><a href="#refuse_mixed_templates">refuse_mixed_templates</a><a href="#template_modes">template_modes</a><a href="#held_out_z">held_out_z</a><a href="#shrinkage_power">shrinkage_power</a><a href="#shrinkage_report">shrinkage_report</a><a href="#tightest_direction">tightest_direction</a><a href="#systematic_floor">systematic_floor</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

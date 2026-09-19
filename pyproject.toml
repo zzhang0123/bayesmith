@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bayesmith"
-version = "0.8.0"
+version = "0.9.0"
 description = "A graph of operators is a Bayesian model; its structure chooses the inference."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "Zheng Zhang" }]
 license-files = ["LICENSE"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
@@ -26,7 +26,9 @@ dependencies = [
     # numpyro is the last row of the dispatch table, not an optional extra:
     # every graph that qualifies for an exact method must also be runnable
     # through NUTS, because that is what the exact paths are verified against.
-    "numpyro>=0.15",
+    # 0.22 changes argument validation and Gibbs dynamic-support behavior;
+    # the 0.9 baseline is verified against 0.21 (see stabilization-090.md).
+    "numpyro>=0.15,<0.22",
 ]
 
 # The first extras this package has ever declared (R5 Task 4). They carry the
@@ -37,11 +39,11 @@ dependencies = [
 # residual graph returns a `Refusal` naming these extras and the command above,
 # and every other task on the same graph is unaffected.
 #
-# TWO extras and no default, on purpose. R5's bake-off (Task 5) has not run and
-# its legal answers include "no candidate passed", so a single
-# `residual-evidence` extra pointing at one of these would be that decision
-# taken by packaging rather than by measurement. Whichever wins, the loser's
-# extra is removed rather than left as a trap.
+# JAXNS was selected by the R5 bake-off and its low-level adapter exists.
+# The public EvidenceTask residual route remains unavailable: installing an
+# extra does not supply its unfinished integration and stability contract.
+# Keep the previously declared BlackJAX extra for 0.x installation compatibility;
+# it is not a supported evidence backend. Neither is installed by default.
 #
 # Measured in throwaway copies of this repository's environment on 2026-09-05,
 # against the jax it already had (0.11.1) -- see
@@ -81,7 +83,7 @@ dev = [
     "pytest-cov",
     "pytest-xdist",
     "hypothesis",
-    "ruff",
+    "ruff==0.16.4",
     # Optional ArviZ export seam (R2 Task 6), dev-only: the package never
     # imports it at runtime, but tests/bridge/test_arviz_export.py needs it to
     # RUN rather than importorskip. Kept out of [project].dependencies for the
@@ -162,35 +164,45 @@ dev = [
 crosscheck = []
 
 [tool.hatch.build.targets.sdist]
-# What a user or a distro packager needs to rebuild and verify this package,
-# and nothing else. `docs/` here is internal working material -- plans, specs,
-# handoff notes, probe scripts, cross-check records -- not user documentation,
-# and 16 of those files carry absolute paths under a developer's home
-# directory. An sdist is published permanently and is indexed; excluding them
-# is reversible in a way that uploading them is not.
+# Rebuildable source plus the portable package suite. Repository governance,
+# research campaigns and cross-repository integration are tested in the checkout,
+# not shipped without their inputs. CI runs the extracted sdist's actual suite.
+# Leading slashes anchor top-level files: "README.md" alone includes every
+# nested README, including indexes whose linked documents are not distributed.
 include = [
-    "src",
-    "tests",
-    # The cross-check record pages, because `tests/test_migration_records.py`
-    # ships and asserts against them: an sdist whose own test suite cannot
-    # pass is a worse artefact than one that omits the tests. Checked clean of
-    # absolute paths, unlike `docs/superpowers/` and `docs/probes/`.
-    "docs/migration",
-    "README.md",
-    "LICENSE",
-    "CHANGELOG.md",
-    "pyproject.toml",
+    # Single-source numerical test oracles used by the portable suite.
+    "/docs/probes/probe_28_model_checking_seams.py",
+    "/docs/probes/probe_29_amortized_candidates.py",
+    "/src",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/pyproject.toml",
 ]
-# Two REPOSITORY-governance tests, not package tests: they parse the internal
-# migration spec and assert that planning documents agree with each other.
-# Shipping them is what would force shipping `docs/superpowers/`, and an sdist
-# whose suite fails out of the box is worse than one that omits four checks
-# nobody outside this repository can act on. Measured: with these two out and
-# `docs/migration` in, a clean-venv install of the sdist runs its own suite
-# green.
 exclude = [
-    "tests/test_migration_records.py",
-    "tests/crosscheck/test_spec_claims.py",
+    # Repository-only governance, tools, website and document corpus.
+    "/tests/test_agent_notes_are_one_file.py",
+    "/tests/test_document_status.py",
+    "/tests/test_document_contract.py",
+    "/tests/test_documentation_site.py",
+    "/tests/test_distribution_contract.py",
+    "/tests/test_ownership.py",
+    "/tests/test_migration_records.py",
+    "/tests/test_pytest_gate.py",
+    "/tests/test_readme_count.py",
+    "/tests/evaluation/test_probe28_pins.py",
+    "/tests/crosscheck",
+    # Executable research/tutorial integration remains in repository CI.
+    "/tests/test_examples.py",
+    "/tests/test_campbell_*.py",
+    "/tests/test_tris_*.py",
+    "/tests/test_composed_*.py",
+    "/tests/test_inference_*.py",
+    "/tests/test_jeffreys_inference_examples.py",
+    "/tests/test_mild_noise_prior_example.py",
+    "/tests/test_power_law_example.py",
+    "/tests/gallery_navigation.cjs",
 ]
 
 [tool.hatch.build.targets.wheel]

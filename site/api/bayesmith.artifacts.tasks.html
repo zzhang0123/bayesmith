@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.artifacts.tasks"><title>bayesmith.artifacts.tasks · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.artifacts.tasks</span></nav>
+<article><h1>bayesmith.artifacts.tasks</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The five questions a caller can ask, as data (§0.4).
+
+A Task is the QUESTION, not the machinery that answers it. §0 ruling 1 fixes
+five of them and §0 ruling 4 fixes what they may hold: a reference, a
+fingerprint, a budget and a bounded option table -- never a Graph, a callable,
+a compiled executable or a backend handle. That is why a predictive task
+carries the *fingerprint* of its conditioning data rather than the data, and
+why a simulation task&#x27;s fixed parameters are :class:``NamedArray``s whose bytes
+are copied in.
+
+**A task&#x27;s identity is what it asks, not when or by whom.**
+:func:``task_fingerprint`` digests the kind and every statistical field, and
+excludes ``meta`` entirely -- the id is minted, the timestamp is a clock, the
+label is for a human, and the schema version is the envelope&#x27;s own business
+rather than one of the §0.3 task-slot contents. Renaming a task must not
+invalidate a cached result; changing its tolerance must.
+
+**Two kinds of collection, two rules, stated once.** A list of SITE NAMES keeps
+the order it was declared in, because that order is what a caller reads back;
+a collection keyed by name -- a parameter source&#x27;s fixed values -- is sorted,
+because the same values in two orders are one value and a digest that
+disagreed would depend on the order somebody typed keywords in. Duplicates are
+refused in both: one of the two would be dropped and nothing would say which.
+
+The small validators are :mod:``bayesmith.artifacts.base``&#x27;s own, imported
+rather than restated. A second ``_count`` here would be a second answer to &quot;is
+a negative budget legal&quot;, and this package has already paid for one
+measurement living in six places.
+
+Layering: ``_codec ← identity ← base ← tasks``. Nothing of the Graph, the
+dispatch layer, JAX, Equinox or NumPyro (§0 ruling 5).</pre></details><div class="symbol-index"><a href="#TaskKind">TaskKind</a> <a href="#TaskMeta">TaskMeta</a> <a href="#new_task_meta">new_task_meta</a> <a href="#Estimand">Estimand</a> <a href="#ParameterSourceKind">ParameterSourceKind</a> <a href="#ParameterSource">ParameterSource</a> <a href="#PosteriorTask">PosteriorTask</a> <a href="#EvidenceTask">EvidenceTask</a> <a href="#PredictiveTask">PredictiveTask</a> <a href="#PointEstimateTask">PointEstimateTask</a> <a href="#SimulationTask">SimulationTask</a> <a href="#Task">Task</a> <a href="#TASK_CLASSES">TASK_CLASSES</a> <a href="#task_kind">task_kind</a> <a href="#task_fingerprint">task_fingerprint</a> <a href="#site_names">site_names</a></div><section class="api-symbol"><h2 id="TaskKind">TaskKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 90.</p><pre><code>class TaskKind(StrEnum)</code></pre><pre class="docstring">The five questions of §0 ruling 1, and no sixth.
+
+The kind is a member of the tagged union rather than a free string because
+it is what every dispatch, every gate and every result pairing branches on.</pre><pre><code>POSTERIOR = &#x27;posterior&#x27;
+EVIDENCE = &#x27;evidence&#x27;
+PREDICTIVE = &#x27;predictive&#x27;
+POINT_ESTIMATE = &#x27;point_estimate&#x27;
+SIMULATION = &#x27;simulation&#x27;</code></pre></section><section class="api-symbol"><h2 id="TaskMeta">TaskMeta</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 267.</p><pre><code>class TaskMeta
+task_id: str
+schema_version: int
+created_at: str
+label: str = &#x27;&#x27;</code></pre><pre class="docstring">Who asked, and when. None of it is part of the task&#x27;s fingerprint.</pre></section><section class="api-symbol"><h2 id="new_task_meta">new_task_meta</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 290.</p><pre><code>new_task_meta(*, label: str=&#x27;&#x27;, task_id: str | None=None, created_at: str | None=None, schema_version: int=SCHEMA_VERSION) -&gt; TaskMeta</code></pre><pre class="docstring">A fresh task envelope, minting the id and the time unless given them.</pre></section><section class="api-symbol"><h2 id="Estimand">Estimand</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 105.</p><pre><code>class Estimand(StrEnum)</code></pre><pre class="docstring">Which point of the posterior a point estimate is of (§0.4).
+
+Two members, and they are not interchangeable: a posterior mean is an
+integral, a MAP is an argmax, and they coincide only for a symmetric
+unimodal posterior. A single &quot;point estimate&quot; with a free-text method would
+let the difference be lost in a string.</pre><pre><code>POSTERIOR_MEAN = &#x27;posterior_mean&#x27;
+MAP = &#x27;map&#x27;</code></pre></section><section class="api-symbol"><h2 id="ParameterSourceKind">ParameterSourceKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 119.</p><pre><code>class ParameterSourceKind(StrEnum)</code></pre><pre class="docstring">Where a simulation&#x27;s parameters come from (§0.4).</pre><pre><code>PRIOR = &#x27;prior&#x27;
+FIXED = &#x27;fixed&#x27;
+POSTERIOR_RESULT = &#x27;posterior_result&#x27;</code></pre></section><section class="api-symbol"><h2 id="ParameterSource">ParameterSource</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 308.</p><pre><code>class ParameterSource
+kind: ParameterSourceKind
+values: tuple[NamedArray, ...] = ()
+posterior_ref: ArtifactRef | None = None</code></pre><pre class="docstring">Where a simulation&#x27;s parameters come from: a three-armed tagged value.
+
+Exactly one arm carries a payload, and the other two must be empty. A
+single class with an unconstrained pair of optional fields would admit
+&quot;fixed values AND a posterior reference&quot;, which is two answers to one
+question -- and whichever one the executor read first would become the
+silent rule.</pre><h3 id="ParameterSource.prior">ParameterSource.prior</h3><pre><code>prior(cls) -&gt; ParameterSource</code></pre><h3 id="ParameterSource.fixed">ParameterSource.fixed</h3><pre><code>fixed(cls, values: tuple[NamedArray, ...]) -&gt; ParameterSource</code></pre><h3 id="ParameterSource.from_posterior_result">ParameterSource.from_posterior_result</h3><pre><code>from_posterior_result(cls, ref: ArtifactRef) -&gt; ParameterSource</code></pre></section><section class="api-symbol"><h2 id="PosteriorTask">PosteriorTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 370.</p><pre><code>class PosteriorTask
+meta: TaskMeta
+backend: str = &#x27;auto&#x27;
+budget: ComputeBudget = _NO_BUDGET
+chain_method: str | None = None
+solver_tolerance: float | None = None
+solver_maxiter: int | None = None
+require_convergence: bool = True
+ess_floor: float | None = None
+nuts_on_collapse: bool = True
+backend_options: tuple[tuple[str, CanonicalValue], ...] = ()
+quality_gate: str | None = None
+diagnostics: DiagnosticPolicy = dataclasses.field(default_factory=DiagnosticPolicy)
+initialization: InitializationPolicy | None = dataclasses.field(default_factory=InitializationPolicy)
+stopping: StoppingPolicy = dataclasses.field(default_factory=StoppingPolicy)
+block_order: tuple[tuple[str, ...], ...] | None = None</code></pre><pre class="docstring">Draw, or represent, the posterior over the model&#x27;s latents.
+
+``nuts_on_collapse`` is a fallback POLICY rather than a fallback: the task
+says whether the caller consents to being moved onto NUTS when an exact
+route collapses, and the run record says whether it happened.</pre><h3 id="PosteriorTask.proposals">PosteriorTask.proposals</h3><pre><code>proposals(self) -&gt; tuple[ProposalBlockPolicy, ...]</code></pre><pre class="docstring">Explicit proposal blocks encoded in the existing backend options.</pre></section><section class="api-symbol"><h2 id="EvidenceTask">EvidenceTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 436.</p><pre><code>class EvidenceTask
+meta: TaskMeta
+backend: str = &#x27;auto&#x27;
+budget: ComputeBudget = _NO_BUDGET
+reconstruct_posterior: bool = False
+repeat_count: int | None = None
+backend_options: tuple[tuple[str, CanonicalValue], ...] = ()
+quality_gate: str | None = None</code></pre><pre class="docstring">The marginal likelihood, and whether a posterior falls out of it.
+
+``repeat_count`` is how many independent runs the caller wants for a
+consistency check. ``None`` is a single run; zero is refused, because
+repeating a run no times is not a second spelling of running it once.</pre></section><section class="api-symbol"><h2 id="PredictiveTask">PredictiveTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 474.</p><pre><code>class PredictiveTask
+meta: TaskMeta
+source_posterior_ref: ArtifactRef
+conditioning_data: Fingerprint | None = None
+prediction_design: Fingerprint | None = None
+conditioned_sites: tuple[str, ...] = ()
+replicated_sites: tuple[str, ...] = ()
+latent_sites: tuple[str, ...] = ()
+budget: ComputeBudget = _NO_BUDGET
+backend: str = &#x27;auto&#x27;
+backend_options: tuple[tuple[str, CanonicalValue], ...] = ()
+quality_gate: str | None = None</code></pre><pre class="docstring">Push an existing posterior forward onto new or replicated observations.
+
+What separates this from :class:``SimulationTask`` is stated in the fields
+rather than in prose (§0.4): a predictive task conditions on data, names
+the posterior it came from, and distinguishes the sites it replicates from
+the latents it carries forward. A simulation has none of those.</pre></section><section class="api-symbol"><h2 id="PointEstimateTask">PointEstimateTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 520.</p><pre><code>class PointEstimateTask
+meta: TaskMeta
+estimand: Estimand
+names: tuple[str, ...] | None = None
+backend: str = &#x27;auto&#x27;
+budget: ComputeBudget = _NO_BUDGET
+optimizer_options: tuple[tuple[str, CanonicalValue], ...] = ()
+quality_gate: str | None = None</code></pre><pre class="docstring">One point of the posterior, for named latents or for all of them.
+
+``names=None`` is &quot;every latent&quot; and an empty tuple is refused: an empty
+request and an unrestricted one are different questions, and a field that
+could mean either would make the answer depend on how the caller spelled
+&quot;I do not care&quot;.</pre></section><section class="api-symbol"><h2 id="SimulationTask">SimulationTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 553.</p><pre><code>class SimulationTask
+meta: TaskMeta
+parameter_source: ParameterSource
+prediction_design: Fingerprint | None = None
+latent_sites: tuple[str, ...] = ()
+observed_sites: tuple[str, ...] = ()
+budget: ComputeBudget = _NO_BUDGET
+backend: str = &#x27;auto&#x27;
+backend_options: tuple[tuple[str, CanonicalValue], ...] = ()</code></pre><pre class="docstring">Generate forward from a parameter source. No conditioning, no gate.
+
+§0.4 gives the other four tasks a ``quality_gate`` and this one none, and
+the omission is deliberate rather than an oversight to be tidied up: a
+simulation makes no statistical claim to check -- it produced what the
+model says, and whether that is a good model is what the OTHER four ask.</pre></section><section class="api-symbol"><h2 id="Task">Task</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 591.</p><pre><code>Task = PosteriorTask | EvidenceTask | PredictiveTask | PointEstimateTask | SimulationTask</code></pre></section><section class="api-symbol"><h2 id="TASK_CLASSES">TASK_CLASSES</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 596.</p><pre><code>TASK_CLASSES: dict[TaskKind, type] = {TaskKind.POSTERIOR: PosteriorTask, TaskKind.EVIDENCE: EvidenceTask, TaskKind.PREDICTIVE: PredictiveTask, TaskKind.POINT_ESTIMATE: PointEstimateTask, TaskKind.SIMULATION: SimulationTask}</code></pre></section><section class="api-symbol"><h2 id="task_kind">task_kind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 607.</p><pre><code>task_kind(task: Task) -&gt; TaskKind</code></pre><pre class="docstring">Which of the five ``task`` is.
+
+By exact type, not ``isinstance``: a subclass of one task carrying extra
+state would be reported as the base kind and executed as it, which is the
+quiet half of §0 ruling 4.</pre></section><section class="api-symbol"><h2 id="task_fingerprint">task_fingerprint</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 623.</p><pre><code>task_fingerprint(task: Task) -&gt; Fingerprint</code></pre><pre class="docstring">The §0.3 task-slot digest of ``task``.
+
+The kind is IN the payload, so two tasks that agree field for field but ask
+different questions are different. ``meta`` is not: its id is minted, its
+time is a clock and its label is for a human, and §0.3 keeps all three out
+of the task slot so that renaming a task cannot invalidate a cached result.</pre></section><section class="api-symbol"><h2 id="site_names">site_names</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 171.</p><pre><code>site_names(label: str, value: object) -&gt; tuple[str, ...]</code></pre><pre class="docstring">Unique, non-empty site names IN THE ORDER THEY WERE DECLARED.
+
+Not sorted: a caller reads these back and the order they wrote is the
+order they mean. Duplicates are refused rather than collapsed -- a repeated
+site would silently shorten a collection whose length a caller may be
+checking.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#TaskKind">TaskKind</a><a href="#TaskMeta">TaskMeta</a><a href="#new_task_meta">new_task_meta</a><a href="#Estimand">Estimand</a><a href="#ParameterSourceKind">ParameterSourceKind</a><a href="#ParameterSource">ParameterSource</a><a href="#PosteriorTask">PosteriorTask</a><a href="#EvidenceTask">EvidenceTask</a><a href="#PredictiveTask">PredictiveTask</a><a href="#PointEstimateTask">PointEstimateTask</a><a href="#SimulationTask">SimulationTask</a><a href="#Task">Task</a><a href="#TASK_CLASSES">TASK_CLASSES</a><a href="#task_kind">task_kind</a><a href="#task_fingerprint">task_fingerprint</a><a href="#site_names">site_names</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

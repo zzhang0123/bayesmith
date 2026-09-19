@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.artifacts.identity"><title>bayesmith.artifacts.identity · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.artifacts.identity</span></nav>
+<article><h1>bayesmith.artifacts.identity</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Model references, fingerprints, and what a changed input invalidates.
+
+Identity here is deliberately of two unrelated kinds, and keeping them apart is
+most of the module:
+
+**A fingerprint is semantic.** It is a SHA-256 over the canonical bytes of a
+payload (:mod:``bayesmith.artifacts._codec``), so two runs that saw the same model,
+the same data and the same task carry the same digest on different machines,
+in different processes, in either order of a mapping&#x27;s keys. Fingerprints are
+what caching, reuse and invalidation are decided by.
+
+**An artifact id is not.** ``artifact_id`` and ``run_id`` are UUID4s minted once
+(:mod:``bayesmith.artifacts.base``) -- they say *which* artifact, never *what it
+was made of*. Two artifacts with one fingerprint bundle are interchangeable in
+content and still separate artifacts with separate lineage.
+
+Plan §0.3 fixes seven fingerprint slots, and the boundary of each is a ruling
+rather than a detail. The two that pay for the rest: the **data** slot holds
+the bytes of every Const, observation and mask, so a single flipped bit is a
+different data set; the **task** slot holds statistical semantics and budget
+and holds no progress bar, no print width and not the task&#x27;s own id, so
+renaming a label invalidates nothing. What a slot contains is the caller&#x27;s
+payload -- :func:``fingerprint`` hashes what it is handed -- and the slot table in
+§0.3 is the contract those callers are written against.
+
+``ModelRef`` exists because a model is a callable and a callable has no
+canonical form. Its ``repr`` carries a memory address, which would make one
+model two in a single process and a third after a restart, so
+:func:``model_ref_from_callable`` digests ``inspect.getsource`` or refuses --
+plan §0.3, and §0 ruling 4: an artifact is data, not a runtime object dump.
+
+The invalidation matrix (§0.3) is a table, not an ``if`` chain:
+:class:``InvalidationPolicy`` holds one row per :class:``ArtifactKind`` naming the
+fingerprint kinds that artifact kind is sensitive to. A compilation change
+spares the Plan; an evaluation threshold spares the Result and re-runs only
+the report; a display option is in no slot at all, so it changes nothing and
+reuses everything.
+
+Refusals follow the same contract as :mod:``bayesmith.artifacts.base``: a
+``TypeError`` is &quot;that is the wrong kind of thing&quot; (a bare string where an enum
+member belongs), a ``ValueError`` is &quot;right kind of thing, malformed&quot; (a digest
+that is not lowercase SHA-256 hex). ``ArtifactCodecError`` -- a ``ValueError`` --
+is what an uncanonical payload raises, and it arrives from the codec unwrapped
+so that the offending type is still named.
+
+Layering: ``_codec`` only. Nothing here may import ``base``, the Graph, or JAX --
+``_codec ← identity ← base`` is the ladder, and the envelope in ``base`` names
+these types rather than the other way round.</pre></details><div class="symbol-index"><a href="#FINGERPRINT_ALGORITHM">FINGERPRINT_ALGORITHM</a> <a href="#FingerprintKind">FingerprintKind</a> <a href="#ArtifactKind">ArtifactKind</a> <a href="#Fingerprint">Fingerprint</a> <a href="#FingerprintBundle">FingerprintBundle</a> <a href="#ModelRef">ModelRef</a> <a href="#fingerprint">fingerprint</a> <a href="#model_ref_from_callable">model_ref_from_callable</a> <a href="#changed_fingerprints">changed_fingerprints</a> <a href="#InvalidationPolicy">InvalidationPolicy</a></div><section class="api-symbol"><h2 id="FINGERPRINT_ALGORITHM">FINGERPRINT_ALGORITHM</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 79.</p><pre><code>FINGERPRINT_ALGORITHM = &#x27;sha256-v1&#x27;</code></pre></section><section class="api-symbol"><h2 id="FingerprintKind">FingerprintKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 86.</p><pre><code>class FingerprintKind(StrEnum)</code></pre><pre class="docstring">The seven slots of plan §0.3, one per independently changeable input.
+
+Named after the slots of :class:``FingerprintBundle`` and checked against them,
+so a slot cannot come to hold a digest of some other kind -- a ``data`` slot
+holding a task digest would answer &quot;the data changed&quot; for a renamed
+solver, and answer it consistently enough to be believed.</pre><pre><code>MODEL_SOURCE = &#x27;model_source&#x27;
+GRAPH_STRUCTURE = &#x27;graph_structure&#x27;
+DATA = &#x27;data&#x27;
+TASK = &#x27;task&#x27;
+COMPILATION = &#x27;compilation&#x27;
+EVALUATION = &#x27;evaluation&#x27;
+ENVIRONMENT = &#x27;environment&#x27;</code></pre></section><section class="api-symbol"><h2 id="ArtifactKind">ArtifactKind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 105.</p><pre><code>class ArtifactKind(StrEnum)</code></pre><pre class="docstring">The rows of the §0.3 invalidation matrix: what invalidation reasons about.
+
+Four members, because the matrix has four columns and each is a distinct
+sensitivity: a Plan is made before compilation, a Result is made by it, an
+EvaluationReport is a judgement about a Result, and an Estimator is the
+fitted weights a heuristic posterior was trained on (§0.7). This is the
+INVALIDATION taxonomy and not a catalogue of artifacts -- which of the five
+Results a
+reference points at is ``ResultKind``&#x27;s business (Task 3), and asking this enum
+to carry that too would put five identical rows in the matrix.</pre><pre><code>PLAN = &#x27;plan&#x27;
+RESULT = &#x27;result&#x27;
+EVALUATION_REPORT = &#x27;evaluation_report&#x27;
+ESTIMATOR = &#x27;estimator&#x27;</code></pre></section><section class="api-symbol"><h2 id="Fingerprint">Fingerprint</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 126.</p><pre><code>class Fingerprint
+kind: FingerprintKind
+algorithm: str
+digest: str</code></pre><pre class="docstring">One slot&#x27;s digest, with the kind it belongs to and the algorithm used.</pre></section><section class="api-symbol"><h2 id="FingerprintBundle">FingerprintBundle</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 175.</p><pre><code>class FingerprintBundle
+model_source: Fingerprint
+graph_structure: Fingerprint
+data: Fingerprint
+task: Fingerprint
+compilation: Fingerprint | None = None
+evaluation: Fingerprint | None = None
+environment: Fingerprint | None = None</code></pre><pre class="docstring">The seven slots of §0.3, in the order the plan lists them.
+
+The first four always exist: every artifact was made from a model, a graph,
+data and a task. The last three are ``None`` when they do not apply -- a Plan
+has no compilation digest before it is compiled, and nothing but a report
+has an evaluation one. ``None`` and a digest are different values, so a slot
+appearing or vanishing is itself a change.</pre><h3 id="FingerprintBundle.slots">FingerprintBundle.slots</h3><pre><code>slots(self) -&gt; tuple[tuple[FingerprintKind, Fingerprint | None], ...]</code></pre><pre class="docstring">The bundle as (kind, fingerprint-or-None) pairs, in slot order.</pre></section><section class="api-symbol"><h2 id="ModelRef">ModelRef</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 220.</p><pre><code>class ModelRef
+identifier: str
+source_digest: str | None = None
+package: str | None = None
+package_version: str | None = None
+build_arguments: tuple[tuple[str, object], ...] = ()</code></pre><pre class="docstring">A stable reference to the model a graph was built from.
+
+Never the callable itself: §0 ruling 4. ``identifier`` is what a human calls
+the model, ``source_digest`` pins its text, and ``package``/``package_version``
+pin a released model whose source is not at hand. At least one of those
+two pins is required, because a reference with only a name is a reference
+to whatever that name means today.
+
+``build_arguments`` carries the state that would otherwise hide in a
+closure -- §0.3 does not promise to discover it, so a builder&#x27;s arguments
+are part of the reference or they are lost. They are canonical values
+(arrays included, since a knot vector is an argument), key-unique, and
+sorted, so two callers who passed the same arguments in different order
+hold the same reference.</pre></section><section class="api-symbol"><h2 id="fingerprint">fingerprint</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 157.</p><pre><code>fingerprint(kind: FingerprintKind, payload: object) -&gt; Fingerprint</code></pre><pre class="docstring">The fingerprint of ``payload`` in slot ``kind``.
+
+What goes into ``payload`` is the §0.3 boundary for that slot, and it is the
+caller&#x27;s to decide: this function hashes what it is handed. A payload the
+codec cannot encode -- a callable, an object array, an unregistered class
+-- raises :class:``ArtifactCodecError`` here rather than being rendered
+best-effort, because a best-effort digest of a callable is its address.</pre></section><section class="api-symbol"><h2 id="model_ref_from_callable">model_ref_from_callable</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 303.</p><pre><code>model_ref_from_callable(fn: Callable[..., object], *, identifier: str, source_digest: str | None=None, package: str | None=None, package_version: str | None=None, build_arguments: tuple[tuple[str, object], ...]=()) -&gt; ModelRef</code></pre><pre class="docstring">A :class:``ModelRef`` for ``fn``, digesting its source or refusing.
+
+§0.3: an automatic source digest exists only when ``inspect.getsource``
+returns stable text. When it does not -- a function built by ``exec``, a
+builtin, a callable defined in a REPL -- the caller must supply
+``source_digest``. There is no fallback, and the missing fallback is the
+feature: ``repr(fn)`` carries a memory address, so a digest that degraded
+to it would report a changed model on every restart and an unchanged one
+for a genuine edit that happened to reuse an address.
+
+``package`` defaults to the top-level package of ``fn.__module__``, which is
+read off the function object rather than imported.</pre></section><section class="api-symbol"><h2 id="changed_fingerprints">changed_fingerprints</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 355.</p><pre><code>changed_fingerprints(before: FingerprintBundle, after: FingerprintBundle) -&gt; frozenset[FingerprintKind]</code></pre><pre class="docstring">The slots whose fingerprint differs between two bundles.
+
+Slot by slot, including the optional ones: a compilation digest that
+appears where there was ``None`` is a change, and so is one that vanishes.
+The result is a frozenset because invalidation is a question about a SET of
+changed inputs -- the order they were discovered in is not part of it.</pre></section><section class="api-symbol"><h2 id="InvalidationPolicy">InvalidationPolicy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.identity</code>, line 376.</p><pre><code>class InvalidationPolicy
+sensitivities: tuple[tuple[ArtifactKind, tuple[FingerprintKind, ...]], ...]</code></pre><pre class="docstring">The §0.3 matrix: which fingerprint kinds each artifact kind depends on.
+
+A table, and a table for a reason. The rule set is small enough to write as
+branches and exactly the kind of thing that grows an unwritten case when it
+is: &quot;compilation invalidates a Result but not a Plan&quot; and &quot;an evaluation
+threshold invalidates the report but not the Result&quot; are not related
+statements, and nothing but a table keeps them from being merged by
+somebody simplifying.
+
+Not registered with the codec: a policy is code that reads artifacts, not
+an artifact. What an invalidated artifact records is which inputs changed
+(``LifecycleRecord.changed_inputs``), which stays true whoever judged it.</pre><h3 id="InvalidationPolicy.default">InvalidationPolicy.default</h3><pre><code>default(cls) -&gt; InvalidationPolicy</code></pre><pre class="docstring">The §0.3 matrix as shipped.</pre><h3 id="InvalidationPolicy.affected">InvalidationPolicy.affected</h3><pre><code>affected(self, artifact_type: ArtifactKind, changed: Iterable[FingerprintKind]) -&gt; bool</code></pre><pre class="docstring">Does an artifact of this kind stop being current, given ``changed``?
+
+``changed`` is any iterable of :class:``FingerprintKind`` -- normally the
+frozenset :func:``changed_fingerprints`` returned. An empty one answers
+``False`` for every artifact kind, which is the matrix&#x27;s display-option
+row: a display option is in no slot, so nothing moved and everything
+is reusable.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#FINGERPRINT_ALGORITHM">FINGERPRINT_ALGORITHM</a><a href="#FingerprintKind">FingerprintKind</a><a href="#ArtifactKind">ArtifactKind</a><a href="#Fingerprint">Fingerprint</a><a href="#FingerprintBundle">FingerprintBundle</a><a href="#ModelRef">ModelRef</a><a href="#fingerprint">fingerprint</a><a href="#model_ref_from_callable">model_ref_from_callable</a><a href="#changed_fingerprints">changed_fingerprints</a><a href="#InvalidationPolicy">InvalidationPolicy</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

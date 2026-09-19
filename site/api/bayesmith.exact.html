@@ -1,0 +1,970 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact"><title>bayesmith.exact · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact</span></nav>
+<article><h1>bayesmith.exact</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Structure-dispatched exact solves for linear-Gaussian blocks.
+
+Import order matters only in that ``linear_operator`` -- the checked entry
+point -- lives in :mod:`bayesmith.exact.linearity`, while the unchecked
+primitive it wraps lives in :mod:`bayesmith.exact.block`. Re-exported here so
+the checked name is the one a bare ``from bayesmith.exact import ...`` finds.</pre></details><div class="symbol-index"><a href="#DEFAULT_SCALES">DEFAULT_SCALES</a> <a href="#DEFAULT_AT_POINTS">DEFAULT_AT_POINTS</a> <a href="#RELATIVE_FLOOR_FACTOR">RELATIVE_FLOOR_FACTOR</a> <a href="#WEIGHTED_FLOOR_FACTOR">WEIGHTED_FLOOR_FACTOR</a> <a href="#WEIGHTED_RTOL">WEIGHTED_RTOL</a> <a href="#Unresolved">Unresolved</a> <a href="#LinearBlock">LinearBlock</a> <a href="#unchecked_operator">unchecked_operator</a> <a href="#linear_operator">linear_operator</a> <a href="#check_linearity">check_linearity</a> <a href="#gaussian_parts">gaussian_parts</a> <a href="#check_gaussian">check_gaussian</a> <a href="#noise_std_at">noise_std_at</a> <a href="#precision_parts">precision_parts</a> <a href="#precision_at">precision_at</a> <a href="#wiener_solve">wiener_solve</a> <a href="#gcr_sample">gcr_sample</a> <a href="#condition_bound">condition_bound</a> <a href="#iterative_gls">iterative_gls</a> <a href="#GLSResult">GLSResult</a> <a href="#sigma_from_graph">sigma_from_graph</a> <a href="#check_prediction_dependence">check_prediction_dependence</a> <a href="#FlatMatrix">FlatMatrix</a> <a href="#dense_operator">dense_operator</a> <a href="#fisher_information">fisher_information</a> <a href="#parameter_covariance">parameter_covariance</a> <a href="#propagate_covariance">propagate_covariance</a> <a href="#push_forward">push_forward</a> <a href="#FIRST_ORDER_MAX_FRACTIONAL">FIRST_ORDER_MAX_FRACTIONAL</a> <a href="#LOG_DEFAULT_SCALES">LOG_DEFAULT_SCALES</a> <a href="#LogSpace">LogSpace</a> <a href="#check_log_linearity">check_log_linearity</a> <a href="#log_linear_operator">log_linear_operator</a> <a href="#log_space">log_space</a> <a href="#multiplicative_log_data">multiplicative_log_data</a></div><section class="api-symbol"><h2 id="DEFAULT_SCALES">DEFAULT_SCALES</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 51.</p><pre><code>DEFAULT_SCALES: tuple[float, ...] = (0.001, 1.0, 1000.0)</code></pre></section><section class="api-symbol"><h2 id="DEFAULT_AT_POINTS">DEFAULT_AT_POINTS</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 55.</p><pre><code>DEFAULT_AT_POINTS: int = 3</code></pre></section><section class="api-symbol"><h2 id="RELATIVE_FLOOR_FACTOR">RELATIVE_FLOOR_FACTOR</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 85.</p><pre><code>RELATIVE_FLOOR_FACTOR: float = 10000.0</code></pre></section><section class="api-symbol"><h2 id="WEIGHTED_FLOOR_FACTOR">WEIGHTED_FLOOR_FACTOR</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 127.</p><pre><code>WEIGHTED_FLOOR_FACTOR: float = 100.0</code></pre></section><section class="api-symbol"><h2 id="WEIGHTED_RTOL">WEIGHTED_RTOL</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 78.</p><pre><code>WEIGHTED_RTOL: float = 0.001</code></pre></section><section class="api-symbol"><h2 id="Unresolved">Unresolved</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 130.</p><pre><code>class Unresolved(float)</code></pre><pre class="docstring">A departure the roundoff floor DECLINED TO JUDGE, not one measured as 0.
+
+A float, so every consumer that maxes, compares or stores these numbers
+keeps working unchanged -- and a different string, so the one consumer
+that PRINTS it cannot report &quot;not measured&quot; as &quot;measured zero&quot;. Formats
+as ``unresolved:1.25e+01`` under the caller&#x27;s own format spec.
+
+The distinction is not pedantic. ``roundoff_stress(big=1e6, sigma=1e-2)``
+is exactly affine and its departure is worth 12.5 noise widths at
+float32; the floor is right to refuse to convict on it, and reporting
+``0.00e+00`` beside that verdict states the opposite of what happened.
+A reader who sees ``unresolved:1.25e+01`` knows to re-run under
+``jax.enable_x64(True)``, where the same probe reads 2.33e-08.</pre></section><section class="api-symbol"><h2 id="LinearBlock">LinearBlock</h2><p class="source-note">Defined in <code>bayesmith.exact.block</code>, line 64.</p><pre><code>class LinearBlock
+names: tuple[str, ...]
+shape: dict[str, tuple[int, ...]]
+dtype: dict[str, Any]
+offset: dict[str, jax.Array]
+forward: Callable[[Any], dict[str, jax.Array]]
+adjoint: Callable[[Any], dict[str, jax.Array]]
+data: dict[str, jax.Array]
+prior_mean: dict[str, jax.Array]
+prior_std: dict[str, jax.Array]</code></pre><pre class="docstring">``A x + offset``: what a group of latents does to every prediction.
+
+Deliberately a plain frozen dataclass rather than an ``eqx.Module``: this
+is a derived linear-algebra handle, not a differentiable model.
+``forward`` and ``adjoint`` close over a traced computation, so a block is
+something you build where you need it, not a pytree to carry around.
+
+Attributes:
+    names: the block&#x27;s members, in the caller&#x27;s order.
+    shape, dtype: ``{name: ...}`` describing the domain.
+    offset: ``{observed: prediction at x = 0}`` -- everything OUTSIDE the
+        block contributes.
+    forward: ``{name: x} -&gt; {observed: A x}``, from ``jax.linearize``.
+    adjoint: ``{observed: y} -&gt; {name: A^T y}``, from ``jax.vjp``.
+    data: ``{observed: value}``, broadcast to the prediction&#x27;s shape.
+    prior_mean, prior_std: ``{name: ...}``, read off each member&#x27;s own
+        distribution at ``at``.
+
+Adjoint convention: ``adjoint`` is exactly ``jax.vjp``, so the identity
+that holds is over the **real** inner product::
+
+    sum(x * adjoint(y))  ==  sum(forward(x) * y)
+
+which is the pairing a Gaussian likelihood forms.
+``test_adjoint_is_the_transpose_under_the_real_inner_product`` pins both
+halves so the distinction cannot rot into a silent factor.</pre></section><section class="api-symbol"><h2 id="unchecked_operator">unchecked_operator</h2><p class="source-note">Defined in <code>bayesmith.exact.block</code>, line 460.</p><pre><code>unchecked_operator(graph: Graph, names: Iterable[str], at: dict[str, Any] | None=None, *, probe_gaussian: bool=True, nuts_latents: Iterable[str] | None=None) -&gt; LinearBlock</code></pre><pre class="docstring">Export ``A``, ``A^T``, the offset, the data and the prior -- **unchecked**.
+
+Args:
+    graph: the model.
+    names: the latents in the block. Solving a group JOINTLY is not the
+        same as alternating over its members: two latents the data barely
+        tells apart are resolved in one CG here, where alternation
+        converges at the rate of their correlation while reporting a
+        converged residual and a condition number of ~1 at every step.
+    at: values for the latents OUTSIDE the block. A block is affine
+        *given* them, so this fixes where it is built -- which is what
+        makes a Gibbs sweep possible: rebuild here every sweep at the
+        current values.
+    nuts_latents: the real global NUTS block from the completed
+        classification or factor plan. Required when ``graph`` carries
+        evidence terms: another exact block is not part of NUTS merely
+        because it lies outside this block.
+    probe_gaussian: run :func:`~bayesmith.exact.gaussian.check_gaussian`
+        on every block member and every observed node. Default ``True``,
+        which is what every P3a call site already gets.
+
+        **Pass ``False`` only inside a traced Gibbs sweep, and only after
+        the same check has run once at compile time.** The probe evaluates
+        ``log_prob`` at concrete offsets and raises on a mismatch, so it
+        does ``bool(jnp.all(...))`` -- a ``TracerBoolConversionError``
+        under ``jit``, not a slow path. There are TWO call sites (per
+        member in ``_env_before``, per observed node here) and disabling
+        only one still dies.
+
+        What each of this module&#x27;s three entry points checks:
+
+        ==================================  ==========  ===========
+        entry point                         linearity   gaussianity
+        ==================================  ==========  ===========
+        ``linear_operator``                 yes         yes
+        ``unchecked_operator``              no          yes
+        ``unchecked_operator(..., False)``  no          no
+        ==================================  ==========  ===========
+
+Raises:
+    GraphError: if ``names`` is empty, repeats a latent, or names
+        something that is not a latent; if ``at`` names something that
+        is not a latent, names a member of this block (silently discarded
+        otherwise -- see :func:`_validated_at`), or omits a latent that
+        is outside the block; or if the graph has no observed node, so
+        there is nothing for a linear block to condition on; or if an
+        evidence term covers a non-NUTS latent, whose exact or
+        conditional solve would omit that term; or if an evidence graph
+        is supplied without the global ``nuts_latents`` witness.
+    NotGaussian: if a member or an observed node is not a diagonal
+        Gaussian, or if a member is an ancestor of another member.
+    StructureError: if a node&#x27;s own ``log_prob`` disagrees with the
+        ``loc``/``scale`` read off it.
+
+Note:
+    The name is the warning. This does **not** check the ``linear_in``
+    declaration, so it will happily export an operator for a block that is
+    not affine at all and hand back a confident, wrong posterior.
+    :func:`bayesmith.exact.linearity.linear_operator` is the entry point
+    that checks first, and is what callers should reach for. This one is
+    for inside a Gibbs sweep, where the check has been hoisted out of the
+    loop deliberately.
+
+    Trace-safety here is a claim about THIS library&#x27;s code, not about the
+    graph it is handed. A ``Deterministic`` whose ``fn`` does
+    ``float(x) &gt; 0`` raises ``ConcretizationTypeError`` under ``jit`` no
+    matter what this keyword says -- and a dispatcher runs arbitrary user
+    ``fn`` under trace.</pre></section><section class="api-symbol"><h2 id="linear_operator">linear_operator</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 797.</p><pre><code>linear_operator(graph: Graph, names: Iterable[str], at: dict[str, Any] | None=None, *, scales: Sequence[float]=DEFAULT_SCALES, rtol: float | None=None, at_points: Sequence[dict[str, Any]] | None=None, key: jax.Array | None=None, nuts_latents: Iterable[str] | None=None) -&gt; LinearBlock</code></pre><pre class="docstring">Check the linearity claim, then export the block. **The entry point.**
+
+Costs three forward evaluations per at-point more than
+:func:`~bayesmith.exact.block.unchecked_operator`, and buys the class of
+silent, confident errors that a false ``linear_in`` produces.
+
+In a Gibbs sweep, call this once outside the loop and
+``unchecked_operator`` inside it: the claim is a property of the model,
+not of the sweep, so re-checking every sweep pays for the same answer
+repeatedly. The at-points this checks at are what make that safe.
+
+Raises:
+    GraphError: if an evidence term covers a non-NUTS latent, if an
+        evidence graph is supplied without the global ``nuts_latents``
+        witness, or for a structural refusal documented by
+        :func:`~bayesmith.exact.block.unchecked_operator`.</pre></section><section class="api-symbol"><h2 id="check_linearity">check_linearity</h2><p class="source-note">Defined in <code>bayesmith.exact.linearity</code>, line 642.</p><pre><code>check_linearity(graph: Graph, names: Iterable[str], at: dict[str, Any] | None=None, *, scales: Sequence[float]=DEFAULT_SCALES, rtol: float | None=None, at_points: Sequence[dict[str, Any]] | None=None, key: jax.Array | None=None) -&gt; dict[int, dict[float, float]]</code></pre><pre class="docstring">Verify every prediction really is affine in a block -- or in a group.
+
+Costs one linearization plus one forward evaluation per scale per
+at-point: with the defaults, three of each.
+
+Args:
+    graph: the model under test.
+    names: the latents in the block. Checked **jointly**, which is
+        strictly stronger than checking each in turn. A gain and an
+        antenna temperature are each affine given the other and their
+        product is not affine in the pair, so a group holding both is
+        refused here rather than solved as if it were linear.
+    at: values for the latents OUTSIDE the block.
+    scales: probe magnitudes, as multiples of each latent&#x27;s own declared
+        prior standard deviation -- per element, so a latent whose prior
+        width varies across its entries is probed accordingly.
+    rtol: tolerance on the **per-element** relative departure from
+        affinity. Default ``1e4 * eps`` of the prediction&#x27;s dtype --
+        1.19e-03 in float32, which is what this package runs in unless a
+        caller opens ``jax.enable_x64``. It is one of two criteria: the
+        other, :data:`WEIGHTED_RTOL`, measures the same departure in
+        units of the noise sigma and is not a relative error, so this
+        keyword does not reach it.
+    at_points: values of the outside latents to check at. Defaults to
+        ``at`` plus ``DEFAULT_AT_POINTS - 1`` draws from the graph&#x27;s own
+        prior. **Passing a single point is how a check becomes a
+        moderate-parameter probe**, which is the failure mode
+        ``boundary-validation.md`` exists to prevent; do it only when the
+        model is used at exactly one outside value.
+    key: PRNG key for probes and prior draws. Fixed by default, so the
+        check is reproducible. Per-latent sub-keys are folded in by
+        position in the SORTED names, so permuting ``names`` probes the
+        same points and returns the same verdict.
+
+Returns:
+    ``{at_point_index: {scale: departure}}``, where each departure is the
+    worse of the two criteria at that scale, over the elements clearing
+    that criterion&#x27;s roundoff floor -- useful for reporting how linear a
+    block is, not only whether it passes. The two are on different scales
+    (one relative, one in units of sigma), so the number says how far from
+    affine the block is, not which criterion it came from; the refusal
+    message separates them.
+
+    A departure may come back as an :class:`Unresolved`, which is a float
+    that FORMATS as ``unresolved:1.25e+01``. It means the floor masked a
+    real departure that would otherwise have breached its threshold, so
+    the number is what was seen and not what was judged. A caller that
+    prints these must not present one as a measured zero; see
+    :func:`_warn_unresolved`, which also fires once per call.
+
+Raises:
+    GraphError: propagated from :func:`~bayesmith.exact.block._validated_names`
+        and :func:`~bayesmith.exact.block._validated_at` -- the same
+        misuses :func:`~bayesmith.exact.block.unchecked_operator` refuses,
+        checked here BEFORE any linearization runs so a malformed ``at``
+        fails with that message rather than a confusing one from three
+        layers down; or if the graph has no observed node, for the same
+        reason and by the same shared guard
+        (:func:`~bayesmith.exact.block._refuse_missing_observed`) that
+        :func:`~bayesmith.exact.block.unchecked_operator` uses -- checked
+        here too because :func:`linear_operator` calls this function
+        BEFORE ``unchecked_operator``, so a guard living only there would
+        never be reached.
+    StructureError: if any element of any prediction, at any scale at any
+        at-point, departs from affinity by more than ``rtol`` relatively
+        or by more than :data:`WEIGHTED_RTOL` in units of its own noise
+        sigma, while also clearing that element&#x27;s roundoff floor; if the
+        prediction is already non-finite at an at-point
+        BEFORE any probe is taken, attributed to that at-point rather
+        than misdiagnosed as a failure of this block&#x27;s own
+        ``linear_in`` (see :func:`affinity_errors`); or if an outside
+        latent&#x27;s prior has no sampler (propagated from
+        :func:`prior_at_points`).
+    NotGaussian: propagated from the block machinery.</pre></section><section class="api-symbol"><h2 id="gaussian_parts">gaussian_parts</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 96.</p><pre><code>gaussian_parts(graph: Graph, node: Node, env: dict[str, Any]) -&gt; tuple[jax.Array, jax.Array]</code></pre><pre class="docstring">``(loc, scale)`` of ``node``&#x27;s distribution, ``scale`` broadcast to ``loc``.
+
+Traceable and **unchecked** -- pair it with :func:`check_gaussian`, which
+runs once on concrete values before any trace is opened.
+
+A :class:`~bayesmith.distributions.ComplexNormal` is read the same way:
+its ``loc`` is complex and its ``scale`` real, and the scale is the width
+of EACH part. Everything downstream splits the latent into its real
+degrees of freedom, so nothing here needs to know more than that -- see
+:func:`~bayesmith.exact.block.real_parts`.
+
+Raises:
+    NotGaussian: if the distribution is not a (possibly ``Independent``-
+        wrapped) ``Normal`` or ``ComplexNormal``. The *type* is static
+        under tracing, so this refusal is safe to make inside a trace. It
+        is a **classification outcome, not a fault**: P3b&#x27;s dispatcher
+        catches it and routes the block to NUTS.
+    StructureError: if ``loc`` has an integer dtype. That one IS a fault --
+        a conjugate solve differentiates through ``loc``.</pre></section><section class="api-symbol"><h2 id="check_gaussian">check_gaussian</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 221.</p><pre><code>check_gaussian(graph: Graph, node: Node, env: dict[str, Any], *, rtol: float | None=None) -&gt; dict[float, float]</code></pre><pre class="docstring">Verify the extracted ``(loc, scale)`` really reproduce ``node``&#x27;s log_prob.
+
+Costs ``len(PROBE_OFFSETS)`` evaluations of ``log_prob``. Runs on concrete
+values, **outside** any trace.
+
+**Probes at the shape the node&#x27;s VALUE takes**, not at ``dist_fn``&#x27;s own
+batch shape, and compares **elementwise**. Both matter, and both were
+measured:
+
+* A plated latent whose ``dist_fn`` takes no plated parent has a scalar
+  ``loc`` and a plate-shaped value; so does an unplated observed node
+  conditioned on a vector. Probing at the scalar evaluates ``log_prob`` at
+  a shape the consumer never uses. Measured on this package&#x27;s own
+  ``plated_latent`` fixture pattern: a ``Distribution`` subclass correct
+  on a scalar and off by 1000 nats per element on an array passed the
+  guard with every reported error exactly ``0.0``, against a real
+  discrepancy of 2.0e6 nats. This is the same shape of defect P1 recorded
+  -- the guard and the thing it guards looking at different shapes -- and
+  it is fixed the same way.
+* A summed comparison dilutes a localised defect by the magnitudes of the
+  correct entries. Measured: one wrong element out of 1e6, off by 50 nats,
+  reports a summed relative error of 1.95e-5 -- under the default rtol,
+  silently accepted -- and an elementwise error of 50.
+
+Args:
+    graph, node, env: the node under test and the values its parents take.
+    rtol: tolerance on the relative disagreement, per element. Default
+        ``1e3 * eps`` of ``loc``&#x27;s dtype, which leaves room for
+        accumulated roundoff without admitting a real difference in
+        density.
+
+Returns:
+    ``{offset: worst relative error over the node&#x27;s entries}`` -- useful
+    for reporting how Gaussian a node is, not only whether it passes.
+
+Raises:
+    NotGaussian: propagated from :func:`gaussian_parts`.
+    StructureError: if the scale is not strictly positive and finite, or
+        if any probe disagrees by more than ``rtol`` at any entry.</pre></section><section class="api-symbol"><h2 id="noise_std_at">noise_std_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 572.</p><pre><code>noise_std_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">``{obs: scale}`` with the latents at ``values`` -- the GLS seam.
+
+``iterative_gls`` iterates this: solve at the current sigma, recompute
+sigma at the new solution, repeat. Whether it moves at all is what
+separates a single Wiener solve from a reweighting loop, and
+``test_noise_std_at_moves_with_the_latent_only_for_a_prediction_dependent_node``
+exercises both sides.</pre></section><section class="api-symbol"><h2 id="precision_parts">precision_parts</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 418.</p><pre><code>precision_parts(graph: Graph, node: Node, env: dict[str, Any]) -&gt; tuple[jax.Array, Any]</code></pre><pre class="docstring">``(loc, Precision)`` -- the ONE object the whole exact path should read.
+
+The widened counterpart of :func:`gaussian_parts`, which returns a
+per-sample ``scale`` and so can only ever describe a diagonal covariance.
+Traceable and **unchecked**; pair it with
+:func:`~bayesmith.exact.precision.check_precision`, which verifies the
+returned operator against the node&#x27;s own density by the gradient identity
+and runs eagerly, outside any trace.
+
+The gate widens by exactly two rows and refuses everything else with the
+same :class:`NotGaussian`, so a model this cannot express is still a
+CLASSIFICATION outcome routed to NUTS rather than a fault:
+
+==================  ====================================================
+distribution        Precision
+==================  ====================================================
+``Normal``          ``DiagonalPrecision`` -- unchanged behaviour
+``CirculantNormal``  ``CirculantPrecision`` from ``.covariance_row``
+==================  ====================================================
+
+``CirculantNormal`` is not a new idea imported from outside: numpyro ships
+it, and its log-density agrees with ``CirculantPrecision``&#x27;s and with a
+dense reference to 1.8e-15 -- three independent routes. The exact path was
+the only thing refusing a correlated noise the rest of the stack could
+already handle.
+
+**``depends_on_prediction=True`` is accepted now.** ``45198f9`` refused
+it, because ``fisher.py``&#x27;s variance-information term was derived for a
+DIAGONAL ``N`` and nothing said it survived off-diagonal terms. It does,
+in a form that covers both rows at once:
+``1/2 tr(N^-1 d_a N N^-1 d_b N) = 1/2 sum_k d_a log lam_k d_b log lam_k``
+whenever ``N``&#x27;s eigenbasis does not move with the parameters -- ``I`` for
+a ``Normal``, the DFT for a ``CirculantNormal``. Derived in
+``docs/derivations/variance_information_spectral.wls``, measured against a
+dense finite-difference Fisher matrix in
+``docs/probes/probe_9_correlated_variance_information.py``, and
+implemented as
+:func:`~bayesmith.exact.fisher._log_spectrum_curvature`, which
+``fisher_information`` reaches through ``precision_of=``. The refusal was
+written to be deleted and this is its deletion.
+
+Raises:
+    NotGaussian: for any other distribution, as before.
+    StructureError: for an integer ``loc``, as before.</pre></section><section class="api-symbol"><h2 id="precision_at">precision_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 585.</p><pre><code>precision_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, Any]</code></pre><pre class="docstring">``{obs: Precision}`` with the latents at ``values`` -- the OPERATOR seam.
+
+The counterpart of :func:`noise_std_at`, and deliberately **not** its
+replacement. The seam SPLITS rather than renames, because the two sides
+are different quantities and only one of them generalises:
+
+==============  ==============================  =========================
+seam            what it produces                who needs it
+==============  ==============================  =========================
+``precision_at``  ``N^-1`` as an operator       the solve, the density,
+                                                the information
+``noise_std_at``  per-sample sigma VALUES       ``iterative_gls``&#x27;s
+                                                reweighting, the
+                                                linearity check&#x27;s unit
+==============  ==============================  =========================
+
+``iterative_gls`` iterates sigma values -- solve at the current sigma,
+recompute sigma at the new solution, repeat -- and an operator has none to
+iterate. Renaming ``noise_std_at`` to this would have left that loop with
+nothing to say, which is why B9&#x27;s step 4 is a split and not the rename its
+own text describes.
+
+A ``Precision`` is what a correlated node can supply and a sigma dict is
+not, so this is the producer a ``CirculantNormal`` observation reaches the
+solver through. For a diagonal model the two agree by construction, and
+``test_precision_at_agrees_with_diagonal_from_noise_std_at`` pins that:
+this is not a second implementation of the diagonal case, it is
+:func:`precision_parts` over the same nodes ``observation_parts`` walks.
+
+Traceable and **unchecked**, like the parts it is built from. Pair it with
+:func:`check_gaussian` (diagonal) or
+:func:`~bayesmith.exact.precision.check_precision` (either), which run
+eagerly at the boundary.</pre></section><section class="api-symbol"><h2 id="wiener_solve">wiener_solve</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 481.</p><pre><code>wiener_solve(block: LinearBlock, *, precision: dict[str, Precision], tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Posterior mean of a linear-Gaussian block -- the Wiener filter, by CG.
+
+This is the posterior **mean**, not a sample. For a draw see
+:func:`gcr_sample`, which adds a fluctuation term to this same right-hand
+side and costs exactly the same solve.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    precision: ``{observed: N^-1}``, from
+        :func:`bayesmith.exact.gaussian.precision_at`, or
+        :func:`~bayesmith.exact.precision.diagonal_from` applied to what
+        :func:`bayesmith.exact.gaussian.noise_std_at` returns. A decided
+        operator -- a conjugate solve has no prediction to evaluate a rule
+        at, the prediction being what it solves for. For a prediction-
+        dependent noise model see
+        :func:`bayesmith.exact.gls.iterative_gls`, which finds the fixed
+        point and hands the result back here as
+        :attr:`~bayesmith.exact.gls.GLSResult.precision`.
+
+        **An operator, not a sigma.** CG only ever needs ``N^-1 r`` and
+        ``r^T N^-1 r``, so a correlated covariance costs nothing
+        structural here -- which is the whole point of taking the noise
+        as a :class:`~bayesmith.exact.precision.Precision` rather than as
+        per-sample values that presuppose independent samples.
+    tol: CG tolerance -- a bound on the relative RESIDUAL, which is not
+        the same as accuracy. See the note below.
+    maxiter: CG iteration cap. ``None`` lets JAX choose.
+    require_convergence: raise unless the relative ERROR can be bounded by
+        this. ``None`` -- the default -- returns whatever CG produced.
+
+        **Off by default, measured**, for the reason
+        ``test_the_convergence_guard_is_off_by_default_but_reachable`` in
+        ``tests/exact/test_solve.py`` records: at the defaults this
+        function actually ships (float32, ``tol=1e-6``), guarding at
+        ``1e-3`` refuses 6 of the 22 linear-Gaussian fixtures in
+        ``tests/exact/models.py``, and all six refusals are FALSE -- the
+        oracle-checked relative error of every one is between 0 and
+        3.7e-07 against the 1e-3 the guard promises. The cause is
+        :func:`condition_bound`&#x27;s own conservatism, which its docstring
+        documents; it is an UPPER bound, and on a prediction-dependent
+        sigma it runs to 1e10 while the solve is accurate to 1e-07.
+
+        This mirrors the dispatch layer, whose defaults were settled the
+        same way -- see
+        ``test_the_convergence_guard_is_off_by_default_but_reachable`` in
+        ``tests/dispatch/test_dispatch_entry.py``. The two layers agree
+        rather than differ, and they agree because the same measurement
+        was run on each.
+
+        The bound is ``kappa * relative_residual``, with ``kappa`` from
+        :func:`condition_bound`. That costs ``POWER_ITERATIONS``
+        extra operator applications, which on a well-conditioned block
+        roughly DOUBLES the solve. In a Gibbs sweep, call
+        :func:`condition_bound` once outside the loop, choose ``tol``
+        from it, and pass ``require_convergence=None`` inside.
+
+        **What replaces the guard now that it is off.** Leaving ``tol``
+        at its default and the guard off is the combination that returns
+        a silently over-confident posterior, and it is now the DEFAULT
+        combination -- so the obligation moved to the caller rather than
+        disappearing. Call :func:`condition_bound` and multiply it by the
+        returned residual to get the error bound yourself; that is the
+        same number the guard computed, minus the decision to refuse on
+        it. The measurement above is why the decision is yours: on a
+        prediction-dependent sigma the bound is right about being an
+        upper bound and wrong about being actionable.
+
+Returns:
+    ``(x_hat, relative_residual)``, the residual being
+    ``||M x_hat - b|| / ||b||``. Note this is the residual, not the error;
+    multiply by :func:`condition_bound` for the error bound.
+
+Note:
+    **Where S comes from.** Each latent&#x27;s own ``dist_fn`` is this
+    package&#x27;s one statement of what it is a priori, and it is the
+    statement ``to_numpyro`` reads. So it is the statement this solve
+    reads too -- there is no keyword to override it, and therefore no way
+    for the exact exit and NUTS to target different posteriors.</pre></section><section class="api-symbol"><h2 id="gcr_sample">gcr_sample</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 578.</p><pre><code>gcr_sample(block: LinearBlock, *, precision: dict[str, Precision], key: jax.Array, tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Draw an EXACT posterior sample of a linear-Gaussian block.
+
+The constrained-realization identity: solve the same system
+:func:`wiener_solve` does, with two white-noise terms added to the
+right-hand side, so that ``b`` has the posterior-mean numerator as its
+mean and covariance ``A^T N^-1 A + S^-1`` -- the operator itself. Then
+``x = M^-1 b`` has the posterior mean and covariance ``M^-1 M M^-1 =
+M^-1`` exactly. Not an approximation and not a Markov chain: every call is
+an independent draw, with no burn-in and nothing to diagnose.
+
+It costs one CG solve -- the same as the mean -- because the fluctuation
+enters the right-hand side, never the operator. That is what makes a
+10^6-dimensional block samplable at all.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    precision: ``{observed: N^-1}``, exactly as for
+        :func:`wiener_solve`. This is the consumer that needs
+        :meth:`~bayesmith.exact.precision.Precision.whiten`: the
+        fluctuation term is ``N^-1/2 omega``, which
+        :meth:`~bayesmith.exact.precision.Precision.apply` and
+        :meth:`~bayesmith.exact.precision.Precision.log_normalizer`
+        cannot build between them.
+    key: PRNG key. ``vmap`` over split keys for many independent draws.
+    tol: CG tolerance -- a bound on the residual, not on the accuracy.
+    maxiter: CG iteration cap.
+    require_convergence: as for :func:`wiener_solve`, which a draw is MORE
+        exposed to than the mean. The fluctuation term ``S^-1/2 w2`` puts
+        weight on every direction of the latent by construction, including
+        the ones the data is blind to -- so a draw always has something to
+        resolve where the operator is worst conditioned, whereas the mean
+        does only when the prior mean is nonzero.
+
+Returns:
+    ``(x, relative_residual)``. An unconverged CG returns a draw from the
+    WRONG distribution -- and one that is too NARROW, since the directions
+    left unresolved are the prior-dominated ones that should have carried
+    the most scatter.</pre></section><section class="api-symbol"><h2 id="condition_bound">condition_bound</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 157.</p><pre><code>condition_bound(block: LinearBlock, *, precision: dict[str, Precision], iterations: int=POWER_ITERATIONS, key: jax.Array | None=None) -&gt; jax.Array</code></pre><pre class="docstring">An upper bound on the conditioning of the system this block is solved with.
+
+Use it to pick ``tol``: for a target relative accuracy ``a``, ask for
+roughly ``tol = a / condition_bound(...)``.
+
+A large bound is not a defect, it is the design: for a block the data does
+not fully identify, ``lambda_min`` is exactly ``1/prior_std**2`` while
+``lambda_max`` is set by the data, so it grows with how much better the
+data constrains one direction than the prior constrains another.
+
+Costs ``iterations`` applications of the normal operator -- each the same
+JVP-plus-VJP a CG iteration costs -- and forms no matrix.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    precision: ``{observed: N^-1}``, as
+        :func:`bayesmith.exact.gaussian.precision_at` returns, or
+        :func:`~bayesmith.exact.precision.diagonal_from` applied to a
+        sigma dict. A decided operator, not a rule for producing one: a
+        conditioning number belongs to one particular normal operator.
+    iterations: power-iteration steps for ``lambda_max``.
+    key: PRNG key for the starting vector. Fixed by default, so the bound
+        is reproducible.
+
+Returns:
+    ``lambda_max * max(prior_variance)``, an upper bound on ``kappa`` --
+    up to the accuracy of the ``lambda_max`` estimate, which converges
+    geometrically and always from BELOW, so it can only make the bound
+    smaller. ``test_largest_eigenvalue_approaches_the_truth_from_below``
+    in ``tests/exact/test_conditioning.py`` pins that direction.</pre></section><section class="api-symbol"><h2 id="iterative_gls">iterative_gls</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 443.</p><pre><code>iterative_gls(block: LinearBlock, sigma_of: Callable[[dict[str, Any]], dict[str, jax.Array]] | None=None, *, precision_of: Callable[[dict[str, Any]], dict[str, Any]] | None=None, depends_on_prediction: bool=True, tol: float=1e-06, maxiter: int | None=None, reweight_tol: float | None=None, min_reweights: int=MIN_REWEIGHTS, max_reweights: int=MAX_REWEIGHTS, require_convergence: float | None=None) -&gt; GLSResult</code></pre><pre class="docstring">Find the covariance a prediction-dependent noise model implies.
+
+Repeats: solve at the current sigma, recompute sigma at the new solution.
+With ``depends_on_prediction=False`` there is nothing to repeat and this is
+a single :func:`~bayesmith.exact.solve.wiener_solve`.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    sigma_of: the DIAGONAL spelling of the seam, from
+        :func:`sigma_from_graph`. Give this or ``precision_of``, not both.
+        When it is given the result carries a
+        :attr:`GLSResult.noise_std`; when it is not, that field is
+        ``None`` because a correlated covariance has no per-sample sigma.
+    precision_of: the general spelling,
+        ``{name: x} -&gt; {observed: Precision}``, from
+        :func:`~bayesmith.exact.gaussian.precision_at` curried on the
+        graph. **Required for a correlated node.**
+
+        **This loop does not iterate sigma VALUES**, which is worth
+        stating because the B9 notes said it did. Read ``step`` below: the
+        fixed point is in the LATENT -- ``delta`` is
+        ``|updated - latent| / |updated|`` over the block&#x27;s domain -- and
+        the covariance enters only as the operator each inner solve is
+        weighted by. So the rule can be either spelling, and nothing in
+        the loop needs numbers it can subtract.
+    depends_on_prediction: the node&#x27;s own claim. **Check it first** with
+        :func:`check_prediction_dependence` -- this function cannot, being
+        jittable.
+    tol, maxiter: CG settings for each inner solve.
+    reweight_tol: stop when the block&#x27;s relative change falls below this.
+        **The default cannot be a fixed number**, because two independent
+        floors bound how small a step is measurable at all, so it defaults
+        to ``max(8 * eps, tol)``:
+
+        * the arithmetic&#x27;s own epsilon -- a relative step below it is
+          rounding, not a measurement. float32&#x27;s is ``1.2e-7``, so a
+          plausible-looking ``1e-8`` is exactly this trap;
+        * **the inner solver&#x27;s tolerance** ``tol`` -- consecutive solves
+          differ by roughly their own CG residual no matter what the outer
+          iteration is doing, so a step smaller than ``tol`` measures CG,
+          not the fixed point. This is the binding floor in float64.
+
+        Ask for less than either and the run does not fail loudly: it
+        spends ``max_reweights`` steps and reports ``converged=False`` for
+        a fixed point it had in fact reached.
+    min_reweights: steps taken before the test is consulted.
+    max_reweights: cap on steps.
+    require_convergence: bound on the relative error of the **final**
+        solve. Deliberately applied once, at the converged covariance, and
+        not inside the loop: it bounds the error of what is returned and
+        says nothing about the intermediate steps, which do not need it.
+
+        ``None`` by default, for the reason
+        :func:`~bayesmith.exact.solve.wiener_solve` documents and
+        ``test_the_convergence_guard_is_off_by_default_but_reachable``
+        measures. This function is the one MOST exposed to that finding:
+        every fixture the measurement refuses is a prediction-dependent
+        sigma, which is exactly what this function exists to solve.
+
+Returns:
+    A :class:`GLSResult`. **Check ``converged``** -- a covariance that is
+    not a fixed point is still a number, and a draw conditioned on it is
+    still a draw.
+
+Note:
+    The iteration starts from sigma at the block&#x27;s **prior mean** rather
+    than from hydra-tod&#x27;s unweighted least squares or rheplicant&#x27;s sigma
+    at the data. A graph&#x27;s sigma is a function of the latents, not of a
+    prediction array, so the data is not a point this seam can be
+    evaluated at; the prior mean is the natural &quot;before seeing anything&quot;
+    one. A fixed point does not depend on where the iteration started, so
+    all three agree wherever any of them converges.
+
+    Built on ``lax.while_loop``, so it is jittable but **not** reverse-mode
+    differentiable. That is not the limitation it looks like: the result is
+    a fixed point, so implicit differentiation -- not unrolling -- is the
+    right way to take a gradient through it.</pre></section><section class="api-symbol"><h2 id="GLSResult">GLSResult</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 191.</p><pre><code>class GLSResult(NamedTuple)
+precision: dict[str, Any]
+solution: dict[str, jax.Array]
+residual: jax.Array
+iterations: jax.Array
+delta: jax.Array
+converged: jax.Array</code></pre><pre class="docstring">What a reweighting run produced. A pytree, so it survives ``jit``.
+
+Attributes:
+    precision: the converged covariance as ``{observed: N^-1}`` -- **the
+        covariance**, and the whole point of the exercise. What every
+        consumer of the answer reads.
+
+        This and ``noise_std`` swapped places at increment 5, and the swap
+        went the way it did because a CORRELATED result has no per-sample
+        sigma to derive an operator from, while every result has an
+        operator to derive a sigma from when one exists. One covariance is
+        stored either way; see :attr:`noise_std`.
+    solution: the GLS point estimate at that covariance.
+    residual: relative CG residual of the final solve. Not an accuracy.
+    iterations: reweighting steps taken, the first solve included.
+    delta: relative change of the last step.
+    converged: whether ``delta`` fell below ``reweight_tol`` within
+        ``max_reweights``. **False means the returned covariance is not a
+        fixed point**, and everything conditioned on it inherits that.</pre><h3 id="GLSResult.noise_std">GLSResult.noise_std</h3><pre><code>noise_std(self) -&gt; dict[str, jax.Array] | None</code></pre><pre class="docstring">:attr:`precision` as per-sample sigma VALUES, or ``None``.
+
+Derived rather than stored, so this result holds ONE covariance and
+the two spellings cannot drift. For a diagonal covariance it is the
+very arrays :attr:`precision` was built from -- bitwise, not to a
+tolerance. For a correlated one it is ``None``, because a stationary
+covariance has an n-point kernel and no per-sample sigma, and
+reporting its per-mode amplitudes under this name would be a lie.
+
+See :func:`~bayesmith.exact.precision.per_sample_sigma`, which is the
+one place in the package that asks which implementation a
+``Precision`` is.</pre></section><section class="api-symbol"><h2 id="sigma_from_graph">sigma_from_graph</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 238.</p><pre><code>sigma_from_graph(graph: Graph, at: dict[str, Any]) -&gt; Callable[[dict[str, Any]], dict[str, jax.Array]]</code></pre><pre class="docstring">The ``{name: x} -&gt; {observed: sigma}`` seam :func:`iterative_gls` iterates.
+
+Taking the seam as a callable rather than the graph keeps this module
+independent of the graph layer for testing, and lets P3b hand in a sigma
+frozen somewhere else without this module needing to know.</pre></section><section class="api-symbol"><h2 id="check_prediction_dependence">check_prediction_dependence</h2><p class="source-note">Defined in <code>bayesmith.exact.gls</code>, line 342.</p><pre><code>check_prediction_dependence(block: LinearBlock, sigma_of: Callable[[dict[str, Any]], dict[str, jax.Array]], *, declared: bool, rtol: float=1e-08, key: jax.Array | None=None) -&gt; float</code></pre><pre class="docstring">Measure how much sigma moves with the block, and check the declaration.
+
+``depends_on_prediction`` is a **claim about the model**, like
+``linear_in``: declared ``False``, a dispatcher skips the reweighting loop
+and solves at whatever sigma the prior mean implies -- a confident answer
+at the wrong covariance, with nothing to notice.
+
+Runs on concrete values, outside any trace, for the same reason
+:func:`~bayesmith.exact.gaussian.check_gaussian` does.
+
+Args:
+    block: the block sigma might depend on.
+    sigma_of: the seam, from :func:`sigma_from_graph`.
+    declared: what the node claims.
+    rtol: relative movement below which sigma counts as constant. Untested
+        AT the boundary -- every fixture in this module&#x27;s test suite sits
+        far above it (a genuinely prediction-dependent sigma) or far
+        below (a genuinely constant one), never within a decade of
+        ``1e-8`` itself. Judged acceptable: this is a coarse yes/no
+        movement detector guarding a declaration, not a numeric
+        dispatcher choosing between two methods that must agree at a
+        threshold, so there is no boundary-validation-style requirement
+        that both sides produce the same answer there.
+    key: PRNG key for the ``random`` entry of
+        :data:`DEPENDENCE_PATTERNS`. Fixed by default, so a yes/no guard
+        has a reproducible verdict -- exactly
+        :func:`~bayesmith.exact.linearity.check_linearity`&#x27;s contract,
+        and per-member sub-keys are folded in by position in the SORTED
+        names there too, so permuting ``block.names`` probes the same
+        points. Pass one to take a second, independent opinion: a random
+        direction detects any non-zero linear functional with probability
+        1, so two keys that disagree about whether sigma moves is
+        evidence the movement is at the edge of ``rtol``, not evidence
+        one of them is wrong.
+
+Returns:
+    The largest relative movement observed.
+
+Raises:
+    StructureError: if ``declared`` is ``False`` and sigma does move.
+        The opposite mismatch -- declared ``True``, sigma constant -- is
+        merely conservative and is returned rather than raised, so a
+        caller can report &quot;the declaration is conservative; the
+        reweighting loop could be skipped&quot;.</pre></section><section class="api-symbol"><h2 id="FlatMatrix">FlatMatrix</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 48.</p><pre><code>class FlatMatrix(eqx.Module)
+values: jax.Array
+names: tuple[str, ...] = eqx.field(static=True)
+spans: tuple[tuple[int, int], ...] = eqx.field(static=True)
+kind: str = eqx.field(static=True)</code></pre><pre class="docstring">A matrix over a block&#x27;s domain, plus where each latent sits in it.
+
+Attributes:
+    values: the matrix, ``(n, n)`` over the flattened domain.
+    names: the latents, in the block&#x27;s own order.
+    spans: ``(start, stop)`` per latent, derived from the actual
+        flattening rather than assumed -- a plated latent occupies as many
+        rows as it has entries.
+    kind: ``&quot;fisher&quot;`` (likelihood information alone),
+        ``&quot;posterior_precision&quot;`` (with the prior&#x27;s curvature) or
+        ``&quot;covariance&quot;``. Carried rather than inferred, because the three
+        are the same shape and confusing them is silent.</pre><h3 id="FlatMatrix.block">FlatMatrix.block</h3><pre><code>block(self, name: str) -&gt; jax.Array</code></pre><pre class="docstring">The diagonal sub-matrix belonging to one latent.
+
+Raises:
+    KeyError: if ``name`` is not in this matrix.</pre><h3 id="FlatMatrix.std">FlatMatrix.std</h3><pre><code>std(self) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">``{name: sqrt(diagonal)}``. Meaningful only for ``kind=&#x27;covariance&#x27;``.
+
+Raises:
+    ValueError: for any other kind -- the square root of a precision&#x27;s
+        diagonal is not an error bar, and returning it would be a
+        confident wrong number rather than a mistake.</pre></section><section class="api-symbol"><h2 id="dense_operator">dense_operator</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 162.</p><pre><code>dense_operator(block: LinearBlock) -&gt; jax.Array</code></pre><pre class="docstring">``A`` materialised, ``(n_data, n_parameters)``.
+
+Rows are the observed nodes concatenated in **sorted name order**, columns
+are the latents in the block&#x27;s own order -- the same layout
+``tests/exact/oracle.py`` uses, so the two are comparable element for
+element.</pre></section><section class="api-symbol"><h2 id="fisher_information">fisher_information</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 287.</p><pre><code>fisher_information(block: LinearBlock, *, precision: dict[str, Any], include_prior: bool=True, depends_on_prediction: bool=True, sigma_of: Any=None, precision_of: Any=None, centre: dict[str, Any] | None=None) -&gt; FlatMatrix</code></pre><pre class="docstring">``J^T N^-1 J``, plus the variance&#x27;s own information and the priors&#x27;.
+
+**When sigma depends on the prediction, ``J^T N^-1 J`` is not the Fisher
+matrix.** For ``d ~ N(mu(x), Sigma(x))`` the information has a second term
+from the covariance&#x27;s own parameter dependence::
+
+    F = J^T Sigma^-1 J  +  1/2 tr(Sigma^-1 dSigma Sigma^-1 dSigma)
+
+which for a diagonal Sigma is ``2 (dlog sigma/dx)^T (dlog sigma/dx)``.
+Under a radiometer it is a clean factor: ``F = (1 + 2 f^2) J^T N^-1 J``.
+
+Omitting it is the forgiving-looking error, which is why it survives
+review: a factor above 1 dropped from ``F`` makes ``F^-1`` -- the error
+bar -- too WIDE, by ``sqrt(1 + 2 f^2)``. That is 0.25% at ``f = 0.05`` but
+22% at ``f = 0.5`` and 73% at ``f = 1``, and a forecast that is too
+conservative reads as safe.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    precision: ``{observed: N^-1}``, from
+        :func:`bayesmith.exact.gaussian.precision_at`, or
+        :func:`~bayesmith.exact.precision.diagonal_from` applied to
+        :func:`bayesmith.exact.gaussian.noise_std_at`. **This function
+        reads the noise in BOTH vocabularies and they are not the same
+        argument**: the operator weights the design, while ``sigma_of``
+        supplies the per-sample VALUES whose log-derivative is the
+        variance&#x27;s own information. A dict of ``Precision`` objects has no
+        per-sample sigma to differentiate, and a dict of sigmas is not an
+        operator a correlated covariance can satisfy -- which is why B9&#x27;s
+        step 4 splits this seam rather than renaming it.
+    include_prior: add ``S^-1``, making the result the posterior precision
+        rather than the likelihood&#x27;s information. Default ``True``,
+        because that is the quantity every other exit in this package
+        targets and a forecast that silently answered a different question
+        would agree with none of them.
+    depends_on_prediction: the node&#x27;s own claim, and it governs only
+        whether a RULE is REQUIRED -- not whether the term is added.
+        **Check it first** with
+        :func:`~bayesmith.exact.gls.check_prediction_dependence`; this
+        function cannot, having been handed a decided dict. It defaults
+        ``True``, the safe side: a caller who has not thought about it is
+        stopped rather than handed a matrix quietly missing a term.
+    sigma_of: the ``{name: x} -&gt; {observed: sigma}`` seam, from
+        :func:`~bayesmith.exact.gls.sigma_from_graph` -- the same one
+        :func:`~bayesmith.exact.gls.iterative_gls` iterates. The DIAGONAL
+        spelling of the rule, kept because that is what the reweighting
+        loop produces; it is wrapped in
+        :func:`~bayesmith.exact.precision.diagonal_from` and takes the
+        same path as ``precision_of``. The decided ``precision`` cannot
+        supply either: an operator has no derivative.
+    precision_of: the general form of the same rule,
+        ``{name: x} -&gt; {observed: Precision}`` -- from
+        :func:`~bayesmith.exact.gaussian.precision_at` curried on the
+        graph. **Required for a correlated node**, which has no
+        per-sample sigma for ``sigma_of`` to return. Give one or the
+        other, not both. Passing a rule for a genuinely constant
+        covariance is harmless and costs one ``jacfwd``, because the term
+        is then exactly ``0.0``.
+    centre: the domain point ``precision`` was read at, i.e. the point the
+        curvature is taken at. Checked against the rule at ``centre``
+        rather than trusted, because the two are redundant by
+        construction and an unchecked redundancy is how a covariance ends
+        up weighted at one point and curved at another. The check
+        compares the two as OPERATORS -- both applied to one fixed probe
+        -- rather than comparing sigma arrays, because ``precision`` need
+        not have sigma arrays to compare.
+
+Raises:
+    ValueError: if ``depends_on_prediction`` is True and no rule is given.
+    ValueError: if both ``sigma_of`` and ``precision_of`` are given.
+    ValueError: if ``precision`` is not the operator the rule implies at
+        ``centre``.</pre></section><section class="api-symbol"><h2 id="parameter_covariance">parameter_covariance</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 752.</p><pre><code>parameter_covariance(fisher: FlatMatrix, jitter: float=0.0, *, max_condition: float | None | Literal[&#x27;auto&#x27;]=&#x27;auto&#x27;) -&gt; FlatMatrix</code></pre><pre class="docstring">Invert a precision. ``jitter`` adds ``jitter * I`` first.
+
+Args:
+    fisher: the precision to invert.
+    jitter: added to the diagonal before inverting, and before the
+        condition is measured -- jitter is the one remedy this function
+        offers for ill-conditioning, so measuring the matrix it was
+        already applied to is the only reading that does not refuse a
+        caller who has fixed the problem.
+    max_condition: the ceiling. ``&quot;auto&quot;`` derives it from the values&#x27;
+        own dtype via :func:`condition_ceiling`; a float sets it
+        explicitly; ``None`` removes it, for a caller who has already
+        decided a degenerate cell is expected and wants the number
+        anyway. The three spellings each mean the obvious thing, which
+        is why this does not follow ``iterative_gls``&#x27;s ``None``-is-off
+        convention alone: both &quot;derive it&quot; and &quot;no ceiling&quot; are wanted
+        here and one token cannot say both.
+
+Raises:
+    ValueError: if handed a covariance -- inverting one gives a precision,
+        which is a legitimate operation but not what this function&#x27;s name
+        promises, and the ``kind`` field would then be a lie.
+    ValueError: if the condition number exceeds the ceiling. This is a
+        Cramer-Rao bound; returning one that is silently wrong is worse
+        than returning none, and the arithmetic that formed the matrix is
+        what decides. **The remedy named in that message is to widen the
+        arithmetic around building the GRAPH, not around this inverse**:
+        the digits are already gone by the time ``F`` exists, and
+        ``jax.enable_x64`` does not widen an array that was traced
+        outside it. ``tests/exact/test_fisher.py::
+        test_widening_only_the_inverse_does_not_recover_the_bound``
+        measures both halves of that.</pre></section><section class="api-symbol"><h2 id="propagate_covariance">propagate_covariance</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 609.</p><pre><code>propagate_covariance(graph: Graph, covariance: FlatMatrix, at: dict[str, Any], *, node: str | None=None) -&gt; jax.Array</code></pre><pre class="docstring">Delta-method prediction uncertainty: ``sqrt(diag(J Sigma J^T))``.
+
+The linearised answer, and the cheap one: one ``jacfwd`` of the node&#x27;s
+value with respect to the covered latents, at ``at``. Its Monte-Carlo
+counterpart is :func:`push_forward`, and choosing between them is a
+modelling decision rather than a performance one -- see that function.
+
+Args:
+    graph: the model. The prediction, the parameters and their point all
+        come from it, so there is no second statement of any of them to
+        disagree with the first.
+    covariance: from :func:`parameter_covariance`. Its ``kind`` must be
+        ``&quot;covariance&quot;``: a Fisher matrix and a covariance are the same
+        SHAPE, and putting one where the other belongs gives an error bar
+        that is wrong by the square of everything.
+    at: where to linearise -- every latent the graph declares, since the
+        node&#x27;s value generally depends on latents outside the covariance
+        too. Only the covered ones enter the Jacobian; the rest are held.
+    node: whose value to propagate -- and for an OBSERVED node that is its
+        ``loc``, the prediction, because ``evaluate`` gives such a node its
+        data and the data does not depend on the parameters at all. See
+        :func:`_predicted`. Defaults to the single observed node when the
+        graph has exactly one, and is refused otherwise. A latent is
+        refused: its own uncertainty is what the covariance already holds.
+
+Returns:
+    Per-entry standard deviation, shaped like the node&#x27;s value.
+
+Raises:
+    StructureError: for a matrix that is not a covariance, a covered name
+        the graph does not declare, a per-latent shape that disagrees with
+        the matrix&#x27;s own spans, or an ambiguous ``node``.</pre></section><section class="api-symbol"><h2 id="push_forward">push_forward</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 673.</p><pre><code>push_forward(graph: Graph, samples: Mapping[str, Any], *, node: str | None=None) -&gt; jax.Array</code></pre><pre class="docstring">Monte-Carlo pushforward: a node&#x27;s value over a stack of parameter draws.
+
+The counterpart of :func:`propagate_covariance`, and the difference is a
+modelling one rather than a matter of cost. The delta method reports the
+spread of a LINEARISATION of the node about one point; this reports the
+spread of the node itself. They agree exactly when the map is affine over
+the posterior&#x27;s width and diverge when it is not -- a log-amplitude
+latent, an exponent, a beam width -- where the linear answer is symmetric
+about the point and the true one is not.
+
+Noiseless, which is what makes it different from
+:func:`~bayesmith.bridge.numpyro_bridge.predict`: that one runs NumPyro&#x27;s
+``Predictive`` and therefore DRAWS the observation noise, giving the
+posterior predictive. This propagates the parameters alone, so the spread
+it reports is the model&#x27;s uncertainty about its own prediction with no
+measurement error added. Summarising the wrong one of those two as &quot;the
+error bar&quot; is an ordinary and invisible mistake, which is why both exist
+under names that say which they are.
+
+Args:
+    graph: the model.
+    samples: ``{latent: (n_draws, *latent shape)}`` -- what
+        :func:`~bayesmith.bridge.numpyro_bridge.nuts` returns, unchanged.
+    node: whose value to push, with an observed node again giving its
+        ``loc``. Defaults as :func:`propagate_covariance`&#x27;s.
+
+Returns:
+    ``(n_draws, *node shape)``. Summarise with ``mean(0)`` / ``std(0)`` /
+    quantiles.
+
+Raises:
+    StructureError: if a latent is missing from ``samples``, if a stack&#x27;s
+        per-draw shape is not the latent&#x27;s own, or if the stacks disagree
+        about how many draws there are. The leading axis IS the draw axis,
+        and a transposed square stack broadcasts into a finite, correctly
+        shaped, wrong answer -- the same guard, and the same measurement,
+        as ``predict``&#x27;s.</pre></section><section class="api-symbol"><h2 id="FIRST_ORDER_MAX_FRACTIONAL">FIRST_ORDER_MAX_FRACTIONAL</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 111.</p><pre><code>FIRST_ORDER_MAX_FRACTIONAL: float = 0.06</code></pre></section><section class="api-symbol"><h2 id="LOG_DEFAULT_SCALES">LOG_DEFAULT_SCALES</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 121.</p><pre><code>LOG_DEFAULT_SCALES: tuple[float, ...] = (0.001, 0.01, 0.1, 1.0)</code></pre></section><section class="api-symbol"><h2 id="LogSpace">LogSpace</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 131.</p><pre><code>class LogSpace
+graph: Graph
+kind: dict[str, str]
+fractional: dict[str, jax.Array]
+skipped: dict[str, str]
+log_jacobian: jax.Array = dataclasses.field(default_factory=lambda: jnp.zeros(()))</code></pre><pre class="docstring">A graph taken to log space, with the reading that justified it.
+
+Attributes:
+    graph: the transformed model. Every observed node is an ordinary
+        ``Normal`` whose ``loc`` is the log-prediction, whose ``scale``
+        is constant in the latents (``depends_on_prediction=False``, and
+        genuinely so), and whose ``observed`` is the log data, shifted by
+        ``f^2/2`` where the first-order route applied. Latents, priors,
+        deterministic structure and plates are untouched -- which is why
+        every downstream consumer takes this graph verbatim.
+    kind: ``{observed: &quot;lognormal&quot; | &quot;multiplicative&quot;}`` -- which scenario
+        each node was read as. ``&quot;lognormal&quot;`` is exact;
+        ``&quot;multiplicative&quot;`` carries the first-order caveat the module
+        docstring sizes.
+    fractional: ``{observed: f}`` for the multiplicative nodes, absent
+        for the exact ones. Broadcast to the node&#x27;s shape, so a
+        channel-dependent bandwidth is representable.
+    skipped: ``{observed: why}`` for nodes left UNTRANSFORMED -- additive
+        noise, a distribution the route does not read. A skipped node
+        keeps its original form in :attr:`graph`, which is harmless to a
+        log block that does not reach it (its design column there is
+        zero) and disqualifying for one that does --
+        :func:`~bayesmith.dispatch.factor.factor_partition` checks
+        reachability against exactly this dict.
+    log_jacobian: the log absolute Jacobian of the change of variables
+        this transform performed, summed over every node whose data was
+        replaced by its logarithm. For ``y = log d`` that is
+        ``sum(log |dy/dd|) = -sum(log d)``, and it is the term that
+        SEPARATES the two densities:
+
+            ``log_joint(original) == log_joint(graph) + log_jacobian``
+
+        so it is the correction an evidence ADDS, sign included, rather
+        than a magnitude a caller has to orient. Measured on a six-point
+        fixture: ``-1.3459909820953684``.
+
+        Recorded rather than applied, and the distinction is the whole of
+        it. Adding it to :attr:`graph`&#x27;s own ``log_joint`` would move every
+        downstream consumer by a data-dependent constant that no posterior
+        shape, no diagnostic and no predictive check can see -- the class
+        of silent change R4 exists to prevent. An evidence assembler reads
+        this field and nothing else does; a posterior is unaffected because
+        a constant is unaffected by conditioning.
+
+        Zero for a graph with no transformed node, which cannot happen --
+        ``log_space`` refuses that case -- but is the right value anyway.</pre></section><section class="api-symbol"><h2 id="check_log_linearity">check_log_linearity</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 508.</p><pre><code>check_log_linearity(graph: Graph, names: Iterable[str], at: dict[str, Any] | None=None, *, scales: tuple[float, ...]=LOG_DEFAULT_SCALES, rtol: float | None=None, at_points: Any=None, key: jax.Array | None=None) -&gt; dict[int, dict[float, float]]</code></pre><pre class="docstring">Verify ``log`` of every prediction is affine in a block -- or a group.
+
+:func:`log_space` decides the scenarios, then the STOCK
+:func:`~bayesmith.exact.linearity.check_linearity` runs on the
+transformed graph -- same per-element criteria, same roundoff floors,
+same at-point sweep over the outside latents&#x27; priors. There is no
+separate log-space probe loop to drift from the linear one.
+
+Args and returns as for the stock check, with one difference:
+``scales`` defaults to :data:`LOG_DEFAULT_SCALES`, for the overflow
+reason its docstring gives.
+
+Raises:
+    NotLogLinear: if no log-space reading exists (from
+        :func:`log_space`), or if log of the prediction departs from
+        affinity in these latents -- the inner check&#x27;s refusal, re-raised
+        under the blameless class with its message carried verbatim, so
+        a dispatcher probing many latents can catch &quot;no&quot; narrowly.
+    GraphError: propagated -- a malformed ``names`` or ``at`` is misuse,
+        not a classification outcome.</pre></section><section class="api-symbol"><h2 id="log_linear_operator">log_linear_operator</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 553.</p><pre><code>log_linear_operator(graph: Graph, names: Iterable[str], at: dict[str, Any] | None=None, *, nuts_latents: Iterable[str] | None=None, scales: tuple[float, ...]=LOG_DEFAULT_SCALES, rtol: float | None=None, at_points: Any=None, key: jax.Array | None=None) -&gt; tuple[LinearBlock, LogSpace]</code></pre><pre class="docstring">Check the log-linearity claim, then export the block. The entry point.
+
+The returned block is an ordinary
+:class:`~bayesmith.exact.block.LinearBlock` over the TRANSFORMED graph:
+its ``offset`` is the log-prediction with the block at zero, its ``data``
+is the log data (shifted by ``f^2/2`` where first-order), and the
+matching noise is ``precision_at(returned.graph, values)`` -- constant in
+the latents, which is the point. The :class:`LogSpace` comes back with
+the block because every further step (a Gibbs sweep&#x27;s rebuilds, the
+precision, a NUTS comparison) runs against the transformed graph, and
+handing back the block alone would leave the caller to reconstruct it.
+``nuts_latents`` is the completed plan&#x27;s global NUTS witness; evidence-
+bearing transformed graphs forward it unchanged to the stock operator.</pre></section><section class="api-symbol"><h2 id="log_space">log_space</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 410.</p><pre><code>log_space(graph: Graph) -&gt; LogSpace</code></pre><pre class="docstring">Take the graph to log space, deciding each observed node&#x27;s scenario.
+
+See the module docstring for the two scenarios and for why the result is
+an ordinary graph. The probe environments are two points of the latents&#x27;
+own priors, so the scenario is read where inference will actually run.
+
+A node with no log-Gaussian reading -- additive noise, a distribution
+the route does not read -- is left UNTRANSFORMED and recorded in
+``skipped`` with its reason, rather than refusing the whole transform:
+on a graph with several observations, a log block only ever needs the
+ones ITS latents reach, and a caller (``factor_partition`` does) checks
+that reachability against ``skipped``. Non-positive DATA on an otherwise
+multiplicative node still refuses loudly -- that is a contradiction in
+the model, not a scenario mismatch.
+
+Raises:
+    NotLogLinear: if NO observed node could be transformed -- then there
+        is no log space to hand back at all, and the aggregated per-node
+        reasons say why; or if a multiplicative node&#x27;s data is
+        non-positive, which no routing can repair.
+    StructureError: propagated from the graph machinery where the graph
+        itself is broken, which is a different statement from &quot;no
+        log-linear structure&quot; and deliberately keeps its own class.</pre></section><section class="api-symbol"><h2 id="multiplicative_log_data">multiplicative_log_data</h2><p class="source-note">Defined in <code>bayesmith.exact.loglinear</code>, line 189.</p><pre><code>multiplicative_log_data(observed: jax.Array, fractional: jax.Array | float) -&gt; tuple[jax.Array, jax.Array]</code></pre><pre class="docstring">``(log d + f^2/2, f)`` -- the first-order transform, on bare arrays.
+
+The two halves of one claim about the noise, returned together so a
+caller cannot take the shift without the sigma that goes with it. The
+``f^2/2`` adds back ``E[log(1 + f w)]`` to leading order; it is a
+CONSTANT -- the same for every sample, independent of the prediction --
+so adding it is exact arithmetic rather than an estimate.
+
+Positivity of ``observed`` is the CALLER&#x27;s obligation here, stated
+rather than checked: this is the seam another package&#x27;s own data
+handling (masks, flags) delegates its arithmetic to, and a check on this
+side would force that caller to pre-fill values it is about to weight by
+zero anyway. :func:`log_space`, which owns whole graphs, does check.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#DEFAULT_SCALES">DEFAULT_SCALES</a><a href="#DEFAULT_AT_POINTS">DEFAULT_AT_POINTS</a><a href="#RELATIVE_FLOOR_FACTOR">RELATIVE_FLOOR_FACTOR</a><a href="#WEIGHTED_FLOOR_FACTOR">WEIGHTED_FLOOR_FACTOR</a><a href="#WEIGHTED_RTOL">WEIGHTED_RTOL</a><a href="#Unresolved">Unresolved</a><a href="#LinearBlock">LinearBlock</a><a href="#unchecked_operator">unchecked_operator</a><a href="#linear_operator">linear_operator</a><a href="#check_linearity">check_linearity</a><a href="#gaussian_parts">gaussian_parts</a><a href="#check_gaussian">check_gaussian</a><a href="#noise_std_at">noise_std_at</a><a href="#precision_parts">precision_parts</a><a href="#precision_at">precision_at</a><a href="#wiener_solve">wiener_solve</a><a href="#gcr_sample">gcr_sample</a><a href="#condition_bound">condition_bound</a><a href="#iterative_gls">iterative_gls</a><a href="#GLSResult">GLSResult</a><a href="#sigma_from_graph">sigma_from_graph</a><a href="#check_prediction_dependence">check_prediction_dependence</a><a href="#FlatMatrix">FlatMatrix</a><a href="#dense_operator">dense_operator</a><a href="#fisher_information">fisher_information</a><a href="#parameter_covariance">parameter_covariance</a><a href="#propagate_covariance">propagate_covariance</a><a href="#push_forward">push_forward</a><a href="#FIRST_ORDER_MAX_FRACTIONAL">FIRST_ORDER_MAX_FRACTIONAL</a><a href="#LOG_DEFAULT_SCALES">LOG_DEFAULT_SCALES</a><a href="#LogSpace">LogSpace</a><a href="#check_log_linearity">check_log_linearity</a><a href="#log_linear_operator">log_linear_operator</a><a href="#log_space">log_space</a><a href="#multiplicative_log_data">multiplicative_log_data</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

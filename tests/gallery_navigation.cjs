@@ -25,6 +25,17 @@ const articles = ['first', 'second'].map(id => {
   article.querySelector = selector => article.controls[selector] || null;
   return article;
 });
+const essay = element({readingLayout: 'continuous'});
+essay.id = 'essay';
+essay.stages = [...keys, 'distributions', 'campbell', 'priors'].map(stage => {
+  const node = element({stage}); node.id = `essay-${stage}`;
+  node.scrollIntoView = () => { node.scrolled = true; };
+  return node;
+});
+essay.querySelectorAll = selector => selector === '[data-stage]' ? essay.stages : [];
+essay.querySelector = () => null; // Continuous articles have no step controls.
+essay.contains = node => essay.stages.includes(node);
+articles.push(essay);
 const buttons = articles.map(a => element({selectCase: a.id}));
 const counterpart = element();
 counterpart.href = '../mild-prior/index.html?lang=zh#case=second&step=methods';
@@ -39,7 +50,7 @@ const document = {
       'a[data-preserve-step]': [counterpart]}[selector] || [];
   },
   querySelector() { return null; },
-  getElementById(id) { return articles.find(a => a.id === id); },
+  getElementById(id) { return articles.find(a => a.id === id) || essay.stages.find(s => s.id === id); },
 };
 vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8'), {document, window, location, URL, URLSearchParams});
 function check(id, step) {
@@ -66,7 +77,19 @@ check('second', 'sampling');
 location.hash = '#case=first&step=inference';
 window.handlers.hashchange();
 check('first', 'sampling');
-console.log('Gallery step navigation passed');
+location.hash = '#case=essay&section=priors';
+window.handlers.hashchange();
+assert.equal(essay.hidden, false);
+assert.ok(essay.stages.every(stage => !stage.hidden));
+assert.ok(essay.stages.find(stage => stage.dataset.stage === 'priors').scrolled);
+window.handlers.notebooklanguagechange();
+assert.ok(essay.stages.every(stage => !stage.hidden));
+location.hash = '#case=essay&step=recovery';
+window.handlers.hashchange();
+assert.ok(essay.stages.find(stage => stage.dataset.stage === 'recovery').scrolled);
+buttons[0].click();
+check('first', 'recovery');
+console.log('Gallery step and continuous-essay navigation passed');
 
 // Execute the actual language controller: English by default, explicit Chinese retained.
 const path = require('node:path');

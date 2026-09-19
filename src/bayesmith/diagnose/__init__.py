@@ -17,7 +17,7 @@ reads ``linear_in``:
   plausible finite answers on a singular block.
 
 Ported from ``rheplicant.inference.{identifiability,sensitivity,priors}``
-(migration spec §八 step 5); the per-module cross-check records live in
+(migration spec section 8, step 5); the per-module cross-check records live in
 ``docs/migration/``. Precision discipline: run everything, graph
 construction included, inside ``with jax.enable_x64(True):`` -- these
 verdicts live at 1e-17 of the largest singular value, and a float32 result

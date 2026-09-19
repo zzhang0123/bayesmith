@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="Posterior reweighting and field cumulants"><title>Posterior reweighting and field cumulants · bayesmith</title>
+<link rel="stylesheet" href="assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="assets/docs.css"><script defer src="assets/vendor/katex/katex.min.js"></script><script defer src="assets/search-index.js"></script><script defer src="assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="index.html">Overview</a><a href="installation.html">Installation</a><a href="quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="nonlinear.html">Partial structure</a><a href="notebook.html">Hierarchical notebook</a><a href="reweighting.html">Near-Gaussian targets</a><a href="predictive.html">Prediction and simulation</a><a href="tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="concepts.html">Core concepts</a><a href="modeling.html">Graph and hierarchy</a><a href="inference.html">Inference routes</a><a href="policies.html">Sampling policies</a><a href="artifacts.html">Results and provenance</a><a href="diagnostics.html">Diagnostics</a><a href="evidence.html">Evidence</a><a href="experimental.html" aria-current="page">Experimental primitives</a></section><section><h2>Design</h2><a href="architecture.html">Architecture</a><a href="principles.html">Principles and verification</a><a href="extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="reference.html">API reference</a></section><section><h2>Project</h2><a href="project.html">Release status</a><a href="contributing.html">Contributing</a><a href="records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="index.html">Docs</a><span>/</span><span>Concepts</span><span>/</span><span aria-current="page">Posterior reweighting and field cumulants</span></nav>
+<article><h1>Posterior reweighting and field cumulants</h1><p class="lede">Reference-posterior recycling and field cumulants are explicit numerical primitives. Their diagnostics do not create a general evidence or convergence certificate.</p>
+<p>For a graphical introduction, follow <a href="reweighting.html">one Gaussian sample bank through weighting and population fitting</a>.</p>
+<h2 id="reweight">Recycle a fixed reference posterior</h2><p><a href="api/bayesmith.reweight.html#PosteriorReweighting"><code>PosteriorReweighting</code></a> evaluates full joint-density ratios for unweighted draws from a fixed reference posterior. For draws from the reference posterior, the unnormalized weights and evidence-ratio estimate are:</p><div data-math="\ell_i(\eta)=\log p_\eta(x_i,d)-\log p_0(x_i,d)">\ell_i(\eta)=\log p_\eta(x_i,d)-\log p_0(x_i,d)</div><div data-math="\log\widehat{Z_\eta/Z_0}=\operatorname{logsumexp}_{i=1}^{S}\ell_i(\eta)-\log S">\log\widehat{Z_\eta/Z_0}=\operatorname{logsumexp}_{i=1}^{S}\ell_i(\eta)-\log S</div><div data-math="\widetilde w_i(\eta)=\frac{\exp\ell_i(\eta)}{\sum_{j=1}^{S}\exp\ell_j(\eta)}">\widetilde w_i(\eta)=\frac{\exp\ell_i(\eta)}{\sum_{j=1}^{S}\exp\ell_j(\eta)}</div><p> Maximize the estimated log evidence ratio plus the log hyperprior to obtain an approximate marginal hyperparameter MAP, integrating out the sampled latent variables.</p><pre><code>from bayesmith.reweight import PosteriorReweighting
+
+problem = PosteriorReweighting.from_graphs(
+    reference_graph, reference.samples, target_graph,
+)
+fit = problem.fit(
+    initial_hyperparameters, log_hyperprior=log_hyperprior,
+    steps=500, learning_rate=0.01, min_ess=1000,
+)
+weights = fit.importance.weights</code></pre><p>This is a composition pattern: provide a validated reference graph, all latent draws, a target-graph factory and an explicit hyperprior. The reference and target must condition on the same data and masks; changes to likelihoods or graph-level factors remain in the full ratio.</p><p>Use one common leading draw axis; combine chain/draw axes explicitly when needed. Callbacks must return one real scalar per complete draw. A normalized posterior weight sum is not an evidence estimate.</p>
+<h2 id="overlap">Validate outside the fitting bank</h2><p>Kish ESS, largest normalized weight and ESS fraction describe concentration among the samples already seen. They do not detect missed target mass, correct MCMC autocorrelation or establish finite weight variance. A smooth fixed-bank objective can exploit Monte Carlo noise. Assess fitted parameters on an independent bank and compare with direct integration or independent target inference where possible.</p><p>A final <code>min_ess</code> check is a concentration floor, not adaptive proposal repair. High-dimensional field corrections can collapse overlap even when a small example behaves well. Hyperparameter point estimates do not integrate hyperparameter uncertainty.</p>
+<h2 id="field">Declare a field-level cumulant likelihood</h2><div class="code-caption">cumulant_field.py</div><pre><code class="language-python">&quot;&quot;&quot;Declare and score a small field likelihood; this is not a sampling claim.&quot;&quot;&quot;
+
+import jax.numpy as jnp
+import numpyro.distributions as dist
+
+from bayesmith import log_joint, observe, sample, trace
+from bayesmith.cumulants import FieldEdgeworth, LowRankCumulants
+
+
+def likelihood(theta):
+    base = dist.Normal(jnp.ones((2, 2)) * theta, 1.0).to_event(2)
+    cumulants = LowRankCumulants(
+        jnp.array([[[0.5, 0.2], [0.1, 0.7]]]),
+        {3: jnp.reshape(theta / 10, (1,)), 4: jnp.array([0.02])},
+    )
+    return FieldEdgeworth(base, cumulants, order=4)
+
+
+def model():
+    theta = sample(&quot;theta&quot;, lambda: dist.Uniform(-0.2, 0.2))
+    observe(&quot;map&quot;, likelihood, theta, obs=jnp.array([[0.2, 0.1], [0.4, -0.1]]))
+
+
+graph = trace(model)
+print(log_joint(graph, {&quot;theta&quot;: jnp.array(0.0)}))
+</code></pre><p><a download href="snippets/cumulant_field.py">Download this example</a></p>
+<p><code>LowRankCumulants</code> stores shared directions and raw connected cumulant weights. The event shape belongs to the field, and low-rank directions retain cross-pixel dependence. Explicitly supply every required order, using zero coefficients when appropriate. Dense contractions are small-field reference tools; rank and truncation order materially affect work and memory.</p>
+<h2 id="validity">Truncation and sampling limits</h2><div class="warning"><p>A truncated Edgeworth correction is not guaranteed globally nonnegative. Invalid corrections must not be clipped or silently dropped. Finite scores at observed samples do not establish a proper prior. Generating samples from an order greater than two field distribution is not implemented.</p></div><p>Parameter inference on an observed field and forward generation are different capabilities. Fourier helpers are numerical construction utilities below graph semantics, not a new workflow layer. See <a href="api/bayesmith.cumulants.html#FieldEdgeworth"><code>FieldEdgeworth</code></a> and <a href="records.html">research records</a> for measured examples and their limits.</p>
+</article><footer><p>Version 0.9.0 · <a href="project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#reweight">Recycle a fixed reference posterior</a><a href="#overlap">Validate outside the fitting bank</a><a href="#field">Declare a field-level cumulant likelihood</a><a href="#validity">Truncation and sampling limits</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

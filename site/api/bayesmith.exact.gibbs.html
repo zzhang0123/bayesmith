@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.gibbs"><title>bayesmith.exact.gibbs · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.gibbs</span></nav>
+<article><h1>bayesmith.exact.gibbs</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The ``gibbs_fn`` numpyro&#x27;s ``HMCGibbs`` calls, and the assembly around it.
+
+``HMCGibbs``&#x27;s own docstring says &quot;it is the user&#x27;s responsibility to provide a
+correct implementation of ``gibbs_fn`` that samples from the corresponding
+posterior conditional&quot;. **That sentence is this package&#x27;s product.** NumPyro
+supplies the scaffolding and cannot know which conditionals are exactly
+solvable, nor solve them; the graph is what says so, and
+:mod:`bayesmith.exact.block` and :mod:`bayesmith.exact.solve` are what do it.
+
+**Two sweeps, one factory.** ``method=&quot;gcr&quot;`` draws the conditional exactly:
+sigma does not move with the block, so the frozen-sigma Gaussian *is* the
+conditional. ``method=&quot;gcr+mh&quot;`` is for the case sigma does move -- then the
+frozen-sigma draw is only a **proposal**, and the sweep is an
+independence-proposal Metropolis step whose correctness argument is
+:func:`_mh_step`&#x27;s docstring and is the single largest correction in P3b&#x27;s
+spec.
+
+**Why this module takes a graph and a name list rather than a plan object.**
+``InferencePlan`` lives in :mod:`bayesmith.dispatch`, which is the layer
+*above* this one: ``dispatch`` reads ``exact``&#x27;s checkers, and **no module in
+``exact`` imports ``dispatch`` at module scope**. Importing the plan here
+would invert that. So :func:`gibbs_factory` and :func:`assemble` take the
+primitives they actually need and the plan layer adapts to them -- a layering
+decision, not an oversight.
+
+Shared prior anchoring lives in :mod:`bayesmith.exact._environment`, so
+``exact`` has no dependency on ``dispatch``, including function-scope imports.
+The full import boundary is checked in ``tests/test_layering.py``.</pre></details><div class="symbol-index"><a href="#GIBBS_METHODS">GIBBS_METHODS</a> <a href="#gibbs_factory">gibbs_factory</a> <a href="#assemble">assemble</a></div><section class="api-symbol"><h2 id="GIBBS_METHODS">GIBBS_METHODS</h2><p class="source-note">Defined in <code>bayesmith.exact.gibbs</code>, line 63.</p><pre><code>GIBBS_METHODS: tuple[str, ...] = (&#x27;gcr&#x27;, &#x27;gcr+mh&#x27;)</code></pre></section><section class="api-symbol"><h2 id="gibbs_factory">gibbs_factory</h2><p class="source-note">Defined in <code>bayesmith.exact.gibbs</code>, line 239.</p><pre><code>gibbs_factory(graph: Graph, names: Iterable[str], *, tol: float, method: str=&#x27;gcr&#x27;, sigma_rebuild: bool=False, maxiter: int | None=None, precision: Mapping[str, Any] | None=None) -&gt; Callable[..., dict[str, jax.Array]]</code></pre><pre class="docstring">Build the callable ``HMCGibbs`` invokes once per sweep.
+
+Args:
+    graph: the model. ``log p`` inside the sweep is its own ``log_joint``,
+        so the Gibbs step and NUTS cannot target different posteriors.
+    names: the block&#x27;s members -- the ``gibbs_sites``.
+    tol: CG tolerance, chosen at compile time as
+        ``CONVERGENCE_TARGET / condition_bound(...)``. The in-sweep
+        convergence guard is **off**: it costs ``POWER_ITERATIONS`` extra
+        operator applications per solve and ``eqx.error_if`` cannot help a
+        sweep it cannot interrupt. So this number is the only thing
+        standing between the sweep and a silently over-narrow posterior,
+        since an unconverged CG leaves the prior-dominated directions at
+        their starting value. Never leave it at a default with the guard
+        off.
+    method: one of :data:`GIBBS_METHODS`. ``&quot;gcr&quot;`` for a genuine
+        conditional draw; ``&quot;gcr+mh&quot;`` when sigma depends on the block
+        itself and the frozen-sigma draw is only a PROPOSAL.
+    sigma_rebuild: recompute the covariance inside the sweep, at the
+        current ``at``. Required whenever any observed node&#x27;s scale has a
+        latent ancestor -- including one OUTSIDE the block, which
+        :func:`~bayesmith.exact.gls.check_prediction_dependence` cannot
+        see because it only ever moves block members. Measured on
+        ``contrast_sigma_pair`` split as block ``{a}`` with ``b`` outside
+        (sigma ``base * exp(a - b)``): the movement probe reads
+        ``1.71828183e+00`` -- bitwise identical at ``b = 0.5`` and
+        ``b = 2.0`` -- while hoisting sigma gives a posterior 1.64x and
+        7.35x too WIDE at those two. The criterion is therefore
+        structural, not numeric; a movement probe is precisely what
+        cannot see it.
+    maxiter: CG iteration cap, passed to every solve in the sweep.
+    precision: an x-independent ``{observed: N^-1}`` of the caller&#x27;s own
+        choosing, used verbatim in place of everything above.
+        **Correctness does not depend on this being any good** -- see
+        :func:`_mh_step`; a worse covariance costs acceptance rate, not
+        validity. Useful when the GLS fixed point is too expensive to
+        recompute every sweep, or when a deliberately loose covariance is
+        wanted. Build one with
+        :func:`~bayesmith.exact.precision.diagonal_from` from a sigma
+        dict, or take :attr:`~bayesmith.exact.gls.GLSResult.precision`.
+
+Returns:
+    A function taking ``rng_key``, ``gibbs_sites`` and ``hmc_sites``
+    **by keyword** -- that is numpyro&#x27;s actual calling convention, see
+    ``HMCGibbs.sample`` -- and returning exactly ``names``, in constrained
+    space. Returning a subset raises an ``AssertionError`` upstream whose
+    message is empty; returning an extra key naming a NUTS latent is
+    silently ignored. Both measured on numpyro 0.21.0.
+
+Raises:
+    ValueError: if ``method`` is not in :data:`GIBBS_METHODS`.
+    NotGaussian: if the covariance must be hoisted
+        (``sigma_rebuild=False``, no ``precision``) and some latent has no
+        prior centre to hoist at.</pre></section><section class="api-symbol"><h2 id="assemble">assemble</h2><p class="source-note">Defined in <code>bayesmith.exact.gibbs</code>, line 435.</p><pre><code>assemble(graph: Graph, names: Iterable[str], *, tol: float, method: str=&#x27;gcr&#x27;, sigma_rebuild: bool=False, maxiter: int | None=None, precision: Mapping[str, Any] | None=None, num_warmup: int=1000, num_samples: int=2000, num_chains: int=1, chain_method: str=&#x27;sequential&#x27;, progress_bar: bool=False, nuts_options: Mapping[str, Any] | None=None) -&gt; MCMC</code></pre><pre class="docstring">Wire the block&#x27;s sweep into ``HMCGibbs`` and hand back an unrun ``MCMC``.
+
+Unrun on purpose: ``mcmc.run(key)`` is the caller&#x27;s, so the plan layer
+keeps control of the key and of whatever it wants to do with
+``mcmc.get_extra_fields()`` afterwards.
+
+Args:
+    graph, names, tol, method, sigma_rebuild, maxiter, precision: passed
+        straight to :func:`gibbs_factory`.
+    num_warmup, num_samples, num_chains, progress_bar: ``MCMC``&#x27;s own.
+    chain_method: ``&quot;sequential&quot;`` or ``&quot;parallel&quot;``. Both were run
+        end-to-end on this package&#x27;s own fixtures.
+    nuts_options: keywords for the inner ``NUTS`` kernel
+        (``target_accept_prob``, ``max_tree_depth``, ``dense_mass``, ...).
+
+Raises:
+    NotImplementedError: for ``chain_method=&quot;vectorized&quot;``. Measured on
+        numpyro 0.21.0: ``HMC.init`` branches on ``rng_key.ndim`` but
+        ``HMCGibbs.init`` does not, so it calls ``random.split`` on the
+        batched key MCMC hands it and raises ``ValueError: split accepts a
+        single key, but was given a key array of shape (2,) != ()`` --
+        before ``gibbs_fn`` is ever called. Refusing it here turns that
+        into a sentence, and pins the limitation so an upstream fix
+        surfaces as a decision rather than a behaviour change.
+    ValueError: if ``names`` covers every latent, leaving the inner NUTS
+        with nothing to sample.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#GIBBS_METHODS">GIBBS_METHODS</a><a href="#gibbs_factory">gibbs_factory</a><a href="#assemble">assemble</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

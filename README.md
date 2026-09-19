@@ -1,33 +1,51 @@
 # bayesmith
 
-A Bayesian model is a graph of operators. Deterministic operators propagate
-dependence; probabilistic operators contribute a conditional density. Together
-they *are* the joint distribution.
+bayesmith compiles a Bayesian model, written as a graph of operators, into an
+inference procedure that can be audited. It finds and checks the structure of
+the graph, solves exactly the parts that admit a closed form, hands the
+remainder to a numerical backend, and returns results that carry their
+conditions, diagnostics and provenance. It sits between the model declaration
+and the sampler: not a probabilistic programming language, and not a collection
+of samplers.
 
-bayesmith makes that graph **explicit and inspectable**, analyzes the structure,
-and compiles an inference route — an exact solve where the structure permits
-one, NumPyro NUTS as the current general fallback where it does not.
+**A model says how it will be fitted, and why, before it is fitted.** For a
+model whose prediction is affine in `x` once `nu` is fixed, `bayesmith.compile`
+prints:
 
 ```
-block 0  {x}          Wiener exact        (structurally certified; numerical check)
-block 1  {z}          enumerate 4 states
-block 2  {sigma, nu}  NUTS (numpyro)      no exact structure found
+block 0  {x}              GCR exact         structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)
+block 1  {nu}             NUTS
+execution: HMCGibbs(inner=NUTS, gibbs_sites=['x']); noise_std rebuilt every sweep
 ```
 
-The model tells you how it will be fitted, before it is fitted. The longer-term
-direction is a task-aware Bayesian workflow layer whose posterior, predictive,
-model-checking and evidence results share explicit provenance and quality gates;
-the approved boundary and roadmap live in the
+`x` has a Gaussian prior and an affine prediction, so its conditional posterior
+is Gaussian and is drawn exactly. `nu` is not, so NUTS moves it and every sweep
+draws `x` exactly given the current `nu`. Nothing was declared: the affine block
+was discovered from the traced program and then checked numerically at three
+scales. The script is
+[`site/snippets/overview_plan.py`](site/snippets/overview_plan.py), the plan
+above is the recorded output in
+[`site/assets/plans/overview.json`](site/assets/plans/overview.json), and
+`tests/test_site_plans.py` re-measures both.
+
+**A flowchart is a hierarchical model.** The arrows express dependencies:
+shared population parameters govern latent variables, deterministic operators
+turn them into signals, and observation laws connect those signals to data. The
+conditional factors define one joint probability model, and that factorization
+is what the compiler reads. The longer-term direction is a task-aware Bayesian
+workflow layer whose posterior, predictive, model-checking and evidence results
+share explicit provenance and quality gates; the approved boundary and roadmap
+live in the
 [top-level design](docs/superpowers/specs/2026-08-30-bayesmith-top-level-design.md).
-Those future protocols are not claimed as current API here.
+The complete workflow-control layer remains a roadmap item.
 
-An illustrated overview -- what the package is, where it sits next to NumPyro,
-BlackJAX and ArviZ, what each subpackage owns, and where the roadmap stands --
-is served from this repository at
-[zzhang0123.github.io/bayesmith](https://zzhang0123.github.io/bayesmith/)
-(source: `site/index.html`, deployed by `.github/workflows/pages.yml`; English,
-with a Chinese toggle). It is refreshed by hand and names the release it
-describes in its own footer, so it can lag this file.
+The [English documentation](site/index.html) opens with what the package does
+and why, then works through examples ordered by how much of the model is solved
+exactly, the concepts a plan and a result are made of, and the design and its
+verification. Build and verify it with `python tools/build_docs.py --check`. The
+0.9.0 candidate is local and unpublished; all documentation pages request
+`noindex`, and Pages requires explicit manual opt-in. Source fragments and
+generated output are described in [site/README.md](site/README.md).
 
 ## What bayesmith is not
 
@@ -44,8 +62,9 @@ What it owns today:
 - **Graph analysis and structural dispatch** — automatic affine discovery, Gaussianity,
   support, coupling and conditioning claims, followed by an inspectable plan.
 - **Structural exact inference** — first-party conjugate / Wiener / GCR / GLS
-  solves and exact posterior sampling, plus exact enumeration of discrete
-  latents, selected per subgraph.
+  solves and exact posterior sampling, selected per subgraph. Exact
+  enumeration of declared discrete latents is a separate primitive in
+  `bayesmith.exact.discrete`; the compiler does not yet select it.
 - **Streamed marginal likelihoods** (`bayesmith.marginal`) — each epoch or
   dataset compressed to a square-root information term, combined exactly. Not
   by itself the graph-level Bayesian evidence `p(d)`: a term is a function of
@@ -189,15 +208,15 @@ artifact rather than living only on a page.
 
 ## Status
 
-**0.8.0.** The minor slot rather than the patch one because R3 opens a new
-public subpackage, `bayesmith.evaluation`; nothing existing changed signature,
-default or numerical result. What other packages can depend on by name is whatever
-`pypi.org/simple/bayesmith/` lists, and that index is the place to ask rather
-than this line: 0.6.0, 0.6.1, 0.6.2 and 0.7.0 were each tagged and never
-reached it, every one failing its own built-wheel test (see `CHANGELOG.md`;
-0.7.0's failure was a Linux-only cluster in the numerical-gate suite, which is
-also why `suite.yml` now runs the suite on Linux before any tag exists), so
-from 2026-08-28 the index's newest release was 0.5.0. rheplicant
+**0.9.0.** Stable baseline of the currently supported inference and artifact
+contracts. The package remains pre-1.0: experimental APIs and unavailable
+routes are explicitly separated from the maintained public surface. See the
+[user documentation](https://zzhang0123.github.io/bayesmith/) and
+[implementation ownership](docs/ownership.md).
+
+The version in this checkout is not proof of publication. Consumers should
+check the [package index](https://pypi.org/simple/bayesmith/) for installable
+releases. rheplicant
 uses bayesmith across its production inference layer: its auto-partition and
 log-space seams import `dispatch.factor.first_fit` and `exact.loglinear`; its
 adapter presents a pipeline as a `Graph`, reads `AffinityRefused`'s payload and
@@ -207,12 +226,12 @@ declares complex latents with `ComplexNormal`; and its diagnostics delegate to
 inference and seam suites against the candidate bayesmith checkout, not by a
 hard-coded count of importing modules.
 
-Alpha in the classifier's sense: the API may
-still move -- 0.3.0 made `reason` required on `NotGaussian` and
-`NotLogLinear`, and 0.4.0 tightens two precision refusals, each breaking for
-a caller who was relying on the wrong answer.
+The 0.9 baseline is pre-1.0: existing supported interfaces and architecture
+boundaries are maintained under the [stability policy](docs/stability.md).
+Correctness repairs may reject previously accepted inputs that produced a wrong
+answer; such changes require release notes and consumer regression checks.
 
-Implemented and tested, 6,749 tests: the graph core with plates and joint
+Implemented and tested, 7,106 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every
 route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR
@@ -221,8 +240,9 @@ pairwise probe, with log-space blocks discovered rather than declared
 (`factor_partition`, `sample_factors`, `log_space`); exact enumeration of
 discrete latents; streamed marginal-likelihood terms as square-root information
 factors; and graph diagnostics for identifiability, prior sensitivity and
-linearity. A graph-level `EvidenceTask`, Bayes factors and general model
-comparison are roadmap work, not present capabilities.
+linearity. A graph-level `EvidenceTask` executes whole-graph linear-Gaussian evidence
+with proper normalized priors and x64. Residual numerical evidence and general
+model comparison remain outside the completed public execution routes.
 
 Posterior tasks also support automatic bounded Jeffreys diagnostics and explicit
 proposal/MH schedules. `ProposalBlockPolicy` selects iterative GLS, bias-corrected

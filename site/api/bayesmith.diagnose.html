@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.diagnose"><title>bayesmith.diagnose · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.diagnose</span></nav>
+<article><h1>bayesmith.diagnose</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Design-time diagnostics: what the model cannot tell apart, and what the
+priors did to it.
+
+Three questions, each answered about the model *at a point* rather than
+claimed globally -- which is why this package linearizes locally and never
+reads ``linear_in``:
+
+* :func:`identifiability` -- the rank of the joint Jacobian: which
+  combinations of latents the data is blind to, across blocks, where every
+  per-block guard is structurally silent.
+* :func:`prior_sensitivity` -- how far each latent&#x27;s own prior moved the
+  mode, in posterior sigmas, from two deterministic routes that verify each
+  other.
+* :class:`JeffreysPrior` -- ``sqrt(det I)`` over a named block, evaluated
+  from the graph&#x27;s own noise, with the determinant taken by ``eigvalsh``
+  plus a rank floor because ``slogdet`` and ``cholesky`` both return
+  plausible finite answers on a singular block.
+
+Ported from ``rheplicant.inference.{identifiability,sensitivity,priors}``
+(migration spec section 8, step 5); the per-module cross-check records live in
+``docs/migration/``. Precision discipline: run everything, graph
+construction included, inside ``with jax.enable_x64(True):`` -- these
+verdicts live at 1e-17 of the largest singular value, and a float32 result
+is refused by name rather than silently reported.</pre></details><div class="symbol-index"><a href="#identifiability">identifiability</a> <a href="#IdentifiabilityReport">IdentifiabilityReport</a> <a href="#DEFAULT_RANK_RTOL">DEFAULT_RANK_RTOL</a> <a href="#prior_sensitivity">prior_sensitivity</a> <a href="#PriorSensitivityReport">PriorSensitivityReport</a> <a href="#CRITERION_SHIFT">CRITERION_SHIFT</a> <a href="#JeffreysPrior">JeffreysPrior</a></div><section class="api-symbol"><h2 id="identifiability">identifiability</h2><p class="source-note">Defined in <code>bayesmith.diagnose.identifiability</code>, line 306.</p><pre><code>identifiability(graph: Graph, *, names: Sequence[str] | str | None=None, at: dict[str, jax.Array] | None=None, rtol: float=DEFAULT_RANK_RTOL) -&gt; IdentifiabilityReport</code></pre><pre class="docstring">Rank of the joint Jacobian: what the data cannot tell apart.
+
+The diagnostic that sees ACROSS blocks. See the module docstring for why
+no per-block guard can, and for the measured case that motivates it.
+
+Args:
+    graph: the model.
+    names: which latents to differentiate with respect to -- a sequence,
+        or a bare string for one. ``None`` (the default) means all of
+        them, in declaration order. A subset asks the **conditional**
+        question a Gibbs block faces -- &quot;is this block identified, with
+        the others held fixed?&quot; -- and the answer is routinely *yes* for
+        every block of a partition whose joint model is degenerate. That
+        is the whole reason this function takes the joint by default.
+    at: values for the latents NOT selected (and evaluation values for
+        those that are). Identifiability is a LOCAL property of a
+        nonlinear model, so a sweep has to ask it where the sampler
+        currently is; defaults to each latent&#x27;s prior centre, which is
+        right exactly once.
+    rtol: singular values at or below ``rtol * s_max`` are called null.
+        See :data:`DEFAULT_RANK_RTOL` for how the default is chosen and
+        when to override it.
+
+Returns:
+    An :class:`IdentifiabilityReport`. The three numbers to read first
+    are ``n_par``, ``nullity`` and, when the nullity is non-zero,
+    ``report.participation(0)`` -- which names the latents the degenerate
+    direction mixes::
+
+        report = identifiability(graph)
+        if report.nullity:
+            print(report.nullity, &quot;blind directions;&quot;, report.participation(0))
+
+Raises:
+    GraphError: if ``names`` is empty, repeats a latent, or names one the
+        graph does not declare; if ``at`` names one, or a value does not
+        broadcast; if a selected latent is complex or non-floating; if
+        the graph has no observed node or an observed node&#x27;s distribution
+        carries no ``loc``; or if the Jacobian comes back float32 -- run
+        the call (graph construction included) inside
+        ``with jax.enable_x64(True):``.</pre></section><section class="api-symbol"><h2 id="IdentifiabilityReport">IdentifiabilityReport</h2><p class="source-note">Defined in <code>bayesmith.diagnose.identifiability</code>, line 158.</p><pre><code>class IdentifiabilityReport
+names: tuple[str, ...]
+shapes: tuple[tuple[int, ...], ...]
+spans: tuple[tuple[int, int], ...]
+n_par: int
+n_data: int
+rank: int
+nullity: int
+singular_values: np.ndarray
+null_space: np.ndarray
+jacobian: np.ndarray
+column_norms: np.ndarray
+rtol: float
+threshold: float</code></pre><pre class="docstring">What the joint Jacobian&#x27;s rank says about a set of latents.
+
+Deliberately a plain frozen dataclass rather than an ``eqx.Module``, for
+the same reason :class:`~bayesmith.exact.block.LinearBlock` is: this is a
+derived linear-algebra verdict, not a differentiable model. It holds
+**numpy** arrays, not JAX ones -- a float64 JAX array that escapes the
+caller&#x27;s x64 context truncates, with a warning, the moment a
+default-precision caller touches it, throwing away exactly the precision
+the diagnostic exists to obtain. And ``rank``/``nullity`` are Python
+ints, which is why this function cannot be jitted: a rank is a decision,
+and a traced decision is one you cannot branch on.
+
+Attributes:
+    names: the latents analysed, in the order the caller asked for.
+    shapes: their shapes, in the same order.
+    spans: ``(start, stop)`` of each latent within the flat parameter
+        vector, in the same order.
+    n_par: total number of real parameters.
+    n_data: size of the flattened prediction over every observed node.
+        ``nullity`` can never be below ``n_par - n_data``: more
+        parameters than data points is a null space by counting alone.
+    rank: number of singular values of the COLUMN-NORMALISED Jacobian
+        strictly above :attr:`threshold`.
+    nullity: ``n_par - rank`` -- the dimension of the space of parameter
+        perturbations the prediction is blind to.
+    singular_values: ``(n_par,)`` descending. When ``n_data &lt; n_par`` the
+        SVD returns only ``n_data`` values and the rest are exact zeros;
+        they are included rather than dropped, so ``rank`` is always the
+        count of entries above the threshold and never needs a caveat.
+    null_space: ``(nullity, n_par)`` orthonormal rows, in the
+        column-normalised coordinates the rank verdict is taken in. Use
+        :meth:`direction` for raw latent coordinates.
+    jacobian: ``(n_data, n_par)`` column-normalised, as analysed. Rows
+        are the observed nodes in sorted name order, each flattened --
+        :func:`~bayesmith.exact.fisher.dense_operator`&#x27;s own layout.
+    column_norms: the SAFE norms the normalisation divided by -- the real
+        norm where a column is live, 1.0 where it is exactly zero.
+    rtol: the relative tolerance used.
+    threshold: ``rtol * singular_values[0]``, the absolute cutoff.</pre><h3 id="IdentifiabilityReport.weakest_identified">IdentifiabilityReport.weakest_identified</h3><pre><code>weakest_identified(self) -&gt; float</code></pre><pre class="docstring">``s[rank-1] / s[0]`` -- how well the worst identified direction is seen.
+
+The headline number: how much less the data says about the direction
+it constrains least than about the one it constrains most. ``0.0``
+when nothing at all is identified, which is the only case where the
+ratio has no meaning.</pre><h3 id="IdentifiabilityReport.direction">IdentifiabilityReport.direction</h3><pre><code>direction(self, index: int) -&gt; dict[str, np.ndarray]</code></pre><pre class="docstring">One null direction in RAW latent coordinates, split by name.
+
+Add a small multiple of this to the latents and the prediction does
+not move, to first order -- that is the whole content of the report,
+and it is the form a caller acts in. Note that it is NOT the raw SVD
+row: the SVD is taken of the column-normalised Jacobian, so a null
+vector there has to be divided by the column norms again to become a
+perturbation of the parameters themselves. Returned with unit 2-norm
+over the flat vector; the scale is arbitrary, only the direction
+means anything.
+
+For per-latent weights comparable across quantities in different
+units, use :meth:`participation` instead -- in raw kelvin and
+dimensionless gain, a null direction&#x27;s two halves are not comparable
+numbers.</pre><h3 id="IdentifiabilityReport.participation">IdentifiabilityReport.participation</h3><pre><code>participation(self, index: int) -&gt; dict[str, float]</code></pre><pre class="docstring">Fraction of a null direction carried by each latent, summing to 1.
+
+Measured in the COLUMN-NORMALISED coordinates, not raw ones: a 3000 K
+antenna temperature and a gain near 1 cannot be compared in their own
+units, and a raw-unit share would report which quantity is
+numerically larger rather than which one the degeneracy involves. In
+normalised coordinates the bilinear ``gain x T_ant`` degeneracy comes
+out at 0.50/0.50, which is the true statement about it.</pre></section><section class="api-symbol"><h2 id="DEFAULT_RANK_RTOL">DEFAULT_RANK_RTOL</h2><p class="source-note">Defined in <code>bayesmith.diagnose.identifiability</code>, line 154.</p><pre><code>DEFAULT_RANK_RTOL: float = 1e-08</code></pre></section><section class="api-symbol"><h2 id="prior_sensitivity">prior_sensitivity</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 655.</p><pre><code>prior_sensitivity(graph: Graph, *, names: Sequence[str] | str | None=None, at: dict[str, jax.Array] | None=None) -&gt; PriorSensitivityReport</code></pre><pre class="docstring">How far the selected priors moved the mode, in posterior sigmas.
+
+See the module docstring for why a NUTS run cannot be asked this and for
+the two routes taken instead. Both are deterministic; nothing here
+samples. The data and the noise are the graph&#x27;s own -- its observed
+nodes -- so there is nothing separate to pass and nothing that can
+disagree with what a sampler would read.
+
+The work is two Newton solves -- one on the exact log-posterior, one
+with the selected priors removed -- plus one dense Jacobian for the rank
+check. That is a design-time cost for tens to a few thousand parameters,
+the same envelope :func:`~bayesmith.diagnose.identifiability.
+identifiability` states, and for the same reason.
+
+Args:
+    graph: the model. Every SELECTED latent must carry a diagonal
+        Gaussian density whose parameters are fixed under the selection.
+    names: which latents to analyse -- a sequence, or a bare string for
+        one. ``None`` means all of them, in declaration order. A subset
+        asks the CONDITIONAL question, holding the rest at ``at``.
+    at: values for the latents NOT selected, and the Newton starting
+        point for those that are. Defaults to each latent&#x27;s prior
+        centre.
+
+Returns:
+    A :class:`PriorSensitivityReport`. The two numbers to read first are
+    ``shift_sigma`` and ``criterion_std``::
+
+        report = prior_sensitivity(graph)
+        name, index, shift = report.worst
+        criterion = report.for_latent(name)[&quot;criterion_std&quot;].ravel()[index]
+        print(f&quot;{name}[{index}] moved {shift:+.4f} sigma by its prior; &quot;
+              f&quot;0.1 sigma would need s = {criterion:.3g}&quot;)
+
+Raises:
+    GraphError: if ``names``/``at`` name an undeclared latent or a value
+        does not broadcast; if a selected latent is complex or
+        non-floating; if a selected latent&#x27;s density is parameterised by
+        the selection itself; if the likelihood&#x27;s own curvature at the
+        mode is singular or digit-starved, so the likelihood-only mode
+        the shift is measured from does not exist; or if the arithmetic
+        comes back float32 -- run the call (graph construction included)
+        inside ``with jax.enable_x64(True):``.
+    NotGaussian: if a selected latent&#x27;s density has no quadratic form (a
+        Uniform, an ImproperUniform, a LogNormal, ...).
+    ConvergenceError: if the Newton solve for the MAP does not converge.
+        (A failed VERIFICATION refit is reported, not raised:
+        ``refit_converged=False`` and an all-NaN refit column.)</pre></section><section class="api-symbol"><h2 id="PriorSensitivityReport">PriorSensitivityReport</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 425.</p><pre><code>class PriorSensitivityReport
+names: tuple[str, ...]
+shapes: tuple[tuple[int, ...], ...]
+spans: tuple[tuple[int, int], ...]
+n_par: int
+mode: np.ndarray
+prior_loc: np.ndarray
+prior_std: np.ndarray
+mean_offset: np.ndarray
+sigma_post: np.ndarray
+shift_sigma: np.ndarray
+shift_sigma_refit: np.ndarray
+verified: np.ndarray
+criterion_std: np.ndarray
+precision: np.ndarray
+newton_steps: int
+refit_steps: int
+refit_converged: bool
+_PER_ELEMENT: ClassVar[tuple[str, ...]] = (&#x27;mode&#x27;, &#x27;prior_loc&#x27;, &#x27;prior_std&#x27;, &#x27;mean_offset&#x27;, &#x27;sigma_post&#x27;, &#x27;shift_sigma&#x27;, &#x27;shift_sigma_refit&#x27;, &#x27;verified&#x27;, &#x27;criterion_std&#x27;)</code></pre><pre class="docstring">What the selected priors did to the mode, per latent, in posterior sigmas.
+
+A plain frozen dataclass holding **numpy**, for the same reasons
+:class:`~bayesmith.diagnose.identifiability.IdentifiabilityReport` is
+one: a derived verdict rather than a differentiable model, whose float64
+contents would silently truncate the moment a default-precision JAX
+caller touched them, and whose ``verified`` is a decision no traced
+program can branch on.
+
+Every array is flat over the SELECTED latents, in the order they were
+asked for -- :attr:`names` and :attr:`spans` are the only coordinate
+system in the object, and it is the selection&#x27;s own order, not sorted
+order.
+
+Attributes:
+    names: the latents analysed, in the order the caller asked for.
+    shapes: their shapes, in the same order.
+    spans: ``(start, stop)`` of each latent in the flat vector.
+    n_par: total number of real parameters.
+    mode: ``theta_hat``, the MAP found by Newton on the exact
+        log-posterior.
+    prior_loc: the declared ``m``, broadcast per element.
+    prior_std: the declared ``s``, broadcast per element.
+    mean_offset: ``|m - theta_hat|``. A magnitude -- the direction of the
+        pull lives in :attr:`shift_sigma`&#x27;s sign, where a reader will
+        look for it.
+    sigma_post: ``sqrt(diag(Sigma))`` at the mode, from the exact Hessian
+        of the negative log-posterior -- the observed curvature the
+        Newton refit walks on, which is the one the two routes have to
+        share if their agreement is to mean anything.
+    shift_sigma: the closed form, signed, in units of :attr:`sigma_post`.
+        Positive means the prior pulled the latent UP relative to the
+        likelihood-only mode; negative, DOWN.
+    shift_sigma_refit: the same displacement from an actual second Newton
+        solve with the selected priors removed. All-NaN if that solve did
+        not converge, in which case :attr:`refit_converged` is ``False``.
+    verified: per element, whether the two routes agreed to
+        :data:`VERIFY_RTOL` (with :data:`VERIFY_ATOL` underneath).
+    criterion_std: the prior width at which this latent&#x27;s shift would
+        reach :data:`CRITERION_SHIFT`, from the diagonal law
+        ``sqrt(sigma_post * mean_offset / 0.1)``. Compare it with
+        :attr:`prior_std`: a declared width comfortably ABOVE it is the
+        statement that the prior is not driving the fit. ``0.0`` when the
+        prior mean sits exactly on the mode, which means no tightening of
+        it moves anything.
+    precision: the ``(n_par, n_par)`` posterior precision at the mode.
+    newton_steps, refit_steps: what the two solves cost.
+    refit_converged: whether the likelihood-only solve reached a mode.</pre><h3 id="PriorSensitivityReport.for_latent">PriorSensitivityReport.for_latent</h3><pre><code>for_latent(self, name: str) -&gt; dict[str, np.ndarray]</code></pre><pre class="docstring">Every per-element quantity for one latent, reshaped like the latent.
+
+The form a caller acts in:
+``report.for_latent(&quot;fg_beta&quot;)[&quot;shift_sigma&quot;]`` is a number about
+beta, not an offset into a vector whose layout the caller has to
+have got right.</pre><h3 id="PriorSensitivityReport.mode_of">PriorSensitivityReport.mode_of</h3><pre><code>mode_of(self, name: str) -&gt; np.ndarray</code></pre><pre class="docstring">``theta_hat`` for one latent, shaped like it.</pre><h3 id="PriorSensitivityReport.worst">PriorSensitivityReport.worst</h3><pre><code>worst(self) -&gt; tuple[str, int, float]</code></pre><pre class="docstring">``(latent, index within it, signed shift)``, by largest magnitude.
+
+What to print first. An anonymous argmax over the flat vector would
+name a position in a layout the caller did not choose.</pre><h3 id="PriorSensitivityReport.shift_at">PriorSensitivityReport.shift_at</h3><pre><code>shift_at(self, name: str, prior_std: Any) -&gt; np.ndarray</code></pre><pre class="docstring">The shift this latent would suffer under a DIFFERENT prior width.
+
+The counterfactual :attr:`criterion_std` inverts, evaluated exactly
+rather than through the diagonal law: only ``name``&#x27;s entries of
+``P`` are replaced, and
+``(H + P_s)^-1 P_s (I + H^-1 P_d)(m - theta_hat)`` is solved whole.
+Every other latent&#x27;s prior stays as declared, cross terms included
+-- which is why this can return a shift of the opposite sign to
+``name``&#x27;s own pull once ``name``&#x27;s prior is loose enough for a
+neighbour&#x27;s to dominate.
+
+**Anchoring.** That is not the expression :attr:`shift_sigma` uses,
+and the comment on the solve below derives why: the two are the same
+displacement written about different modes, and a counterfactual can
+only stand on the likelihood&#x27;s. The ``(I + H^-1 P_d)`` factor is how
+it gets there without a second fit, and it makes the whole thing
+exact on a quadratic. Two consequences worth stating: at
+``P_s = P_d`` it collapses to :attr:`shift_sigma` algebraically, so
+``shift_at(name, declared_width)`` returns the reported shift to the
+last bit -- if it did not, one of the two would be wrong. And what
+is left at tight widths is the model, not the method.
+
+Reported in the sigma the caller actually HAS -- :attr:`sigma_post`,
+at the declared priors -- not in the sigma the counterfactual prior
+would produce. Dividing each row of a ladder by its own width would
+fold the prior&#x27;s shrinking of the error bar into a number meant to
+report only the movement of the mode, and &#x27;a 0.1 sigma shift&#x27; would
+then mean a different displacement in every row.
+
+Args:
+    name: the latent to re-prior.
+    prior_std: its hypothetical width -- a scalar, or anything
+        broadcastable to the latent&#x27;s shape.
+
+Returns:
+    The signed shift in posterior sigmas, shaped like the latent.
+
+Raises:
+    GraphError: if ``name`` is not in this report, or the width is
+        not positive and finite, or does not broadcast.</pre></section><section class="api-symbol"><h2 id="CRITERION_SHIFT">CRITERION_SHIFT</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 128.</p><pre><code>CRITERION_SHIFT: float = 0.1</code></pre></section><section class="api-symbol"><h2 id="JeffreysPrior">JeffreysPrior</h2><p class="source-note">Defined in <code>bayesmith.diagnose.priors</code>, line 132.</p><pre><code>class JeffreysPrior(eqx.Module)
+over: tuple[str, ...] = eqx.field(static=True, converter=_as_names)
+rank_rtol: float | None = eqx.field(static=True, default=None)</code></pre><pre class="docstring">``p(theta) = sqrt(det I(theta))`` over a named block, conditional on the rest.
+
+See the module docstring for the measured headlines and for who calls
+this. Attributes:
+
+Attributes:
+    over: the latents the prior is over -- a name, or a sequence of
+        them. Mandatory and explicit. **It is the CONDITIONAL Jeffreys
+        prior of that block**, with every other latent held at whatever
+        value the potential currently has, and the conditional and the
+        full-space priors are different priors. They are not
+        interchangeable and the full-space one often does not exist: on
+        a many-latent graph the joint Jacobian is routinely
+        rank-deficient, so ``det I`` is zero over the full space and
+        ``sqrt(det I)`` is not a density at all. Naming the block is
+        therefore not boilerplate -- it is the part of the declaration
+        that decides whether the object exists.
+    rank_rtol: the relative cut separating a null eigenvalue from a
+        small one. ``None`` (the default) means
+        :data:`~bayesmith.diagnose.identifiability.DEFAULT_RANK_RTOL`,
+        read from the one place in this package where that number is
+        justified against a measured spectrum.</pre><h3 id="JeffreysPrior.rank_tolerance">JeffreysPrior.rank_tolerance</h3><pre><code>rank_tolerance(self) -&gt; float</code></pre><pre class="docstring">:attr:`rank_rtol`, or identifiability&#x27;s default when ``None``.</pre><h3 id="JeffreysPrior.covers">JeffreysPrior.covers</h3><pre><code>covers(self, name: str) -&gt; bool</code></pre><pre class="docstring">Whether this prior is the prior on latent ``name``.</pre><h3 id="JeffreysPrior.label">JeffreysPrior.label</h3><pre><code>label(self) -&gt; str</code></pre><pre class="docstring">How a message names this block.</pre><h3 id="JeffreysPrior.check_identified">JeffreysPrior.check_identified</h3><pre><code>check_identified(self, graph: Graph, *, at: dict[str, jax.Array] | None=None, caller: str=&#x27;This JeffreysPrior&#x27;) -&gt; IdentifiabilityReport</code></pre><pre class="docstring">Refuse a block whose information matrix is rank-deficient.
+
+``sqrt(det I)`` with ``det I = 0`` is not a density: it is zero
+everywhere the rank is deficient, which is everywhere, so there is
+no prior to normalise and nothing for a sampler to explore. The
+verdict is delegated to
+:func:`~bayesmith.diagnose.identifiability.identifiability`, which
+takes the rank of the column-normalised Jacobian rather than of
+``J^T N^-1 J`` -- the Jacobian&#x27;s own condition number, not its
+square -- and which reports the degenerate direction as a share of
+each latent.
+
+Args:
+    graph: the model this prior is declared against.
+    at: where to ask. Identifiability is a LOCAL property of a
+        nonlinear model; ``None`` means each latent&#x27;s prior centre,
+        which is where a build-time check can ask.
+    caller: what to name in the message.
+
+Returns:
+    The report, when the block is identified.
+
+Raises:
+    GraphError: naming the nullity and the latents each null
+        direction mixes.</pre><h3 id="JeffreysPrior.information">JeffreysPrior.information</h3><pre><code>information(self, graph: Graph, values: dict[str, Any]) -&gt; jax.Array</code></pre><pre class="docstring">The CONDITIONAL information matrix over ``over``, at ``values``.
+
+Every latent not in ``over`` is held at its entry in ``values`` --
+that is what makes this the conditional prior and not the full-space
+one. Rows and columns are in ``over``&#x27;s own order (its rheplicant
+ancestor returned them in sorted order and had to document the
+wart; the graph machinery preserves the caller&#x27;s order, so the wart
+does not port).
+
+The matrix is assembled from the same pieces
+:func:`~bayesmith.exact.fisher.fisher_information` uses -- the
+weighted design and the variance&#x27;s own information, ``2 (dlog
+sigma/dx)^T (dlog sigma/dx)`` for a diagonal noise, spelled on the
+spectrum so a fixed-basis correlated node is covered too -- but
+assembled here rather than through that function, deliberately: its
+centre check compares an already-decided precision against the rule
+at a claimed centre, redundancy that exists because its callers hold
+the noise in two places. Here the graph is the single statement of
+the noise and BOTH the weighting and the curvature are read from it
+at the same ``values``, so there is no second spelling to reconcile
+-- and the check&#x27;s concrete-value comparison would break the jit
+path NUTS differentiates through.
+
+The variance-information term is included whenever any observed node
+claims ``depends_on_prediction`` (the default). It is not
+decoration: it is half of why the radiometer prior for a bare power
+law is exactly flat, the ``(1 + 2 f^2)`` in the module docstring&#x27;s
+algebra. For a node declaring ``depends_on_prediction=False`` the
+term is skipped -- on such a node it is exactly zero, and the claim
+is separately checkable with
+:func:`~bayesmith.exact.gls.check_prediction_dependence`.
+
+Raises:
+    GraphError: if ``over`` names something the graph does not
+        declare, ``values`` misses a block member, or a covered
+        latent declares a proper density of its own (two priors on
+        one quantity).</pre><h3 id="JeffreysPrior.log_density">JeffreysPrior.log_density</h3><pre><code>log_density(self, graph: Graph, values: dict[str, Any]) -&gt; jax.Array</code></pre><pre class="docstring">``0.5 * log det I`` over the block -- the log prior, up to a constant.
+
+Jit-safe and differentiable, which is the whole requirement: NUTS
+differentiates it at every leapfrog step. It therefore cannot refuse
+a rank-deficient block, because a rank is a decision and a traced
+decision is one you cannot branch on -- :meth:`check_identified` is
+that refusal and a consumer calls it once, before sampling. What
+this returns on a degenerate block is the floored value (~-338 on
+the measured fixture): an honest zero rather than the plausible
+finite number ``slogdet`` gives.
+
+Arguments are :meth:`information`&#x27;s.</pre><h3 id="JeffreysPrior.half_log_determinant">JeffreysPrior.half_log_determinant</h3><pre><code>half_log_determinant(self, matrix: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``0.5 * log det`` by eigendecomposition, with the rank floor applied.
+
+Separate from :meth:`log_density` so a caller holding an information
+matrix already -- or a test pinning this against ``slogdet`` and
+``cholesky`` on the same array -- can reach the arithmetic without
+re-differentiating the model.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#identifiability">identifiability</a><a href="#IdentifiabilityReport">IdentifiabilityReport</a><a href="#DEFAULT_RANK_RTOL">DEFAULT_RANK_RTOL</a><a href="#prior_sensitivity">prior_sensitivity</a><a href="#PriorSensitivityReport">PriorSensitivityReport</a><a href="#CRITERION_SHIFT">CRITERION_SHIFT</a><a href="#JeffreysPrior">JeffreysPrior</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

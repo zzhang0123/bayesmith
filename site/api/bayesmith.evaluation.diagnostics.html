@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.evaluation.diagnostics"><title>bayesmith.evaluation.diagnostics · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.evaluation.diagnostics</span></nav>
+<article><h1>bayesmith.evaluation.diagnostics</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Two design-time diagnostics, filed on §0 ruling 7&#x27;s two axes.
+
+:func:`~bayesmith.diagnose.identifiability.identifiability` and
+:func:`~bayesmith.diagnose.sensitivity.prior_sensitivity` already reach a
+verdict, against thresholds that already have an owner:
+:data:`~bayesmith.diagnose.identifiability.DEFAULT_RANK_RTOL` and
+:data:`~bayesmith.diagnose.sensitivity.CRITERION_SHIFT`, each justified where
+it is declared.  What is missing is a way for a gate to READ those verdicts --
+an :class:`~bayesmith.artifacts.reports.EvaluationReport` whose ``subject_ref``
+names the result being judged and whose findings carry the numbers the verdict
+was taken on.
+
+So this module PROJECTS.  It reads ``nullity``, ``participation``, ``worst``,
+``verified``, ``refit_converged`` and ``criterion_std`` off the reports and
+files them.  It compares nothing against a number of its own -- the plan&#x27;s §0.2
+puts it plainly: a second copy of a threshold is how two answers to one
+question come to be written down, and they agree until the day one of them is
+retuned.  ``tests/evaluation/test_diagnostics.py`` asserts that this file
+contains no float literal at all, which is the same rule stated as something
+that can fail.
+
+**Three verdict shapes, and the order between them is load-bearing.**
+
+* APPLICABLE × PASS / FAIL -- the diagnostic ran and decided.
+* APPLICABLE × ABSTAIN -- ``prior_sensitivity`` ran, and its two routes did
+  not verify each other (the refit did not converge, or some element of
+  ``verified`` is False).  A shift no second route confirmed is not evidence
+  either way, so this is checked BEFORE the shift is compared: the measured
+  fixture in the tests has a worst shift of +2.2 sigma with a False in
+  ``verified``, and a projection that looked at the shift first would file a
+  confident FAIL taken from a number nothing cross-checked.
+* UNVERIFIABLE × ABSTAIN -- the diagnostic refused.  §0.10&#x27;s headline case is
+  a float32 ambient precision, which both functions refuse by name and which
+  probe_28 §9 hit on its own first run; the refusal text goes into the finding
+  verbatim, because half of it is the remedy (the GRAPH has to be built inside
+  ``jax.enable_x64(True)``, not only the call).  A caller assembling a gate
+  gets a report rather than an exception, which is §7.3&#x27;s &quot;degrade
+  gracefully&quot; and §2.4&#x27;s &quot;a run failure must not be dressed as a FAIL&quot;.
+
+**Layering.** ``evaluation`` reads ``diagnose``, ``artifacts`` and ``graph``;
+none of them reads back (``tests/test_layering.py``).  Nothing here imports
+arviz, at module scope or otherwise.</pre></details><div class="symbol-index"><a href="#IDENTIFIABILITY">IDENTIFIABILITY</a> <a href="#PRIOR_SENSITIVITY">PRIOR_SENSITIVITY</a> <a href="#identifiability_report">identifiability_report</a> <a href="#prior_sensitivity_report">prior_sensitivity_report</a> <a href="#DEFAULT_RANK_RTOL">DEFAULT_RANK_RTOL</a> <a href="#CRITERION_SHIFT">CRITERION_SHIFT</a></div><section class="api-symbol"><h2 id="IDENTIFIABILITY">IDENTIFIABILITY</h2><p class="source-note">Defined in <code>bayesmith.evaluation.diagnostics</code>, line 91.</p><pre><code>IDENTIFIABILITY = &#x27;identifiability&#x27;</code></pre></section><section class="api-symbol"><h2 id="PRIOR_SENSITIVITY">PRIOR_SENSITIVITY</h2><p class="source-note">Defined in <code>bayesmith.evaluation.diagnostics</code>, line 92.</p><pre><code>PRIOR_SENSITIVITY = &#x27;prior_sensitivity&#x27;</code></pre></section><section class="api-symbol"><h2 id="identifiability_report">identifiability_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.diagnostics</code>, line 154.</p><pre><code>identifiability_report(graph: Graph, subject: PosteriorResult, *, names: Sequence[str] | str | None=None, rtol: float=DEFAULT_RANK_RTOL) -&gt; EvaluationReport</code></pre><pre class="docstring">File :func:`~bayesmith.diagnose.identifiability.identifiability`&#x27;s rank
+verdict as a report about ``subject``.
+
+PASS at nullity 0, FAIL above it; §0.2&#x27;s row, and the whole comparison.
+The rank cut is ``rtol``&#x27;s, decided in ``diagnose`` and passed through so
+that a caller who has read
+:attr:`~bayesmith.diagnose.identifiability.IdentifiabilityReport.weakest_identified`
+can tighten it without this layer acquiring an opinion about the value.
+
+Args:
+    graph: the model ``subject``&#x27;s posterior was taken over. Build it
+        inside ``with jax.enable_x64(True):`` -- see the module docstring.
+    subject: the result this report judges. Only its identity and its
+        fingerprints are read; no draw is touched.
+    names: which latents to analyse, as
+        :func:`~bayesmith.diagnose.identifiability.identifiability` takes
+        them. ``None`` is the joint question over all of them, which is
+        the one a per-block guard cannot ask.
+    rtol: the relative rank tolerance.
+
+Returns:
+    APPLICABLE × PASS when nothing is degenerate, APPLICABLE × FAIL with a
+    ``null_participation`` finding naming the latents the first blind
+    direction mixes, or UNVERIFIABLE × ABSTAIN carrying the diagnostic&#x27;s
+    refusal.</pre></section><section class="api-symbol"><h2 id="prior_sensitivity_report">prior_sensitivity_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.diagnostics</code>, line 264.</p><pre><code>prior_sensitivity_report(graph: Graph, subject: PosteriorResult, *, names: Sequence[str] | str | None=None, at: dict[str, jax.Array] | None=None) -&gt; EvaluationReport</code></pre><pre class="docstring">File :func:`~bayesmith.diagnose.sensitivity.prior_sensitivity`&#x27;s worst
+mode displacement as a report about ``subject``.
+
+§0.2&#x27;s row: PASS while the worst ``|shift_sigma|`` is below
+:data:`~bayesmith.diagnose.sensitivity.CRITERION_SHIFT`, FAIL at or above
+it, ABSTAIN when the closed form and the refit did not verify each other,
+UNVERIFIABLE when the diagnostic refused. The verification is read FIRST;
+the module docstring says why.
+
+Args:
+    graph: the model, built inside ``with jax.enable_x64(True):``.
+    subject: the result this report judges.
+    names: which latents&#x27; priors to analyse; ``None`` means all of them.
+    at: where to expand, as ``prior_sensitivity`` takes it.
+
+Returns:
+    An :class:`~bayesmith.artifacts.reports.EvaluationReport` whose
+    ``worst_shift`` finding carries ``(latent, index, shift)`` against
+    ``CRITERION_SHIFT``, and whose ``prior_width_margin`` finding carries
+    the declared width against the width at which that latent&#x27;s shift
+    would reach it.</pre></section><section class="api-symbol"><h2 id="DEFAULT_RANK_RTOL">DEFAULT_RANK_RTOL</h2><p class="source-note">Defined in <code>bayesmith.diagnose.identifiability</code>, line 154.</p><pre><code>DEFAULT_RANK_RTOL: float = 1e-08</code></pre></section><section class="api-symbol"><h2 id="CRITERION_SHIFT">CRITERION_SHIFT</h2><p class="source-note">Defined in <code>bayesmith.diagnose.sensitivity</code>, line 128.</p><pre><code>CRITERION_SHIFT: float = 0.1</code></pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#IDENTIFIABILITY">IDENTIFIABILITY</a><a href="#PRIOR_SENSITIVITY">PRIOR_SENSITIVITY</a><a href="#identifiability_report">identifiability_report</a><a href="#prior_sensitivity_report">prior_sensitivity_report</a><a href="#DEFAULT_RANK_RTOL">DEFAULT_RANK_RTOL</a><a href="#CRITERION_SHIFT">CRITERION_SHIFT</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

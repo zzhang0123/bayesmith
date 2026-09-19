@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.graph.graph"><title>bayesmith.graph.graph · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.graph.graph</span></nav>
+<article><h1>bayesmith.graph.graph</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The graph container, and the structural rules it refuses to violate.
+
+Declaration order **is** topological order. A node may only name parents
+already declared, which is automatic when the graph comes from ``trace`` --
+you cannot pass a ``NodeRef`` you have not created -- and is checked here so
+that a hand-built graph obeys the same rule.</pre></details><div class="symbol-index"><a href="#Plate">Plate</a> <a href="#Graph">Graph</a></div><section class="api-symbol"><h2 id="Plate">Plate</h2><p class="source-note">Defined in <code>bayesmith.graph.graph</code>, line 21.</p><pre><code>class Plate(eqx.Module)
+name: str = eqx.field(static=True)
+size: int = eqx.field(static=True)</code></pre><pre class="docstring">A named repetition axis. ``size`` is fixed at construction.</pre></section><section class="api-symbol"><h2 id="Graph">Graph</h2><p class="source-note">Defined in <code>bayesmith.graph.graph</code>, line 28.</p><pre><code>class Graph(eqx.Module)
+nodes: tuple[Node, ...]
+plates: tuple[Plate, ...]
+joint_prior: Any = None
+evidence_terms: tuple[Any, ...] = ()</code></pre><pre class="docstring">A static DAG of nodes in topological order, plus its plates.
+
+Attributes:
+    nodes: every node, in topological order.
+    plates: the repetition axes the nodes may live inside.
+    joint_prior: a density over SEVERAL latents at once, or ``None``. A
+        latent&#x27;s own ``dist_fn`` says what one quantity is a priori and is
+        the only per-latent prior the rest of the package needs; a Jeffreys
+        prior is not of that shape -- it is one density over a named block,
+        a function of the forward model and the noise rather than of the
+        latents alone. Declaring it HERE is what lets
+        :func:`~bayesmith.graph.evaluate.log_joint` and
+        :func:`~bayesmith.bridge.numpyro_bridge.to_numpyro` both find it,
+        so the two scans of one graph cannot target different posteriors.
+
+        Structural only at this layer: this module is the core and imports
+        nothing from ``diagnose``, so what is checked here is that the
+        object answers ``over`` and ``log_density`` and that its block
+        names latents this graph declares. Everything else --
+        identifiability, the double-prior refusal -- belongs to
+        :class:`~bayesmith.diagnose.priors.JeffreysPrior` and fires where
+        it is evaluated.
+    evidence_terms: likelihood factors produced by graph reduction. Each
+        answers ``over`` and ``log_density(graph, values)``. Unlike a
+        ``joint_prior``, these terms require the retained latents to keep
+        their own priors, so the two blocks must be disjoint.</pre><h3 id="Graph.names">Graph.names</h3><pre><code>names(self) -&gt; tuple[str, ...]</code></pre><pre class="docstring">Every node name, in topological order.</pre><h3 id="Graph.latents">Graph.latents</h3><pre><code>latents(self) -&gt; tuple[str, ...]</code></pre><pre class="docstring">Names of the probabilistic nodes that are inferred.</pre><h3 id="Graph.observed">Graph.observed</h3><pre><code>observed(self) -&gt; tuple[str, ...]</code></pre><pre class="docstring">Names of the probabilistic nodes that are conditioned on.</pre><h3 id="Graph.node">Graph.node</h3><pre><code>node(self, name: str) -&gt; Node</code></pre><pre class="docstring">The node called ``name``.
+
+Raises:
+    GraphError: if no node has that name.</pre><h3 id="Graph.plate_size">Graph.plate_size</h3><pre><code>plate_size(self, name: str) -&gt; int</code></pre><pre class="docstring">The declared size of plate ``name``.
+
+Raises:
+    GraphError: if no plate has that name.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#Plate">Plate</a><a href="#Graph">Graph</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

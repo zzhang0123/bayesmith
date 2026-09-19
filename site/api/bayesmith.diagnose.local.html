@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.diagnose.local"><title>bayesmith.diagnose.local · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.diagnose.local</span></nav>
+<article><h1>bayesmith.diagnose.local</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The local view: a graph linearized at a point, in flat coordinates.
+
+Every diagnostic in this package asks a question about the model *here* -- the
+rank of the Jacobian at these values, the curvature at this mode, the Fisher
+matrix of this block at this point. None of that is an affine CLAIM about the
+model, which is why nothing in this module goes near ``linear_in`` or
+:func:`~bayesmith.exact.linearity.check_linearity`: a local linearization of a
+nonlinear model is exactly what a diagnostic wants and exactly what a
+conjugate solve must refuse.
+
+What it shares with the exact layer it shares by import, not by respelling.
+The forward map is :func:`~bayesmith.exact.block.isolate` -- the one forward
+scan in this package -- and the handle built here is a real
+:class:`~bayesmith.exact.block.LinearBlock`, so
+:func:`~bayesmith.exact.fisher.dense_operator` and the weighted-design
+machinery consume it unchanged. The one honest difference from
+``unchecked_operator`` is the linearization point: there the tangent is taken
+at the domain&#x27;s zero, because an affine map has one tangent everywhere; here
+it is taken at the caller&#x27;s values, because a nonlinear model has a different
+Jacobian at every point and the diagnostic is about *this* one.
+
+**The local block carries no prior BY DEFAULT.** Its
+``prior_mean``/``prior_std`` are empty dicts rather than numbers read off the
+latents, because the diagnostics built on it either refuse non-Gaussian priors
+themselves (sensitivity) or must not see a prior at all (a Jeffreys prior
+built from a matrix containing prior curvature would sit inside its own
+definition). Passing one to ``fisher_information(include_prior=True)``
+therefore fails loudly on the empty dict instead of silently folding in a
+curvature nobody declared. Every one of those callers reads unchanged.
+
+``local_block(..., priors=True)`` is the migration plan&#x27;s **G15**, added
+2026-08-27, and it is a THIRD constructor rather than a change of mind about
+this one. A caller who wants a nonlinear model&#x27;s posterior precision at a
+point needs the Jacobian from here and the prior from
+``unchecked_operator`` -- and neither had both, because the latter
+linearizes at the domain&#x27;s zero, which is the same tangent everywhere only
+when the map is affine. The default keeps every sentence above true; the
+keyword says at the call site that the caller has asked.
+
+**Precision discipline.** Nothing here touches ``jax.config`` -- the package
+rule. Run the whole thing, graph construction included, inside
+``with jax.enable_x64(True):``; the diagnostics check the dtype of what they
+computed and refuse float32 by name, because their verdicts live at 1e-17 of
+the largest singular value and single precision reports a degenerate model as
+identified (measured: the motivating model&#x27;s null direction surfaces at
+3.1e-8 in float32, above the 1e-8 rank tolerance, against 7.5e-17 in double).</pre></details><div class="symbol-index"><a href="#refuse_ambient_float32">refuse_ambient_float32</a> <a href="#resolve_names">resolve_names</a> <a href="#latent_values">latent_values</a> <a href="#check_differentiable">check_differentiable</a> <a href="#check_observed_have_locs">check_observed_have_locs</a> <a href="#flat_view">flat_view</a> <a href="#local_block">local_block</a> <a href="#unflatten">unflatten</a> <a href="#refuse_single_precision">refuse_single_precision</a></div><section class="api-symbol"><h2 id="refuse_ambient_float32">refuse_ambient_float32</h2><p class="source-note">Defined in <code>bayesmith.diagnose.local</code>, line 319.</p><pre><code>refuse_ambient_float32(*, doing: str) -&gt; None</code></pre><pre class="docstring">Refuse before any tracing when the ambient precision is float32.
+
+The package rule is that ``src/`` never opens an x64 context; it refuses
+and tells the caller, the same way
+:func:`~bayesmith.exact.fisher.parameter_covariance` does. Judged by
+OUTCOME rather than by reading the config flag -- ``jnp.result_type
+(float)`` is what the tracing below will actually build with, whether the
+caller used the context manager, the process-global switch or neither.
+
+This must run BEFORE the linearization, not after: a graph whose
+constants were built inside x64, called from outside it, hands
+``jax.linearize`` a float64 primal whose tangents the ambient dtype
+truncates, and the failure then arrives as a bare shape/dtype
+inconsistency from inside JAX naming neither the cause nor the remedy.
+
+**Why this is not replaced by a float32 tolerance, measured over a family
+rather than argued.** The obvious alternative is to keep the diagnostic and
+move the rank cut with the dtype. ``docs/probes/probe_13_d9_precision_
+policy.py`` sweeps a two-component power law whose conditioning is dialled
+across ten decades and asks, of every candidate cut from ``1e-8`` up to
+``sqrt(eps)`` in float32, whether it reproduces float64&#x27;s verdicts. None
+does. The reason is not that the cut is hard to place: float64&#x27;s smallest
+singular value tracks the model (5.1e-6 down to 5.2e-16) while float32&#x27;s
+sits on its own roundoff floor near 1e-7 from the second decade onward,
+non-monotonic, because it is noise. Two models float64 separates by two
+decades come back indistinguishable, so no cut can follow -- derived,
+tuned, or chosen per model. ``tests/diagnose/test_precision_policy.py``
+keeps that runnable.</pre></section><section class="api-symbol"><h2 id="resolve_names">resolve_names</h2><p class="source-note">Defined in <code>bayesmith.diagnose.local</code>, line 63.</p><pre><code>resolve_names(graph: Graph, names: Sequence[str] | str | None) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The latents to differentiate with respect to, in the caller&#x27;s order.
+
+``None`` means all of them, in declaration order -- the joint question.
+A bare string is one name, not an iterable of characters: without the
+normalisation ``names=&quot;gain&quot;`` iterates into ``(&#x27;g&#x27;, &#x27;a&#x27;, &#x27;i&#x27;, &#x27;n&#x27;)`` and
+comes back as four undeclared latents.</pre></section><section class="api-symbol"><h2 id="latent_values">latent_values</h2><p class="source-note">Defined in <code>bayesmith.diagnose.local</code>, line 96.</p><pre><code>latent_values(graph: Graph, at: dict[str, jax.Array] | None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Every latent&#x27;s value: the prior&#x27;s centre, overridden by ``at``.
+
+The graph-side spelling of &quot;the declared initial values&quot;: each latent sits
+at the centre of its own prior, read the same way the dispatch layer reads
+it (:func:`~bayesmith.dispatch.classify.prior_environment`), so a
+diagnostic and the plan that motivated it are anchored at the same point.
+
+Overrides are broadcast to the latent&#x27;s own shape rather than trusted: a
+scalar handed to a plated latent would otherwise shrink the flat parameter
+vector, and every count in the report would be about a smaller model than
+the graph declares.
+
+Raises:
+    GraphError: if ``at`` names something that is not a latent, or a value
+        does not broadcast to its latent&#x27;s shape.</pre></section><section class="api-symbol"><h2 id="check_differentiable">check_differentiable</h2><p class="source-note">Defined in <code>bayesmith.diagnose.local</code>, line 140.</p><pre><code>check_differentiable(graph: Graph, names: Sequence[str], values: dict[str, jax.Array]) -&gt; None</code></pre><pre class="docstring">Every SELECTED latent must carry a real-valued derivative.
+
+Only the selected ones: a complex or integer latent held fixed outside
+the selection is no obstacle to asking about the rest.</pre></section><section class="api-symbol"><h2 id="check_observed_have_locs">check_observed_have_locs</h2><p class="source-note">Defined in <code>bayesmith.diagnose.local</code>, line 177.</p><pre><code>check_observed_have_locs(graph: Graph, values: dict[str, jax.Array]) -&gt; None</code></pre><pre class="docstring">Every observed node must carry a ``loc`` for the prediction to be read.
+
+The diagnostics read &quot;the prediction&quot; as the observed nodes&#x27;
+distributional location, the same seam :func:`~bayesmith.exact.block.
+isolate` reads. A Poisson observation has a rate and no ``loc``; asking
+for its Jacobian through this seam would die inside a trace with a bare
+``AttributeError`` naming neither the node nor the remedy.</pre></section><section class="api-symbol"><h2 id="flat_view">flat_view</h2><p class="source-note">Defined in <code>bayesmith.diagnose.local</code>, line 206.</p><pre><code>flat_view(values: dict[str, jax.Array], names: Sequence[str]) -&gt; tuple[jax.Array, tuple[tuple[int, ...], ...], tuple[tuple[int, int], ...]]</code></pre><pre class="docstring">``(x0, shapes, spans)`` for the selected latents, in the GIVEN order.
+
+Built by hand rather than with ``ravel_pytree``, which flattens a dict in
+SORTED key order. Sorting is fine as long as nothing else disagrees with
+it, and catastrophic as soon as something does: a report that flattened
+one way and named the other would attribute a degeneracy to the wrong
+latent with every shape still checking out.</pre></section><section class="api-symbol"><h2 id="local_block">local_block</h2><p class="source-note">Defined in <code>bayesmith.diagnose.local</code>, line 227.</p><pre><code>local_block(graph: Graph, names: Sequence[str], values: dict[str, jax.Array], *, priors: bool=False) -&gt; LinearBlock</code></pre><pre class="docstring">A :class:`LinearBlock` whose ``forward`` is the tangent AT ``values``.
+
+See the module docstring for how this differs from
+:func:`~bayesmith.exact.block.unchecked_operator`. ``data`` and the
+codomain layout are the exact layer&#x27;s own, so
+:func:`~bayesmith.exact.fisher.dense_operator` reads this handle
+unchanged.
+
+Args:
+    graph: the model.
+    names: the latents to linearize with respect to.
+    values: where -- every latent, the block&#x27;s members included.
+    priors: whether to carry each member&#x27;s DECLARED Gaussian prior in
+        ``prior_mean``/``prior_std``. Default ``False``, which is the
+        behaviour this function has always had and which the module
+        docstring argues for: the diagnostics built on it either refuse
+        non-Gaussian priors themselves or must not see a prior at all,
+        and an empty dict makes
+        ``fisher_information(include_prior=True)`` fail loudly instead of
+        folding in a curvature nobody asked for.
+
+        ``True`` is the migration plan&#x27;s **G15**, and it is the third
+        constructor that did not exist. The other two each had half of it:
+        this one takes the tangent at the CALLER&#x27;s point, which is the
+        right Jacobian for a nonlinear model and the wrong one to attach a
+        prior to by default; ``unchecked_operator`` carries the prior but
+        linearizes at the domain&#x27;s ZERO, because an affine map has one
+        tangent everywhere -- and for a power law that is simply a
+        different matrix. Neither is wrong; there was no third.
+
+        The priors are read through
+        ``bayesmith.exact.block._env_before``, which is the one place in
+        this package that turns a latent&#x27;s declaration into
+        ``(shape, dtype, prior_mean, prior_std)``. That is deliberate
+        twice over: there is no second spelling to drift, and its
+        ``check_gaussian`` comes along, so a member whose prior has no
+        quadratic form is refused HERE by name rather than contributing a
+        silent zero to a posterior precision.
+
+Raises:
+    NotGaussian: with ``priors=True``, if a member&#x27;s prior is not a
+        diagonal Gaussian. There is no such refusal with ``priors=False``,
+        because there is then nothing being read off it.</pre></section><section class="api-symbol"><h2 id="unflatten">unflatten</h2><p class="source-note">Defined in <code>bayesmith.diagnose.local</code>, line 306.</p><pre><code>unflatten(x: jax.Array, names: Sequence[str], shapes: Sequence[tuple[int, ...]], spans: Sequence[tuple[int, int]]) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">The flat vector back as ``{name: array}``, in the selection&#x27;s layout.</pre></section><section class="api-symbol"><h2 id="refuse_single_precision">refuse_single_precision</h2><p class="source-note">Defined in <code>bayesmith.diagnose.local</code>, line 369.</p><pre><code>refuse_single_precision(array: jax.Array, *, doing: str) -&gt; None</code></pre><pre class="docstring">Refuse a float32 result from a graph that pins its own arithmetic.
+
+:func:`refuse_ambient_float32` has already run by the time this is
+reached, so a non-float64 array here means the GRAPH truncates -- an
+``astype`` in a ``det`` fn, a float32 ``const``, float32 data on an
+observed node -- and the cast is what to remove.
+
+What neither guard can catch is stated rather than papered over: a model
+that rounds an INTERMEDIATE to float32 and promotes back carries an
+honest float64 dtype and roundoff at 1e-7 anyway. Nothing cheap
+distinguishes that; if a model does it, its weakest identified direction
+sits near 1e-7 and should not be believed.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#refuse_ambient_float32">refuse_ambient_float32</a><a href="#resolve_names">resolve_names</a><a href="#latent_values">latent_values</a><a href="#check_differentiable">check_differentiable</a><a href="#check_observed_have_locs">check_observed_have_locs</a><a href="#flat_view">flat_view</a><a href="#local_block">local_block</a><a href="#unflatten">unflatten</a><a href="#refuse_single_precision">refuse_single_precision</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

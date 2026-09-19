@@ -1,0 +1,15 @@
+<p class="lede">Generate a new observation, preserve its relationship to the posterior, then ask which discrepancies the model can reproduce.</p>
+<h2 id="prediction">Posterior prediction</h2><p>The predictive section of <a href="tasks.html#run">five_tasks.py</a> passes a posterior reference into <code>PredictiveTask</code> and the posterior object into <code>execute_task</code>. <code>conditioned_sites</code> names the observations defining the fit; <code>replicated_sites</code> requests newly generated observations; <code>latent_sites</code> selects retained latent draws.</p><p>An observed-data replay is not a replicated observation. Inspect <code>replicated_draws</code> for generated data and <code>pointwise_log_density</code> for scores. The latter carries an observation-unit/grouping contract: do not reinterpret correlated or vector events as independent measurements.</p>
+<h2 id="simulation">Choose the source of parameters</h2><table><tr><th>Parameter source</th><th>Meaning</th></tr><tr><td><code>PRIOR</code></td><td>Sample the model's declared priors, then simulate downstream observations.</td></tr><tr><td><code>FIXED</code></td><td>Supply named fixed values and generate observations at those settings.</td></tr><tr><td><code>POSTERIOR_RESULT</code></td><td>Use the referenced posterior, checked against its conditioning and model fingerprints.</td></tr></table><p>Prior simulation samples each distribution the graph declares. Fixed and posterior-sourced simulation reuse the current predictive primitives. Their supported domains therefore differ; successful prior simulation does not imply that posterior replication is supported.</p>
+<h2 id="check">Evaluate a finished posterior</h2><pre><code>import jax
+from five_tasks import main
+from bayesmith.evaluation import check_posterior
+from bayesmith.artifacts import ComputeBudget
+
+graph, model_ref, posterior, predictive, evidence = main()
+
+gate = check_posterior(
+    graph, posterior, key=jax.random.key(90),
+    budget=ComputeBudget(draws=512), model_ref=model_ref,
+)</code></pre><p>This continuation uses the graph, model reference and posterior returned by <code>five_tasks.main()</code>. It requests the checks that apply, not a guaranteed PASS. Review each report's applicability, conclusion and grounds. Floors and optional inputs may produce an unverifiable report.</p>
+<h2 id="boundary">Current predictive boundary</h2><div class="warning"><p>Replicated prediction currently admits diagonal-Gaussian observed nodes. Correlated or non-Gaussian observation laws are refused as <code>predictive_noise_unsupported</code>; posterior inference may still be available on the same graph.</p></div><p>See <a href="diagnostics.html">diagnostics and model checks</a> for the interpretation of PASS, FAIL and ABSTAIN.</p>

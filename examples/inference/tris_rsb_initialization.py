@@ -22,8 +22,9 @@ def fitting_problem(graph, inputs):
     end = 9 + survey_count
 
     def decode(x):
-        values = {"amplitude": x[:3], "beta": x[3:6], "zero_standard": x[6:8],
-                  "calibration_standard": x[9:end]}
+        values = {"amplitude": x[:3], "beta": x[3:6], "zero_standard": x[6:8]}
+        if survey_count:
+            values["calibration_standard"] = x[9:end]
         background = 0.0
         if include_rsb:
             values.update(rsb_amplitude=x[end], rsb_beta=x[end + 1])
@@ -31,13 +32,18 @@ def fitting_problem(graph, inputs):
         values["haslam_monopole_K"] = x[8] - minimum + background
         return values
 
+    external_cholesky = jnp.linalg.cholesky(inputs[11]) if inputs[11].ndim == 2 else None
+
     def residual(x):
         values = decode(x)
         env = evaluate(graph, values)
+        external_residual = inputs[10] - env["external_background_mean"]
+        external_white = (external_residual / inputs[11] if external_cholesky is None else
+                          jax.scipy.linalg.solve_triangular(external_cholesky, external_residual, lower=True))
         return jnp.concatenate((
             inputs[7] - env["whitened_map_mean"],
-            (inputs[10] - env["external_background_mean"]) / inputs[11],
-            values["zero_standard"], values["calibration_standard"],
+            external_white,
+            values["zero_standard"], values.get("calibration_standard", jnp.zeros(0)),
             jnp.atleast_1d(values["haslam_monopole_K"] / 3.0),
         ))
 

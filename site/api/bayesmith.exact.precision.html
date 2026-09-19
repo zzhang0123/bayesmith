@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.precision"><title>bayesmith.exact.precision · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.precision</span></nav>
+<article><h1>bayesmith.exact.precision</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">``N^-1`` as two operations, so a covariance need not be per-sample diagonal.
+
+Every consumer of noise in this package -- the normal operator&#x27;s quadratic
+form, the Gaussian log-density, the Fisher matrix, the evidence layer&#x27;s
+whitening -- reads the same ``1 / sigma**2`` weight today, and so they share
+one assumption: that samples are independent. For a real radiometer that is
+the most conspicuous gap in the physics, ahead of any engine choice. There is
+no path for 1/f gain drift, for atmospheric correlation, or for channel-to-
+channel covariance.
+
+**The generalisation is two operations rather than a sigma**::
+
+    apply(residual)     -&gt;  N^-1 r
+    log_normalizer()    -&gt;  log det (2 pi N)
+
+Diagonal degenerates to per-sample division and ``sum(log 2 pi sigma**2)``,
+which is the whole of the acceptance criterion: the existing behaviour must
+come back numerically, not merely in spirit.
+
+**One object, three consumers.** A :class:`Precision` is built AT a prediction
+and then handed unchanged to the density, the solve and the information. That
+is the load-bearing discipline, not a convenience: the two halves of a
+Gaussian -- the quadratic form and the log-determinant -- disagreeing about
+which covariance they describe is exactly defect B1, where one engine dropped
+``sum log sigma`` and another did not. Two objects can drift; one cannot.
+
+**On FFT and Toeplitz.** A CIRCULANT matrix is exactly diagonalised by the
+DFT; a Toeplitz matrix is not. Measured on a symmetric 8-point kernel, the
+FFT of a circulant&#x27;s first column reproduces its eigenvalues, its inverse
+applied to a vector, and its log-determinant, all to roundoff -- while the
+same construction on the Toeplitz matrix built from the same kernel does not
+reproduce the eigenvalues at all. So the stationary implementation here is
+:class:`CirculantPrecision`, named for what it is. A genuinely non-periodic
+Toeplitz covariance is a different object, and treating it by FFT is an
+approximation that would have to declare itself; it is not offered rather
+than being offered under a name that implies exactness.
+
+Circulant is also the right model for the physics that motivated this:
+1/f drift and atmospheric correlation are stationary, and a periodic
+boundary is the honest statement of &quot;stationary on this stretch&quot;.
+
+**An unobserved sample is the third thing a covariance can say, and it is a
+DECLARATION rather than a value.** ``sigma = inf`` is how upstream spells a
+flagged sample, and the four operations above disagree about what it means to
+them -- ``apply`` and ``whiten`` give zero, ``log_normalizer`` gives ``+inf``,
+correctly, because infinite variance has no density. Reading that ``+inf`` as
+``0`` is the statement &quot;this sample was not observed&quot;, which is a modelling
+concept the interface does not have. So the node carries the mask
+(:attr:`~bayesmith.graph.nodes.Probabilistic.observed_mask`),
+:class:`MaskedPrecision` is what :func:`~bayesmith.exact.gaussian.precision_at`
+builds from it, and :class:`DiagonalPrecision` keeps a normaliser that is never
+silently wrong. Masking is DIAGONAL and that is measured, not assumed --
+:mod:`bayesmith.marginal.compress` carries the number.
+
+**Nothing in this module is exported, and that is the design rather than an
+oversight.** :func:`~bayesmith.exact.gaussian.precision_at` is the seam a
+caller touches: it builds the object from the graph at a point, and the three
+consumers above take it from there. A user declares correlated noise by
+declaring the DISTRIBUTION -- numpyro&#x27;s ``CirculantNormal`` is the case B9 was
+built for -- not by constructing a :class:`CirculantPrecision` and handing it
+in. So the protocol and its implementations are machinery, and
+``bayesmith.exact.__all__`` says so by leaving them out.
+
+Written down because omission is a poor way to say anything. An absent export
+is indistinguishable from a forgotten one, and this one was read as forgotten
+by a reviewer who had no way to tell -- the same shape as every other entry in
+this repository that exists only as a gap. If a caller ever does need to
+implement :class:`Precision` themselves, a Toeplitz kernel being the obvious
+candidate and the paragraph above saying why it is not this class, then the
+protocol becomes public API and this is the paragraph to revisit, on purpose.</pre></details><div class="symbol-index"><a href="#Precision">Precision</a> <a href="#quadratic">quadratic</a> <a href="#log_density">log_density</a> <a href="#DiagonalPrecision">DiagonalPrecision</a> <a href="#CirculantPrecision">CirculantPrecision</a> <a href="#MaskedPrecision">MaskedPrecision</a> <a href="#masked">masked</a> <a href="#check_positive_definite">check_positive_definite</a> <a href="#PrecisionMismatch">PrecisionMismatch</a> <a href="#check_precision">check_precision</a> <a href="#per_sample_sigma">per_sample_sigma</a> <a href="#diagonal_from">diagonal_from</a> <a href="#dense">dense</a></div><section class="api-symbol"><h2 id="Precision">Precision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 84.</p><pre><code>class Precision(Protocol)</code></pre><pre class="docstring">``N^-1``, as the two things every consumer of a covariance needs.
+
+Deliberately not ``sigma``: a sigma is only a covariance when the samples
+are independent, and the whole point here is that they need not be.</pre><h3 id="Precision.apply">Precision.apply</h3><pre><code>apply(self, residual: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``N^-1 r``, shaped like ``r``.</pre><h3 id="Precision.log_normalizer">Precision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><pre class="docstring">``log det (2 pi N)`` -- the Gaussian&#x27;s normalisation, a scalar.</pre><h3 id="Precision.log_spectrum">Precision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><pre class="docstring">``log lambda_k`` -- the log of ``N``&#x27;s eigenvalues, as a VECTOR.
+
+**The fourth operation, and it is what the Fisher matrix needs.** When
+the covariance depends on the parameters, the information carries a
+second term ``1/2 tr(N^-1 d_a N N^-1 d_b N)``, and whenever ``N``&#x27;s
+eigenBASIS does not move with the parameters that collapses onto the
+spectrum::
+
+    1/2 sum_k d_a log lambda_k  d_b log lambda_k
+
+Both implementations here have a fixed basis -- ``I`` for a diagonal,
+the DFT for a circulant -- so the identity covers both, and the
+diagonal rule ``exact/fisher.py`` shipped,
+``2 (dlog sigma/dx)^T (dlog sigma/dx)``, is that at
+``lambda_i = sigma_i**2``. Derived in
+``docs/derivations/variance_information_spectral.wls`` and measured
+against a dense finite-difference Fisher matrix in
+``docs/probes/probe_9_correlated_variance_information.py``.
+
+It is the VECTOR and not its sum, which is why
+:meth:`log_normalizer` cannot supply it: a sum of logs cannot give
+back the sum of their products. The two are related --
+``log_normalizer() == n log 2 pi + sum(log_spectrum())`` -- and
+``test_log_normalizer_is_the_log_spectrums_own_sum`` pins that, since
+nothing else renders the two side by side.
+
+A covariance whose eigenbasis DOES move with the parameters (say
+``D(theta) C D(theta)`` with a per-sample ``D``) is not covered by the
+identity, and is also not something either implementation here can
+represent -- measured: exact 2.7847 against spectral 2.7595 on such a
+case.</pre><h3 id="Precision.whiten">Precision.whiten</h3><pre><code>whiten(self, omega: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``N^-1/2 omega`` -- a standard normal draw given this covariance.
+
+**The interface needs three operations, not the two B9 specifies.**
+``gcr_sample`` draws ``omega ~ N(0, I)`` and forms ``sqrt(w) * omega``
+with ``w = 1/sigma**2``, which is exactly ``N^-1/2 omega``; it cannot
+be built from :meth:`apply` and :meth:`log_normalizer`. The spec
+acknowledges the operation for the evidence layer -- &quot;the whitening
+row becomes ``L^-1 r``&quot; -- without carrying it into the interface that
+layer would call.
+
+The defining property, and what the tests assert rather than any
+particular square root: applying it twice is :meth:`apply`, because
+``N^-1/2 N^-1/2 = N^-1``. Any square root satisfying that is a legal
+implementation, which is why this does not promise a Cholesky.</pre></section><section class="api-symbol"><h2 id="quadratic">quadratic</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 153.</p><pre><code>quadratic(precision: Precision, residual: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``r^T N^-1 r``.
+
+Derived from :meth:`Precision.apply` rather than being a third protocol
+method, so an implementation cannot make the quadratic form and the
+operator disagree -- which is the same failure this module exists to
+prevent one level up.
+
+**A sample whose weight is exactly zero contributes exactly zero, whatever
+its residual.** That is what zero weight means, and without saying it here
+the derivation above would be broken by the one implementation that has
+zero weights: ``apply`` returns ``0`` at a
+:class:`MaskedPrecision`&#x27;s unobserved samples, but the multiplication is
+HERE, and ``nan * 0`` is ``nan``. A flagged datum is routinely ``nan`` --
+that is what an unrecorded sample looks like in a file -- so a masked model
+whose solve was clean would still hand back a ``nan`` log-density. Measured:
+``[1, 2, nan, 3]`` against a mask ``[T, T, F, T]`` gave ``apply`` a clean
+``[4, 8, 0, 12]`` and ``quadratic`` a ``nan``.
+
+The guard is on the WEIGHT and not on the residual, which is the whole
+distinction: a non-zero weight times a ``nan`` is still ``nan``, so a
+poisoned datum that WAS observed stays loud. Mapping that one to zero would
+mean &quot;unobserved&quot;, which is a claim only the model may make -- the same
+argument the sibling package makes for keeping two weight formulas that
+disagree on ``nan``. For every finite residual this is bitwise the
+expression it replaces, since ``r * 0`` is exactly ``0``.</pre></section><section class="api-symbol"><h2 id="log_density">log_density</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 184.</p><pre><code>log_density(precision: Precision, residual: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``-1/2 [ r^T N^-1 r + log det 2 pi N ]``.
+
+Both halves from ONE object. A caller assembling them from two would be
+free to take them at different covariances, which is defect B1.</pre></section><section class="api-symbol"><h2 id="DiagonalPrecision">DiagonalPrecision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 193.</p><pre><code>class DiagonalPrecision(eqx.Module)
+sigma: jax.Array</code></pre><pre class="docstring">Independent samples: the behaviour this package had before.
+
+The degenerate case, and the cross-check for everything else. Its numbers
+must be the old numbers, which is why
+``tests/exact/test_precision.py`` compares it against the literal
+``1 / sigma**2`` and ``sum(log 2 pi sigma**2)`` expressions rather than
+against another implementation of itself.</pre><h3 id="DiagonalPrecision.apply">DiagonalPrecision.apply</h3><pre><code>apply(self, residual: jax.Array) -&gt; jax.Array</code></pre><h3 id="DiagonalPrecision.log_normalizer_terms">DiagonalPrecision.log_normalizer_terms</h3><pre><code>log_normalizer_terms(self) -&gt; jax.Array</code></pre><pre class="docstring">``log 2 pi sigma_i**2`` per sample -- the summands, as a VECTOR.
+
+Beyond the protocol, and only :class:`MaskedPrecision` reads it: a
+subset determinant is a subset SUM, and a sum of logs cannot be
+un-summed. It exists so the masked normaliser is the same expression
+as the full one with terms dropped, rather than a second spelling of
+it that can drift -- ``test_the_masked_normaliser_is_the_kept_terms``
+pins that the two agree bitwise.</pre><h3 id="DiagonalPrecision.log_normalizer">DiagonalPrecision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><h3 id="DiagonalPrecision.log_spectrum">DiagonalPrecision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><h3 id="DiagonalPrecision.whiten">DiagonalPrecision.whiten</h3><pre><code>whiten(self, omega: jax.Array) -&gt; jax.Array</code></pre></section><section class="api-symbol"><h2 id="CirculantPrecision">CirculantPrecision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 233.</p><pre><code>class CirculantPrecision(eqx.Module)
+first_column: jax.Array</code></pre><pre class="docstring">A stationary covariance with a periodic boundary, exactly by FFT.
+
+``first_column`` is the covariance&#x27;s first column, i.e. the
+autocovariance at lags ``0, 1, ..., n-1`` wrapped periodically, so it must
+be symmetric under ``k -&gt; n - k`` for the matrix to be. The eigenvalues
+are ``fft(first_column)``, real for such a column.
+
+**A BATCHED kernel is supported and is how a plate arrives.** Shape
+``(batch, n)`` is ``batch`` independent circulants, one per row -- every
+operation here works along the LAST axis, which is where the FFT belongs,
+and the whole thing describes a block-diagonal covariance over
+``batch * n`` samples. Checked against a dense block-diagonal reference.
+
+Attributes:
+    first_column: the autocovariance kernel, length ``n``.
+
+**Construction does not validate.** Positive-definiteness is checked by
+:func:`check_positive_definite`, a separate eager call, and the split is
+not stylistic: validating in ``__check_init__`` requires reading the
+smallest eigenvalue as a Python float, which concretises. Measured, that
+made this class raise ``ConcretizationTypeError`` under ``jit``,
+``linearize`` AND ``grad`` -- so it could not be built anywhere its kernel
+was traced, which is the entire solve path. ``gaussian.py`` already splits
+``gaussian_parts`` from ``check_gaussian`` for exactly this reason, and
+this follows it: validate once, eagerly, at the boundary; trace freely
+afterwards.</pre><h3 id="CirculantPrecision.eigenvalues">CirculantPrecision.eigenvalues</h3><pre><code>eigenvalues(self) -&gt; jax.Array</code></pre><pre class="docstring">``fft(first_column)``, real. The covariance&#x27;s spectrum.</pre><h3 id="CirculantPrecision.apply">CirculantPrecision.apply</h3><pre><code>apply(self, residual: jax.Array) -&gt; jax.Array</code></pre><h3 id="CirculantPrecision.log_normalizer">CirculantPrecision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><h3 id="CirculantPrecision.log_spectrum">CirculantPrecision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><h3 id="CirculantPrecision.whiten">CirculantPrecision.whiten</h3><pre><code>whiten(self, omega: jax.Array) -&gt; jax.Array</code></pre></section><section class="api-symbol"><h2 id="MaskedPrecision">MaskedPrecision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 295.</p><pre><code>class MaskedPrecision(eqx.Module)
+base: DiagonalPrecision
+seen: jax.Array</code></pre><pre class="docstring">A per-sample covariance in which some samples were not taken at all.
+
+``sigma = inf`` is how an unobserved sample arrives from upstream --
+rheplicant&#x27;s ``FlaggedNoise`` spells RFI that way, and
+:func:`~bayesmith.marginal.compress.observed_mask` already reads it. What
+this class adds is the exact path: a masked sample must contribute
+**nothing** to the quadratic form, nothing to the normaliser, nothing to
+the information, and nothing to a draw.
+
+**Why the mask is a separate object rather than an ``inf`` inside
+:class:`DiagonalPrecision`.** ``inf`` is a value, and the four operations
+disagree about what it means to them: ``apply`` and ``whiten`` happen to
+give zero, while ``log_normalizer`` gives ``+inf`` -- correctly, because a
+sample with infinite variance has no density. Reading that ``+inf`` as
+``0`` is a MODELLING statement (&quot;this sample was not observed&quot;), not an
+arithmetic one, and :mod:`bayesmith.marginal.compress` says so at length.
+Making ``DiagonalPrecision`` mask silently would delete the only guard
+that distinguishes &quot;the sigma expression produced an infinity&quot; from &quot;the
+sample was flagged&quot;, and those need different fixes.
+
+So the mask is carried, and every operation reads it:
+
+==================  =================================================
+operation           at a masked sample
+==================  =================================================
+``apply``           ``0`` -- the sample enters no normal equation
+``log_normalizer``  omitted from the sum -- the subset determinant
+``log_spectrum``    ``0`` (``lambda = 1``, a CONSTANT), so the
+                    variance-information term gets no contribution
+``whiten``          ``0`` -- the noise draw has no term for it
+==================  =================================================
+
+**A flagged datum is routinely ``nan``, and masking here discards it --
+but not for the reason the obvious argument gives.** ``jnp.where`` selects,
+so ``where(False, nan, 0)`` is ``0.0``; that much is expected. What is not:
+in JAX a BOOLEAN mask used as a product does the same thing. Measured,
+eager and under ``jit``::
+
+    jnp    [True, False, True] * [1, nan, 3]  -&gt;  [1,   0, 3]
+    jnp    seen.astype(f32)    * [1, nan, 3]  -&gt;  [1, nan, 3]
+    numpy  [True, False, True] * [1, nan, 3]  -&gt;  [1, nan, 3]
+
+So the familiar &quot;``0 * nan`` is ``nan``&quot; is a NumPy fact, and importing it
+here produces a defence against nothing. This class began by zeroing
+``apply``&#x27;s and ``whiten``&#x27;s INPUTS as well as their outputs on exactly
+that reasoning; mutating those inner calls away changed no test, because
+there was nothing for them to prevent. They were removed and the real rule
+written down instead: **mask with a boolean, never with a float**, since
+only the float cast reinstates the IEEE multiply.
+``test_a_nan_at_a_masked_sample_does_not_reach_the_solution`` pins the
+property, and the mutation that casts ``seen`` to a float is what shows the
+guard can fail.
+
+The one place a genuine float zero meets a raw residual is
+:func:`quadratic`, and that is where the ``nan`` really did get through --
+it guards there.
+
+Attributes:
+    base: the covariance in force on the samples that WERE taken.
+    seen: boolean, shaped like ``sigma``; ``True`` = observed.</pre><h3 id="MaskedPrecision.apply">MaskedPrecision.apply</h3><pre><code>apply(self, residual: jax.Array) -&gt; jax.Array</code></pre><h3 id="MaskedPrecision.log_normalizer">MaskedPrecision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><h3 id="MaskedPrecision.log_spectrum">MaskedPrecision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><h3 id="MaskedPrecision.whiten">MaskedPrecision.whiten</h3><pre><code>whiten(self, omega: jax.Array) -&gt; jax.Array</code></pre></section><section class="api-symbol"><h2 id="masked">masked</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 377.</p><pre><code>masked(precision: Any, seen: jax.Array) -&gt; MaskedPrecision</code></pre><pre class="docstring">Wrap ``precision`` so the samples ``seen`` is ``False`` at inform nothing.
+
+Asks :func:`per_sample_sigma` whether the covariance HAS per-sample sigmas
+to mask, rather than testing its type here -- that question has one home
+in this package and this is not a second one.
+
+Raises:
+    StructureError: if the covariance has no per-sample sigma. An
+        unobserved sample inside a correlated epoch has no exact meaning:
+        the observed submatrix of a stationary covariance is not itself
+        stationary, and its log-determinant is not a subset sum of the
+        spectrum. Measured in :mod:`bayesmith.marginal.compress`: on a
+        6-point kernel with one sample dropped the observed submatrix&#x27;s
+        log-determinant is ``-0.7084`` and the closest subset sum of log-
+        eigenvalues is 0.47 nats away.
+    StructureError: if ``seen`` is not boolean, or does not match the
+        sigma&#x27;s shape. A float mask would multiply rather than select, and
+        a broadcasting one would mask a different set of samples than the
+        caller named while every shape downstream stayed right.</pre></section><section class="api-symbol"><h2 id="check_positive_definite">check_positive_definite</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 430.</p><pre><code>check_positive_definite(precision: CirculantPrecision) -&gt; None</code></pre><pre class="docstring">Refuse a circulant covariance that is not positive definite.
+
+Call this EAGERLY, at the point a kernel enters the system, the way
+``block.py`` and ``classify.py`` call ``check_gaussian``. It reads the
+smallest eigenvalue as a Python float and therefore cannot run under a
+trace -- which is precisely why it is not in the constructor.
+
+The check is needed because the FFT does not fail on an indefinite
+covariance, it answers finitely: a negative eigenvalue gives ``log`` a NaN
+and pushes that mode&#x27;s residual the WRONG WAY, and neither announces
+itself downstream.
+
+Raises:
+    ValueError: if any eigenvalue is not strictly positive.</pre></section><section class="api-symbol"><h2 id="PrecisionMismatch">PrecisionMismatch</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 459.</p><pre><code>class PrecisionMismatch(Exception)</code></pre><pre class="docstring">A :class:`Precision` does not describe the distribution it was paired with.</pre></section><section class="api-symbol"><h2 id="check_precision">check_precision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 463.</p><pre><code>check_precision(distribution: Any, precision: Precision, loc: jax.Array, *, rtol: float | None=None, key: jax.Array | None=None) -&gt; dict[str, float]</code></pre><pre class="docstring">Verify a ``Precision`` really is the covariance of ``distribution``.
+
+The counterpart of :func:`~bayesmith.exact.gaussian.check_gaussian` for a
+covariance that is not per-sample diagonal, and the piece that decides
+whether extracting a ``Precision`` from a node&#x27;s own distribution is sound
+at all. Runs on concrete values, **outside** any trace.
+
+**Why a scalar-offset family is not enough here.** ``check_gaussian``
+probes ``log_prob`` at five multiples of ``sqrt(diag N)``. For a
+STATIONARY covariance that quantity is constant, so the five offsets are
+five points along ONE direction, and the family constrains only two
+scalars of the covariance. Measured on two circulant covariances 0.4060
+apart in relative Frobenius norm: they agree at every offset to 1.851e-16,
+against an rtol of 2.220e-13. More offsets do not help -- they are more
+points on the same line. For an ``n``-point kernel that leaves ``n/2 - 1``
+independent spectral parameters unchecked, and no fixture in this package
+is correlated, so nothing would have shown it.
+
+**What replaces it.** For any Gaussian,
+``grad log_prob(x) = -N^-1 (x - loc)`` exactly, so ONE reverse-mode pass
+yields the whole vector and can be compared against
+:meth:`Precision.apply` elementwise -- ``n`` equations from one AD
+evaluation where a scalar probe gives one. On the same pair: 2.220e-16 for
+the matched pairing against 1.882e-01 for the mismatched, a separation of
+8.48e+14.
+
+**Both halves are required and neither subsumes the other**, which is why
+this returns two numbers rather than a verdict. The gradient cannot see
+the normaliser, since it does not appear in it; and the normaliser cannot
+separate that pair either, because the two covariances share it by
+construction -- both report ``log_prob(loc) = -9.596667351679``. Only the
+two together pin the Gaussian.
+
+Linearity is checked for free, and is the third thing that must hold: the
+gradient of a quadratic log-density is linear, so ``grad`` at ``2r`` must
+be exactly twice ``grad`` at ``r``. A density that is not quadratic has no
+covariance to extract, and this is what notices.
+
+Args:
+    distribution: the node&#x27;s own distribution, the authority on the
+        density. Must expose ``log_prob``.
+    precision: the ``N^-1`` claimed to describe it.
+    loc: the distribution&#x27;s mean, where the normaliser is read.
+    rtol: per-number tolerance. Defaults to ``1e3 * eps`` of ``loc``&#x27;s
+        dtype, matching ``check_gaussian``.
+    key: PRNG key for the displacement. Fixed by default, so a failure is
+        reproducible; the check is deterministic given it.
+
+Returns:
+    ``{&quot;operator&quot;: worst elementwise relative error of N^-1 r,
+    &quot;normalizer&quot;: relative error at the mode,
+    &quot;linearity&quot;: worst relative error of grad(2r) - 2 grad(r)}``.
+    Reported rather than reduced to a bool, so a caller can say HOW far
+    off a node is, not only that it is.
+
+Raises:
+    PrecisionMismatch: if any of the three exceeds ``rtol``. Which one is
+        named, because &quot;the covariance is wrong&quot; and &quot;the normaliser is
+        wrong&quot; and &quot;the density is not Gaussian&quot; need different fixes.</pre></section><section class="api-symbol"><h2 id="per_sample_sigma">per_sample_sigma</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 582.</p><pre><code>per_sample_sigma(precision: dict[str, Any]) -&gt; dict[str, jax.Array] | None</code></pre><pre class="docstring">``{observed: sigma}`` when every covariance has one, else ``None``.
+
+The inverse of :func:`diagonal_from`, and the one place in this package
+that asks which IMPLEMENTATION a ``Precision`` is. That question is
+legitimate exactly here: &quot;does this covariance have per-sample sigmas&quot; is
+a real property of a model, not a leak -- a stationary covariance has an
+n-point kernel and no per-sample sigma, and reporting its per-mode
+amplitudes under the name ``noise_std`` would be a lie by naming.
+
+``None`` rather than a raise: callers who want the numbers want to know
+they are unavailable, not to guard every read. ``GLSResult.noise_std``
+and ``Estimate.noise_std`` are both this, which is why neither stores a
+second copy of the covariance to answer with.
+
+Returns the ``sigma`` arrays THEMSELVES, so a result built by
+``diagonal_from(sigma)`` reports back exactly the arrays it was given --
+bitwise, not to a tolerance.
+
+**A :class:`MaskedPrecision` reports ``inf`` where it was masked**, which
+is not a second encoding but the one this package already had: it is what
+:func:`~bayesmith.marginal.compress.observed_mask` reads, and it is how
+the mask reached bayesmith from upstream in the first place. So
+``GLSResult.noise_std`` and ``Estimate.noise_std`` say &quot;not observed&quot; in
+the same word their caller used, and ``compress`` masks a masked
+covariance without knowing this class exists.</pre></section><section class="api-symbol"><h2 id="diagonal_from">diagonal_from</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 622.</p><pre><code>diagonal_from(noise_std: dict[str, Any]) -&gt; dict[str, DiagonalPrecision]</code></pre><pre class="docstring">``{observed: sigma}`` -&gt; ``{observed: Precision}``.
+
+The bridge from the decided-sigma dict the package passes around today.
+It exists so the generalisation can land without every caller changing at
+once, and so the diagonal path keeps going through the SAME code the
+correlated one does -- a compatibility shim that bypassed the protocol
+would leave the degeneracy untested where it matters.</pre></section><section class="api-symbol"><h2 id="dense">dense</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 637.</p><pre><code>dense(precision: Precision, size: int, dtype: Any=None) -&gt; jax.Array</code></pre><pre class="docstring">``N^-1`` materialised, by applying it to a basis. For tests and oracles.
+
+Deliberately built by APPLICATION rather than by any implementation&#x27;s own
+internals, so an oracle comparing against it is comparing against what
+callers will actually get.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#Precision">Precision</a><a href="#quadratic">quadratic</a><a href="#log_density">log_density</a><a href="#DiagonalPrecision">DiagonalPrecision</a><a href="#CirculantPrecision">CirculantPrecision</a><a href="#MaskedPrecision">MaskedPrecision</a><a href="#masked">masked</a><a href="#check_positive_definite">check_positive_definite</a><a href="#PrecisionMismatch">PrecisionMismatch</a><a href="#check_precision">check_precision</a><a href="#per_sample_sigma">per_sample_sigma</a><a href="#diagonal_from">diagonal_from</a><a href="#dense">dense</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

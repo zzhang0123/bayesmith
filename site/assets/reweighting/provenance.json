@@ -1,0 +1,12 @@
+{
+  "source": "seminar_talk_sep2026, slides 35\u201338; figures from the distinct two-cell teaching example on slides 36\u201337",
+  "interpretation": "Historical teaching figures, not a rerun of the 0.9.0 candidate. The timing on slide 38 is not imported as a package benchmark.",
+  "source_script": "deck/scripts/figs/make_visual_ideas.py",
+  "source_script_sha256": "3e59fb43d5cea332cd3e487c47f9e8ff10c915930621e402352bade74fcf65ca",
+  "files_sha256": {
+    "weighted-draws.svg": "091faaa3d320c643b39df2b672e8d9d4ccf02b8217d90a6a0ab00932b56845b3",
+    "hyperparameter-weights.svg": "667b8d17f36b7ccbe26d57bc54a96a85be561b979255e22e4bae0b5a9c0518ef",
+    "hyperparameter-map.svg": "640ea0a84a10c805a12f152b8b0e7146fffb02ff75e9b96deae3880f6cf6d0cc",
+    "validation.json": "808c6e523641a8c71f9971a6f3ba1c55a8d4823f8f3d3e4814bfcfe1f582417f"
+  }
+}

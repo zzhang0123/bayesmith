@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.artifacts.reports"><title>bayesmith.artifacts.reports · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.artifacts.reports</span></nav>
+<article><h1>bayesmith.artifacts.reports</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">What compilation decided, and what a judgement about a result says.
+
+Three records with one purpose: a plan that cannot be read back is a black box
+that happened to run, and a verdict that cannot be read back is an opinion.
+
+**An analysis report is an interpretation, never a copy of the graph.** It
+holds a :class:``bayesmith.artifacts.identity.ModelRef``, the graph&#x27;s structure
+fingerprint and structured findings. §0 ruling 4 is nearest to being broken
+here, because this record is MADE by reading a Graph -- so it is the one that
+must hold none of it.
+
+**A plan record is a schedule.** Blocks keep their declared order, because that
+order is what will run; a parameter belongs to exactly one block, because two
+blocks claiming it is a schedule with no answer to which draws it. The
+``premises`` it lists are the codes a :class:``bayesmith.artifacts.refusal.Refusal``
+names in ``failed_premise`` when one of them turns out to be false -- one
+vocabulary, both directions. That vocabulary is
+:data:`bayesmith.artifacts.refusal.PREMISES`, which is not enforced HERE
+because a plan record is also read by consumers whose premises this package
+has never heard of; what holds bayesmith&#x27;s own plans and refusals to it is
+``tests/dispatch/test_task_protocol.py``, so the claim above is checked rather
+than merely stated.
+
+**An evaluation report has two axes.** §0 ruling 7: whether the check applied
+and what it concluded are different questions, so they are different enums.
+Which combinations of the two are legal, and how several reports aggregate
+into one gate verdict, are pinned in :mod:``bayesmith.artifacts.gates`` -- one
+home for one decision.
+
+Layering: ``base``, ``identity`` and ``refusal`` (§0.1). The code validators are
+refusal&#x27;s, since that module is where &quot;a code, not prose&quot; is decided.</pre></details><div class="symbol-index"><a href="#AnalysisFinding">AnalysisFinding</a> <a href="#AnalysisReport">AnalysisReport</a> <a href="#PlanBlockRecord">PlanBlockRecord</a> <a href="#InferencePlanRecord">InferencePlanRecord</a> <a href="#Applicability">Applicability</a> <a href="#Conclusion">Conclusion</a> <a href="#EvaluationReport">EvaluationReport</a></div><section class="api-symbol"><h2 id="AnalysisFinding">AnalysisFinding</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 101.</p><pre><code>class AnalysisFinding
+code: str
+conclusion: str
+scope: ScopeRef
+measurements: tuple[tuple[str, object], ...] = ()
+grounds: tuple[str, ...] = ()</code></pre><pre class="docstring">One thing compilation concluded about the graph, and what it measured.
+
+``grounds`` is a tuple of reason CODES rather than of nested findings: at
+compile time the support for a conclusion is a set of checks that passed,
+and naming them keeps the record flat enough to read. It is the same idea
+as a refusal&#x27;s ``grounds`` -- what stands behind the claim, structured --
+which is why it carries the same name.</pre></section><section class="api-symbol"><h2 id="AnalysisReport">AnalysisReport</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 138.</p><pre><code>class AnalysisReport
+meta: ArtifactMeta
+model_ref: ModelRef
+graph_fingerprint: Fingerprint
+findings: tuple[AnalysisFinding, ...] = ()
+candidate_routes: tuple[str, ...] = ()</code></pre><pre class="docstring">Compile-time reading of a graph: what it is, and what could run on it.
+
+``candidate_routes`` is a PREFERENCE order, so it is neither sorted nor
+deduplicated into a set -- reordering it would rerank the routes, and a
+repeated route would make one option look like two.</pre></section><section class="api-symbol"><h2 id="PlanBlockRecord">PlanBlockRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 169.</p><pre><code>class PlanBlockRecord
+names: tuple[str, ...]
+method: str
+reason_codes: tuple[str, ...] = ()
+kappa: float | None = None
+tolerance: float | None = None
+approximation: ApproximationRecord | None = None</code></pre><pre class="docstring">One block of the schedule: which parameters, by which method, and why.
+
+``kappa`` and ``tolerance`` are the numbers that justify the method where it
+has them, and ``None`` where the method has no such knob -- an exact
+elimination has no tolerance to report, and reporting 0 would say it had
+one and met it perfectly.</pre></section><section class="api-symbol"><h2 id="InferencePlanRecord">InferencePlanRecord</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 207.</p><pre><code>class InferencePlanRecord
+meta: ArtifactMeta
+task_id: str
+model_ref: ModelRef
+analysis_report_ref: ArtifactRef | None = None
+blocks: tuple[PlanBlockRecord, ...] = ()
+exact_elimination: tuple[str, ...] = ()
+residual_parameters: tuple[str, ...] = ()
+backend: str = &#x27;auto&#x27;
+premises: tuple[str, ...] = ()
+budget: ComputeBudget = _NO_BUDGET
+quality_gate: str | None = None
+fallback_policy: str | None = None</code></pre><pre class="docstring">The compiled plan, as a record: what will run, on what, under what.
+
+The analysis report it was built from is a PARENT, not merely a field.
+§0.3 retires a plan through the inputs it was made from, so a plan whose
+reading of the graph is not in its lineage would outlive a change to that
+reading.</pre></section><section class="api-symbol"><h2 id="Applicability">Applicability</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 276.</p><pre><code>class Applicability(StrEnum)</code></pre><pre class="docstring">Whether the check could say anything about this subject (§0 ruling 7).
+
+``INAPPLICABLE`` and ``UNVERIFIABLE`` are different answers: the first says
+the check does not apply to this kind of result, the second says it applies
+but the inputs it needs are missing. Collapsing them would make &quot;we cannot
+check this&quot; and &quot;there is nothing to check&quot; one status, and only one of
+those is worth chasing.</pre><pre><code>APPLICABLE = &#x27;applicable&#x27;
+INAPPLICABLE = &#x27;inapplicable&#x27;
+UNVERIFIABLE = &#x27;unverifiable&#x27;</code></pre></section><section class="api-symbol"><h2 id="Conclusion">Conclusion</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 292.</p><pre><code>class Conclusion(StrEnum)</code></pre><pre class="docstring">What an applicable check concluded, and what a gate aggregates to.
+
+One enum for both levels on purpose. A report&#x27;s conclusion and a gate&#x27;s
+verdict are the same three answers about different scopes, and two enums
+with identical members would be two types nothing stops a caller swapping
+-- the mistake ``ApproximationClass`` and ``TargetFidelity`` are kept apart
+to avoid is the OPPOSITE case: there, one word means two things.</pre><pre><code>PASS = &#x27;pass&#x27;
+FAIL = &#x27;fail&#x27;
+ABSTAIN = &#x27;abstain&#x27;</code></pre></section><section class="api-symbol"><h2 id="EvaluationReport">EvaluationReport</h2><p class="source-note">Defined in <code>bayesmith.artifacts.reports</code>, line 327.</p><pre><code>class EvaluationReport
+meta: ArtifactMeta
+subject_ref: ArtifactRef
+report_kind: str
+applicability: Applicability
+conclusion: Conclusion
+findings: tuple[Finding, ...] = ()</code></pre><pre class="docstring">One check&#x27;s judgement of one result, on the two axes of §0 ruling 7.
+
+The legal combinations are refused HERE, where the report is built, rather
+than where a gate reads it: an inapplicable check reporting PASS has passed
+nothing, and an aggregator handed one would count it faithfully.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#AnalysisFinding">AnalysisFinding</a><a href="#AnalysisReport">AnalysisReport</a><a href="#PlanBlockRecord">PlanBlockRecord</a><a href="#InferencePlanRecord">InferencePlanRecord</a><a href="#Applicability">Applicability</a><a href="#Conclusion">Conclusion</a><a href="#EvaluationReport">EvaluationReport</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

@@ -738,25 +738,32 @@ def test_the_exact_route_fails_when_its_draws_are_stretched(monkeypatch):
     assert finding(report, "sbc_rank_uniformity").observed[2] < ALPHA
 
 
-def line_without_the_linear_hint(data):
-    """The same straight line, with ``linear_in`` withheld.
+def line_with_transformed_prior(data):
+    """The same straight line, using an equivalent transformed Normal prior.
 
-    The exact route applies only to a declared-affine deterministic node, so
-    dropping the declaration routes this identical model through NUTS instead.
-    That is what makes it the sampled-route twin of ``line_with``: same prior,
-    same noise, same truth -- a different route.
+    Automatic affinity discovery now recognizes the line without a declaration.
+    Keep the prior law and latent coordinate unchanged, but express N(0, s) as
+    s * N(0, 1). The current exact-prior contract does not unwrap this distribution,
+    so the real compiler selects NUTS. The accounting assertion below ensures
+    this calibration cell cannot silently become another exact-route check.
     """
 
     def model():
         xs = const("X", X)
-        w = sample("w", lambda: dist.Normal(0.0, PRIOR_STD))
+        w = sample(
+            "w",
+            lambda: dist.TransformedDistribution(
+                dist.Normal(0.0, 1.0),
+                dist.transforms.AffineTransform(0.0, PRIOR_STD),
+            ),
+        )
         mu = det("mu", lambda w_, x_: w_ * x_, w, xs)
         observe("d", lambda m: dist.Normal(m, SIGMA), mu, obs=data)
 
     return trace(model)
 
 
-LINE_NUTS = line_without_the_linear_hint(
+LINE_NUTS = line_with_transformed_prior(
     2.5 * X + SIGMA * jax.random.normal(jax.random.key(0), X.shape)
 )
 
@@ -804,8 +811,10 @@ def test_the_sampled_route_is_calibrated_through_the_same_harness():
     """G4's other half: NUTS, judged by the identical rank definition.
 
     seed 1, N = 100 replicates at 500 warmup + 500 draws. Measured over three
-    seeds before this test existed: KS p = 0.3979 (seed 0), 0.6509 (seed 1),
-    0.6509 (seed 2). Seed 1 is declared. The whole point of the cell is that
+    seeds before this test existed, with the original unwrapped Normal
+    fixture: KS p = 0.3979 (seed 0), 0.6509 (seed 1), 0.6509 (seed 2).
+    These are historical measurements, not predictions for the equivalent
+    transformed-prior fixture. Seed 1 remains declared. The whole point of the cell is that
     NOTHING about the harness changes between here and the exact-route cell
     above -- same prior simulation, same continuous weighted rank, same
     Bonferroni level -- so a comparison between the two routes is a comparison
@@ -846,7 +855,7 @@ def test_the_sampled_route_is_calibrated_through_the_same_harness():
         key=jax.random.key(1),
         replicates=REPLICATE_FLOOR,
         model_ref=model_ref(),
-        build=lambda datum: line_without_the_linear_hint(datum["d"]),
+        build=lambda datum: line_with_transformed_prior(datum["d"]),
         budget=NUTS_BUDGET,
     )
     assert report.applicability is Applicability.APPLICABLE

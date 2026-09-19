@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.graph.nodes"><title>bayesmith.graph.nodes · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.graph.nodes</span></nav>
+<article><h1>bayesmith.graph.nodes</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The three node types a bayesmith graph is built from.
+
+A node is an :class:`equinox.Module`, so a graph is a pytree and the
+parameters carried by its operators are differentiable leaves for free.
+
+**Why ``fn`` and ``dist_fn`` are not static fields.** They must accept an
+``eqx.Module`` -- a whole rheplicant ``Pipeline`` is the motivating case --
+whose array leaves have to stay traceable so gradients reach the parameters
+inside them. A plain lambda placed in the same field simply becomes a
+non-array leaf, which ``eqx.filter_jit`` routes to the static side. Marking
+these fields ``static=True`` would not raise on the Module case: equinox
+does not refuse a JAX array in a static field, it only warns. Construction
+succeeds, the whole module is absorbed into pytree aux data, and
+``eqx.filter_grad`` then silently returns each parameter&#x27;s *original* value
+in place of a gradient -- nothing raises, the answer is simply wrong. That
+is the stronger argument for keeping these fields non-static: not a
+constructor error to catch, but a silent wrong answer.
+
+**A second gradient-loss trap, independent of the first.** Even with
+``dist_fn`` correctly non-static, *how* a parameterised module is handed to
+it matters, and equinox does not raise on the wrong choice either. Measured
+against equinox 0.13.8 (this package&#x27;s pinned version -- re-measure if you
+upgrade, since the second bullet below is equinox-internal behaviour, not a
+bayesmith guarantee):
+
+* ``dist_fn=model`` (the module itself, invoked through its ``__call__``)
+  -- gradient reaches every leaf of ``model``. This is the case the first
+  trap above is about, and the case
+  ``test_a_module_dist_fn_exposes_its_parameters_as_traceable_leaves``
+  pins.
+* ``dist_fn=model.some_method`` (a *bound method*, obtained by ordinary
+  attribute access on the module instance) -- **also correct**, but only
+  because ``equinox.Module.__getattribute__`` intercepts non-dunder method
+  access and substitutes its own ``equinox.BoundMethod``: itself an
+  ``eqx.Module`` that stores ``__self__`` (``model``) as a genuine,
+  non-static subnode. ``model``&#x27;s array leaves stay reachable through the
+  bound method exactly as they would through the model itself. Reaching
+  for the dunder explicitly (``model.__call__``) does **not** get this
+  treatment -- equinox&#x27;s wrapping excludes dunder names -- so that
+  spelling behaves like the next bullet instead, not like this one.
+* a **plain closure** over the module (``def dist_fn(loc): return
+  model(loc)``, or an equivalent lambda) -- **silently loses the
+  gradient**. A closure is an ordinary ``types.FunctionType``: JAX&#x27;s
+  pytree machinery has no rule for looking inside its ``__closure__``
+  cells, so the whole closure is one opaque, non-array leaf.
+  ``eqx.is_inexact_array`` is ``False`` for it, so ``eqx.partition`` routes
+  it to the static side and ``eqx.filter_grad`` never differentiates
+  through it -- the corresponding position in the returned gradient
+  pytree comes back ``None``.
+
+In every case the *forward* value is byte-identical, because the closure
+still executes with the model&#x27;s real (correct) value -- only the gradient
+differs, silently. The parameter simply never updates during fitting,
+forever, and nothing signals it. The tests immediately after
+``test_a_module_dist_fn_exposes_its_parameters_as_traceable_leaves`` in
+``tests/test_nodes.py`` pin all three spellings, so a future change to
+equinox&#x27;s bound-method handling, or to this calling convention, shows up
+as a deliberate decision instead of a surprise.</pre></details><div class="symbol-index"><a href="#Node">Node</a> <a href="#Const">Const</a> <a href="#Deterministic">Deterministic</a> <a href="#Support">Support</a> <a href="#Continuous">Continuous</a> <a href="#Discrete">Discrete</a> <a href="#Probabilistic">Probabilistic</a></div><section class="api-symbol"><h2 id="Node">Node</h2><p class="source-note">Defined in <code>bayesmith.graph.nodes</code>, line 70.</p><pre><code>class Node(eqx.Module)
+name: str = eqx.field(static=True)
+parents: tuple[str, ...] = eqx.field(static=True)
+plate: tuple[str, ...] = eqx.field(static=True)</code></pre><pre class="docstring">Identity and position of one node in the graph.
+
+Attributes:
+    name: unique within a graph; how parents refer to it.
+    parents: names of the nodes whose values this one consumes, in the
+        order ``fn`` / ``dist_fn`` expects them.
+    plate: names of the plates this node lives inside. Empty means the
+        node is scalar with respect to every plate.</pre></section><section class="api-symbol"><h2 id="Const">Const</h2><p class="source-note">Defined in <code>bayesmith.graph.nodes</code>, line 86.</p><pre><code>class Const(Node)
+value: jax.Array</code></pre><pre class="docstring">A fixed input: data, coordinates, anything the model conditions on.
+
+The value is an ordinary array field rather than a closure capture, so it
+is one traced leaf of the graph instead of a constant baked into a
+compiled function.</pre></section><section class="api-symbol"><h2 id="Deterministic">Deterministic</h2><p class="source-note">Defined in <code>bayesmith.graph.nodes</code>, line 97.</p><pre><code>class Deterministic(Node)
+fn: Callable[..., Any]
+linear_in: tuple[str, ...] = eqx.field(static=True, default=())</code></pre><pre class="docstring">A mapping that propagates dependence but contributes no density.
+
+Attributes:
+    fn: called with the parents&#x27; values, in ``parents`` order.
+    linear_in: optional legacy assertion about parent-wise affinity.
+        Automatic discovery reads the primal computation and does not
+        require this field. An assertion never substitutes for structural
+        or numerical validation; graph validation still checks its names.</pre></section><section class="api-symbol"><h2 id="Support">Support</h2><p class="source-note">Defined in <code>bayesmith.graph.nodes</code>, line 112.</p><pre><code>class Support(eqx.Module)</code></pre><pre class="docstring">Marker for a :class:`Probabilistic` node&#x27;s support.
+
+Structural axis for P4&#x27;s discrete-enumeration dispatch (design doc §1.1:
+``support: Support = Continuous | Discrete(n)``). All-static, like
+:class:`~bayesmith.graph.graph.Plate` -- a closed, hashable marker type
+rather than an unconstrained value, so a caller cannot accidentally put
+something unhashable (worst case, a JAX array) into
+:attr:`Probabilistic.support`, which is exactly the kind of static-field
+misuse this package&#x27;s own docstrings elsewhere warn does not raise.</pre></section><section class="api-symbol"><h2 id="Continuous">Continuous</h2><p class="source-note">Defined in <code>bayesmith.graph.nodes</code>, line 125.</p><pre><code>class Continuous(Support)</code></pre><pre class="docstring">The node&#x27;s support is the reals, or an interval of them.</pre></section><section class="api-symbol"><h2 id="Discrete">Discrete</h2><p class="source-note">Defined in <code>bayesmith.graph.nodes</code>, line 129.</p><pre><code>class Discrete(Support)
+n: int = eqx.field(static=True)</code></pre><pre class="docstring">The node&#x27;s support is ``n`` known, finite states.</pre></section><section class="api-symbol"><h2 id="Probabilistic">Probabilistic</h2><p class="source-note">Defined in <code>bayesmith.graph.nodes</code>, line 135.</p><pre><code>class Probabilistic(Node)
+dist_fn: Callable[..., Any]
+observed: jax.Array | None
+support: Support | None = eqx.field(static=True, default=None)
+depends_on_prediction: bool = eqx.field(static=True, default=True)
+observed_mask: jax.Array | None = None</code></pre><pre class="docstring">A conditional distribution: contributes one term to the log-density.
+
+Attributes:
+    dist_fn: called with the parents&#x27; values; returns a NumPyro
+        distribution. Sampling and ``log_prob`` therefore come from one
+        object and cannot disagree -- the failure mode of every
+        hand-written ``data + sigma * normal`` sitting beside a likelihood
+        that carries its own sigma.
+    observed: the data this node is conditioned on, or ``None`` if the
+        node is latent.
+    observed_mask: boolean, shaped like ``observed``; ``True`` = this
+        sample WAS taken. ``None`` means every sample was.
+
+        **A declaration, not a sigma.** Upstream spells an unobserved
+        sample ``sigma = inf`` (rheplicant&#x27;s ``FlaggedNoise`` does), and
+        that encoding survives here in exactly one place: the per-sample
+        sigma a ``Precision`` reports back. It is not what a ``dist_fn``
+        should return, because ``Normal(mu, inf).log_prob`` is ``-inf``
+        EVERYWHERE, so an inf inside the scale does not say &quot;no
+        information&quot; to anything that reads the density -- it takes the
+        whole joint with it. Every consumer already translates the
+        encoding at its own seam; this field is where they read one
+        translation instead of each inventing it. Honoured by
+        :func:`~bayesmith.graph.evaluate.log_joint`,
+        :func:`~bayesmith.bridge.numpyro_bridge.to_numpyro` and
+        :func:`~bayesmith.exact.gaussian.precision_parts`, and refused on
+        a latent node -- a mask says which DATA were taken, and a latent
+        has none.
+    support: :class:`Continuous`, :class:`Discrete` with a known state
+        count, or ``None`` if undeclared. A **claim about the model**,
+        in the same sense as :attr:`Deterministic.linear_in` -- nothing
+        in P1 reads it; it is recorded here so the declaration exists
+        from the start. Defaults to ``None`` rather than guessing
+        ``Continuous``: every dist_fn in this package&#x27;s own test suite
+        today happens to be continuous, but encoding that as a default
+        claim would be exactly the kind of unverified assertion this
+        package&#x27;s dispatch axes exist to never make. A future
+        dispatcher must treat ``None`` as ineligible for any
+        support-specific method and fall through to NUTS, not as a
+        claim of continuity.
+    depends_on_prediction: whether this node&#x27;s distribution depends on
+        the value it is predicting (ported from rheplicant&#x27;s
+        ``NoiseModel.depends_on_prediction``: ``False`` means the
+        iterative reweighting loop can be skipped). A claim about the
+        model, like ``support`` above -- nothing in P1 reads it.
+        Defaults to ``True`` (assume dependence), not ``False``, so an
+        undeclared node can never cause a future dispatcher to skip a
+        step it actually needed -- the same &quot;claim nothing, unlock no
+        shortcut&quot; reasoning behind ``linear_in``&#x27;s empty-tuple default
+        and ``support``&#x27;s ``None`` default above, applied to a boolean
+        gate instead of a name set or a closed type.</pre><h3 id="Probabilistic.is_latent">Probabilistic.is_latent</h3><pre><code>is_latent(self) -&gt; bool</code></pre><pre class="docstring">Whether this node is inferred rather than conditioned on.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#Node">Node</a><a href="#Const">Const</a><a href="#Deterministic">Deterministic</a><a href="#Support">Support</a><a href="#Continuous">Continuous</a><a href="#Discrete">Discrete</a><a href="#Probabilistic">Probabilistic</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

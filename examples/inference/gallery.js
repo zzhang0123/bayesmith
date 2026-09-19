@@ -27,6 +27,10 @@
       activeStep = keys[index];
       updateComparisonLinks();
     }
+    if (article.dataset.readingLayout === 'continuous') {
+      article.querySelectorAll('[data-stage]').forEach(stage => { stage.hidden = false; });
+      return;
+    }
     article.querySelectorAll('[data-stage]').forEach(stage => {
       stage.hidden = stage.dataset.stage !== keys[index];
     });
@@ -57,6 +61,7 @@
 
   articles.forEach(article => {
     showStep(article, 0);
+    if (article.dataset.readingLayout === 'continuous') return;
     article.querySelectorAll('[data-step]').forEach(button => {
       button.addEventListener('click', () => {
         location.hash = `case=${article.id}&step=${button.dataset.step}`;
@@ -102,6 +107,11 @@
     const requested = params.get('step');
     const index = keys.indexOf(aliases[requested] || requested);
     if (article) showStep(article, index >= 0 ? index : keys.indexOf(activeStep));
+    if (article?.dataset.readingLayout === 'continuous') {
+      const section = params.get('section') || aliases[requested] || requested;
+      const target = section && document.getElementById(`${article.id}-${section}`);
+      if (target && article.contains(target)) target.scrollIntoView({block: 'start', behavior: 'instant'});
+    }
   }
   // Native buttons support Tab/Enter; arrow keys also move between adjacent steps.
   document.querySelectorAll('.steps').forEach(nav => nav.addEventListener('keydown', event => {

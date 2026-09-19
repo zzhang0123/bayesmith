@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.dispatch.pilot"><title>bayesmith.dispatch.pilot · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.pilot</span></nav>
+<article><h1>bayesmith.dispatch.pilot</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The A4 pilot: one squared term against the published plan&#x27;s coupling (P7).
+
+**The pilot&#x27;s job is not to hand back a better ``c``.**  Its ESS cannot
+support one, and the number would not be usable if it could.  Measured in this
+checkout on Neal&#x27;s funnel (``v ~ N(0, 3)``, ``x ~ N(0, exp(v/2))``), where the
+Laplace correlation is exactly 0.0 and the true dependence is entirely in the
+second moment, at 200 000 iid draws:
+
+* seed 0 reads linear cc **0.007992**, quadratic cc **0.115687** -- ratio
+  **14.48**;
+* over twenty seeds the quadratic reading spans 0.1018 to 0.2389 (a factor of
+  2.35) and the linear one spans 0.00055 to 0.01218 (a factor of 22);
+* a second, independently constructed feature set recorded in the plan reads
+  **0.619** for the same phenomenon -- 6.08x the smallest reading here.
+
+So the absolute value is estimator-dependent to within a factor of six on one
+and the same funnel, and **the ratio is the signal**.  The null confirms it
+from the other side: on a jointly Gaussian pair at rho=0.6, twenty seeds of
+200 000 draws, the ratio reads between 1.0000001 and 1.0000508.  Squares add
+nothing when there is nothing for them to add.
+
+**The verdict is asymmetric, and that is the whole design.**  The pilot can
+veto a switch; it can never order one.
+
+* quadratic cc above its sampling floor ``sqrt(p_aug / N_eff)`` **and** above
+  the linear cc by :data:`DECLARED_MULTIPLE` -&gt; **veto the switch**, name the
+  funnel, abstain from proposing anything;
+* anything else -&gt; **inconclusive**, and A3&#x27;s decision stands exactly as it
+  was, reported with ``blind_to=(&quot;gaussian-only&quot;,)`` so that the abstention is
+  read as abstention rather than as endorsement.
+
+**A stuck pilot therefore costs nothing, and it never quietly becomes a coin
+flip.**  An inconclusive pilot returns the caller&#x27;s own proposal unchanged --
+:func:`resolve_switch` is the one place that is spelled, and
+``tests/dispatch/test_pilot.py`` turns red if it ever abstains instead.
+
+Only run it when there is something to veto: :func:`pilot_is_warranted` says
+so, and it is a pair of booleans rather than a measurement, because &quot;would A3
+switch away from the published default&quot; and &quot;is the gap inside the timing
+noise&quot; are both already decided by the time the pilot is reachable.</pre></details><div class="symbol-index"><a href="#DECLARED_MULTIPLE">DECLARED_MULTIPLE</a> <a href="#PilotReport">PilotReport</a> <a href="#augment">augment</a> <a href="#canonical_correlation">canonical_correlation</a> <a href="#pilot_from_samples">pilot_from_samples</a> <a href="#pilot_is_warranted">pilot_is_warranted</a> <a href="#pilot_report">pilot_report</a> <a href="#quadratic_cc_crosses_floor">quadratic_cc_crosses_floor</a> <a href="#ratio_exceeds_declared_multiple">ratio_exceeds_declared_multiple</a> <a href="#resolve_switch">resolve_switch</a> <a href="#sampling_floor">sampling_floor</a> <a href="#stack_sites">stack_sites</a></div><section class="api-symbol"><h2 id="DECLARED_MULTIPLE">DECLARED_MULTIPLE</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 53.</p><pre><code>DECLARED_MULTIPLE: float = 7.0</code></pre></section><section class="api-symbol"><h2 id="PilotReport">PilotReport</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 171.</p><pre><code>class PilotReport
+linear_cc: float
+quadratic_cc: float
+ratio: float
+floor: float
+p_aug: int
+n_eff: float
+vetoed: bool
+blind_to: tuple[str, ...]
+reason: str</code></pre><pre class="docstring">What one pilot measured, and the one thing it is allowed to conclude.
+
+Attributes:
+    linear_cc: largest canonical correlation on the linear features.
+    quadratic_cc: the same, with the squares appended.
+    ratio: ``quadratic_cc / linear_cc``, ``inf`` where the linear reading
+        is exactly zero.  **This is the signal**; the two absolute values
+        are estimator-dependent by a factor of six on one fixture and are
+        carried for the record, not for a threshold.
+    floor: ``sampling_floor(p_aug, n_eff)``, the null size of a canonical
+        correlation at this many features and this much information.
+    p_aug: how many augmented features the two blocks contributed.
+    n_eff: the effective sample size the floor was computed at.
+    vetoed: whether both conditions fired.  ``False`` is inconclusive and
+        is **not** an endorsement of anything -- see :attr:`blind_to`.
+    blind_to: ``(&quot;gaussian-only&quot;,)`` on an inconclusive pilot, and empty on
+        a veto.  An inconclusive pilot has not shown the geometry is
+        Gaussian; it has failed to show that it is not, which is a
+        different statement and the one this field carries.
+    reason: the verdict in words, naming the funnel where it vetoed.</pre><h3 id="PilotReport.line">PilotReport.line</h3><pre><code>line(self) -&gt; str</code></pre><pre class="docstring">The pilot&#x27;s one printed line, verdict last.</pre></section><section class="api-symbol"><h2 id="augment">augment</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 122.</p><pre><code>augment(block: np.ndarray) -&gt; np.ndarray</code></pre><pre class="docstring">``[block, block**2]`` -- the quadratic feature construction.
+
+The squares are appended, never substituted, so the quadratic canonical
+correlation is taken over a feature space that CONTAINS the linear one.
+That is what makes the ratio a lower bound of one over the other rather
+than two unrelated numbers: the quadratic reading can never be smaller
+than the linear one except by sampling noise.</pre></section><section class="api-symbol"><h2 id="canonical_correlation">canonical_correlation</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 135.</p><pre><code>canonical_correlation(left: np.ndarray, right: np.ndarray) -&gt; float</code></pre><pre class="docstring">Largest canonical correlation between two feature blocks of ONE sample.
+
+The same quantity :func:`~bayesmith.diagnose.coupling.block_coupling`
+reports, measured from draws instead of from a local precision, and by QR
+rather than by Cholesky: the canonical correlations are the singular values
+of ``Q_l.T @ Q_r`` for orthonormal bases of the two centred column spaces.
+No covariance is inverted and no factor has to exist, which matters here
+because the augmented block&#x27;s second moment is heavy-tailed by
+construction -- the funnel&#x27;s ``x**2`` is exactly the column a Cholesky
+would struggle on.
+
+Both blocks must come from the SAME draws, in the same row order; that is
+the whole point of the comparison, and nothing here can check it.
+
+**A feature column that never moved is not detected, and the failure is in
+the safe direction.**  A site held constant over the pilot&#x27;s draws gives a
+zero column, whose QR basis vector is an arbitrary direction rather than a
+refusal, and the correlation against it is whatever that direction happens
+to hit.  Rank-detecting it would need a tolerance -- a threshold with no
+measurement behind it -- so it is named here instead.  What it can do is
+inflate a reading, and an inflated reading can only produce a VETO, which
+keeps the published default; the pilot has no power to switch anything on,
+so its one failure mode costs a missed optimisation rather than a wrong
+answer.  A site that did not move is also the larger problem.</pre></section><section class="api-symbol"><h2 id="pilot_from_samples">pilot_from_samples</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 290.</p><pre><code>pilot_from_samples(samples: Mapping[str, Any], first: Sequence[str], second: Sequence[str], *, n_eff: float) -&gt; PilotReport</code></pre><pre class="docstring">:func:`pilot_report` on two named blocks of one posterior sample.</pre></section><section class="api-symbol"><h2 id="pilot_is_warranted">pilot_is_warranted</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 110.</p><pre><code>pilot_is_warranted(*, switches_away: bool, contested: bool) -&gt; bool</code></pre><pre class="docstring">Whether there is anything for a pilot to veto.
+
+Only two situations can be improved by spending draws on one: A3 would
+switch away from the published default, or the cost gap that decided it
+fell inside the timing noise.  Anywhere else the published default is
+already what runs, so a veto would change nothing and the pilot is not run
+at all -- which is the cheapest possible way for it to cost nothing.</pre></section><section class="api-symbol"><h2 id="pilot_report">pilot_report</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 217.</p><pre><code>pilot_report(first: np.ndarray, second: np.ndarray, *, n_eff: float) -&gt; PilotReport</code></pre><pre class="docstring">Two canonical correlations on ONE sample, and the asymmetric verdict.
+
+The linear and quadratic readings are taken from the same draws, in the
+same row order, so the ratio divides out everything the two constructions
+share -- which is the only reason a ratio is usable where neither absolute
+value is.</pre></section><section class="api-symbol"><h2 id="quadratic_cc_crosses_floor">quadratic_cc_crosses_floor</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 90.</p><pre><code>quadratic_cc_crosses_floor(quadratic_cc: float, floor: float) -&gt; bool</code></pre><pre class="docstring">D102: ``quadratic_cc &gt; floor`` -- the reading is above sampling noise.
+
+Open on purpose.  A correlation AT its sampling floor is what independent
+features produce, so admitting it would let the pilot veto a switch on
+nothing at all.</pre></section><section class="api-symbol"><h2 id="ratio_exceeds_declared_multiple">ratio_exceeds_declared_multiple</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 100.</p><pre><code>ratio_exceeds_declared_multiple(ratio: float) -&gt; bool</code></pre><pre class="docstring">D101: ``ratio &gt; DECLARED_MULTIPLE`` -- the squares changed the answer.
+
+The quadratic-over-linear ratio, against the declared multiple.  Open for
+the same reason as the floor: a ratio exactly at the multiple is the
+boundary of what a change of features alone can produce.</pre></section><section class="api-symbol"><h2 id="resolve_switch">resolve_switch</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 303.</p><pre><code>resolve_switch(declared: str, proposed: str, report: PilotReport) -&gt; str</code></pre><pre class="docstring">``proposed`` unless the pilot vetoed it, in which case ``declared``.
+
+**The inconclusive branch returns the proposal unchanged**, and that is the
+behaviour a test in this package turns red on if it is ever weakened to an
+abstention.  A pilot that found nothing has not earned the right to
+override a decision that was taken on other evidence; only a veto has, and
+a veto returns the published default rather than a third answer of its own.</pre></section><section class="api-symbol"><h2 id="sampling_floor">sampling_floor</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 72.</p><pre><code>sampling_floor(p_aug: int, n_eff: float) -&gt; float</code></pre><pre class="docstring">``sqrt(p_aug / n_eff)`` -- the size a null canonical correlation reaches.
+
+The largest canonical correlation between ``p_aug`` features and an
+independent target is not zero at finite sample size; it is of order
+``sqrt(p_aug / N_eff)``, which is what a correlation has to clear before it
+is evidence of anything.  Measured on this module&#x27;s funnel construction:
+``p_aug=4`` at ``N_eff=200000`` gives 0.004472, and the funnel&#x27;s LINEAR
+reading falls below it on 20-seed minimum (0.00055) -- the floor is doing
+work, not decorating the report.
+
+A pure formula, like :func:`~bayesmith.dispatch.costs.tau`, and defended
+the same way: ``n_eff`` is an effective sample size, so a non-positive
+value is a caller error rather than a boundary this module prices.</pre></section><section class="api-symbol"><h2 id="stack_sites">stack_sites</h2><p class="source-note">Defined in <code>bayesmith.dispatch.pilot</code>, line 275.</p><pre><code>stack_sites(samples: Mapping[str, Any], names: Sequence[str]) -&gt; np.ndarray</code></pre><pre class="docstring">``{site: draws}`` for the named sites, flattened to ``(draws, features)``.
+
+The draw axis leads, as it does everywhere a :class:`Posterior` carries
+samples, and every other axis of a site is flattened into columns so that
+a plated site contributes one column per coordinate rather than being
+silently reduced.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#DECLARED_MULTIPLE">DECLARED_MULTIPLE</a><a href="#PilotReport">PilotReport</a><a href="#augment">augment</a><a href="#canonical_correlation">canonical_correlation</a><a href="#pilot_from_samples">pilot_from_samples</a><a href="#pilot_is_warranted">pilot_is_warranted</a><a href="#pilot_report">pilot_report</a><a href="#quadratic_cc_crosses_floor">quadratic_cc_crosses_floor</a><a href="#ratio_exceeds_declared_multiple">ratio_exceeds_declared_multiple</a><a href="#resolve_switch">resolve_switch</a><a href="#sampling_floor">sampling_floor</a><a href="#stack_sites">stack_sites</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

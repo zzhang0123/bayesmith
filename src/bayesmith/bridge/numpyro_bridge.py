@@ -231,7 +231,7 @@ def init_to_declared(graph: Graph | ReducedGraph) -> Any:
     """
     from numpyro.infer import init_to_value
 
-    from bayesmith.dispatch.classify import prior_environment
+    from bayesmith.exact._environment import prior_environment
 
     graph = as_graph(graph)
     declared = prior_environment(graph)
@@ -366,8 +366,8 @@ def predict(
     """
     from numpyro.infer import Predictive
 
-    from bayesmith.dispatch.classify import prior_environment
     from bayesmith.errors import GraphError
+    from bayesmith.exact._environment import prior_environment
 
     graph = as_graph(graph)
     declared = prior_environment(graph)

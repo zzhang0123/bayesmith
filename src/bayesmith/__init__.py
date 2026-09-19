@@ -278,7 +278,9 @@ _LAZY_SUBMODULES = (
     "errors",
     "optimize",
     "amortize",
+    "reweight",
     "distributions",
+    "cumulants",
     # The artifact protocol leaf. Registered in the same commit that creates
     # the subpackage, not later: the guard above derives its expectation from
     # the filesystem, so a subpackage that exists and is unlisted is red from

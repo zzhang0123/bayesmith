@@ -30,7 +30,17 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def prepare(archive, haslam, output, *, nside=8):
+def prepare(archive, haslam, output, *, nside=8, beam_nside=None):
+    """Build the prepared map bundle.
+
+    beam_nside=None is the original production path: the beam is built at nside
+    and then upsampled with hp.ud_grade to nside 64 before the harmonic
+    transform.  The P0 audit measured that upsampling as a ~0.16 K rms (13
+    sigma) bias in the 600.5 MHz ring, because ud_grade encodes the nside-8
+    pixel boundaries as extra high-l power.  Passing beam_nside (for example
+    256) builds the beam directly from the archive cuts at that resolution and
+    transforms it without ud_grade, which is the audited operator.
+    """
     import healpy as hp
     import limTOD
     from limTOD.HPW_filter import wiener_filter_map
@@ -40,6 +50,7 @@ def prepare(archive, haslam, output, *, nside=8):
         read_tris_beam_cuts,
         read_tris_point_set,
         read_tris_ring,
+        tris_cut_beam_map,
     )
 
     if not hp.isnsideok(nside) or nside < 8 or nside > 16:
@@ -94,14 +105,26 @@ def prepare(archive, haslam, output, *, nside=8):
             f"Prepare {ring.effective_frequency_mhz} MHz, nside={nside}, floor={floor} K",
             flush=True,
         )
-        inputs = build_tris_mapmaking_inputs(
-            ring,
-            nside=nside,
-            cuts=cuts,
-            pixel_indices=pixels,
-            uncertainty_floor_k=floor,
-            nside_hires=64,
-        )
+        if beam_nside is None:
+            inputs = build_tris_mapmaking_inputs(
+                ring,
+                nside=nside,
+                beam_map=tris_cut_beam_map(cuts, nside=nside, normalization="peak"),
+                pixel_indices=pixels,
+                uncertainty_floor_k=floor,
+                nside_hires=64,
+            )
+            beam_construction = f"cut beam at nside {nside} upsampled to 64 before the transform"
+        else:
+            beam = tris_cut_beam_map(cuts, nside=beam_nside, normalization="peak")
+            inputs = build_tris_mapmaking_inputs(
+                ring,
+                nside=nside,
+                beam_map=beam,
+                pixel_indices=pixels,
+                uncertainty_floor_k=floor,
+            )
+            beam_construction = f"cut beam built directly at nside {beam_nside}"
         a, sigma = inputs.operator, inputs.noise.statistical_sigma_k
         prior = (
             template * (ring.effective_frequency_mhz / 408.0) ** -2.8
@@ -188,6 +211,8 @@ def prepare(archive, haslam, output, *, nside=8):
             for p in [Path(__file__), Path(__file__).with_name("tris_maps.py")]
         },
         "nside": nside,
+        "beam_construction": beam_construction,
+        "beam_construction_nside": beam_nside,
         "ordering": "RING",
         "coordinates": "equatorial; archive epoch unspecified",
         "mapmaking_prior": "Haslam extrapolation beta=-2.8, SD=hypot(0.5 * mean, 3 K)",
@@ -217,8 +242,21 @@ def main():
     parser.add_argument("--haslam", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("runs/tris-input"))
     parser.add_argument("--nside", type=int, default=8)
+    parser.add_argument(
+        "--beam-nside",
+        type=int,
+        default=None,
+        help="build the cut beam directly at this nside (audited path); "
+        "default keeps the nside-8 upsample-to-64 path",
+    )
     args = parser.parse_args()
-    prepare(args.archive, args.haslam, args.output, nside=args.nside)
+    prepare(
+        args.archive,
+        args.haslam,
+        args.output,
+        nside=args.nside,
+        beam_nside=args.beam_nside,
+    )
 
 
 if __name__ == "__main__":

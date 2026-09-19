@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.marginal.campaign"><title>bayesmith.marginal.campaign · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.marginal.campaign</span></nav>
+<article><h1>bayesmith.marginal.campaign</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">A campaign, compressed from the graph, one epoch at a time.
+
+Everything below this module works on matrices a caller assembled:
+:func:`~bayesmith.marginal.compress.compress_epoch` takes designs, data and a
+covariance and knows nothing about where they came from. This is where they
+come from a :class:`~bayesmith.graph.graph.Graph`.
+
+**Derived, not declared twice**, which is the migration spec&#x27;s whole argument
+for rewriting B11 rather than transplanting it. Every input
+``compress_epoch`` needs is read off the graph:
+
+===================  ======================================================
+what                 where it comes from
+===================  ======================================================
+the partition        :func:`~bayesmith.marginal.factorize.factorize` --
+                     plate membership, then ``epoch_leakage`` to test it
+the designs          one ``jacfwd`` of the graph&#x27;s own prediction map
+the constant part    that map evaluated at zero
+the data             the observed node&#x27;s own ``obs``, sliced by epoch
+the covariance       :func:`~bayesmith.exact.gaussian.precision_at`, sliced
+the nuisance priors  the per-epoch latents&#x27; own ``dist_fn``
+===================  ======================================================
+
+The last row is the one rheplicant cannot have: its ``Factorization`` carries
+per-epoch priors separately from the ``ParameterSpace`` that declares them,
+and &quot;the same space declared twice&quot; is the error class this kills.</pre></details><div class="symbol-index"><a href="#epoch_terms">epoch_terms</a> <a href="#fold_epochs">fold_epochs</a> <a href="#compress_campaign">compress_campaign</a> <a href="#epoch_observation">epoch_observation</a></div><section class="api-symbol"><h2 id="epoch_terms">epoch_terms</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 47.</p><pre><code>epoch_terms(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None, stacked_only: bool=False) -&gt; list[SqrtInfo]</code></pre><pre class="docstring">One ``[R | z]`` term per epoch, over the survivors.
+
+Each epoch&#x27;s own per-epoch latents are integrated out inside it, at the
+prior the graph declares for them -- so what comes back is a list of terms
+all over the same latents, ready to fold.
+
+Args:
+    graph: the model. Exactly one observed node, plated on ``epoch_plate``.
+    epoch_plate: the plate whose axis indexes epochs.
+    at: values for latents this holds fixed. Defaults to zeros, which is
+        what an affine model&#x27;s design does not depend on.
+    factorization: a partition already derived and checked. ``None``
+        derives one, **including the leakage check** -- pass one only if
+        you have already run that.
+    stacked_only: return the terms as STACKED arrays rather than a list,
+        so :func:`compress_campaign` can fold them under ``lax.scan``
+        instead of unpacking E of them only to re-stack. Internal; the
+        list is the shape a caller wants.
+
+Raises:
+    StructureError: from :func:`factorize`; or if the graph does not have
+        exactly one observed node plated on ``epoch_plate``, which is what
+        makes &quot;one epoch&#x27;s data&quot; a thing that can be sliced.</pre></section><section class="api-symbol"><h2 id="fold_epochs">fold_epochs</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 218.</p><pre><code>fold_epochs(designs: jax.Array, targets: jax.Array, offsets: jax.Array, width: int) -&gt; SqrtInfo | tuple[jax.Array, jax.Array, jax.Array]</code></pre><pre class="docstring">Fold ``E`` stacked ``[R | z]`` terms into one, under ``lax.scan``.
+
+Traceable, and that is the point. The Python loop it replaces costs one
+eager QR per epoch and an unrolled ``jit`` of it compiles in time
+proportional to ``E`` -- measured at ``E = 1000``, 5.4 s to compile a fold
+whose warm run is 2 ms. A scan compiles once whatever ``E`` is.
+
+The carry is the accumulated ``(factor, target, offset)``, and it keeps a
+FIXED shape across the whole campaign -- which is why
+:meth:`~bayesmith.marginal.sqrtinfo.SqrtInfo.null` is square rather than
+zero-row. A carry whose treedef moved would retrace once per epoch and
+defeat the exercise.
+
+Args:
+    designs: ``(E, rows, width)`` stacked factors.
+    targets: ``(E, rows)`` stacked targets.
+    offsets: ``(E,)`` stacked constants.
+    width: the column count, needed statically for the carry&#x27;s shape.
+
+Returns:
+    ``(factor, target, offset)`` of the folded term.</pre></section><section class="api-symbol"><h2 id="compress_campaign">compress_campaign</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 273.</p><pre><code>compress_campaign(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None) -&gt; SqrtInfo</code></pre><pre class="docstring">Fold every epoch into one term over the survivors.
+
+Holds one epoch&#x27;s term at a time, which is the point of the exercise: the
+raw data and the forward evaluation are gone by the end, and what remains
+is a sufficient statistic whose size does not grow with the campaign.</pre></section><section class="api-symbol"><h2 id="epoch_observation">epoch_observation</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 296.</p><pre><code>epoch_observation(graph: Graph, epoch_plate: str) -&gt; str</code></pre><pre class="docstring">The one observed node whose data IS this plate&#x27;s epochs, or a refusal.
+
+PUBLIC because a caller deciding *whether* to fold needs the same
+structural verdict the fold itself makes, and cannot get it from
+``factorize`` alone -- see
+:func:`~bayesmith.dispatch.streaming.streaming_route`, which was the
+package&#x27;s only cross-module private import until this name lost its
+underscore.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#epoch_terms">epoch_terms</a><a href="#fold_epochs">fold_epochs</a><a href="#compress_campaign">compress_campaign</a><a href="#epoch_observation">epoch_observation</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

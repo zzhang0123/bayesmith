@@ -1,0 +1,62 @@
+name: Distribution contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rebuilt-sdist:
+    name: Rebuilt sdist / Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    env:
+      PYTHON_VERSION: ${{ matrix.python }}
+      VERIFY_ROOT: ${{ runner.temp }}/bayesmith-sdist
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build and inspect both distributions
+        run: |
+          uv venv --python "$PYTHON_VERSION" .release-env
+          uv build --python "$PYTHON_VERSION" --out-dir dist
+          .release-env/bin/python tools/check_distribution.py dist \
+            --extract-to "$VERIFY_ROOT" --report distribution.json
+      - name: Rebuild the extracted source distribution
+        run: |
+          version=$(.release-env/bin/python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          uv build --python "$PYTHON_VERSION" --wheel \
+            --out-dir "$GITHUB_WORKSPACE/rebuilt" "$VERIFY_ROOT/bayesmith-$version"
+          uv pip install --python .release-env/bin/python rebuilt/*.whl \
+            pytest pytest-xdist hypothesis
+      - name: Test the installed rebuilt wheel from the extracted suite
+        run: |
+          version=$(.release-env/bin/python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          interpreter="$GITHUB_WORKSPACE/.release-env/bin/python"
+          cd "$VERIFY_ROOT/bayesmith-$version"
+          "$interpreter" -c 'import bayesmith, pathlib, sys; p=pathlib.Path(bayesmith.__file__).resolve(); print("installed package:", p); assert p.is_relative_to(pathlib.Path(sys.prefix).resolve())'
+          if [ "$PYTHON_VERSION" = "3.11" ]; then
+            "$interpreter" -m pytest -n 4 -p no:cacheprovider \
+              tests/test_graph.py tests/test_trace.py tests/test_evaluate.py \
+              tests/test_log_joint.py tests/test_public_api.py tests/test_errors.py \
+              tests/artifacts tests/exact/test_solve.py \
+              --junit-xml="$GITHUB_WORKSPACE/distribution-tests.xml"
+          else
+            "$interpreter" -m pytest -n 4 -m 'not full' -p no:cacheprovider \
+              --junit-xml="$GITHUB_WORKSPACE/distribution-tests.xml"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: distribution-contract-${{ matrix.python }}
+          path: |
+            distribution.json
+            distribution-tests.xml

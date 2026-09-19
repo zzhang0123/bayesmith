@@ -55,7 +55,6 @@ from bayesmith.dispatch.classify import (
     SIGMA_RTOL,
     _is_gaussian,
     _sigma_needs_rebuild,
-    prior_environment,
 )
 from bayesmith.dispatch.plan import (
     CONVERGENCE_TARGET,
@@ -66,6 +65,7 @@ from bayesmith.dispatch.plan import (
     working_epsilon,
 )
 from bayesmith.errors import GraphError, NotGaussian, NotLogLinear, StructureError
+from bayesmith.exact._environment import prior_environment
 from bayesmith.exact.block import (
     _ancestors,
     _partition_probe_operator,

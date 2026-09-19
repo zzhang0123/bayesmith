@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.solve"><title>bayesmith.exact.solve · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.solve</span></nav>
+<article><h1>bayesmith.exact.solve</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Conjugate-Gaussian solves over a matrix-free linear block.
+
+The posterior mean (:func:`wiener_solve`) and an exact posterior draw
+(:func:`gcr_sample`) are the same conjugate-gradient solve of
+
+    (A^T N^-1 A + S^-1) x = b
+
+differing only in ``b``. They share one private routine that takes ``key=None``
+for the mean and a key for a draw, which is why the two can never drift apart.
+
+**The normal operator and the right-hand side are obtained as gradients of the
+objective itself**, never assembled from ``A`` and ``A^T`` by hand. That is
+not a shortcut: it makes the operator symmetric positive definite *by
+construction*, with no adjoint convention left to get wrong -- and, for a
+group, no cross-block bookkeeping either, since ``jax.grad`` of the group&#x27;s
+own chi-squared produces the full operator, off-diagonal blocks included,
+which is exactly the coupling an alternating solve throws away.
+
+Ported from ``rheplicant.inference.linear``, with the codomain generalised
+from one array to a dict of observed nodes, and with every prior/noise
+keyword removed -- the graph is the only statement of either.</pre></details><div class="symbol-index"><a href="#POWER_ITERATIONS">POWER_ITERATIONS</a> <a href="#PRECISION_FLOOR">PRECISION_FLOOR</a> <a href="#normal_operator">normal_operator</a> <a href="#condition_bound">condition_bound</a> <a href="#condition_estimate">condition_estimate</a> <a href="#wiener_solve">wiener_solve</a> <a href="#gcr_sample">gcr_sample</a></div><section class="api-symbol"><h2 id="POWER_ITERATIONS">POWER_ITERATIONS</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 53.</p><pre><code>POWER_ITERATIONS: int = 12</code></pre></section><section class="api-symbol"><h2 id="PRECISION_FLOOR">PRECISION_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 60.</p><pre><code>PRECISION_FLOOR: float = 10.0</code></pre></section><section class="api-symbol"><h2 id="normal_operator">normal_operator</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 63.</p><pre><code>normal_operator(block: LinearBlock, weight: dict[str, Precision], prior_variance: dict[str, Any]) -&gt; Callable[[dict[str, Any]], dict[str, jax.Array]]</code></pre><pre class="docstring">``x -&gt; (A^T N^-1 A + S^-1) x`` over the block&#x27;s REAL degrees of freedom.
+
+Never forms ``N``, which is why a non-diagonal covariance costs nothing
+structural here: CG only ever needs the quadratic form, and
+:func:`~bayesmith.exact.precision.quadratic` is it.
+
+The argument and the result live in PARTS space (see
+:func:`~bayesmith.exact.block.real_parts`), which is the block&#x27;s domain
+exactly when every member is real -- so every caller predating complex
+support is unaffected. For a complex member it is ``(re, im)``, and the
+``jax.grad`` below therefore always differentiates a real function of real
+leaves. That is what keeps the gradient an honest transpose: JAX hands
+back the CONJUGATE gradient for a complex input, so taking this derivative
+in the domain would silently introduce a conjugation the rest of the solve
+does not account for.</pre></section><section class="api-symbol"><h2 id="condition_bound">condition_bound</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 157.</p><pre><code>condition_bound(block: LinearBlock, *, precision: dict[str, Precision], iterations: int=POWER_ITERATIONS, key: jax.Array | None=None) -&gt; jax.Array</code></pre><pre class="docstring">An upper bound on the conditioning of the system this block is solved with.
+
+Use it to pick ``tol``: for a target relative accuracy ``a``, ask for
+roughly ``tol = a / condition_bound(...)``.
+
+A large bound is not a defect, it is the design: for a block the data does
+not fully identify, ``lambda_min`` is exactly ``1/prior_std**2`` while
+``lambda_max`` is set by the data, so it grows with how much better the
+data constrains one direction than the prior constrains another.
+
+Costs ``iterations`` applications of the normal operator -- each the same
+JVP-plus-VJP a CG iteration costs -- and forms no matrix.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    precision: ``{observed: N^-1}``, as
+        :func:`bayesmith.exact.gaussian.precision_at` returns, or
+        :func:`~bayesmith.exact.precision.diagonal_from` applied to a
+        sigma dict. A decided operator, not a rule for producing one: a
+        conditioning number belongs to one particular normal operator.
+    iterations: power-iteration steps for ``lambda_max``.
+    key: PRNG key for the starting vector. Fixed by default, so the bound
+        is reproducible.
+
+Returns:
+    ``lambda_max * max(prior_variance)``, an upper bound on ``kappa`` --
+    up to the accuracy of the ``lambda_max`` estimate, which converges
+    geometrically and always from BELOW, so it can only make the bound
+    smaller. ``test_largest_eigenvalue_approaches_the_truth_from_below``
+    in ``tests/exact/test_conditioning.py`` pins that direction.</pre></section><section class="api-symbol"><h2 id="condition_estimate">condition_estimate</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 204.</p><pre><code>condition_estimate(block: LinearBlock, *, precision: dict[str, Precision], iterations: int=POWER_ITERATIONS, key: jax.Array | None=None) -&gt; jax.Array</code></pre><pre class="docstring">The MEASURED conditioning of the system this block is solved with.
+
+``kappa(A^T N^-1 A + S^-1)`` says how much a solver&#x27;s residual understates
+its error: for a solution with relative residual ``r``,
+``||x - x*|| / ||x*|| &lt;= kappa * r``, so a residual of 1e-6 against
+kappa=1e7 certifies nothing at all.
+
+**This is a diagnostic and not a bound. Never divide an accuracy target
+by it, and never guard on it** -- :func:`condition_bound` is the one to
+divide by, and it is what ``require_convergence`` itself reads. This one
+measures ``lambda_min`` by a second power iteration whose leading
+eigenvalues crowd against ``lambda_max`` with vanishing gaps on a graded
+spectrum, so the ``lambda_min`` it returns is too LARGE and this kappa
+**too small** -- measured on a 20-point geometric spectrum at a true
+kappa of 1e4, ``lambda_min`` came back 33.9x high and kappa 33.9x low; at
+1e7 over 50 points the factor was ~700 and 2000 iterations did not close
+it. A ``tol`` computed from it is too LOOSE by that factor, which is the
+direction that certifies an answer it should have refused.
+
+**What it is good for is the thing a bound cannot do: it can SEE a
+degeneracy.** A near-degenerate partition lives entirely in
+``lambda_min``, which :func:`condition_bound` replaces with the prior&#x27;s
+floor and therefore cannot report however tight the spectrum gets. Read
+it as &quot;how badly conditioned is this partition?&quot; and never as a
+certificate. For a group it is the JOINT condition number, and that is
+the number a per-block guard cannot produce: two latents the data barely
+distinguishes give a well-conditioned operator each and a badly
+conditioned one together.
+
+Large kappa is not a defect here, it is the design: for a block the data
+does not fully identify, ``lambda_min`` is exactly ``1/prior_std**2``
+while ``lambda_max`` is set by the data.
+
+Costs ``2 * iterations`` applications of the normal operator -- each the
+same JVP-plus-VJP a CG iteration costs -- and forms no matrix.
+:func:`condition_bound` costs half that, measuring only the top.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    precision: ``{observed: N^-1}``, as :func:`condition_bound` takes it.
+        A decided operator, not a rule: a kappa belongs to one particular
+        normal operator, and one computed under a different reading of
+        the same array describes an operator nobody builds.
+    iterations: power-iteration steps per END of the spectrum. The
+        default is comfortable; the top settles within a few, and the
+        bottom does not settle at all on a graded spectrum, which is the
+        whole of the caveat above.
+    key: PRNG key for the starting vectors. Fixed by default, so a
+        diagnostic printed twice is one number.
+
+Returns:
+    The measured condition number, floored so that ``lambda_min`` can
+    never fall below the prior&#x27;s own curvature -- ``A^T N^-1 A`` is
+    positive semi-definite, so that floor is rigorous even where the
+    measurement is not.</pre></section><section class="api-symbol"><h2 id="wiener_solve">wiener_solve</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 481.</p><pre><code>wiener_solve(block: LinearBlock, *, precision: dict[str, Precision], tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Posterior mean of a linear-Gaussian block -- the Wiener filter, by CG.
+
+This is the posterior **mean**, not a sample. For a draw see
+:func:`gcr_sample`, which adds a fluctuation term to this same right-hand
+side and costs exactly the same solve.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    precision: ``{observed: N^-1}``, from
+        :func:`bayesmith.exact.gaussian.precision_at`, or
+        :func:`~bayesmith.exact.precision.diagonal_from` applied to what
+        :func:`bayesmith.exact.gaussian.noise_std_at` returns. A decided
+        operator -- a conjugate solve has no prediction to evaluate a rule
+        at, the prediction being what it solves for. For a prediction-
+        dependent noise model see
+        :func:`bayesmith.exact.gls.iterative_gls`, which finds the fixed
+        point and hands the result back here as
+        :attr:`~bayesmith.exact.gls.GLSResult.precision`.
+
+        **An operator, not a sigma.** CG only ever needs ``N^-1 r`` and
+        ``r^T N^-1 r``, so a correlated covariance costs nothing
+        structural here -- which is the whole point of taking the noise
+        as a :class:`~bayesmith.exact.precision.Precision` rather than as
+        per-sample values that presuppose independent samples.
+    tol: CG tolerance -- a bound on the relative RESIDUAL, which is not
+        the same as accuracy. See the note below.
+    maxiter: CG iteration cap. ``None`` lets JAX choose.
+    require_convergence: raise unless the relative ERROR can be bounded by
+        this. ``None`` -- the default -- returns whatever CG produced.
+
+        **Off by default, measured**, for the reason
+        ``test_the_convergence_guard_is_off_by_default_but_reachable`` in
+        ``tests/exact/test_solve.py`` records: at the defaults this
+        function actually ships (float32, ``tol=1e-6``), guarding at
+        ``1e-3`` refuses 6 of the 22 linear-Gaussian fixtures in
+        ``tests/exact/models.py``, and all six refusals are FALSE -- the
+        oracle-checked relative error of every one is between 0 and
+        3.7e-07 against the 1e-3 the guard promises. The cause is
+        :func:`condition_bound`&#x27;s own conservatism, which its docstring
+        documents; it is an UPPER bound, and on a prediction-dependent
+        sigma it runs to 1e10 while the solve is accurate to 1e-07.
+
+        This mirrors the dispatch layer, whose defaults were settled the
+        same way -- see
+        ``test_the_convergence_guard_is_off_by_default_but_reachable`` in
+        ``tests/dispatch/test_dispatch_entry.py``. The two layers agree
+        rather than differ, and they agree because the same measurement
+        was run on each.
+
+        The bound is ``kappa * relative_residual``, with ``kappa`` from
+        :func:`condition_bound`. That costs ``POWER_ITERATIONS``
+        extra operator applications, which on a well-conditioned block
+        roughly DOUBLES the solve. In a Gibbs sweep, call
+        :func:`condition_bound` once outside the loop, choose ``tol``
+        from it, and pass ``require_convergence=None`` inside.
+
+        **What replaces the guard now that it is off.** Leaving ``tol``
+        at its default and the guard off is the combination that returns
+        a silently over-confident posterior, and it is now the DEFAULT
+        combination -- so the obligation moved to the caller rather than
+        disappearing. Call :func:`condition_bound` and multiply it by the
+        returned residual to get the error bound yourself; that is the
+        same number the guard computed, minus the decision to refuse on
+        it. The measurement above is why the decision is yours: on a
+        prediction-dependent sigma the bound is right about being an
+        upper bound and wrong about being actionable.
+
+Returns:
+    ``(x_hat, relative_residual)``, the residual being
+    ``||M x_hat - b|| / ||b||``. Note this is the residual, not the error;
+    multiply by :func:`condition_bound` for the error bound.
+
+Note:
+    **Where S comes from.** Each latent&#x27;s own ``dist_fn`` is this
+    package&#x27;s one statement of what it is a priori, and it is the
+    statement ``to_numpyro`` reads. So it is the statement this solve
+    reads too -- there is no keyword to override it, and therefore no way
+    for the exact exit and NUTS to target different posteriors.</pre></section><section class="api-symbol"><h2 id="gcr_sample">gcr_sample</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 578.</p><pre><code>gcr_sample(block: LinearBlock, *, precision: dict[str, Precision], key: jax.Array, tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Draw an EXACT posterior sample of a linear-Gaussian block.
+
+The constrained-realization identity: solve the same system
+:func:`wiener_solve` does, with two white-noise terms added to the
+right-hand side, so that ``b`` has the posterior-mean numerator as its
+mean and covariance ``A^T N^-1 A + S^-1`` -- the operator itself. Then
+``x = M^-1 b`` has the posterior mean and covariance ``M^-1 M M^-1 =
+M^-1`` exactly. Not an approximation and not a Markov chain: every call is
+an independent draw, with no burn-in and nothing to diagnose.
+
+It costs one CG solve -- the same as the mean -- because the fluctuation
+enters the right-hand side, never the operator. That is what makes a
+10^6-dimensional block samplable at all.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    precision: ``{observed: N^-1}``, exactly as for
+        :func:`wiener_solve`. This is the consumer that needs
+        :meth:`~bayesmith.exact.precision.Precision.whiten`: the
+        fluctuation term is ``N^-1/2 omega``, which
+        :meth:`~bayesmith.exact.precision.Precision.apply` and
+        :meth:`~bayesmith.exact.precision.Precision.log_normalizer`
+        cannot build between them.
+    key: PRNG key. ``vmap`` over split keys for many independent draws.
+    tol: CG tolerance -- a bound on the residual, not on the accuracy.
+    maxiter: CG iteration cap.
+    require_convergence: as for :func:`wiener_solve`, which a draw is MORE
+        exposed to than the mean. The fluctuation term ``S^-1/2 w2`` puts
+        weight on every direction of the latent by construction, including
+        the ones the data is blind to -- so a draw always has something to
+        resolve where the operator is worst conditioned, whereas the mean
+        does only when the prior mean is nonzero.
+
+Returns:
+    ``(x, relative_residual)``. An unconverged CG returns a draw from the
+    WRONG distribution -- and one that is too NARROW, since the directions
+    left unresolved are the prior-dominated ones that should have carried
+    the most scatter.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#POWER_ITERATIONS">POWER_ITERATIONS</a><a href="#PRECISION_FLOOR">PRECISION_FLOOR</a><a href="#normal_operator">normal_operator</a><a href="#condition_bound">condition_bound</a><a href="#condition_estimate">condition_estimate</a><a href="#wiener_solve">wiener_solve</a><a href="#gcr_sample">gcr_sample</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

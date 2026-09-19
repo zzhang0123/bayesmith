@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.graph.evaluate"><title>bayesmith.graph.evaluate · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.graph.evaluate</span></nav>
+<article><h1>bayesmith.graph.evaluate</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Running a graph forward, and reading its log-density.
+
+Evaluation is one linear scan in topological order: every node&#x27;s parents are
+already in the environment by the time it is reached, which is what the
+ordering rule in :class:`~bayesmith.graph.graph.Graph` buys.</pre></details><div class="symbol-index"><a href="#Env">Env</a> <a href="#apply_deterministic">apply_deterministic</a> <a href="#apply_probabilistic">apply_probabilistic</a> <a href="#evaluate">evaluate</a> <a href="#graph_density">graph_density</a> <a href="#log_joint">log_joint</a></div><section class="api-symbol"><h2 id="Env">Env</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 21.</p><pre><code>Env = dict[str, Any]</code></pre></section><section class="api-symbol"><h2 id="apply_deterministic">apply_deterministic</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 40.</p><pre><code>apply_deterministic(graph: Graph, node: Deterministic, env: Env) -&gt; Any</code></pre><pre class="docstring">Call ``node.fn``, vmapped over the plate the node lives in.
+
+Public because the NumPyro bridge re-runs the same scan and must apply
+plates identically; a private name used across modules is not private.</pre></section><section class="api-symbol"><h2 id="apply_probabilistic">apply_probabilistic</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 60.</p><pre><code>apply_probabilistic(graph: Graph, node: Probabilistic, env: Env) -&gt; Any</code></pre><pre class="docstring">Build ``node``&#x27;s distribution, vmapping ``dist_fn`` over its plate.
+
+Public for the same reason as :func:`apply_deterministic`: ``log_joint``
+and the NumPyro bridge must build the *same* distribution for the *same*
+node, so both call this one function instead of each independently
+calling ``node.dist_fn`` unmapped. Before this function existed, both
+call sites made that same independent (and wrong) choice, which is
+exactly why the bridge/log_joint cross-check could not catch it -- two
+scans with an identical blind spot agree with each other by
+construction, whether or not they agree with the truth.
+
+Deliberately does **not** raise when a plated node has no plated parent,
+unlike :func:`apply_deterministic`. That refusal exists there because
+``fn``&#x27;s return value is an arbitrary array that must already be the
+right shape -- there is no fallback that is still correct, so refusing
+is the only safe option. A distribution has a real fallback: calling
+``dist_fn`` once, unmapped, yields one shared distribution whose
+``log_prob``/``sample`` already know how to broadcast themselves against
+a plate-shaped value -- plain array broadcasting in ``log_joint``, and
+``numpyro.plate``&#x27;s own ``.expand()`` in ``to_numpyro``. That is not a
+workaround, it is the ordinary &quot;N iid draws from one shared prior&quot;
+pattern -- already relied on today by a plated node with *no* parents at
+all (see ``test_a_plated_latent_site_carries_the_plate_axis``). Refusing
+it here would break that already-correct, already-tested pattern for no
+safety benefit: there is no shape for dist_fn&#x27;s output to get wrong,
+only a distribution object whose own broadcasting contract handles it.</pre></section><section class="api-symbol"><h2 id="evaluate">evaluate</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 106.</p><pre><code>evaluate(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None) -&gt; Env</code></pre><pre class="docstring">Compute every node&#x27;s value.
+
+Args:
+    graph: the graph to run.
+    values: values for the latent nodes. Observed nodes take their own
+        data and must not appear here; deterministic and constant nodes
+        are computed.
+
+Returns:
+    A mapping from node name to value, covering every node in the graph.
+
+Raises:
+    GraphError: if a latent node has no value, or ``values`` names
+        something that is not a latent node.</pre></section><section class="api-symbol"><h2 id="graph_density">graph_density</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 176.</p><pre><code>graph_density(graph: Graph, term: Any, env: Env, *, label: str, names: tuple[str, ...]) -&gt; jax.Array</code></pre><pre class="docstring">Evaluate one graph-level term and require one scalar contribution.
+
+Shared by both density scans. NumPyro otherwise sums a vector-valued
+``factor`` while :func:`log_joint` broadcasts it, so accepting a vector
+would make the two scans disagree without either one raising.</pre></section><section class="api-symbol"><h2 id="log_joint">log_joint</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 201.</p><pre><code>log_joint(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None) -&gt; jax.Array</code></pre><pre class="docstring">The joint log-density of the graph at ``values``.
+
+Every probabilistic node contributes ``log_prob`` of its value under the
+distribution its parents parameterise; deterministic nodes contribute
+nothing but the dependence they carry.
+
+A node&#x27;s :attr:`~bayesmith.graph.nodes.Probabilistic.observed_mask` drops
+the samples it says were never taken. That is the whole of masking on THIS
+side -- there is no infinite scale to take a limit of, because a sample
+that was not observed contributes no term rather than a term whose width
+went to infinity, and the two differ by exactly the ``log sigma`` that
+would have sent the joint to ``-inf``.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#Env">Env</a><a href="#apply_deterministic">apply_deterministic</a><a href="#apply_probabilistic">apply_probabilistic</a><a href="#evaluate">evaluate</a><a href="#graph_density">graph_density</a><a href="#log_joint">log_joint</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

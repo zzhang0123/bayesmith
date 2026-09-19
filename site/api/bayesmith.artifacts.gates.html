@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.artifacts.gates"><title>bayesmith.artifacts.gates · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.artifacts.gates</span></nav>
+<article><h1>bayesmith.artifacts.gates</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Quality gates: several reports in, one status and one verdict out (§0.6).
+
+Two rulings do all the work here.
+
+**§0 ruling 7: status and verdict are different axes.** ``BLOCKED``,
+``INVALIDATED`` and ``ERROR`` mean the gate never got to judge and carry no
+verdict at all; only ``EVALUATED`` carries ``PASS``, ``FAIL`` or ``ABSTAIN``.
+Flattening the two would make &quot;we could not check&quot; indistinguishable from &quot;we
+checked and it failed&quot;, and those have different remedies.
+
+**The answer may not depend on the order the slots arrived in.** So
+:func:``aggregate_gate`` builds a mapping from requirement name to slot,
+verifies it against the schema, and then walks the DEFINITION&#x27;s requirements --
+never the caller&#x27;s list. The bug this shape exists to prevent is the loop that
+keeps the last verdict it saw, which is correct exactly when the inputs happen
+to arrive in a helpful order and silently wrong otherwise. Findings and report
+references come out in definition order for the same reason: a result that
+compares unequal to itself under a permutation is not a record.
+
+The priority is §0.6&#x27;s, in order: a missing prerequisite blocks; a stale input
+or a stale report invalidates; an attempted required error, or an optional
+error the schema says blocks, is an error; and only then is a verdict computed
+-- FAIL if any required applicable report failed, ABSTAIN if any required
+report is missing, inapplicable, unverifiable or undecided, and PASS only when
+every required applicable report passed.
+
+Layering: ``base``, ``refusal`` and ``reports`` (§0.1).</pre></details><div class="symbol-index"><a href="#OperationalStatus">OperationalStatus</a> <a href="#AttemptStatus">AttemptStatus</a> <a href="#ReportRequirement">ReportRequirement</a> <a href="#ReportSlot">ReportSlot</a> <a href="#GateDefinition">GateDefinition</a> <a href="#GateResult">GateResult</a> <a href="#aggregate_gate">aggregate_gate</a></div><section class="api-symbol"><h2 id="OperationalStatus">OperationalStatus</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 73.</p><pre><code>class OperationalStatus(StrEnum)</code></pre><pre class="docstring">Whether the gate got to judge at all (§0 ruling 7).
+
+Three of the four say it did not, and each names a different thing to fix:
+a missing prerequisite is upstream work, an invalidated input is a re-run,
+an error is a failure to investigate. Only ``EVALUATED`` carries a verdict.</pre><pre><code>BLOCKED = &#x27;blocked&#x27;
+INVALIDATED = &#x27;invalidated&#x27;
+ERROR = &#x27;error&#x27;
+EVALUATED = &#x27;evaluated&#x27;</code></pre></section><section class="api-symbol"><h2 id="AttemptStatus">AttemptStatus</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 88.</p><pre><code>class AttemptStatus(StrEnum)</code></pre><pre class="docstring">Whether anybody tried to produce this report.
+
+The distinction the truth table turns on: a required report that was never
+attempted leaves the gate undecided (ABSTAIN), while one that was attempted
+and errored is an ERROR. Without this field the two look identical -- no
+report either way -- and the milder answer would win.</pre><pre><code>NOT_ATTEMPTED = &#x27;not_attempted&#x27;
+ATTEMPTED = &#x27;attempted&#x27;</code></pre></section><section class="api-symbol"><h2 id="ReportRequirement">ReportRequirement</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 103.</p><pre><code>class ReportRequirement
+name: str
+required: bool = True
+optional_error_blocks: bool = False</code></pre><pre class="docstring">One check a gate asks for, and how much it matters.
+
+``optional_error_blocks`` answers a question only an OPTIONAL requirement
+has: a required check that errored always blocks. Declaring it on a
+required requirement is refused rather than ignored -- a field that is
+silently ignored somewhere is a field somebody will set and rely on.</pre></section><section class="api-symbol"><h2 id="ReportSlot">ReportSlot</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 130.</p><pre><code>class ReportSlot
+requirement: ReportRequirement
+report: EvaluationReport | None = None
+attempt_status: AttemptStatus = AttemptStatus.NOT_ATTEMPTED
+invalidated: bool = False
+error: ErrorRecord | None = None</code></pre><pre class="docstring">What became of one requirement on one subject.
+
+Exactly one outcome at a time: not attempted, a report, or an error. §0.6
+refuses a slot holding a report AND an error at the boundary, because an
+aggregator reading whichever it checks first would produce a defensible
+answer from an impossible input.</pre></section><section class="api-symbol"><h2 id="GateDefinition">GateDefinition</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 179.</p><pre><code>class GateDefinition
+name: str
+version: int
+requirements: tuple[ReportRequirement, ...]
+blocked_actions: tuple[str, ...] = ()
+remedies: tuple[Remedy, ...] = ()</code></pre><pre class="docstring">The schema of a gate: what it asks for, and what it governs.
+
+``blocked_actions`` and ``remedies`` belong to the DEFINITION, not to any
+one run of it, which is why :func:``aggregate_gate`` copies them into the
+result unedited.</pre><h3 id="GateDefinition.identity">GateDefinition.identity</h3><pre><code>identity(self) -&gt; str</code></pre><pre class="docstring">``name@version``: the spelling a task&#x27;s ``quality_gate`` carries.
+
+One spelling, because a task asks for a gate by string and a result
+must be checkable against the gate that was asked for.</pre><h3 id="GateDefinition.requirement">GateDefinition.requirement</h3><pre><code>requirement(self, name: str) -&gt; ReportRequirement</code></pre><pre class="docstring">The declared requirement called ``name``, or a refusal naming it.</pre></section><section class="api-symbol"><h2 id="GateResult">GateResult</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 238.</p><pre><code>class GateResult
+meta: ArtifactMeta
+definition: GateDefinition
+status: OperationalStatus
+verdict: Conclusion | None = None
+report_refs: tuple[ArtifactRef, ...] = ()
+findings: tuple[Finding, ...] = ()
+blocked_actions: tuple[str, ...] = ()
+remedies: tuple[Remedy, ...] = ()</code></pre><pre class="docstring">One gate&#x27;s answer: a status always, a verdict only when it judged.</pre></section><section class="api-symbol"><h2 id="aggregate_gate">aggregate_gate</h2><p class="source-note">Defined in <code>bayesmith.artifacts.gates</code>, line 292.</p><pre><code>aggregate_gate(definition: GateDefinition, *, meta: ArtifactMeta, prerequisites_ready: bool, inputs_current: bool, slots: tuple[ReportSlot, ...]) -&gt; GateResult</code></pre><pre class="docstring">§0.6&#x27;s priority, applied to a schema-checked mapping of slots.
+
+The slots are indexed by requirement name and then read in the order the
+DEFINITION declares, so the caller&#x27;s ordering reaches nothing: not the
+status, not the verdict, not the findings, not the report references.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#OperationalStatus">OperationalStatus</a><a href="#AttemptStatus">AttemptStatus</a><a href="#ReportRequirement">ReportRequirement</a><a href="#ReportSlot">ReportSlot</a><a href="#GateDefinition">GateDefinition</a><a href="#GateResult">GateResult</a><a href="#aggregate_gate">aggregate_gate</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

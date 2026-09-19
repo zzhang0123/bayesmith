@@ -413,7 +413,7 @@ def fit(
             graph does not declare, an empty ``names``, or anything
             :func:`minimize` refuses.
     """
-    from bayesmith.dispatch.classify import prior_environment
+    from bayesmith.exact._environment import prior_environment
 
     latents = tuple(graph.latents)
     if not latents:

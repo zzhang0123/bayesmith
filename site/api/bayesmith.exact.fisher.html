@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.exact.fisher"><title>bayesmith.exact.fisher · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.fisher</span></nav>
+<article><h1>bayesmith.exact.fisher</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">The dense route: a materialised design matrix, and what it buys.
+
+``jax.jacfwd`` forms ``A`` explicitly, where
+:mod:`bayesmith.exact.solve` only ever applies it. For a block small enough
+to hold as a matrix that gives a posterior covariance in one ``inv`` instead
+of one CG per direction -- forecasts, error bars, and the Gaussian a Laplace
+approximation samples from.
+
+**It is a different implementation, not an independent one.** Both routes go
+through JAX&#x27;s autodiff, so a bug in how the block&#x27;s ``forward`` was built
+shows up identically in both. The independent reference is
+``tests/exact/oracle.py``, which probes ``g`` on a basis of the domain and
+differentiates nothing.
+
+``F = J^T N^-1 J`` is the LIKELIHOOD&#x27;s information, which is a different
+quantity from the posterior precision every other exit here targets.
+``include_prior=`` chooses, and :attr:`FlatMatrix.kind` records the answer so
+one cannot quietly be used as the other.
+
+Ported from ``rheplicant.inference.uncertainty``, including
+:func:`propagate_covariance` and :func:`push_forward` -- the two ways to carry
+a parameter uncertainty onto a prediction, kept side by side because choosing
+between them is the decision a reader arrives with. (An earlier line here said
+those two &quot;are P5&quot;; that was a scheduling note that went stale, not a
+criterion. They are the migration plan&#x27;s G7.)</pre></details><div class="symbol-index"><a href="#FlatMatrix">FlatMatrix</a> <a href="#dense_operator">dense_operator</a> <a href="#fisher_information">fisher_information</a> <a href="#condition_ceiling">condition_ceiling</a> <a href="#propagate_covariance">propagate_covariance</a> <a href="#push_forward">push_forward</a> <a href="#parameter_covariance">parameter_covariance</a></div><section class="api-symbol"><h2 id="FlatMatrix">FlatMatrix</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 48.</p><pre><code>class FlatMatrix(eqx.Module)
+values: jax.Array
+names: tuple[str, ...] = eqx.field(static=True)
+spans: tuple[tuple[int, int], ...] = eqx.field(static=True)
+kind: str = eqx.field(static=True)</code></pre><pre class="docstring">A matrix over a block&#x27;s domain, plus where each latent sits in it.
+
+Attributes:
+    values: the matrix, ``(n, n)`` over the flattened domain.
+    names: the latents, in the block&#x27;s own order.
+    spans: ``(start, stop)`` per latent, derived from the actual
+        flattening rather than assumed -- a plated latent occupies as many
+        rows as it has entries.
+    kind: ``&quot;fisher&quot;`` (likelihood information alone),
+        ``&quot;posterior_precision&quot;`` (with the prior&#x27;s curvature) or
+        ``&quot;covariance&quot;``. Carried rather than inferred, because the three
+        are the same shape and confusing them is silent.</pre><h3 id="FlatMatrix.block">FlatMatrix.block</h3><pre><code>block(self, name: str) -&gt; jax.Array</code></pre><pre class="docstring">The diagonal sub-matrix belonging to one latent.
+
+Raises:
+    KeyError: if ``name`` is not in this matrix.</pre><h3 id="FlatMatrix.std">FlatMatrix.std</h3><pre><code>std(self) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">``{name: sqrt(diagonal)}``. Meaningful only for ``kind=&#x27;covariance&#x27;``.
+
+Raises:
+    ValueError: for any other kind -- the square root of a precision&#x27;s
+        diagonal is not an error bar, and returning it would be a
+        confident wrong number rather than a mistake.</pre></section><section class="api-symbol"><h2 id="dense_operator">dense_operator</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 162.</p><pre><code>dense_operator(block: LinearBlock) -&gt; jax.Array</code></pre><pre class="docstring">``A`` materialised, ``(n_data, n_parameters)``.
+
+Rows are the observed nodes concatenated in **sorted name order**, columns
+are the latents in the block&#x27;s own order -- the same layout
+``tests/exact/oracle.py`` uses, so the two are comparable element for
+element.</pre></section><section class="api-symbol"><h2 id="fisher_information">fisher_information</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 287.</p><pre><code>fisher_information(block: LinearBlock, *, precision: dict[str, Any], include_prior: bool=True, depends_on_prediction: bool=True, sigma_of: Any=None, precision_of: Any=None, centre: dict[str, Any] | None=None) -&gt; FlatMatrix</code></pre><pre class="docstring">``J^T N^-1 J``, plus the variance&#x27;s own information and the priors&#x27;.
+
+**When sigma depends on the prediction, ``J^T N^-1 J`` is not the Fisher
+matrix.** For ``d ~ N(mu(x), Sigma(x))`` the information has a second term
+from the covariance&#x27;s own parameter dependence::
+
+    F = J^T Sigma^-1 J  +  1/2 tr(Sigma^-1 dSigma Sigma^-1 dSigma)
+
+which for a diagonal Sigma is ``2 (dlog sigma/dx)^T (dlog sigma/dx)``.
+Under a radiometer it is a clean factor: ``F = (1 + 2 f^2) J^T N^-1 J``.
+
+Omitting it is the forgiving-looking error, which is why it survives
+review: a factor above 1 dropped from ``F`` makes ``F^-1`` -- the error
+bar -- too WIDE, by ``sqrt(1 + 2 f^2)``. That is 0.25% at ``f = 0.05`` but
+22% at ``f = 0.5`` and 73% at ``f = 1``, and a forecast that is too
+conservative reads as safe.
+
+Args:
+    block: from :func:`bayesmith.exact.linearity.linear_operator`.
+    precision: ``{observed: N^-1}``, from
+        :func:`bayesmith.exact.gaussian.precision_at`, or
+        :func:`~bayesmith.exact.precision.diagonal_from` applied to
+        :func:`bayesmith.exact.gaussian.noise_std_at`. **This function
+        reads the noise in BOTH vocabularies and they are not the same
+        argument**: the operator weights the design, while ``sigma_of``
+        supplies the per-sample VALUES whose log-derivative is the
+        variance&#x27;s own information. A dict of ``Precision`` objects has no
+        per-sample sigma to differentiate, and a dict of sigmas is not an
+        operator a correlated covariance can satisfy -- which is why B9&#x27;s
+        step 4 splits this seam rather than renaming it.
+    include_prior: add ``S^-1``, making the result the posterior precision
+        rather than the likelihood&#x27;s information. Default ``True``,
+        because that is the quantity every other exit in this package
+        targets and a forecast that silently answered a different question
+        would agree with none of them.
+    depends_on_prediction: the node&#x27;s own claim, and it governs only
+        whether a RULE is REQUIRED -- not whether the term is added.
+        **Check it first** with
+        :func:`~bayesmith.exact.gls.check_prediction_dependence`; this
+        function cannot, having been handed a decided dict. It defaults
+        ``True``, the safe side: a caller who has not thought about it is
+        stopped rather than handed a matrix quietly missing a term.
+    sigma_of: the ``{name: x} -&gt; {observed: sigma}`` seam, from
+        :func:`~bayesmith.exact.gls.sigma_from_graph` -- the same one
+        :func:`~bayesmith.exact.gls.iterative_gls` iterates. The DIAGONAL
+        spelling of the rule, kept because that is what the reweighting
+        loop produces; it is wrapped in
+        :func:`~bayesmith.exact.precision.diagonal_from` and takes the
+        same path as ``precision_of``. The decided ``precision`` cannot
+        supply either: an operator has no derivative.
+    precision_of: the general form of the same rule,
+        ``{name: x} -&gt; {observed: Precision}`` -- from
+        :func:`~bayesmith.exact.gaussian.precision_at` curried on the
+        graph. **Required for a correlated node**, which has no
+        per-sample sigma for ``sigma_of`` to return. Give one or the
+        other, not both. Passing a rule for a genuinely constant
+        covariance is harmless and costs one ``jacfwd``, because the term
+        is then exactly ``0.0``.
+    centre: the domain point ``precision`` was read at, i.e. the point the
+        curvature is taken at. Checked against the rule at ``centre``
+        rather than trusted, because the two are redundant by
+        construction and an unchecked redundancy is how a covariance ends
+        up weighted at one point and curved at another. The check
+        compares the two as OPERATORS -- both applied to one fixed probe
+        -- rather than comparing sigma arrays, because ``precision`` need
+        not have sigma arrays to compare.
+
+Raises:
+    ValueError: if ``depends_on_prediction`` is True and no rule is given.
+    ValueError: if both ``sigma_of`` and ``precision_of`` are given.
+    ValueError: if ``precision`` is not the operator the rule implies at
+        ``centre``.</pre></section><section class="api-symbol"><h2 id="condition_ceiling">condition_ceiling</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 478.</p><pre><code>condition_ceiling(dtype: Any) -&gt; float</code></pre><pre class="docstring">``1 / sqrt(eps)`` -- where an inverse has spent half its digits.
+
+Inverting a matrix of condition ``kappa`` costs about ``log10(kappa)`` of
+the ``log10(1 / eps)`` decimal digits the arithmetic carries, so this is
+the point at which half are gone. float32: 2.90e+03. float64: 6.71e+07.
+
+**Read from the dtype in hand rather than hard-wired**, because that is
+the entire content of the defect this gates. ``F = J^T N^-1 J`` SQUARES
+the design&#x27;s condition number, so an ordinary model lands here easily:
+measured on ``kappa(J) = 1e3``, float32 returns a covariance 2.4% wrong
+while float64 returns one 1.08e-12 wrong. One rule, two answers, because
+the digits available differ -- a fixed ceiling would either wave the
+float32 case through or refuse the float64 case that is fine.</pre></section><section class="api-symbol"><h2 id="propagate_covariance">propagate_covariance</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 609.</p><pre><code>propagate_covariance(graph: Graph, covariance: FlatMatrix, at: dict[str, Any], *, node: str | None=None) -&gt; jax.Array</code></pre><pre class="docstring">Delta-method prediction uncertainty: ``sqrt(diag(J Sigma J^T))``.
+
+The linearised answer, and the cheap one: one ``jacfwd`` of the node&#x27;s
+value with respect to the covered latents, at ``at``. Its Monte-Carlo
+counterpart is :func:`push_forward`, and choosing between them is a
+modelling decision rather than a performance one -- see that function.
+
+Args:
+    graph: the model. The prediction, the parameters and their point all
+        come from it, so there is no second statement of any of them to
+        disagree with the first.
+    covariance: from :func:`parameter_covariance`. Its ``kind`` must be
+        ``&quot;covariance&quot;``: a Fisher matrix and a covariance are the same
+        SHAPE, and putting one where the other belongs gives an error bar
+        that is wrong by the square of everything.
+    at: where to linearise -- every latent the graph declares, since the
+        node&#x27;s value generally depends on latents outside the covariance
+        too. Only the covered ones enter the Jacobian; the rest are held.
+    node: whose value to propagate -- and for an OBSERVED node that is its
+        ``loc``, the prediction, because ``evaluate`` gives such a node its
+        data and the data does not depend on the parameters at all. See
+        :func:`_predicted`. Defaults to the single observed node when the
+        graph has exactly one, and is refused otherwise. A latent is
+        refused: its own uncertainty is what the covariance already holds.
+
+Returns:
+    Per-entry standard deviation, shaped like the node&#x27;s value.
+
+Raises:
+    StructureError: for a matrix that is not a covariance, a covered name
+        the graph does not declare, a per-latent shape that disagrees with
+        the matrix&#x27;s own spans, or an ambiguous ``node``.</pre></section><section class="api-symbol"><h2 id="push_forward">push_forward</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 673.</p><pre><code>push_forward(graph: Graph, samples: Mapping[str, Any], *, node: str | None=None) -&gt; jax.Array</code></pre><pre class="docstring">Monte-Carlo pushforward: a node&#x27;s value over a stack of parameter draws.
+
+The counterpart of :func:`propagate_covariance`, and the difference is a
+modelling one rather than a matter of cost. The delta method reports the
+spread of a LINEARISATION of the node about one point; this reports the
+spread of the node itself. They agree exactly when the map is affine over
+the posterior&#x27;s width and diverge when it is not -- a log-amplitude
+latent, an exponent, a beam width -- where the linear answer is symmetric
+about the point and the true one is not.
+
+Noiseless, which is what makes it different from
+:func:`~bayesmith.bridge.numpyro_bridge.predict`: that one runs NumPyro&#x27;s
+``Predictive`` and therefore DRAWS the observation noise, giving the
+posterior predictive. This propagates the parameters alone, so the spread
+it reports is the model&#x27;s uncertainty about its own prediction with no
+measurement error added. Summarising the wrong one of those two as &quot;the
+error bar&quot; is an ordinary and invisible mistake, which is why both exist
+under names that say which they are.
+
+Args:
+    graph: the model.
+    samples: ``{latent: (n_draws, *latent shape)}`` -- what
+        :func:`~bayesmith.bridge.numpyro_bridge.nuts` returns, unchanged.
+    node: whose value to push, with an observed node again giving its
+        ``loc``. Defaults as :func:`propagate_covariance`&#x27;s.
+
+Returns:
+    ``(n_draws, *node shape)``. Summarise with ``mean(0)`` / ``std(0)`` /
+    quantiles.
+
+Raises:
+    StructureError: if a latent is missing from ``samples``, if a stack&#x27;s
+        per-draw shape is not the latent&#x27;s own, or if the stacks disagree
+        about how many draws there are. The leading axis IS the draw axis,
+        and a transposed square stack broadcasts into a finite, correctly
+        shaped, wrong answer -- the same guard, and the same measurement,
+        as ``predict``&#x27;s.</pre></section><section class="api-symbol"><h2 id="parameter_covariance">parameter_covariance</h2><p class="source-note">Defined in <code>bayesmith.exact.fisher</code>, line 752.</p><pre><code>parameter_covariance(fisher: FlatMatrix, jitter: float=0.0, *, max_condition: float | None | Literal[&#x27;auto&#x27;]=&#x27;auto&#x27;) -&gt; FlatMatrix</code></pre><pre class="docstring">Invert a precision. ``jitter`` adds ``jitter * I`` first.
+
+Args:
+    fisher: the precision to invert.
+    jitter: added to the diagonal before inverting, and before the
+        condition is measured -- jitter is the one remedy this function
+        offers for ill-conditioning, so measuring the matrix it was
+        already applied to is the only reading that does not refuse a
+        caller who has fixed the problem.
+    max_condition: the ceiling. ``&quot;auto&quot;`` derives it from the values&#x27;
+        own dtype via :func:`condition_ceiling`; a float sets it
+        explicitly; ``None`` removes it, for a caller who has already
+        decided a degenerate cell is expected and wants the number
+        anyway. The three spellings each mean the obvious thing, which
+        is why this does not follow ``iterative_gls``&#x27;s ``None``-is-off
+        convention alone: both &quot;derive it&quot; and &quot;no ceiling&quot; are wanted
+        here and one token cannot say both.
+
+Raises:
+    ValueError: if handed a covariance -- inverting one gives a precision,
+        which is a legitimate operation but not what this function&#x27;s name
+        promises, and the ``kind`` field would then be a lie.
+    ValueError: if the condition number exceeds the ceiling. This is a
+        Cramer-Rao bound; returning one that is silently wrong is worse
+        than returning none, and the arithmetic that formed the matrix is
+        what decides. **The remedy named in that message is to widen the
+        arithmetic around building the GRAPH, not around this inverse**:
+        the digits are already gone by the time ``F`` exists, and
+        ``jax.enable_x64`` does not widen an array that was traced
+        outside it. ``tests/exact/test_fisher.py::
+        test_widening_only_the_inverse_does_not_recover_the_bound``
+        measures both halves of that.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#FlatMatrix">FlatMatrix</a><a href="#dense_operator">dense_operator</a><a href="#fisher_information">fisher_information</a><a href="#condition_ceiling">condition_ceiling</a><a href="#propagate_covariance">propagate_covariance</a><a href="#push_forward">push_forward</a><a href="#parameter_covariance">parameter_covariance</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

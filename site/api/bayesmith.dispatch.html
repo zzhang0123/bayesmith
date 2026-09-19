@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.dispatch"><title>bayesmith.dispatch · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch</span></nav>
+<article><h1>bayesmith.dispatch</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Structural dispatch: deriving what to run from the graph computation.
+
+:mod:`bayesmith.dispatch.classify` answers one question -- which latents an
+exact linear-Gaussian method applies to, how groups form, and which method the
+group needs. Affinity is discovered structurally and checked numerically;
+support and prediction-dependent covariance then constrain the method. The
+classifier produces no samples of its own.</pre></details><div class="symbol-index"><a href="#partition">partition</a> <a href="#Classification">Classification</a> <a href="#block_at">block_at</a> <a href="#prior_environment">prior_environment</a> <a href="#SIGMA_RTOL">SIGMA_RTOL</a> <a href="#FACTOR_METHODS">FACTOR_METHODS</a> <a href="#FactorPlan">FactorPlan</a> <a href="#factor_partition">factor_partition</a> <a href="#first_fit">first_fit</a> <a href="#sample_factors">sample_factors</a></div><section class="api-symbol"><h2 id="partition">partition</h2><p class="source-note">Defined in <code>bayesmith.dispatch.classify</code>, line 526.</p><pre><code>partition(graph: Graph, *, key: jax.Array | None=None) -&gt; Classification</code></pre><pre class="docstring">Derive the exact block and its method from the graph&#x27;s structure.</pre></section><section class="api-symbol"><h2 id="Classification">Classification</h2><p class="source-note">Defined in <code>bayesmith.dispatch.classify</code>, line 81.</p><pre><code>class Classification
+exact: tuple[str, ...]
+nuts: tuple[str, ...]
+method: str
+reason: str
+linearity: dict[int, dict[float, float]] | None
+sigma_movement: float | None
+sigma_needs_rebuild: bool
+structure: dict | None = None
+discovery: Any = None</code></pre><pre class="docstring">The partition of one graph, and the evidence behind it.
+
+Attributes:
+    exact: the single exact block, sorted. Empty if there is none.
+    nuts: every other latent, sorted.
+    method: ``&quot;gcr&quot;``, ``&quot;gcr+snis&quot;``, ``&quot;gcr+mh&quot;`` or ``&quot;nuts&quot;``.
+    reason: why -- named members on a refusal, so a user one declaration
+        away from an exact solve can see that from the plan.
+    linearity: ``check_linearity``&#x27;s per-at-point errors, or ``None``.
+    sigma_movement: the largest relative movement of sigma with the
+        block, or ``None`` if there is no block. Measured from TWO
+        anchors -- prior-scale probes around the prior centre, and the
+        block&#x27;s own Wiener solution, which is where the data put the
+        posterior. See :func:`_sigma_movement` for why one of them is not
+        enough.
+    sigma_needs_rebuild: whether any observed node&#x27;s scale has a latent
+        ANCESTOR outside the block, in which case ``noise_std`` must be
+        recomputed every sweep rather than hoisted. Distinct from
+        ``sigma_movement``, which only sees movement with the BLOCK.</pre></section><section class="api-symbol"><h2 id="block_at">block_at</h2><p class="source-note">Defined in <code>bayesmith.dispatch.classify</code>, line 120.</p><pre><code>block_at(graph: Graph, names: tuple[str, ...], *, env: dict[str, Any] | None=None) -&gt; dict[str, Any]</code></pre><pre class="docstring">``{outside latent: prior centre}`` -- where a block is built.
+
+A block is affine *given* the latents outside it, so it has to be
+anchored somewhere, and the prior&#x27;s centre is the &quot;before seeing
+anything&quot; point. Anchoring at zero instead is not equivalent and is not
+merely a different starting guess: ``affine_only_at_zero``&#x27;s prediction is
+affine exactly where its outside latent is zero, so a zero anchor accepts
+at the caller&#x27;s own at-point a model that the prior&#x27;s centre refuses
+there.</pre></section><section class="api-symbol"><h2 id="prior_environment">prior_environment</h2><p class="source-note">Defined in <code>bayesmith.exact._environment</code>, line 59.</p><pre><code>prior_environment(graph: Graph) -&gt; dict[str, Any]</code></pre><pre class="docstring">Every node&#x27;s value, with each latent at the centre of its own prior.
+
+Repeats :func:`~bayesmith.graph.evaluate.evaluate`&#x27;s isinstance ladder for
+the same reason :func:`~bayesmith.exact.block._env_before` does: the
+values it substitutes have to be derived DURING the scan, from what is
+already in hand. A latent whose prior width is another latent&#x27;s value --
+``shared_ancestor``, ``mixed_radiometer`` -- cannot be centred before its
+ancestor has been.
+
+Public because :mod:`bayesmith.dispatch.plan` must anchor the block it
+BUILDS at exactly the point :func:`partition` classified it at. Two
+independent spellings of &quot;the prior mean&quot; would let the plan solve a
+different problem from the one that was checked.</pre></section><section class="api-symbol"><h2 id="SIGMA_RTOL">SIGMA_RTOL</h2><p class="source-note">Defined in <code>bayesmith.dispatch.classify</code>, line 63.</p><pre><code>SIGMA_RTOL = 1e-08</code></pre></section><section class="api-symbol"><h2 id="FACTOR_METHODS">FACTOR_METHODS</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 85.</p><pre><code>FACTOR_METHODS: tuple[str, ...] = (&#x27;gcr&#x27;, &#x27;log-gcr&#x27;, &#x27;nuts&#x27;)</code></pre></section><section class="api-symbol"><h2 id="FactorPlan">FactorPlan</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 114.</p><pre><code>class FactorPlan(eqx.Module)
+blocks: tuple[Block, ...]
+log_space: LogSpace | None</code></pre><pre class="docstring">The factor partition of one graph, ready to sweep.
+
+Attributes:
+    blocks: closed-form blocks first (``&quot;gcr&quot;`` then ``&quot;log-gcr&quot;``, each
+        in discovery order), then at most one ``&quot;nuts&quot;`` block holding
+        everything neither probe accepted -- whose ``reason`` names, per
+        latent, why not.
+    log_space: the transformed graph the ``&quot;log-gcr&quot;`` blocks solve
+        against, or ``None`` when there are none. Carried on the plan
+        because every rebuild in a sweep needs it, and reconstructing it
+        per sweep would re-run the scenario probes hundreds of times for
+        an answer that cannot change.</pre><h3 id="FactorPlan.exact">FactorPlan.exact</h3><pre><code>exact(self) -&gt; tuple[Block, ...]</code></pre><pre class="docstring">The closed-form blocks, in sweep order.</pre><h3 id="FactorPlan.nuts">FactorPlan.nuts</h3><pre><code>nuts(self) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The latents left to NUTS.</pre></section><section class="api-symbol"><h2 id="factor_partition">factor_partition</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 186.</p><pre><code>factor_partition(graph: Graph, *, key: jax.Array | None=None, scales: Sequence[float]=DEFAULT_SCALES, log_scales: Sequence[float]=LOG_DEFAULT_SCALES, rtol: float | None=None, _discovery=None, _linear_only: bool=False) -&gt; FactorPlan</code></pre><pre class="docstring">Derive the factor partition: exact blocks by structural discovery, NUTS rest.
+
+The linear pass uses shared automatic affinity discovery: Gaussian prior
+eligibility, latent ancestry, a primal symbolic-complement certificate,
+and independent numerical probes. Final candidate groups are certified
+jointly rather than inferred from pairwise probes. The log pass takes what
+remains, transforms the graph once, and repeats its numerical checks;
+nothing is declared for it because the probe answers the question a
+declaration would merely assert.
+
+Args:
+    graph: the model.
+    key: PRNG key for every probe and kappa sweep. Fixed by default, so a
+        partition is reproducible.
+    scales, log_scales: probe magnitudes for the two passes, in units of
+        each latent&#x27;s own prior width. Separate arguments because the
+        linear default&#x27;s ``1e3`` entry, pushed through an exponential,
+        measures the dtype rather than the model -- see
+        :data:`~bayesmith.exact.loglinear.LOG_DEFAULT_SCALES`.
+    rtol: forwarded to every affinity check.
+
+Returns:
+    A :class:`FactorPlan`. Its ``str`` is the readable form, in the same
+    shape the package front page sketches.
+
+Raises:
+    GraphError: if an evidence term covers a latent assigned to an exact
+        block, whose conditional solve would omit that term. Put the
+        covered latent in NUTS or keep its likelihood explicit.</pre></section><section class="api-symbol"><h2 id="first_fit">first_fit</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 88.</p><pre><code>first_fit(names: Sequence[str], compatible: Callable[[str, str], bool]) -&gt; list[list[str]]</code></pre><pre class="docstring">Group ``names`` so every pair within a group is compatible.
+
+First-fit in the caller&#x27;s order: each name joins the first existing group
+whose every member it is compatible with, and otherwise opens a new one.
+One function for however many probes call it -- the linear pass, the
+log-linear pass, and any other package that partitions by a pairwise
+predicate -- so the grouping RULE cannot drift between them.
+
+No pair is asked twice, and no cache is needed to say so: the groups are
+disjoint, so a name meets any other name in at most one group, and
+``all()`` short-circuits the moment a group is ruled out.</pre></section><section class="api-symbol"><h2 id="sample_factors">sample_factors</h2><p class="source-note">Defined in <code>bayesmith.dispatch.factor</code>, line 711.</p><pre><code>sample_factors(graph: Graph, plan: FactorPlan, key: jax.Array, *, num_warmup: int=1000, num_samples: int=2000, maxiter: int | None=None, nuts_options: dict[str, Any] | None=None, on_sweep: Callable[[SweepReport], None] | None=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Draw from the posterior by sweeping the plan&#x27;s blocks.
+
+Every closed-form block is updated by an exact conditional draw --
+:func:`~bayesmith.exact.solve.gcr_sample` on its own source graph --
+conditioning on the LATEST values of every other latent, in plan order.
+With no NUTS remainder the sweep is an exact Gibbs sampler and runs as a
+plain loop here; with one, the sweep becomes ``HMCGibbs``&#x27;s ``gibbs_fn``
+and NUTS advances the remainder between sweeps, exactly as the
+single-block :func:`~bayesmith.exact.gibbs.assemble` arranges.
+
+Args:
+    graph: the model the plan was derived from.
+    plan: from :func:`factor_partition`. Its per-block ``tol`` is used
+        for every solve -- the compile-time choice standing in for the
+        in-sweep guard, for the reason
+        :func:`~bayesmith.exact.gibbs.gibbs_factory` gives.
+    key: PRNG key for the whole run.
+    num_warmup, num_samples: sweeps discarded and kept.
+    maxiter: CG iteration cap per solve.
+    nuts_options: forwarded to the inner NUTS kernel, when there is one.
+    on_sweep: called with a :class:`SweepReport` after every sweep, warmup
+        included. **Refused on a plan with a NUTS remainder**, and the
+        reason is measured rather than defensive: with one, the sweep
+        becomes ``HMCGibbs``&#x27;s ``gibbs_fn``, which numpyro TRACES -- on a
+        two-block plan over five sweeps it is entered twice at the Python
+        level. A callback there would fire once, at trace time, and report
+        a sweep that never happened, with plausible values in it.
+
+The inner NUTS kernel, when there is one, is initialised at the latents&#x27;
+prior centres unless ``nuts_options`` names its own ``init_strategy`` --
+numpyro&#x27;s default draws the initial point from the priors in
+unconstrained space, and on a model whose prediction can go negative out
+there (a radiometer likelihood under a wide sky prior) that manufactures
+an invalid scale before the first sweep runs.
+
+Returns:
+    ``{latent: draws}`` with ``num_samples`` rows each, closed-form and
+    NUTS latents alike.
+
+Raises:
+    GraphError: if the plan has no closed-form block at all -- run
+        :func:`~bayesmith.bridge.numpyro_bridge.nuts` instead, and this
+        refusal names it -- or if a block carries a method this module
+        does not sweep; or if an evidence term covers one of the plan&#x27;s
+        exact latents, including when a cached plan came from another
+        graph state.
+    StructureError: if ``on_sweep`` is given for a plan with a NUTS
+        remainder.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#partition">partition</a><a href="#Classification">Classification</a><a href="#block_at">block_at</a><a href="#prior_environment">prior_environment</a><a href="#SIGMA_RTOL">SIGMA_RTOL</a><a href="#FACTOR_METHODS">FACTOR_METHODS</a><a href="#FactorPlan">FactorPlan</a><a href="#factor_partition">factor_partition</a><a href="#first_fit">first_fit</a><a href="#sample_factors">sample_factors</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

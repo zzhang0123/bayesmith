@@ -86,8 +86,8 @@ from bayesmith.artifacts._codec import register_artifact_type
 from bayesmith.artifacts.results import EvidenceComponent
 from bayesmith.bridge.numpyro_bridge import to_numpyro as _to_numpyro
 from bayesmith.compiled import CompiledEvidenceProblem
-from bayesmith.dispatch.classify import prior_environment
 from bayesmith.dispatch.collapse import observed_descendants
+from bayesmith.exact._environment import prior_environment
 from bayesmith.exact.block import unchecked_operator
 from bayesmith.exact.fisher import dense_operator
 from bayesmith.exact.gaussian import precision_at
@@ -982,7 +982,7 @@ def _environment_at(graph: Graph, pinned: Mapping[str, Any]) -> dict[str, Any]:
     instead of its centre, and everything downstream of it is then evaluated at
     that value rather than at the centre.
     """
-    from bayesmith.dispatch.classify import _latent_centre
+    from bayesmith.exact._environment import _latent_centre
     from bayesmith.graph.evaluate import apply_deterministic
     from bayesmith.graph.nodes import Const, Deterministic
 

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.artifacts.policies"><title>bayesmith.artifacts.policies · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.artifacts.policies</span></nav>
+<article><h1>bayesmith.artifacts.policies</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Serializable controls for posterior preflight, initialization and stopping.</pre></details><div class="symbol-index"><a href="#DiagnosticPolicy">DiagnosticPolicy</a> <a href="#InitializationPolicy">InitializationPolicy</a> <a href="#StoppingPolicy">StoppingPolicy</a> <a href="#ProposalBlockPolicy">ProposalBlockPolicy</a> <a href="#proposal_options">proposal_options</a></div><section class="api-symbol"><h2 id="DiagnosticPolicy">DiagnosticPolicy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.policies</code>, line 110.</p><pre><code>class DiagnosticPolicy
+enabled: bool = True
+max_parameters: int = 64
+max_matrix_elements: int = 200000
+max_prior_parameters: int = 12
+required: tuple[str, ...] = ()</code></pre><pre class="docstring">Bound dense preflight work; an unperformed check is never a pass.
+
+Bounds count matrix entries and parameter coordinates, not sites.
+Required finding codes block execution unless passed. A resolved Jeffreys
+assessment (flat or nonflat) also satisfies that check without changing priors.</pre></section><section class="api-symbol"><h2 id="InitializationPolicy">InitializationPolicy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.policies</code>, line 136.</p><pre><code>class InitializationPolicy
+values: tuple[NamedArray, ...] = ()
+masks: tuple[NamedArray, ...] = ()
+max_attempts: int = 32
+radius: float = 2.0</code></pre><pre class="docstring">Complete constrained values independently per chain, before warmup.
+
+A leading ``chain`` dimension means per-chain values; otherwise values
+are shared. Boolean masks mark supplied entries. Missing entries are
+starting points, not draws claimed to follow a conditional posterior.</pre></section><section class="api-symbol"><h2 id="StoppingPolicy">StoppingPolicy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.policies</code>, line 190.</p><pre><code>class StoppingPolicy
+mode: str = &#x27;fixed&#x27;
+min_draws: int = 200
+batch_size: int = 200
+consecutive: int = 2
+ess_min: float | None = None
+rhat_max: float | None = None
+mcse_mean: float | None = None
+max_divergences: int = 0</code></pre><pre class="docstring">Fixed budget, or consecutive checks on a continuing warmed chain.
+
+Existing chain diagnostic thresholds always apply. Optional ESS/R-hat
+limits may make the criterion stricter. MCSE is an absolute standard
+error bound on every scalar posterior mean. Time is a soft batch cap.</pre></section><section class="api-symbol"><h2 id="ProposalBlockPolicy">ProposalBlockPolicy</h2><p class="source-note">Defined in <code>bayesmith.artifacts.policies</code>, line 30.</p><pre><code>class ProposalBlockPolicy
+names: tuple[str, ...]
+method: str
+steps: int = 1
+iterations: int = 5
+scale: float = 1.0
+damping: float = 1e-06
+max_parameters: int = 64
+max_matrix_elements: int = 200000
+mh_correction: bool = True</code></pre><pre class="docstring">An explicit proposal block with original-target MH enabled by default.
+
+Dense proposal work has an independent budget. The automatic compiler may
+also instantiate policies to enlarge small moving-noise linear blocks;
+fixed-covariance GCR retains priority and failed enlargement keeps its plan.
+Disabling ``mh_correction`` applies finite, supported proposals without
+an MH test. Such state-dependent updates are approximate and need not
+correspond to any known approximate joint target.</pre><h3 id="ProposalBlockPolicy.as_options">ProposalBlockPolicy.as_options</h3><pre><code>as_options(self)</code></pre><pre class="docstring">Canonical scalar/tuple representation for existing task storage.</pre></section><section class="api-symbol"><h2 id="proposal_options">proposal_options</h2><p class="source-note">Defined in <code>bayesmith.artifacts.policies</code>, line 79.</p><pre><code>proposal_options(*blocks: ProposalBlockPolicy)</code></pre><pre class="docstring">Return backend options while preserving the existing task schema.
+
+Use ``PosteriorTask(..., backend_options=proposal_options(block1, block2))``.
+Other backend options may be concatenated to the returned tuple.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#DiagnosticPolicy">DiagnosticPolicy</a><a href="#InitializationPolicy">InitializationPolicy</a><a href="#StoppingPolicy">StoppingPolicy</a><a href="#ProposalBlockPolicy">ProposalBlockPolicy</a><a href="#proposal_options">proposal_options</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

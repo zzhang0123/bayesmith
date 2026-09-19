@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.diagnose.structure"><title>bayesmith.diagnose.structure · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.diagnose.structure</span></nav>
+<article><h1>bayesmith.diagnose.structure</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Conservative primal certificates for conditional Gaussian flatness.
+
+This is a compile-time check, never part of a sampled update. It certifies an
+affine mean and a block-independent covariance in model coordinates, holding
+the complement at the supplied values. Fisher rank is assessed separately.
+Neither user annotations nor vanishing automatic derivatives are proofs.
+
+The supported algebra is interpreted over real arithmetic; the preflight
+report retains its numerical rank, roundoff and contradictory-probe checks.
+Unknown operations, control flow and custom derivative rules are refused.</pre></details><div class="symbol-index"><a href="#derivative_semantics_evidence">derivative_semantics_evidence</a> <a href="#conditional_affinity_certificate">conditional_affinity_certificate</a> <a href="#gaussian_flatness_certificate">gaussian_flatness_certificate</a></div><section class="api-symbol"><h2 id="derivative_semantics_evidence">derivative_semantics_evidence</h2><p class="source-note">Defined in <code>bayesmith.diagnose.structure</code>, line 250.</p><pre><code>derivative_semantics_evidence(function, *arguments)</code></pre><pre class="docstring">Check primal derivative semantics without certifying any distribution.
+
+Numerical non-Gaussian information can use this same conservative walk.
+Known nonlinear primitives remain eligible for ordinary automatic
+differentiation; custom/unknown operations and control flow do not.</pre></section><section class="api-symbol"><h2 id="conditional_affinity_certificate">conditional_affinity_certificate</h2><p class="source-note">Defined in <code>bayesmith.diagnose.structure</code>, line 275.</p><pre><code>conditional_affinity_certificate(graph, names, values)</code></pre><pre class="docstring">Certify affine predictions with *symbolic* complementary latents.
+
+Unlike ``gaussian_flatness_certificate``, every latent is an abstract
+Jaxpr input. Degree zero means independent of this block, NOT frozen at
+an initial value. Thus an outside zero, branch or nonlinear coefficient
+cannot specialize the program used to justify a persistent partition.
+
+This is a sufficient real-arithmetic proof for the traced shapes/static
+configuration, wherever the pure program defines valid distributions.
+It neither proves domain validity nor finite-precision accuracy. Failure
+to certify is unknown, not proof of nonlinearity. Priors are assessed
+separately and do not change the prediction&#x27;s structural verdict.</pre></section><section class="api-symbol"><h2 id="gaussian_flatness_certificate">gaussian_flatness_certificate</h2><p class="source-note">Defined in <code>bayesmith.diagnose.structure</code>, line 367.</p><pre><code>gaussian_flatness_certificate(graph, names, values)</code></pre><pre class="docstring">Return serializable structural evidence, with full rank left to the caller.
+
+A positive result concerns every block value for which this traced, pure
+program defines a valid Gaussian likelihood, conditional on the supplied
+complement. It says nothing about a prior, posterior propriety or marginal
+information. Unsupported programs return explicit negative evidence.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#derivative_semantics_evidence">derivative_semantics_evidence</a><a href="#conditional_affinity_certificate">conditional_affinity_certificate</a><a href="#gaussian_flatness_certificate">gaussian_flatness_certificate</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

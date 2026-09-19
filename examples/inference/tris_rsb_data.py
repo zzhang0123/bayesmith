@@ -59,7 +59,11 @@ def load_declared_rows() -> tuple[ExternalRow, ...]:
         raise ValueError("expected eleven unique approved external-background rows")
     if any(row.frequency_mhz in {22.0, 45.0, 408.0, 1420.0} for row in rows):
         raise ValueError("external-background transcription must not reuse literature survey rows")
-    return rows
+    # Preserve the frozen source table bytes, but do not perpetuate its
+    # mislabelled publication version in newly prepared legacy manifests.
+    return tuple(dataclasses.replace(row, table="Fixsen et al. (2009), arXiv:0901.0555v1, Table 4",
+                                     source_arxiv="0901.0555v1")
+                 if row.survey == "ARCADE" else row for row in rows)
 
 
 def _rj_derivative(value_k: float, frequency_mhz: float) -> float:
@@ -139,7 +143,7 @@ def prepare_external_data(arcade_pdf: Path, lwa_pdf: Path, output: Path) -> dict
         "schema": "bayesmith.tris.rsb.external.v1",
         "source_table_sha256": sha256(DATA_PATH),
         "source_pdfs": {
-            "ARCADE": {"basename": arcade_pdf.name, "sha256": sha256(arcade_pdf), "arxiv": "0901.0555"},
+            "ARCADE": {"basename": arcade_pdf.name, "sha256": sha256(arcade_pdf), "arxiv": "0901.0555v1"},
             "LWA": {"basename": lwa_pdf.name, "sha256": sha256(lwa_pdf), "arxiv": "1804.08581"},
         },
         "conversion": "T_RJ=T_th*x/expm1(x), x=(h/k)*nu/T_th; sigma by analytic derivative",
@@ -154,10 +158,20 @@ def prepare_external_data(arcade_pdf: Path, lwa_pdf: Path, output: Path) -> dict
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--arcade-pdf", type=Path, required=True)
-    parser.add_argument("--lwa-pdf", type=Path, required=True)
+    parser.add_argument("--lwa-pdf", type=Path)
+    parser.add_argument("--release", choices=("fixsen2011", "legacy-v1"), default="fixsen2011")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    prepare_external_data(args.arcade_pdf, args.lwa_pdf, args.output)
+    if args.release == "fixsen2011":
+        from examples.inference.tris_rsb_external import prepare_final2011
+
+        if args.lwa_pdf is not None:
+            parser.error("the final-2011 baseline is ARCADE-only; LWA shared foreground covariance is unresolved")
+        prepare_final2011(args.arcade_pdf, args.output)
+    else:
+        if args.lwa_pdf is None:
+            parser.error("legacy-v1 requires --lwa-pdf")
+        prepare_external_data(args.arcade_pdf, args.lwa_pdf, args.output)
 
 
 if __name__ == "__main__":

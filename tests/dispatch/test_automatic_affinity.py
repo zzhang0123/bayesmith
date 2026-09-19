@@ -51,6 +51,31 @@ def test_public_compile_finds_joint_affinity_without_declarations():
                                expected, rtol=1e-8, atol=1e-10)
 
 
+@pytest.mark.parametrize("key_is_used", [False, True])
+def test_typed_key_only_blocks_certification_when_its_operation_is_live(key_is_used):
+    key = jax.random.key(0)
+
+    def mean(a, b):
+        # Instrument State objects carry typed keys even on deterministic paths.
+        # Jaxpr retains their constants after a random result becomes dead code.
+        unused = jax.random.normal(key)
+        return a * unused + b if key_is_used else 2 * a + 3 * b + 0.4
+
+    graph = graph_for(mean)
+    proof = certificate(graph, ("a", "b"))
+    assert proof["certified"] is (not key_is_used)
+    if not key_is_used:
+        assert proof["gaussian_priors"]
+        plan = compile(graph)
+        assert plan.exact is not None and plan.sampled is None
+        h = np.array([2.0, 3.0])
+        expected = np.linalg.solve(np.eye(2) + np.outer(h, h) / 0.25, h * 0.3 / 0.25)
+        estimate = plan.estimate()
+        np.testing.assert_allclose(
+            [estimate.values[n] for n in ("a", "b")], expected, rtol=1e-8, atol=1e-10
+        )
+
+
 def test_factor_partition_splits_undeclared_product():
     plan = factor_partition(graph_for(lambda a, b: a * b))
     assert [(b.latents, b.method) for b in plan.blocks] == [(("a",), "gcr"), (("b",), "gcr")]

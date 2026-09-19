@@ -13,7 +13,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 
-from bayesmith.errors import GraphError
+from bayesmith.errors import GraphError, StructureError
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Node, Probabilistic
 from bayesmith.graph.reduction import ReducedGraph, as_graph
@@ -86,13 +86,21 @@ def apply_probabilistic(graph: Graph, node: Probabilistic, env: Env) -> Any:
     only a distribution object whose own broadcasting contract handles it.
     """
     args = [env[parent] for parent in node.parents]
-    if not node.plate:
-        return node.dist_fn(*args)
-
-    in_axes = _plate_in_axes(graph, node)
-    if all(axis is None for axis in in_axes):
-        return node.dist_fn(*args)
-    return jax.vmap(node.dist_fn, in_axes=in_axes)(*args)
+    in_axes = _plate_in_axes(graph, node) if node.plate else ()
+    distribution = (
+        jax.vmap(node.dist_fn, in_axes=in_axes)(*args)
+        if node.plate and any(axis is not None for axis in in_axes)
+        else node.dist_fn(*args)
+    )
+    if node.observed_mask is not None and distribution.event_shape:
+        raise StructureError(
+            f"node {node.name!r} applies an observation mask to an event-valued "
+            "distribution with no per-sample sigma or scalar-event density. "
+            "Masks select scalar-event observations; selecting "
+            "components of a joint event requires its marginal distribution. "
+            "Declare that marginal explicitly instead of masking event components."
+        )
+    return distribution
 
 
 def evaluate(
@@ -212,9 +220,12 @@ def log_joint(
     for node in graph.nodes:
         if isinstance(node, Probabilistic):
             distribution = apply_probabilistic(graph, node, env)
-            term = distribution.log_prob(env[node.name])
             if node.observed_mask is not None:
-                term = jnp.where(node.observed_mask, term, 0.0)
+                # NumPyro substitutes feasible values at masked coordinates
+                # before scoring. Masking a log_prob afterwards can retain NaN
+                # gradients from unobserved out-of-support placeholders.
+                distribution = distribution.mask(node.observed_mask)
+            term = distribution.log_prob(env[node.name])
             total = total + jnp.sum(term)
     # Densities over SEVERAL latents are terms of the joint rather than any
     # node's own density. Read the prior and the reduced-likelihood terms in

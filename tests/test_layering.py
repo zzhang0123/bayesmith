@@ -1,21 +1,8 @@
-"""The package's layering, asserted rather than described.
+"""Package layering, checked at module scope and across the exact boundary.
 
-Several module docstrings state layering rules -- ``exact/gibbs.py`` says
-``dispatch`` reads ``exact`` and not the reverse; the top-level docstring
-describes a foundation-to-application order. Until now nothing checked any of
-them, and one had drifted into being false: the sentence read "``exact`` never
-reads ``dispatch``" while :func:`bayesmith.exact.fisher.push_forward` borrows
-``prior_environment`` from ``dispatch.classify`` inside the call.
-
-The correction was to the SENTENCE, not the code, and that is the interesting
-part. The borrow cannot be hoisted: ``dispatch.classify`` reaches back into
-``exact.gaussian``, which imports ``graph.evaluate`` at module scope, so moving
-the borrowed function up would close a cycle rather than open one. What is
-true, and what a layering can actually promise, is the MODULE-SCOPE statement.
-
-Parsed with ``ast`` rather than by importing and inspecting: an import that
-runs inside a function is invisible to a runtime check of ``sys.modules``, and
-a function-scope import is precisely the thing being distinguished here.
+Import-time dependencies must be acyclic. Exact arithmetic must never import
+its dispatch caller, even lazily; shared prior anchors live below dispatch.
+AST checks resolve absolute and relative spellings of the same dependency.
 """
 
 from __future__ import annotations
@@ -285,33 +272,25 @@ def test_the_module_scope_import_graph_is_acyclic():
 
 
 def test_exact_does_not_import_dispatch_at_module_scope():
-    """The rule ``exact/gibbs.py`` states, in the form in which it is true.
-
-    Not "never reads": :func:`bayesmith.exact.fisher.push_forward` reads it
-    inside the call, and cannot stop -- see this module's docstring. The
-    promise a layering can keep is about module scope, and that is what is
-    pinned here.
-    """
     assert "dispatch" not in _graph()["exact"]
 
 
-def test_the_function_scope_borrow_this_rule_tolerates_is_still_exactly_one():
-    """The sibling: the rule above is only meaningful while the exception is
-    small and named. If a second borrow appears, the docstring in
-    ``exact/gibbs.py`` needs rewriting again rather than quietly widening.
-    """
-    borrows: list[str] = []
+def test_exact_does_not_import_dispatch_even_inside_a_function():
+    imports: list[str] = []
     for path in sorted((SRC / "exact").rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith(
-                "bayesmith.dispatch"
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):
+                targets = _import_from_targets(path, node)
+            elif isinstance(node, ast.Import):
+                targets = [alias.name for alias in node.names]
+            else:
+                continue
+            if any(
+                name == "bayesmith.dispatch" or name.startswith("bayesmith.dispatch.")
+                for name in targets
             ):
-                borrows.append(path.name)
-    # The FILE and the COUNT, not the line: a line number here would go red on
-    # any edit above the import, which trains the next reader to update the
-    # number rather than to ask why it moved.
-    assert borrows == ["fisher.py"], borrows
+                imports.append(path.name)
+    assert imports == [], imports
 
 
 def test_graph_is_the_foundation_and_evaluation_is_the_top():

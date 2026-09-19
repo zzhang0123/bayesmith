@@ -296,6 +296,12 @@ def blocking_panel(report, *, heading="Automatic blocking"):
 
 
 def render_case(report, folder, index):
+    if report["case"] == "campbell_sky":
+        if __package__:
+            from .campbell_presentation import render_case as render
+        else:
+            from campbell_presentation import render_case as render
+        return render(report, folder, index)
     if report.get("kind") == "real_observations" and report["case"] == "tris_haslam":
         if __package__:
             from .tris_presentation import render_case as render
@@ -359,6 +365,10 @@ def gallery_navigation(reports, directory):
         if comparison_visible("jeffreys", case) and (catalogue / "jeffreys" / case / "status.json").exists():
             entry += '<span class="case-variant-link">' + bi("Marginal Jeffreys: not implemented · no samples", "边缘 Jeffreys：未实现 · 无样本") + '</span>'
         entries.append(entry)
+    if "campbell_sky" in local:
+        entries.append('<button type="button" class="case-button" data-select-case="campbell_sky" aria-controls="campbell_sky" aria-pressed="false"><span>07</span>' + bi("Poisson sky & Gaussian draws", "Poisson 天空与高斯抽样") + "</button>")
+    elif is_comparison and (catalogue / "campbell_sky/result.json").exists():
+        entries.append(f'<a class="case-button" data-gallery-link data-preserve-step href="{esc(href(catalogue, "campbell_sky"))}"><span>07</span>' + bi("Poisson sky & Gaussian draws", "Poisson 天空与高斯抽样") + "</a>")
     for case in local.keys() & LEGACY_CASES.keys():
         if not comparison_visible(directory.name, case):
             continue
@@ -468,7 +478,7 @@ def write_gallery(reports, directory):
             "plot_results.py", "presentation.py", "case_content.py", "case_panels.py", "comparison_policy.py", "noise_scale_reference.py", "observation_count_reference.py", "repeated_panels.py", "repeated_summary.py", "plot_repeated.py", "symbols.py", "gallery.css", "gallery.js",
             "methodology.py", "methodology.html", "methodology.css", "methodology.js",
             "methodology_guide.py", "tris_presentation.py", "tris_rsb_presentation.py",
-            "requirements-presentation.txt",
+            "requirements-presentation.txt", "campbell_presentation.py", "campbell_plot.py", "campbell_distributions.py",
         )
     ]
     sources.extend(path for path in (root / "vendor").rglob("*") if path.is_file())
@@ -486,7 +496,7 @@ def write_gallery(reports, directory):
                         name: hashlib.sha256(
                             (directory / folder / name).read_bytes()
                         ).hexdigest()
-                        for name in ("result.json", "posterior.npz", "maps.npz", "predictions.npz", "manifest.json")
+                        for name in ("result.json", "posterior.npz", "maps.npz", "predictions.npz", "manifest.json", "distribution-comparison.json")
                         if (directory / folder / name).exists()
                     }
                     for _, folder in reports

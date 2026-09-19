@@ -23,14 +23,9 @@ would invert that. So :func:`gibbs_factory` and :func:`assemble` take the
 primitives they actually need and the plan layer adapts to them -- a layering
 decision, not an oversight.
 
-The sentence used to read "``exact`` never reads ``dispatch``", which is not
-true and had no guard: :func:`bayesmith.exact.fisher.push_forward` borrows
-``prior_environment`` from :mod:`bayesmith.dispatch.classify` inside the call.
-That one is a function-scope import and cannot be hoisted -- ``classify``
-reaches back into ``exact.gaussian`` for ``gaussian_parts``, and
-``exact/gaussian.py`` imports ``graph.evaluate`` at module scope, so moving
-the borrowed function up would close a real cycle. What is actually true, and
-what ``tests/test_layering.py`` now asserts, is the module-scope statement.
+Shared prior anchoring lives in :mod:`bayesmith.exact._environment`, so
+``exact`` has no dependency on ``dispatch``, including function-scope imports.
+The full import boundary is checked in ``tests/test_layering.py``.
 """
 
 from __future__ import annotations

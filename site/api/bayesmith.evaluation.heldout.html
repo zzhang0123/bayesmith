@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.evaluation.heldout"><title>bayesmith.evaluation.heldout · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.evaluation.heldout</span></nav>
+<article><h1>bayesmith.evaluation.heldout</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Held-out prediction: score the observations the graph declared unseen.
+
+R3 §0.8&#x27;s ruling in one function.  A held-out point is not a new task
+parameter and not a second list of indices kept beside the data -- it is a
+position where an observed node&#x27;s ``observed_mask`` is False.  The mask is
+already the graph&#x27;s own statement of what was conditioned on
+(``log_joint`` and
+:func:`~bayesmith.dispatch.predictive.pointwise_log_likelihood` both read it,
+and probe_28 §7 measured the masked positions&#x27; pointwise log-likelihood as
+exactly 0), so reading it here means there is ONE answer to &quot;which points did
+the posterior see?&quot; rather than two that agree until someone edits one.
+
+**Conditioning and prediction cover different sets, on purpose.**  Only the
+True positions condition.  Prediction reaches every position, because the
+loc/scale :func:`~bayesmith.exact.gaussian.observation_parts` reads exist at a
+masked position exactly as they do at a conditioned one -- nothing about the
+forward model knows a point was withheld.  That asymmetry is the whole content
+of a held-out check: the predictive at a point the posterior never saw is an
+honest out-of-sample prediction, and comparing it to the value sitting there
+is the only comparison in this package that is not, in part, a comparison with
+itself.
+
+**Two numbers per held-out point, and they answer different questions.**
+
+* The PIT, ``F_pred(y_j) = Σ_i w_i Φ((y_j - loc_ij) / scale_ij)`` -- where the
+  observed value falls in its own predictive distribution.  Under a calibrated
+  model it is Uniform(0, 1), which is what makes a TAIL a testable event.
+* ``elpd_heldout = Σ_j log Σ_i w_i p(y_j | θ_i)`` -- the log predictive density
+  actually achieved.  It is REPORTED, never thresholded: there is no scale on
+  which &quot;-1.02 is good and -24.05 is bad&quot; without a second model to compare
+  against, and model comparison is R7&#x27;s (section &quot;R3 explicit non-goals&quot;).  The verdict
+  comes from the PIT alone; the elpd is what a later comparison will read.
+
+**The band is derived, not chosen.**  §0.4 declares ONE false-positive rate for
+the whole layer, :data:`bayesmith.evaluation.ALPHA` (D104), and everything here
+is arithmetic on it: a two-sided test of one point&#x27;s PIT rejects outside
+``[α/2, 1 - α/2]``; m points tested together with a family-wise error of at
+most α is Bonferroni&#x27;s ``α/m`` per point, hence ``α/(2m)`` per TAIL.  No number
+is introduced here -- ``_tail`` is the derivation written down once so that a
+reader can check it and a mutation can break it.
+
+**Weights come from the source posterior, because that is where they live.**  A
+:class:`~bayesmith.artifacts.results.PredictiveResult` carries draws and no
+weights; an importance-weighted posterior (the ``snis`` route) whose draws were
+averaged uniformly would produce a confident, wrong PIT and nothing in the
+report would look unusual.  So the source posterior is a required argument, and
+it is checked against the reference the predictive result already carries
+rather than trusted.</pre></details><div class="symbol-index"><a href="#REPORT_KIND">REPORT_KIND</a> <a href="#held_out_report">held_out_report</a></div><section class="api-symbol"><h2 id="REPORT_KIND">REPORT_KIND</h2><p class="source-note">Defined in <code>bayesmith.evaluation.heldout</code>, line 81.</p><pre><code>REPORT_KIND = &#x27;held_out_prediction&#x27;</code></pre></section><section class="api-symbol"><h2 id="held_out_report">held_out_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.heldout</code>, line 217.</p><pre><code>held_out_report(graph: Graph, predictive: PredictiveResult, *, source_posterior: PosteriorResult) -&gt; EvaluationReport</code></pre><pre class="docstring">Score the positions ``graph`` masked out, against ``predictive``&#x27;s draws.
+
+Args:
+    graph: the model the predictive result was produced against.  Its
+        observed nodes&#x27; ``observed_mask`` is the definition of held out.
+    predictive: the subject.  Its carried ``latent_draws`` are replayed
+        through the forward model; nothing is re-sampled.
+    source_posterior: the posterior ``predictive.source_posterior_ref``
+        names.  Required for its WEIGHTS, which a predictive result does
+        not carry -- see the module docstring.
+
+Returns:
+    An :class:`~bayesmith.artifacts.reports.EvaluationReport` of kind
+    ``held_out_prediction``, on §0.2&#x27;s row:
+
+    * APPLICABLE / PASS -- every held-out point&#x27;s PIT is inside
+      ``[α/2m, 1 - α/2m]``.
+    * APPLICABLE / FAIL -- at least one is outside it.
+    * INAPPLICABLE / ABSTAIN -- the graph masks nothing out, so there is
+      no out-of-sample point to score.  Not a PASS: a check with no
+      subject has verified nothing, and a gate counting it as a check that
+      was made would be counting an empty set.
+    * UNVERIFIABLE / ABSTAIN -- the predictive cannot be evaluated: a
+      correlated or non-Gaussian observed node (§0.4&#x27;s coverage domain),
+      a source posterior that holds no draws, or a subject whose carried
+      latents do not cover the graph.
+
+Raises:
+    TypeError: if the arguments are of the wrong type, or if
+        ``source_posterior`` is not the artifact and revision
+        ``predictive.source_posterior_ref`` names.  That is a caller
+        error, not a verdict about a model: a report saying &quot;unverifiable&quot;
+        would file the mistake as a property of the subject.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#REPORT_KIND">REPORT_KIND</a><a href="#held_out_report">held_out_report</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>
