@@ -47,6 +47,46 @@
 # Counts come from the JUnit XML and the verdict from the exit code, which is
 # also why each pytest step writes XML and the floor step parses it.
 
+# WHY `-n 2 --dist loadgroup` AND NOT `-n 4`, measured 2026-09-20. This
+# workflow failed nine nights running, 2026-09-12 to 2026-09-20, and not one
+# of those runs reached a summary line: each was killed mid-suite with exit
+# 143 under "The hosted runner lost communication with the server ... starves
+# it for CPU/Memory". Nothing was wrong with the tests. Progress DECELERATED
+# rather than stopped -- run 34682061310 went 48% -> 69% in eleven seconds and
+# 69% -> 74% in fourteen minutes -- and that curve is swap. A slow test is
+# slow at a constant rate; only a resource shortage accelerates.
+#
+# The examples are run in a child interpreter, one per test, and peak RSS of a
+# single child measured on that checkout was 4765 MB for composed_process,
+# 928 MB for validate_sampling, then 817, 768, 585, 520, 517 MB. Under xdist's
+# default `--dist load` four workers can each reach one at once, and four
+# children alone come to 7278 MB before counting the workers that spawned them
+# or the 151 MB every worker pays to import jax and numpyro. That is more than
+# this runner has. It is arithmetic, not an unlucky interleaving, which is why
+# it reproduced every night rather than intermittently.
+#
+# tests/conftest.py puts those modules in one xdist group and `--dist
+# loadgroup` sends a group to a single worker, so at most one child exists at
+# a time; `-n 2` then keeps the resident workers inside the budget too. The
+# demos themselves are NOT reduced -- their budgets are registered settings
+# and the tests assert on what they recover, so trimming draws would buy green
+# by weakening the claim.
+#
+# `-n 2` IS A FLOOR CHOSEN WITHOUT THE NUMBER IT SHOULD BE CHOSEN FROM. No log
+# in this repository has ever stated the runner's cores or memory; 2 and 7 GiB
+# are what a private repository is documented to get, not something measured
+# here. The capacity lines below fix that, and once a few runs have printed
+# them this is worth revisiting -- on a 4-core runner `-n 4` with loadgroup
+# would be back in budget and half the wall clock.
+#
+# THE TIMEOUTS ARE FOR EVIDENCE, not for speed. A killed runner uploads
+# nothing, so nine consecutive red nights produced not one JUnit XML and the
+# `F`s in the logs were never explained by a summary. `timeout-minutes` on the
+# pytest STEP fails that step while leaving the `if: always()` reporting and
+# upload steps to run, so a future overrun leaves the artifact behind it. The
+# job-level timeout is only a backstop against the six-hour default, which at
+# two jobs a night is also a bill.
+
 name: Suite
 
 on:
@@ -66,6 +106,7 @@ jobs:
   source:
     name: source tree, dev group
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     permissions:
       contents: read
     steps:
@@ -130,8 +171,12 @@ jobs:
           echo "simd     : $(grep -m1 ^flags /proc/cpuinfo | tr ' ' '\n' \
             | grep -E '^(avx|avx2|avx512[a-z]*|fma|sse4_2)$' | sort -u | tr '\n' ' ')"
           echo "openblas : ${OPENBLAS_CORETYPE:-runtime-dispatched}"
+          echo "cores    : $(nproc)"
+          echo "memory   : $(awk '/MemTotal/ {printf "%.1f GiB total", $2/1048576} \
+            /MemAvailable/ {printf ", %.1f GiB available", $2/1048576}' /proc/meminfo)"
 
       - name: Run the suite
+        timeout-minutes: 120
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -142,7 +187,7 @@ jobs:
           fi
           set +e
           # shellcheck disable=SC2086
-          .venv/bin/python -m pytest -n 4 -p no:cacheprovider \
+          .venv/bin/python -m pytest -n 2 --dist loadgroup -p no:cacheprovider \
             ${layer:+"$layer"} ${expr:+"$expr"} --junit-xml=suite.xml
           echo "PYTEST_EXIT=$?" | tee suite.exit
 
@@ -189,6 +234,7 @@ jobs:
   wheel:
     name: built wheel, no dev extras
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     permissions:
       contents: read
     steps:
@@ -217,8 +263,12 @@ jobs:
           echo "cpu      : $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
           echo "simd     : $(grep -m1 ^flags /proc/cpuinfo | tr ' ' '\n' \
             | grep -E '^(avx|avx2|avx512[a-z]*|fma|sse4_2)$' | sort -u | tr '\n' ' ')"
+          echo "cores    : $(nproc)"
+          echo "memory   : $(awk '/MemTotal/ {printf "%.1f GiB total", $2/1048576} \
+            /MemAvailable/ {printf ", %.1f GiB available", $2/1048576}' /proc/meminfo)"
 
       - name: Test the built wheel
+        timeout-minutes: 120
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -232,7 +282,7 @@ jobs:
           fi
           set +e
           # shellcheck disable=SC2086
-          .testenv/bin/python -m pytest -n 4 -p no:cacheprovider \
+          .testenv/bin/python -m pytest -n 2 --dist loadgroup -p no:cacheprovider \
             ${layer:+"$layer"} ${expr:+"$expr"} --junit-xml=wheel.xml
           echo "PYTEST_EXIT=$?" | tee wheel.exit
 
