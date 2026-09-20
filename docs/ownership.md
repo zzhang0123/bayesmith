@@ -152,3 +152,14 @@ An ownership change is a product decision. It must update this page and the
 top-level design together, name the independent oracle and compatibility path,
 and state whether old code is deleted, retained as a reference, or kept only as
 an adapter. Merely adding an optional dependency does not transfer ownership.
+
+### T-004 consumer integration acceptance (2026-09-20)
+
+Against rheplicant `716d38c`, `SamplingPlan.estimate` now calls the shared
+`bayesmith.optimize.certify` machinery. Its provenance row therefore moves
+from `OWN` to `SHARED_KERNEL`; the dispatch comparisons test route assembly,
+iterates and moments, not independent implementations of that certificate.
+The radiometer frozen-noise fixed point is still compared under an explicitly
+uncertified fixed budget. A separate test requires the normal certified route
+to refuse it: unchanged iterates do not imply a stationary full joint density.
+The positive certificate oracle remains in `tests/test_certify.py`.

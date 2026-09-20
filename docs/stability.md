@@ -68,7 +68,13 @@ which engine produced the point or how many steps it took. A reference
 optimiser with a certified answer is a different thing from a reference
 optimiser you have to trust.
 
-Two limits, stated because they are what a reader will assume otherwise. The
+The certified quantity is the local Newton decrement. Its interpretation as
+an actual distance to a minimum is exact for a quadratic objective; for a
+nonlinear objective it concerns the local quadratic model and does not prove
+a global MAP. An upper bound exceeding the requested limit is insufficient
+to certify, not proof that the actual decrement exceeds that limit.
+
+Two further limits, stated because they are what a reader will assume otherwise. The
 verdict is about the objective it was handed: with `names=`, it certifies that
 BLOCK's conditional minimum, not the graph's joint MAP. And without
 `certify=`, `Fit.converged` is `False` — because nothing was measured, not

@@ -28,6 +28,12 @@ than being deleted: the BLOCK-TYPE framing is what made the defect findable
 at all, and the third bullet's argument never depended on B1 -- one side of
 the comparison still does not exist, so this row still could not have fixed
 the wrong reference even had it wanted to.
+
+T-004 integration (2026-09-20): SamplingPlan now delegates convergence to
+bayesmith.optimize.certify. These remain comparisons of route construction,
+iterates and posterior moments; they are not independent certificate oracles.
+The frozen-noise value comparison uses an explicitly uncertified fixed budget,
+and a separate test requires the default certified route to refuse it.
 """
 
 from __future__ import annotations
@@ -312,10 +318,13 @@ def _b1_arrays():
 def _b1_closed_forms(x, data):
     """The two estimators §三 B1 names, in closed form.
 
-    ``sum d^2/x^2 / sum d/x`` is the argmax with the log-determinant
-    DROPPED -- the GLS-type target -- and ``mean(d/x)`` is the argmax with
-    it KEPT, which is exactly unbiased. Written in NumPy from the algebra,
-    so neither package supplies the reference.
+    ``sum d^2/x^2 / sum d/x`` is the likelihood optimum with the
+    log-determinant dropped. ``mean(d/x)`` is the unbiased frozen-noise
+    fixed point, NOT the full likelihood optimum: differentiating the
+    prediction-dependent variance contributes another term. Neither
+    expression includes the prior. T-004 now refuses to certify this
+    frozen-noise fixed point as a MAP; the comparison below retains it
+    only under an explicit fixed budget.
     """
     xs, ds = np.asarray(x, dtype=float), np.asarray(data, dtype=float)
     dropped = float(np.sum(ds**2 / xs**2) / np.sum(ds / xs))
@@ -323,7 +332,7 @@ def _b1_closed_forms(x, data):
     return dropped, kept
 
 
-def _b1_rheplicant(x, data, *, nonlinear: bool):
+def _b1_rheplicant(x, data, *, nonlinear: bool, fixed_budget: bool = False):
     from rheplicant import Coordinates, State
     from rheplicant.core.operator import AbstractOperator
     from rheplicant.core.pipeline import Pipeline
@@ -363,6 +372,7 @@ def _b1_rheplicant(x, data, *, nonlinear: bool):
         data[None, :],
         noise=RadiometerNoise(channel_width=1.0 / B1_KAPPA**2, integration_time=1.0),
         max_iter=60,
+        **({"tol": None} if fixed_budget else {}),
     )
     value = float(np.asarray(estimate.values["w"]))
     return (float(np.exp(value)) if nonlinear else value), estimate.diagnostics
@@ -410,7 +420,10 @@ def test_a_conjugate_block_lands_on_the_unbiased_side_on_both__sides():
     bayesmith, same model           5.104558
     ==============================  ==========
 
-    The two packages agree to 9e-12 and BOTH sit on the unbiased side. So
+    This compares fixed-budget iterates, not certified MAP estimates.
+    rheplicant now rejects this point when convergence is requested (see
+    the refusal test below). The two packages agree to 9e-12 and BOTH sit
+    on the unbiased side. So
     the row's ordering warning -- "先落 B1, or the comparison fixes the
     GLS-type target as the reference" -- is not reachable through this
     door. The anti-vacuity clause is the distance to the other estimator:
@@ -420,7 +433,8 @@ def test_a_conjugate_block_lands_on_the_unbiased_side_on_both__sides():
     with jax.enable_x64(True):
         x, data = _b1_arrays()
         dropped, kept = _b1_closed_forms(x, data)
-        theirs, _ = _b1_rheplicant(x, data, nonlinear=False)
+        theirs, diagnostics = _b1_rheplicant(x, data, nonlinear=False, fixed_budget=True)
+        assert not diagnostics.converged
         ours = float(
             np.asarray(_b1_bayesmith(x, data, nonlinear=False).estimate().values["w"])
         )
@@ -433,6 +447,22 @@ def test_a_conjugate_block_lands_on_the_unbiased_side_on_both__sides():
     for label, got in (("rheplicant", theirs), ("bayesmith", ours)):
         assert got == pytest.approx(kept, rel=1e-4), (label, got, kept)
         assert abs(got - dropped) > 0.15 * kept, (label, "landed on the GLS target")
+
+
+
+def test_a_frozen_noise_fixed_point_is_not_a_certified_map():
+    """A shared convergence kernel must still reject this route's fixed point.
+
+    The true full-joint gradient is nonzero even though frozen-noise updates
+    no longer move. Do not loosen the certificate or accept a fixed budget
+    silently to make the historical value comparison pass.
+    """
+    from rheplicant.core.errors import ParameterSpaceError
+
+    with jax.enable_x64(True):
+        x, data = _b1_arrays()
+        with pytest.raises(ParameterSpaceError, match="was not certified"):
+            _b1_rheplicant(x, data, nonlinear=False)
 
 
 def test_a_gradient_block_now_lands_on_the_unbiased_side_too():
@@ -452,13 +482,15 @@ def test_a_gradient_block_now_lands_on_the_unbiased_side_too():
     ``Conditioning.neg_log_likelihood`` is now ``0.5 * chi2 +
     log_determinant`` and BOTH potential builders take it -- the
     single-argument one the optimiser gets and the lifted one NUTS gets.
-    The block lands at **5.0041**. The 2.0% still between it and the closed
-    form is the prior, not a residue: the fixture declares ``w`` with
-    ``mu = exp(w) x``, so a ``Normal(0, 100)`` on ``w`` is a ``1/scale``
-    prior on the recovered scale. Which is why upstream's own guard asserts
+    The block lands near **5.0041**. The difference from the frozen-noise
+    mean 5.1046 is not a prior-only effect: differentiating the
+    prediction-dependent variance changes the likelihood optimum itself.
+    The fixture optimises the log-scale coordinate with its Normal prior;
+    transforming its returned point does not maximise a scale-coordinate
+    density with an extra Jacobian. Upstream's own guard asserts
     the density IDENTITY rather than a landing place
-    (``tests/inference/test_potential_carries_the_logdet.py``), and why the
-    assertion below is a SIDE and not a value.
+    (``tests/inference/test_potential_carries_the_logdet.py``). The
+    assertion below therefore checks a SIDE rather than an exact value.
 
     The old number is kept in this docstring on purpose. A cross-check
     rewritten to match new behaviour, with no trace of what it used to

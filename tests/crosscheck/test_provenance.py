@@ -67,11 +67,12 @@ a row whose file was already gone would satisfy it vacuously for ever.
 
 What this guard structurally cannot see, said here so nobody reads more
 into a green run than it holds: reachability stops at the MODULE boundary.
-A rheplicant function that composes another rheplicant module which itself
-delegates (``plan.SamplingPlan`` over ``partition.auto_blocks`` over
-bayesmith's ``first_fit``) shows as own here; that composition is what
-``test_dispatch.py`` compares by OUTPUT, and collapsing it whole would be a
-module-level switch -- ``test_migration_records.py``'s jurisdiction.
+A rheplicant function that only composes another rheplicant module which
+itself delegates can show as own here. SamplingPlan used to illustrate this
+through partition.auto_blocks; its new direct certificate import now makes
+it SHARED_KERNEL. ``test_dispatch.py`` compares the composition by OUTPUT.
+Collapsing it whole would be a module-level switch, governed by
+``test_migration_records.py``.
 
 Everything below reads source off the installed rheplicant checkout, so
 what is asserted is the sibling AS CHECKED OUT -- the same contract as
@@ -109,7 +110,6 @@ OWN: dict[tuple[str, str], frozenset[str]] = {
     ("rheplicant.inference.likelihood", "GaussianLikelihood"): frozenset(),
     ("rheplicant.inference.numpyro_bridge", "init_to_declared"): frozenset(),
     ("rheplicant.inference.parameters", "refuse_stochastic_stages"): frozenset(),
-    ("rheplicant.inference.plan", "SamplingPlan"): frozenset(),
     ("rheplicant.inference.plan", "Block"): frozenset(),
 }
 
@@ -123,6 +123,10 @@ OWN: dict[tuple[str, str], frozenset[str]] = {
 #: * ``fisher_information`` -- `2026-08-27-wave-A-uncertainty-covariance.md`
 #:   (mutation U5); ``test_noise_logdet.py``'s two Fisher classes, which
 #:   compare two CONSTRUCTION ROUTES to one arithmetic.
+#: * ``SamplingPlan`` -- T-004: convergence certification delegates to
+#:   optimize.certify; test_dispatch.py compares route outputs and explicitly
+#:   tests refusal of a frozen-noise fixed point. It is not an independent
+#:   test of the shared certificate arithmetic.
 #: * ``auto_blocks`` -- the loop is bayesmith's ``first_fit``, the rule and
 #:   the refusal disposition stay upstream (partition.py's own docstring);
 #:   ``test_dispatch.py`` reads the disposition.
@@ -135,6 +139,7 @@ SHARED_KERNEL: frozenset[tuple[str, str]] = frozenset(
         ("rheplicant.inference.linear", "condition_estimate"),
         ("rheplicant.inference.uncertainty", "fisher_information"),
         ("rheplicant.inference.partition", "auto_blocks"),
+        ("rheplicant.inference.plan", "SamplingPlan"),
     }
 )
 

@@ -46,10 +46,11 @@ rounding -- the answer is a refusal with its reason (:attr:`Fit.refusal`),
 not a certificate. :mod:`bayesmith.optimize.certify` is where that lives and
 says at length what each piece rests on.
 
-Note what the verdict is and is not about. It says the point is at the
-minimum of the objective it was given. It says nothing about whether that
-objective is the right one, nor -- with ``names=`` -- about anything beyond
-that block's conditional minimum.
+The verdict bounds the Newton decrement of the local quadratic model at
+this point. For a quadratic objective this is a distance to its minimum;
+for a nonlinear objective it is a local statement, not proof of a global
+MAP. It says nothing about whether the objective is the right one, nor --
+with ``names=`` -- about anything beyond that block's conditional objective.
 """
 
 from __future__ import annotations
@@ -230,11 +231,11 @@ class Fit(NamedTuple):
                 "certified."
             )
         return (
-            f"the point is within {note.distance:.4g} of the minimum in units "
-            f"of the curvature's standard deviation, which is outside the "
-            f"limit {self.limit:.4g} that was asked for. The bound is an "
-            "upper bound, so this is a real distance and not a failure to "
-            "measure: take more steps, or ask for a larger limit."
+            f"the upper bound {note.distance:.4g} on the local Newton "
+            f"decrement is outside the limit {self.limit:.4g} that was "
+            "asked for. An upper bound above the limit does not prove "
+            "that the true decrement exceeds it; this certificate is "
+            "insufficient. Refine the solve or take more optimisation steps."
         )
 
 
