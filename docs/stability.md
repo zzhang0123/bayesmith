@@ -26,9 +26,41 @@ lives in `dispatch._task_identity`. These moves do not create new public APIs.
 
 | Level | Surface | What users may conclude |
 |---|---|---|
-| Maintained | Graph, compiler, supported exact/NUTS routes, artifacts, applicable evaluation, analytic evidence | The documented contract is covered by regression checks within its declared domain. |
-| Experimental | `reweight`, `cumulants`, amortized reference implementation, low-level `jaxns_bridge` and compiled residual problem | Useful primitives with explicit limits; no general overlap, density-validity, calibration or convergence certification. |
+| Maintained | Graph, compiler, supported exact/NUTS routes, `marginal.*`, `diagnose.*`, the graph-facing half of `optimize`, artifacts, applicable evaluation, analytic evidence | The documented contract is covered by regression checks within its declared domain. |
+| Experimental | `reweight`, `cumulants`, amortized reference implementation, the generic descent engine inside `optimize`, low-level `jaxns_bridge` and compiled residual problem | Useful primitives with explicit limits; no general overlap, density-validity, calibration or convergence certification. |
 | Unavailable public route | Residual `EvidenceTask`, executable amortized task route, conditional-flow likelihood, R7 workflow engine | Installing an optional backend or constructing a schema does not enable an unimplemented route. |
+
+### Every module the sibling package imports, and its level
+
+The table above is by surface. A consumer reads by MODULE, and the downstream
+package (rheplicant) was left without a level for three of the families it
+depends on, `diagnose.*`, `optimize` and `marginal.*`, while depending on all
+three. Measured 2026-09-20 in this checkout, by reading rheplicant's own
+`from bayesmith... import` lines: twenty-one distinct module paths, in eight
+families.
+
+| Module family | Level | Regression evidence measured here | Note |
+|---|---|---|---|
+| `errors`, `distributions` | Maintained | part of the typed-refusal and Graph-semantics contract above | No change. |
+| `exact.*` (imported: `solve`, `fisher`, `linearity`, `gaussian`, `gls`, `block`, `loglinear`, `precision`, `reduced_basis`) | Maintained | `tests/exact/` collects 595 | Already covered as "supported exact routes". `exact.precision.diagonal_from` is the one name that subpackage exports; the protocol and its implementations stay internal. |
+| `dispatch.factor` | Maintained | covered as "compiler" above | No change. |
+| `marginal.*` (imported: `sqrtinfo`, `chain`, `compress`, `diagnostics`; level covers the family) | **Maintained** | `tests/marginal/` collects 564, plus the `EAGER:`/`PLAN:` logdet gates in `tests/numerical_gates/` | Square-root information terms, exact folding and marginalisation, the chain recursion and the premise-checked logdet ladder. A typed refusal is the answer where a premise fails; it is not an approximation to work around. |
+| `diagnose.*` (imported: `identifiability`, `sensitivity`, `local`; level covers the family) | **Maintained** | `tests/diagnose/` collects 170, plus `tests/numerical_gates/boundary_diagnose_graph.py` | Graph-native identifiability, coupling, local structure and prior sensitivity. These report ABOUT a model; they do not certify that a sampler converged. |
+| `optimize` — `fit`, `check_loss_sense`, `sense_of`, `Fit` | **Maintained** | `tests/test_optimize.py` collects 46 | The graph-facing half: which density is descended (the FULL joint, D7), block versus whole-graph semantics, the loss-sense guard, and what a `Fit` means. These survive a change of engine. |
+| `optimize` — the descent engine inside `minimize` | **Experimental (reference implementation)** | same 46 | Two methods, `"adam"` and `"gradient"`, hand-written over `jax.lax.scan`. `steps` is taken exactly, there is no early stop, and `Fit` has no `converged` field — the module's own docstring says so: "There is no convergence verdict." Treat it as a working reference and a regression baseline, not as a maintained optimiser. |
+| `amortize` | Experimental | already listed as "amortized reference implementation" | The execution route remains unavailable; see `docs/ownership.md`. |
+
+`optimize`'s split is the one that matters to a consumer, so state it without
+the table: **the semantics are maintained and the engine is a reference
+implementation.** What `fit` optimises, which latents it holds, how the loss
+sense is checked and what the returned `Fit` reports are contract. How far the
+descent got is not: `minimize` runs a fixed number of steps of a local
+implementation and reports the objective it reached. A caller who needs to know
+whether that point is the optimum has to compare it against something, and
+this package supplies no such comparison today. A certified verdict is planned
+for 0.10.0 (`docs/superpowers/plans/2026-09-20-t004-upstream-convergence.md`,
+half B) and does not exist in 0.9.0; until it lands, a `Fit` is a point and a
+history, never a claim of convergence.
 
 TRIS and Campbell campaigns are application/research assets. Their measurements
 retain their date, model, sample budget and validation status; they do not enlarge

@@ -79,6 +79,72 @@ module count. Historical census measurements remain in the Git history.
 | Streamed marginal-likelihood terms | bayesmith | bayesmith | First-party production route. |
 | Graph-level Bayesian evidence | bayesmith analytic assembly; experimental JAXNS adapter | bayesmith eligibility, normalization and Result semantics | Whole-graph linear-Gaussian evidence executes with proper normalized priors and x64. Residual EvidenceTask execution remains unavailable even when an extra is installed. |
 
+## Why the near-side copies are being retired rather than kept in step
+
+T-004 retires the rows in `tests/crosscheck/test_provenance.py` that required
+rheplicant to keep its own `SqrtInfo`, `marginalise`, `check_linearity` and
+`linear_operator`. The alternative policy -- keep both copies and hold them in
+step with cross-checks -- was already being run, and this is the measurement
+that ended it.
+
+`_worse` is a six-line reduction used by the affinity check on both sides:
+`max` that propagates NaN, over values that may carry an `Unresolved` marker
+meaning "this probe declined to judge". bayesmith's copy
+(`src/bayesmith/exact/linearity.py:155`) branches on the marker and returns
+`Unresolved(worst)` whenever either argument carries it, with a comment saying
+why: "Without this the flag would be dropped whenever the plain float happened
+to be the larger of the two, which is a coin flip." rheplicant's copy
+(`src/rheplicant/inference/linear.py:477`) has no such branch; its body is
+`return current if current >= value else value`.
+
+Measured 2026-09-20 in this checkout, against rheplicant at `8ecc708`, calling
+both functions on the same four inputs:
+
+| inputs | bayesmith | rheplicant |
+|---|---|---|
+| `Unresolved(0.1), 0.5` | `Unresolved(0.5)` | `0.5` |
+| `Unresolved(0.5), 0.1` | `Unresolved(0.5)` | `Unresolved(0.5)` |
+| `0.5, Unresolved(0.1)` | `Unresolved(0.5)` | `0.5` |
+| `0.1, Unresolved(0.5)` | `Unresolved(0.5)` | `Unresolved(0.5)` |
+
+Two of the four disagree, and they are the two where the unresolved probe is
+not also the larger number -- the coin flip, arriving as predicted. Both sides
+share the `Unresolved` TYPE (it is in `bayesmith.exact.__all__`, imported
+there rather than respelled), so this is a difference in the reduction and not
+in the vocabulary.
+
+Three things about this make it the argument rather than an anecdote:
+
+- **Neither docstring says the two differ.** rheplicant's reads "``max`` that
+  PROPAGATES NaN, and keeps an `Unresolved` that wins" -- which describes
+  bayesmith's rule and not the code beneath it, since the marker survives only
+  by winning on magnitude. Documentation stayed in step while the code did
+  not, so reading either file gives the same wrong impression of the other.
+- **Nothing caught it.** The function is private on both sides, so the
+  symbol-level provenance guard did not name it, and the surviving
+  `test_linear.py` comparisons read the affinity VERDICT rather than the
+  marker on the reported number. A copy below the granularity of every guard
+  is a copy nobody is holding in step.
+- **The drift is silent in the direction that matters.** A lost `Unresolved`
+  turns "this probe could not be judged at this precision" into a clean
+  number, which is the reading that lets a caller proceed.
+
+This is the same failure this repository has spent the most time on, in a
+different medium: six copies of one measurement going stale on a day none of
+them was edited. The conclusion drawn there applies here -- one
+implementation, or a test; not two implementations and a hope. The copies are
+therefore retired to one owner rather than kept in step, and the ruling that
+the Bayesian numerics belong to bayesmith is what decides which owner.
+
+What remains true while the retirement is in progress: rheplicant still
+defines all four symbols today, so `tests/crosscheck/test_sqrtinfo_agrees.py`
+and `tests/crosscheck/test_linear.py` still compare two implementations, and
+a mutation in this package's own arithmetic still turns them red (measured;
+the table is in `test_provenance.py`'s `DELEGATION_PERMITTED` comment). The
+guard that replaced the retired rows asserts the one thing the retirement must
+not cost: when a definition leaves the far side, its comparison here leaves in
+the same change rather than passing against itself.
+
 ## Review rule
 
 An ownership change is a product decision. It must update this page and the

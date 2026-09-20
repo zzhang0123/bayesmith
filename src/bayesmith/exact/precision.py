@@ -52,13 +52,14 @@ builds from it, and :class:`DiagonalPrecision` keeps a normaliser that is never
 silently wrong. Masking is DIAGONAL and that is measured, not assumed --
 :mod:`bayesmith.marginal.compress` carries the number.
 
-**Nothing in this module is exported, and that is the design rather than an
-oversight.** :func:`~bayesmith.exact.gaussian.precision_at` is the seam a
-caller touches: it builds the object from the graph at a point, and the three
-consumers above take it from there. A user declares correlated noise by
-declaring the DISTRIBUTION -- numpyro's ``CirculantNormal`` is the case B9 was
-built for -- not by constructing a :class:`CirculantPrecision` and handing it
-in. So the protocol and its implementations are machinery, and
+**The protocol and its implementations are not exported, and that is the
+design rather than an oversight.** :func:`~bayesmith.exact.gaussian.precision_at`
+is the seam a caller touches: it builds the object from the graph at a point,
+and the three consumers above take it from there. A user declares correlated
+noise by declaring the DISTRIBUTION -- numpyro's ``CirculantNormal`` is the
+case B9 was built for -- not by constructing a :class:`CirculantPrecision` and
+handing it in. So :class:`Precision`, :class:`DiagonalPrecision`,
+:class:`CirculantPrecision` and :class:`MaskedPrecision` are machinery, and
 ``bayesmith.exact.__all__`` says so by leaving them out.
 
 Written down because omission is a poor way to say anything. An absent export
@@ -68,6 +69,27 @@ this repository that exists only as a gap. If a caller ever does need to
 implement :class:`Precision` themselves, a Toeplitz kernel being the obvious
 candidate and the paragraph above saying why it is not this class, then the
 protocol becomes public API and this is the paragraph to revisit, on purpose.
+
+**:func:`diagonal_from` is the exception, and a different revisit condition
+fired to make it one.** The paragraph above anticipated a caller wanting to
+IMPLEMENT the protocol. What actually happened is narrower and harder to
+argue with: :func:`~bayesmith.exact.solve.wiener_solve`,
+:func:`~bayesmith.exact.solve.gcr_sample` and
+:func:`~bayesmith.exact.solve.condition_bound` are all in
+``bayesmith.exact.__all__``, all take ``precision=`` as a REQUIRED keyword,
+and all three docstrings name this function as the way to build one from a
+decided sigma. A public entry point whose documented call needs an
+undeclared name has not been kept private; it has been left ambiguous, which
+is the defect the paragraph above names. rheplicant reached in and imported it
+from this module directly (``inference/linear.py::_far_precision``) -- the
+only thing it could do, and evidence rather than misuse. So the CONSTRUCTOR
+from the dict form is declared while the protocol stays machinery: a caller
+gets an opaque token to hand back, not a class to subclass.
+
+:func:`per_sample_sigma` is deliberately NOT declared alongside it. Its
+callers read a sigma off a finished result, and both results that do
+(``GLSResult.noise_std``, ``Estimate.noise_std``) already expose it as an
+attribute, so no public call requires the function itself.
 """
 
 from __future__ import annotations

@@ -47,6 +47,7 @@ from bayesmith.exact.loglinear import (
     log_space,
     multiplicative_log_data,
 )
+from bayesmith.exact.precision import diagonal_from
 from bayesmith.exact.solve import condition_bound, gcr_sample, wiener_solve
 
 __all__ = [
@@ -69,6 +70,13 @@ __all__ = [
     "noise_std_at",
     "precision_parts",
     "precision_at",
+    # The one name `exact.precision` exports. `wiener_solve`, `gcr_sample` and
+    # `condition_bound` all take `precision=` as a REQUIRED keyword and their
+    # docstrings name this function as how to build it from a decided sigma --
+    # so until it was declared, the documented way to call three public
+    # entry points went through a name in no `__all__`. The protocol and its
+    # implementations stay unexported; see `precision.py`'s docstring.
+    "diagonal_from",
     "wiener_solve",
     "gcr_sample",
     "condition_bound",

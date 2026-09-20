@@ -164,6 +164,7 @@ def test_the_exact_subpackage_s_own_all_reexports_the_right_object():
         gls,
         linearity,
         loglinear,
+        precision,
         solve,
     )
 
@@ -188,6 +189,11 @@ def test_the_exact_subpackage_s_own_all_reexports_the_right_object():
         "noise_std_at": gaussian.noise_std_at,
         "precision_parts": gaussian.precision_parts,
         "precision_at": gaussian.precision_at,
+        # The one constructor in `exact.precision` that is exported, because
+        # three public entry points below take its output as a required
+        # keyword. The protocol and its implementations stay unexported --
+        # `precision.py`'s own docstring rules on both halves.
+        "diagonal_from": precision.diagonal_from,
         "wiener_solve": solve.wiener_solve,
         "gcr_sample": solve.gcr_sample,
         "condition_bound": solve.condition_bound,

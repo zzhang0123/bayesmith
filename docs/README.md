@@ -64,6 +64,7 @@
 | `docs/superpowers/plans/2026-09-12-tris-rsb-joint-implementation.md` | `plan-active` | TRIS + Haslam + RSB Joint Analysis Implementation Plan |
 | `docs/superpowers/plans/2026-09-19-t002-stabilization.md` | `record` | T-002 — Architecture, documentation and release stabilization |
 | `docs/superpowers/plans/2026-09-19-t003-documentation-narrative.md` | `plan-active` | T-003: documentation narrative restructuring plan |
+| `docs/superpowers/plans/2026-09-20-t004-upstream-convergence.md` | `plan-active` | T-004 — upstream the convergence machinery, retire the OWN table |
 | `docs/superpowers/plans/HANDOFF-p3b-tasks-4-10.md` | `record` | 交接：bayesmith P3b Tasks 4–10 —— **已全部完成（2026-08-24）** |
 | `docs/superpowers/specs/2026-08-23-bayesmith-design.md` | `superseded` | bayesmith — 设计文档 |
 | `docs/superpowers/specs/2026-08-23-p3-structural-dispatch-design.md` | `superseded` | bayesmith P3 — 结构分派器 + InferencePlan + 线性高斯精确解 |
