@@ -43,7 +43,7 @@ The [English documentation](site/index.html) opens with what the package does
 and why, then works through examples ordered by how much of the model is solved
 exactly, the concepts a plan and a result are made of, and the design and its
 verification. Build and verify it with `python tools/build_docs.py --check`. The
-0.9.0 candidate is local and unpublished; all documentation pages request
+0.10.0 candidate is local and unpublished; all documentation pages request
 `noindex`, and Pages requires explicit manual opt-in. Source fragments and
 generated output are described in [site/README.md](site/README.md).
 
@@ -208,9 +208,13 @@ artifact rather than living only on a page.
 
 ## Status
 
-**0.9.0.** Stable baseline of the currently supported inference and artifact
-contracts. The package remains pre-1.0: experimental APIs and unavailable
-routes are explicitly separated from the maintained public surface. See the
+**0.10.0.** The 0.9.0 stable baseline plus a convergence certificate for the
+gradient route: `minimize(..., certify=<limit>)` and `fit(..., certify=<limit>)`
+return a `Fit` whose `converged` is a proof that the point is within `limit` of
+the minimum, in units of the posterior's own sigma, and a stated refusal where
+the arithmetic cannot support the claim. The package remains pre-1.0:
+experimental APIs and unavailable routes are explicitly separated from the
+maintained public surface. See the
 [user documentation](https://zzhang0123.github.io/bayesmith/) and
 [implementation ownership](docs/ownership.md).
 
@@ -231,7 +235,7 @@ boundaries are maintained under the [stability policy](docs/stability.md).
 Correctness repairs may reject previously accepted inputs that produced a wrong
 answer; such changes require release notes and consumer regression checks.
 
-Implemented and tested, 7,115 tests: the graph core with plates and joint
+Implemented and tested, 7,187 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every
 route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR

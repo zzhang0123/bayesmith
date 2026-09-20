@@ -26,11 +26,30 @@ Three things are public, and the split is the one the callers need:
   descends a function unbounded below while the loss history looks like
   textbook convergence.
 
-**What this is not.** There is no convergence verdict. ``steps`` steps are
-taken and the objective reached is reported; a caller who needs a verdict
-compares it against something, and this module has no opinion about what.
-That is deliberate and matches the exact route's own division of labour,
-where the verdict is raised one level up by whoever knows the tolerance.
+**There is a convergence verdict, and only when it is asked for.** Until
+0.10.0 there was none: ``steps`` steps were taken and the objective reached
+was reported, and a caller who needed a verdict compared it against something
+of their own. That is still what a call without ``certify=`` does, and it is
+still what every existing caller gets.
+
+Given ``certify=<limit>``, :func:`minimize` and :func:`fit` return a
+:class:`Fit` whose :attr:`~Fit.converged` is a PROOF: the Newton decrement
+``sqrt(g^T H^-1 g)`` at the returned point is bounded above by ``limit``, in
+units of the curvature's own standard deviation -- for a negative log
+posterior, the posterior sigma. The Hessian is never formed from the model,
+every product being a ``jvp`` of a ``grad``, and the inexactness of the solve
+behind ``H^-1 g`` is bounded from the recomputed residual, so a truncated
+iteration can only make the verdict REFUSE and never approve. Where the
+arithmetic cannot support the claim -- an unproven curvature floor, a solve
+that did not converge, a precision in which the decrement's digits are
+rounding -- the answer is a refusal with its reason (:attr:`Fit.refusal`),
+not a certificate. :mod:`bayesmith.optimize.certify` is where that lives and
+says at length what each piece rests on.
+
+Note what the verdict is and is not about. It says the point is at the
+minimum of the objective it was given. It says nothing about whether that
+objective is the right one, nor -- with ``names=`` -- about anything beyond
+that block's conditional minimum.
 """
 
 from __future__ import annotations
@@ -47,9 +66,33 @@ from bayesmith.errors import StructureError
 from bayesmith.graph.evaluate import log_joint
 from bayesmith.graph.graph import Graph
 
+# The certificate. Imported as a module so `bayesmith.optimize.certify` is an
+# attribute of this package, and by name for what this file uses -- `certify`
+# is also the KEYWORD below, and a parameter that shadowed the module would
+# make the two unusable in the same scope.
+#
+# The MODULE is deliberately not in `__all__`, and `bayesmith.exact` sets the
+# precedent: it exports `precision_at` and never `precision`. `__all__` here
+# has three readers and a submodule satisfies only two of them -- `import *`
+# and the identity guard in `tests/test_public_api.py` take it, while
+# `tools/build_docs.py` resolves every name to a documented API object and
+# raises "Unresolved public API exports" on a module. Measured: listing it
+# broke four tests in `test_documentation_site.py` and `test_campbell_
+# scaling.py`, none of which names `optimize`. The import below is what makes
+# `from bayesmith.optimize import certify` work; `__all__` never was.
+from bayesmith.optimize import certify
+from bayesmith.optimize.certify import (
+    CONVERGED,
+    STATUS_SAID,
+    Decrement,
+    decrement,
+)
+from bayesmith.optimize.certify import polish as newton_polish
+
 __all__ = [
     "MAXIMIZE",
     "MINIMIZE",
+    "Decrement",
     "Fit",
     "check_loss_sense",
     "fit",
@@ -83,11 +126,116 @@ class Fit(NamedTuple):
         history: the objective at the start of each step, shape ``(steps,)``.
             So ``history[0]`` is the objective the caller started from, and
             ``objective < history[0]`` is what "it improved" means.
+        certificate: the :class:`~bayesmith.optimize.certify.Decrement`
+            measured at :attr:`values`, or ``None`` when no ``certify=`` was
+            asked for. Read :attr:`converged` rather than this, unless the
+            question is WHY.
+        limit: the distance, in units of the curvature's own standard
+            deviation, that the caller asked to be proven. ``None`` with no
+            certificate.
+        polished: Newton steps kept after the descent, when ``certify=``
+            turned the polish on. ``0`` means the point came back as the
+            descent left it.
     """
 
     values: dict[str, Any]
     objective: jax.Array
     history: jax.Array
+    certificate: Decrement | None = None
+    limit: float | None = None
+    polished: int = 0
+
+    @property
+    def converged(self) -> bool:
+        """Whether this point is PROVEN within :attr:`limit` of the minimum.
+
+        Three conditions, all required: the curvature floor the bound divides
+        by is a proof rather than an estimate, the decrement's own solve
+        converged, and the upper bound it allows is inside the limit. See
+        :meth:`~bayesmith.optimize.certify.Decrement.certifies`.
+
+        **``False`` is not "it was measured and it failed".** It is also what
+        a fit that was never asked for a certificate reports, which is most of
+        them. The two are worth telling apart and :attr:`refusal` is what
+        tells them apart, in a sentence. This attribute is deliberately not
+        tri-state: a caller writing ``if fit.converged:`` gets the safe
+        reading of every case, and one who needs more asks for more.
+        """
+        if self.certificate is None or self.limit is None:
+            return False
+        return self.certificate.certifies(self.limit)
+
+    @property
+    def refusal(self) -> str | None:
+        """Why :attr:`converged` is ``False``, or ``None`` when it is ``True``.
+
+        Reports the FIRST unmet condition in the order
+        :meth:`~bayesmith.optimize.certify.Decrement.certifies` reads them, so
+        the sentence names the thing to fix rather than the last thing
+        checked.
+
+        **The verdict is read from :attr:`converged`, not re-derived here.**
+        Two chains of conditions over one object can disagree, and this pair
+        did: written as independent branches, the last one returned "outside
+        the limit" for a point whose distance was 0.0 and whose
+        :attr:`converged` was ``True``. Delegating makes that
+        unrepresentable rather than merely tested for.
+        """
+        if self.converged:
+            return None
+        if self.certificate is None or self.limit is None:
+            return (
+                "no certificate was requested, so nothing about this point's "
+                "distance to the minimum has been measured. Pass "
+                "`certify=<limit>` to `minimize` or `fit` to measure it; the "
+                "limit is a distance in units of the curvature's own standard "
+                "deviation, which for a negative log posterior is the "
+                "posterior sigma."
+            )
+        note = self.certificate
+        if note.floor_source == certify.FLOOR_NONE:
+            # Distinct from a probed floor, and it reads differently: "none"
+            # is not an estimate that failed to be a proof, it is no usable
+            # curvature at all -- the dense path's smallest eigenvalue was not
+            # positive, or the probe's interval did not clear zero. On a
+            # saddle both this and the solve's status fail, and `certifies`
+            # reads this one first, so the sentence has to carry both or it
+            # names the symptom and hides the cause.
+            return (
+                "there is no usable curvature floor at this point: the "
+                f"smallest eigenvalue of the Hessian was not positive, and "
+                f"the decrement's solve {STATUS_SAID[note.status]}. A "
+                "distance to the minimum presumes there is one to measure "
+                "to; at a saddle or on a flat direction there is not. This "
+                "is a statement about the point, not about the arithmetic -- "
+                "descend further, or start somewhere the objective curves "
+                "upwards in every direction."
+            )
+        if not note.proven:
+            return (
+                f"the curvature floor came from {note.floor_source!r}, which "
+                "is an estimate and not a proof, so no distance here can be "
+                "certified. A Lanczos probe bounds the distance from SOME "
+                "eigenvalue rather than from the smallest, so its floor can "
+                "sit above the true one and the bound built on it would be "
+                "too small. Supply `floor=` -- a verified lower bound on the "
+                "smallest eigenvalue of the Hessian -- or reduce the problem "
+                f"to at most {certify.DENSE_MAX} real parameters, where the "
+                "Hessian is formed and its smallest eigenvalue computed."
+            )
+        if note.status != CONVERGED:
+            return (
+                f"the decrement's solve {STATUS_SAID[note.status]}, so the "
+                "number it would report is not bounded and nothing is "
+                "certified."
+            )
+        return (
+            f"the point is within {note.distance:.4g} of the minimum in units "
+            f"of the curvature's standard deviation, which is outside the "
+            f"limit {self.limit:.4g} that was asked for. The bound is an "
+            "upper bound, so this is a real distance and not a failure to "
+            "measure: take more steps, or ask for a larger limit."
+        )
 
 
 def sense_of(scoring: Any) -> str:
@@ -160,6 +308,41 @@ def check_loss_sense(
             "maximised -- but this optimiser minimises, and will walk away "
             "from the answer while the loss history improves. Negate it: "
             "`lambda p, o: -score(p, o)`."
+        )
+
+
+def _checked_certificate(certify: float | None, floor: float | None) -> None:
+    """The two numbers a certificate rests on, refused before anything is spent.
+
+    ``floor`` without ``certify`` is refused rather than ignored, because the
+    two readings of that call are "I wanted a certificate and forgot to ask"
+    and "I passed a number that does nothing", and both deserve to be told.
+    That is the opposite disposition to ``polish``, which IS ignored without
+    ``certify`` -- the difference is that a wrong ``floor`` is the one input
+    here that can produce a wrong ANSWER, so silence about it is not cheap.
+    """
+    if floor is not None and certify is None:
+        raise StructureError(
+            "floor= is the curvature floor a certificate's bound divides by, "
+            "and no certificate was asked for. Pass certify=<limit> as well, "
+            "or drop floor=."
+        )
+    if certify is None:
+        return
+    if not certify > 0:
+        raise StructureError(
+            f"certify must be > 0, got {certify!r}. It is the distance to the "
+            "minimum that the fit must be proven to be within, in units of "
+            "the curvature's own standard deviation; a non-positive one can "
+            "never be met. Same `not >` spelling as learning_rate above, so a "
+            "NaN limit is refused rather than quietly certifying nothing."
+        )
+    if floor is not None and not floor > 0:
+        raise StructureError(
+            f"floor must be > 0, got {floor!r}. It is a lower bound on the "
+            "smallest eigenvalue of the Hessian, and the bound divides by its "
+            "square root; at or below zero the objective has no minimum to "
+            "measure a distance to."
         )
 
 
@@ -276,6 +459,9 @@ def minimize(
     beta1: float = 0.9,
     beta2: float = 0.999,
     eps: float = 1e-8,
+    certify: float | None = None,
+    floor: float | None = None,
+    polish: bool = True,
 ) -> Fit:
     """Descend ``objective`` from ``at`` for ``steps`` steps.
 
@@ -292,6 +478,35 @@ def minimize(
         learning_rate: the step size for every leaf without one of its own.
         step_sizes: per-name step sizes, in each parameter's own units.
         beta1, beta2, eps: Adam's, ignored by ``"gradient"``.
+        certify: a distance to PROVE the returned point is within, in units of
+            the curvature's own standard deviation -- for a negative log
+            posterior, the posterior sigma. Given one, the fit carries a
+            :class:`~bayesmith.optimize.certify.Decrement` and
+            :attr:`Fit.converged` answers. Left out, nothing is measured and
+            :attr:`Fit.converged` is ``False`` for that reason; see
+            :attr:`Fit.refusal`.
+        floor: a verified lower bound on the smallest eigenvalue of the
+            objective's Hessian. Only consulted above
+            :data:`~bayesmith.optimize.certify.DENSE_MAX` real parameters,
+            where the Hessian is not formed; below it the floor is computed
+            and this is not needed. It is a CLAIM the caller must be able to
+            prove -- a model affine in every parameter jointly, with proper
+            Gaussian priors and a noise scale that does not depend on the
+            prediction, is bounded below by its prior precision. An unsound
+            floor makes an unsound certificate, which is the one way to get a
+            wrong answer here. Refused without ``certify=``.
+        polish: whether to take Newton steps after the descent before the
+            certificate is measured. Only consulted with ``certify=``, and on
+            by default there because without it almost nothing certifies: a
+            first-order step of ``rate * sign(gradient)`` does not shrink with
+            the gradient, so Adam settles a fraction of a step size from the
+            optimum -- measured upstream at 2881 curvature standard deviations
+            on a two-parameter power law, at every step count. Each Newton
+            step is kept only if it lowers the objective, so this cannot make
+            the answer worse. Ignored without ``certify=``, on the same rule
+            as ``beta1``/``beta2`` under ``method="gradient"``: refuse where
+            it changes the answer, honour "ignored" where the contract says
+            ignored.
 
     Returns:
         A :class:`Fit`.
@@ -316,6 +531,7 @@ def minimize(
         non-finite result is refused rather than returned.
     """
     _checked_settings(method, steps, learning_rate, beta1, beta2)
+    _checked_certificate(certify, floor)
     _refuse_complex(at)
     rates = _rates(at, learning_rate, step_sizes)
 
@@ -368,7 +584,26 @@ def minimize(
         "the rate, use step_sizes= if the latents differ in units, or start "
         "somewhere the objective is finite.",
     )
-    return Fit(values=found, objective=reached, history=history)
+    if certify is None:
+        return Fit(values=found, objective=reached, history=history)
+
+    if polish:
+        found, kept = newton_polish(objective, found)
+        # Re-read the objective AT the returned point, for `Fit.objective`'s
+        # own contract -- "the objective at `values`, evaluated after the last
+        # step" -- which a polish that moved the point would otherwise break.
+        reached = jnp.asarray(objective(found))
+        steps_kept = int(kept)
+    else:
+        steps_kept = 0
+    return Fit(
+        values=found,
+        objective=reached,
+        history=history,
+        certificate=decrement(objective, found, floor=floor, limit=certify),
+        limit=float(certify),
+        polished=steps_kept,
+    )
 
 
 def fit(
@@ -383,6 +618,9 @@ def fit(
     beta1: float = 0.9,
     beta2: float = 0.999,
     eps: float = 1e-8,
+    certify: float | None = None,
+    floor: float | None = None,
+    polish: bool = True,
 ) -> Fit:
     """Gradient MAP: maximise the graph's joint log-density over its latents.
 
@@ -457,9 +695,22 @@ def fit(
         beta1=beta1,
         beta2=beta2,
         eps=eps,
+        certify=certify,
+        floor=floor,
+        polish=polish,
     )
     return Fit(
         values={**environment, **found.values},
         objective=found.objective,
         history=found.history,
+        # The certificate is over the latents that MOVED, which is the block
+        # this call optimised and the only thing a decrement here can mean.
+        # `values` carries the held ones too, so a reader must not take the
+        # two to be over the same set: with `names=`, `converged` says this
+        # BLOCK is at its conditional minimum given the rest, which is what a
+        # gradient block inside a sweep needs and is not a statement about
+        # the graph's joint MAP.
+        certificate=found.certificate,
+        limit=found.limit,
+        polished=found.polished,
     )

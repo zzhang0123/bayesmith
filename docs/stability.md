@@ -47,20 +47,32 @@ families.
 | `marginal.*` (imported: `sqrtinfo`, `chain`, `compress`, `diagnostics`; level covers the family) | **Maintained** | `tests/marginal/` collects 564, plus the `EAGER:`/`PLAN:` logdet gates in `tests/numerical_gates/` | Square-root information terms, exact folding and marginalisation, the chain recursion and the premise-checked logdet ladder. A typed refusal is the answer where a premise fails; it is not an approximation to work around. |
 | `diagnose.*` (imported: `identifiability`, `sensitivity`, `local`; level covers the family) | **Maintained** | `tests/diagnose/` collects 170, plus `tests/numerical_gates/boundary_diagnose_graph.py` | Graph-native identifiability, coupling, local structure and prior sensitivity. These report ABOUT a model; they do not certify that a sampler converged. |
 | `optimize` — `fit`, `check_loss_sense`, `sense_of`, `Fit` | **Maintained** | `tests/test_optimize.py` collects 46 | The graph-facing half: which density is descended (the FULL joint, D7), block versus whole-graph semantics, the loss-sense guard, and what a `Fit` means. These survive a change of engine. |
-| `optimize` — the descent engine inside `minimize` | **Experimental (reference implementation)** | same 46 | Two methods, `"adam"` and `"gradient"`, hand-written over `jax.lax.scan`. `steps` is taken exactly, there is no early stop, and `Fit` has no `converged` field — the module's own docstring says so: "There is no convergence verdict." Treat it as a working reference and a regression baseline, not as a maintained optimiser. |
+| `optimize` — the descent engine inside `minimize` | **Experimental (reference implementation)** | same 46 | Two methods, `"adam"` and `"gradient"`, hand-written over `jax.lax.scan`, `steps` taken exactly with no early stop. Treat it as a working reference and a regression baseline, not as a maintained optimiser. The ENGINE being a reference is now separable from the ANSWER being trustworthy: see the row below. |
+| `optimize.certify`, and `certify=` on `minimize`/`fit` | **Maintained** | `tests/test_certify.py` 50, `tests/test_optimize_certificate.py` 20 | Added in 0.10.0. `Fit.converged` is a proof that the Newton decrement at the returned point is within a stated distance, in units of the curvature's own standard deviation. Only a proven curvature floor certifies — a Lanczos probe may refuse and never approve. Where the arithmetic cannot support the claim the answer is `Fit.refusal` with its reason, not a certificate. |
 | `amortize` | Experimental | already listed as "amortized reference implementation" | The execution route remains unavailable; see `docs/ownership.md`. |
 
 `optimize`'s split is the one that matters to a consumer, so state it without
-the table: **the semantics are maintained and the engine is a reference
-implementation.** What `fit` optimises, which latents it holds, how the loss
-sense is checked and what the returned `Fit` reports are contract. How far the
-descent got is not: `minimize` runs a fixed number of steps of a local
-implementation and reports the objective it reached. A caller who needs to know
-whether that point is the optimum has to compare it against something, and
-this package supplies no such comparison today. A certified verdict is planned
-for 0.10.0 (`docs/superpowers/plans/2026-09-20-t004-upstream-convergence.md`,
-half B) and does not exist in 0.9.0; until it lands, a `Fit` is a point and a
-history, never a claim of convergence.
+the table: **the semantics are maintained, the engine is a reference
+implementation, and since 0.10.0 the ANSWER can be certified independently of
+the engine that found it.** What `fit` optimises, which latents it holds, how
+the loss sense is checked and what the returned `Fit` reports are contract.
+
+How far the descent got used to be outside the contract entirely: 0.9.0 ran a
+fixed number of steps and reported the objective it reached, and a caller who
+needed to know whether that point was the optimum had to compare it against
+something this package did not supply. 0.10.0 supplies it. `certify=<limit>`
+makes `Fit.converged` a proof that the point is within `limit` of the minimum
+in units of the curvature's own standard deviation — measured from the
+objective's own gradient and Hessian-vector products, so it does not care
+which engine produced the point or how many steps it took. A reference
+optimiser with a certified answer is a different thing from a reference
+optimiser you have to trust.
+
+Two limits, stated because they are what a reader will assume otherwise. The
+verdict is about the objective it was handed: with `names=`, it certifies that
+BLOCK's conditional minimum, not the graph's joint MAP. And without
+`certify=`, `Fit.converged` is `False` — because nothing was measured, not
+because something failed; `Fit.refusal` is what distinguishes the two.
 
 TRIS and Campbell campaigns are application/research assets. Their measurements
 retain their date, model, sample budget and validation status; they do not enlarge

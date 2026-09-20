@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.10.0 — a convergence certificate for the gradient route (local, unpublished)
+
+A pre-1.0 minor that adds a capability and changes no existing behaviour. Every
+call that worked in 0.9.0 returns what it returned; `Fit` gained three fields,
+all with defaults, and `minimize`/`fit` gained three keywords, all optional.
+
+- `bayesmith.optimize` is now a package. Its public names — `minimize`, `fit`,
+  `Fit`, `check_loss_sense`, `sense_of`, `MINIMIZE`, `MAXIMIZE` — did not move,
+  and `from bayesmith.optimize import ...` is unchanged. The package exists so
+  the certificate can live beside them as `bayesmith.optimize.certify`.
+- **`minimize(..., certify=<limit>)` and `fit(..., certify=<limit>)` return a
+  proof.** `Fit.converged` is `True` only when the Newton decrement
+  `sqrt(g^T H^-1 g)` at the returned point is bounded above by `limit`, in
+  units of the curvature's own standard deviation — for a negative log
+  posterior, the posterior sigma. The Hessian is never formed from the model
+  (every product is a `jvp` of a `grad`), and the bound is computed from the
+  RECOMPUTED residual, so a truncated solve can only make the verdict refuse.
+- **Where it cannot prove, it refuses.** An unproven curvature floor, a solve
+  that did not converge, a saddle, or a precision in which the decrement's
+  digits are rounding all produce `Fit.converged is False` with the reason in
+  `Fit.refusal`. In particular a Lanczos-probed floor NEVER certifies: it
+  bounds the distance from some eigenvalue rather than from the smallest, and
+  was measured upstream sitting above the true one in 5 of 240 float32 spectra,
+  the worst by a factor 7.4. It is kept because it can still refuse.
+- Above 1024 real parameters the Hessian is not formed, so a certificate there
+  needs `floor=` — a verified lower bound on its smallest eigenvalue, which is
+  a claim the caller must be able to prove. Passing `floor=` without `certify=`
+  is refused rather than ignored.
+- `certify=` also turns on a Newton polish before the measurement, because
+  without it almost nothing certifies: a first-order step of
+  `rate * sign(gradient)` does not shrink with the gradient, so Adam settles a
+  fraction of a step size from the optimum. Each Newton step is kept only if it
+  lowers the objective.
+- **`Fit.converged` is `False` when no certificate was asked for.** That is not
+  "measured and failed"; `Fit.refusal` says which of the two it is.
+
+`bayesmith.optimize.certify` was lifted byte for byte from
+`rheplicant.inference.certify` at `e1acb6f`, with its 50 unit tests, under the
+one-implementation migration. It imports nothing from either package. See
+`docs/ownership.md` and `docs/stability.md`.
+
+Not changed: `sweep_estimate` still runs a fixed number of sweeps and reports
+no verdict. Certifying a sweep needs a decrement over every latent at the end
+of it, which is an unmade decision rather than a missing line.
+
 ## 0.9.0 — stable baseline (publication pending)
 
 - Bound NumPyro below 0.22: its changed validation and Gibbs support contracts are not yet compatible with the verified 0.9 baseline.

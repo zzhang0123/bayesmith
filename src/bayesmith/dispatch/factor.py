@@ -907,6 +907,16 @@ def estimate_factors(
     monotonicity is a property of the all-exact case only, and is asserted
     there.
 
+    That first sentence is about THIS function and stopped being true of
+    :func:`~bayesmith.optimize.fit` in 0.10.0, which certifies on request.
+    The certificate is not passed through here, and the reason is not
+    oversight: a decrement measures the distance to the minimum of the
+    objective it is handed, so one taken inside a block's own call would
+    certify that BLOCK's conditional minimum given the rest. A verdict about
+    the sweep's joint needs a decrement over every latent at the end of it,
+    which nothing here computes. Wiring one is a real possibility and an
+    unmade decision, not a missing line.
+
     Args:
         graph: the model.
         plan: from :func:`factor_partition` or :func:`declared_partition`.
