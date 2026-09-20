@@ -30,8 +30,19 @@ still empty when a second session killed all three processes.
 The repair is to key the match on ``argv[0]`` and the interpreter's own
 options rather than on a substring anywhere, which is this repository's
 standing answer to a guard that reads a SPELLING: assert the consequence, not
-the syntax. The bypass is built and run below in ``_WRAPPERS``, with the
-command lines measured from the real deadlock rather than invented.
+the syntax. The bypass is built and run below in ``_WRAPPERS``.
+
+**The repair is not a strict narrowing, and calling it one was wrong.**
+Measured over every fixture in this file, nine verdicts change: seven move
+True to False, which are the false positives the substring matcher had, and
+**two move False to True**, which are real runs it MISSED. ``python -mpytest``
+failed the retired spelling because that required whitespace after ``-m``,
+and ``.../bin/pytest-3.12`` failed it because that required ``/bin/pytest`` to
+be followed by whitespace or the end of the string, and a version suffix is
+neither. Every move is an improvement for its row's class
+and none contradicts it, which is the property worth having; "it can only lose
+false positives" is a different and false claim, and this paragraph exists so
+nobody repeats it from the commit message.
 
 **"Could not check" is not "clear".** ``ps`` failing must exit 2, never 0. A
 gate that reports a clean machine when it never looked is the failure it exists
@@ -111,10 +122,19 @@ _MUST_NOT_MATCH = [
     "/bin/zsh /tmp/scratch/queued_fast.sh",
 ]
 
-#: Wrappers that CARRY a run command as text and run no pytest at all. The
-#: first is the real deadlock of 2026-09-20, copied from `ps` rather than
-#: written from memory; the rest are the same shape in the other shells and in
-#: the form a queued-run script takes.
+#: Wrappers that CARRY a run command as text and run no pytest at all.
+#:
+#: Provenance, because "measured" and "reconstructed" are worth telling apart
+#: in a file whose whole subject is a check that could not tell two things
+#: apart. Rows 1 and 2 were captured from `ps` here, from deliberate
+#: reproductions of the 2026-09-20 deadlock. Row 3 is RECONSTRUCTED from
+#: another session's report of the original process's command line and was
+#: not observed in this checkout. Rows 4 and 5 are the same shape written out
+#: in the other shells, never observed. None of that weakens them as
+#: fixtures -- what a fixture has to be is a string the retired matcher
+#: accepts and the repaired one rejects, which the anti-vacuity test below
+#: requires of every row -- but a reader should not take row 3 for a
+#: measurement.
 _WRAPPERS = [
     (
         '/bin/zsh -c echo "would run: .venv/bin/python -m pytest -n 4 -m not'
@@ -177,6 +197,49 @@ def test_the_old_substring_matcher_would_have_failed_this_file():
         f"longer demonstrate the repair: {set(_WRAPPERS) - set(fooled)}"
     )
     assert all(_module()._is_a_run(command) for command in _MUST_MATCH)
+
+
+def test_the_repair_moves_verdicts_in_BOTH_directions():
+    """The fixture set must exercise the change both ways, not just one.
+
+    ``test_the_old_substring_matcher_would_have_failed_this_file`` above pins
+    the false-POSITIVE direction: every wrapper fooled the retired matcher.
+    Nothing pinned the other one, and there is another one -- the repair also
+    catches two runs the substring matcher MISSED. Delete those two rows and
+    the file would still be green while quietly recording the change as a pure
+    narrowing, which is what both the commit message and a reviewer's summary
+    called it before this was measured.
+
+    Counts are deliberately NOT asserted: a row added later should not fail a
+    test about direction. What is asserted is that neither direction is empty,
+    and that every disagreement resolves in favour of the row's own class --
+    so a future edit cannot introduce a change where the retired matcher was
+    right and the repaired one is wrong.
+    """
+    import re
+
+    retired = re.compile(r"(?:^|\s)-m\s+pytest(?:\s|$)|/bin/pytest(?:\s|$)")
+    module = _module()
+    gained, lost = [], []
+    for rows, is_a_run in ((_MUST_MATCH, True), (_MUST_NOT_MATCH, False), (_WRAPPERS, False)):
+        for command in rows:
+            was, now = bool(retired.search(command)), module._is_a_run(command)
+            if was == now:
+                continue
+            assert now is is_a_run, (
+                f"the repair disagrees with this row's own class: {command!r} "
+                f"is {'a run' if is_a_run else 'not a run'} and the repaired "
+                f"matcher says {now}"
+            )
+            (gained if now else lost).append(command)
+
+    assert lost, "no fixture demonstrates a false positive being dropped"
+    assert gained, (
+        "no fixture demonstrates a run the retired matcher MISSED. Two did: a "
+        "`-m` with no space before the module name, and a console script with "
+        "a version suffix. Without one of them this file records the repair as "
+        "a strict narrowing, which it is not."
+    )
 
 
 def test_a_clear_machine_exits_zero(monkeypatch, capsys):
