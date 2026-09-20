@@ -97,10 +97,33 @@ on:
   schedule:
     # 03:17 UTC, an odd minute rather than the top of the hour: GitHub queues
     # scheduled jobs and the hour boundary is where every repository piles up.
-    - cron: "17 3 * * *"
+    #
+    # WEEKLY, NOT NIGHTLY, and the reason is a bill rather than a preference.
+    # Billing is PER JOB, so one run costs the sum of both: measured on
+    # 2026-09-20, 88 min for source and 70 for wheel, 158 job-minutes. Nightly
+    # that is ~4,740 minutes a month, which is past the allowance on its own,
+    # and the nine runs this cadence produced between 2026-09-12 and 09-20 cost
+    # MORE than a healthy one -- up to 317 job-minutes -- because a starved job
+    # hung for hours before it died, and returned nothing at all.
+    #
+    # Monday 03:17 UTC is ~1,106 minutes a month for the same coverage. What it
+    # costs is latency: a regression that a dependency move introduces on a
+    # Tuesday is now found on the following Monday rather than the next
+    # morning. That is the trade, stated so the next reader can undo it
+    # knowingly -- put the `*` back and the bill returns with it.
+    - cron: "17 3 * * 1"
   workflow_dispatch:
 
 permissions: {}
+
+# A superseded run is a run nobody will read. Pushing twice inside an hour used
+# to leave the first push's two jobs running to completion and billing for it;
+# this cancels them. The schedule and a manual dispatch get their own groups by
+# ref, so a nightly is never cancelled by a push to the same branch mid-run --
+# only by a newer run of the same kind.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
 
 jobs:
   source:
