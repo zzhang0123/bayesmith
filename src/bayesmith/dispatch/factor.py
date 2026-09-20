@@ -912,10 +912,31 @@ def estimate_factors(
     The certificate is not passed through here, and the reason is not
     oversight: a decrement measures the distance to the minimum of the
     objective it is handed, so one taken inside a block's own call would
-    certify that BLOCK's conditional minimum given the rest. A verdict about
-    the sweep's joint needs a decrement over every latent at the end of it,
-    which nothing here computes. Wiring one is a real possibility and an
-    unmade decision, not a missing line.
+    certify that BLOCK's conditional minimum given the rest, not the sweep's.
+    A verdict about the joint needs a decrement over every latent at the end
+    of the sweep, which this function does not take.
+
+    **A caller can take it, though, and that is measured rather than
+    asserted.** :attr:`SweepEstimate.values` is every latent, so the joint
+    objective is in hand and
+    :func:`~bayesmith.optimize.certify.decrement_program` accepts it
+    directly::
+
+        objective = lambda v: -log_joint(graph, v)
+        program = certify.decrement_program(objective, swept.values, limit=0.1)
+        measured = certify.decrement(None, swept.values, program=program)
+        measured.certifies(0.1)
+
+    On ``two_linear_latents`` over a two-block plan that returns a proven
+    certificate at distance 3.2e-15, and
+    ``tests/test_optimize_certificate.py::TestCertifyingASweepByHand`` pins it
+    so the paragraph cannot go stale. What is unmade is therefore narrower
+    than it first looks: not whether a sweep CAN be certified -- it can, today,
+    through the public API -- but whether this function should do it for the
+    caller, spend the solve on every call, and own the resulting verdict. The
+    downstream consumer builds exactly this construction around its own
+    sweeps rather than asking for it here, which is evidence that the seam is
+    in a usable place and not that it is missing.
 
     Args:
         graph: the model.

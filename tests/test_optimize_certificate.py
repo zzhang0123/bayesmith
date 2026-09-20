@@ -345,3 +345,60 @@ class TestWhatIsRefusedBeforeAnythingIsSpent:
                 certify=LIMIT,
                 floor=bad,
             )
+
+
+class TestCertifyingASweepByHand:
+    """A block-coordinate sweep's result, certified through the public API.
+
+    ``estimate_factors`` takes no ``certify=`` and reports no verdict, and
+    ``factor.py``'s own docstring says why: a decrement inside a block's call
+    would certify that block's conditional minimum, not the sweep's joint.
+    What that docstring ALSO claims, since 0.10.0, is that a caller can take
+    the joint decrement themselves in four lines. This is that claim as a
+    test, so the paragraph cannot quietly stop being true.
+
+    Not TDD-first: it characterises a capability that already existed the
+    moment ``certify`` landed. It is here for the same reason
+    ``test_readme_count.py`` is here -- a sentence in prose is a claim no run
+    checks, and this one now has one.
+
+    ``decrement(None, ...)`` is deliberate and is the form the downstream
+    consumer uses: with a ``program=`` already built, the objective argument
+    is never read, so passing the objective twice would only invite the two
+    to disagree.
+    """
+
+    def test_a_swept_point_can_be_certified_over_the_joint(self):
+        from bayesmith.dispatch.factor import declared_partition, estimate_factors
+        from bayesmith.graph.evaluate import log_joint
+        from tests.exact.models import two_linear_latents
+
+        graph = two_linear_latents()
+        plan = declared_partition(graph, [(("a",), "gcr"), (("b",), "gcr")])
+        swept = estimate_factors(graph, plan, sweeps=5)
+
+        # Every latent, which is what makes a JOINT decrement possible here.
+        assert set(swept.values) == set(graph.latents)
+
+        def objective(values):
+            return -log_joint(graph, values)
+
+        program = certify.decrement_program(objective, swept.values, limit=LIMIT)
+        measured = certify.decrement(None, swept.values, program=program)
+
+        assert measured.floor_source == certify.FLOOR_DENSE
+        assert measured.status == certify.CONVERGED
+        assert measured.certifies(LIMIT)
+        # Measured 3.216e-15; the bound is well inside anything a caller would
+        # ask for, which is the point -- an exact sweep lands ON the joint mode.
+        assert measured.distance < 1e-10
+
+    def test_the_sweep_itself_still_reports_no_verdict(self):
+        """The other half of the docstring's claim: this is the caller's to
+        take, and ``estimate_factors`` has not quietly grown one."""
+        import inspect
+
+        from bayesmith.dispatch.factor import SweepEstimate, estimate_factors
+
+        assert "certify" not in inspect.signature(estimate_factors).parameters
+        assert "converged" not in SweepEstimate._fields
