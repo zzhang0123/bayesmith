@@ -52,10 +52,22 @@ is left after a requirement is deliberately dropped:
   That is the floor the retirement must not go below, and it is the same
   failure D90 was written about -- a comparison whose far side has left,
   passing because nothing noticed. It is strictly weaker than an ``OWN`` row:
-  ``OWN`` said "you may never delegate this"; this says "when the definition
-  goes, its comparison goes in the same change". A row here is not a
-  permanent home. When rheplicant deletes the symbol and this package deletes
-  the comparison, the row goes too.
+  ``OWN`` said "you may never delegate this"; this says "a comparison must
+  not outlive its subject". A row here is not a permanent home. When
+  rheplicant deletes the symbol and this package deletes the comparison, the
+  row goes too.
+
+  **And the two go in a fixed ORDER: the comparison retires here FIRST, then
+  the definition goes over there.** This paragraph used to say "in the same
+  change", which is not available across two repositories and so told a
+  reader to do something impossible. The reason for the order is not that
+  impossibility, which would leave both orders equally valid; it is that they
+  are not symmetric. Retiring the comparison first leaves a window in which
+  this suite is GREEN and slightly weaker than it was. Deleting the
+  definition first leaves a window in which this suite is RED, and red HERE
+  for a change made THERE -- which reads to whoever finds it as the other
+  repository's fault. A reader can act correctly on the first and cannot on
+  the second, so comparison-first is the only order that does not mislead.
 
 The two directions also guard the CHECKER itself: a walker that stopped
 seeing imports would fail every ``SHARED_KERNEL`` row (empty reach where
@@ -344,12 +356,14 @@ def test_a_permitted_subject_has_not_left_a_comparison_behind(module_name, symbo
         f"{module_name}.{symbol} is no longer a top-level def or class over "
         f"there, and {comparison.name} still stands on it. Whatever that file "
         "asserts about this subject is now this package compared with itself, "
-        "and it will pass. Retire those assertions in the same change that "
-        "removed the definition -- identify each subject in a one-sided home "
-        "on this side (iron law 2's other branch, and the pattern "
-        "test_linear.py's docstring records for its eight retirements) -- "
-        "then delete this row. Do not delete the row alone; the row is not "
-        "what is broken."
+        "and it will pass. The order to repair it in: retire those assertions "
+        "HERE first -- identify each subject in a one-sided home on this side "
+        "(iron law 2's other branch, and the pattern test_linear.py's "
+        "docstring records for its eight retirements) -- then delete this "
+        "row, and only then is the far side free to drop the definition. If "
+        "you are reading this it is already the other way round, so the "
+        "repair is the same list and this suite stays red until it is done. "
+        "Do not delete the row alone; the row is not what is broken."
     )
 
 
