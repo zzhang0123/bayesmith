@@ -128,6 +128,11 @@ def test_grid_maximization_uses_boundary_and_interior_modes():
 def test_campbell_chapter_joins_existing_navigation_and_preserves_saved_evidence(
     tmp_path,
 ):
+    # The child below runs examples/inference/plot_results.py, whose own
+    # docstring says it requires optional matplotlib. The child is started with
+    # `sys.executable`, so the parent's ability to import it is the child's.
+    pytest.importorskip("matplotlib")
+
     import hashlib
     import json
     import subprocess

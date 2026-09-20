@@ -190,14 +190,14 @@ class _Geometry:
 
 
 def _gaussian_beam(nside, sigma_deg):
-    import healpy as hp
+    hp = pytest.importorskip("healpy")
 
     theta, _phi = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
     return np.exp(-0.5 * (np.rad2deg(theta) / sigma_deg) ** 2)
 
 
 def test_independent_oracle_normalizes_a_constant_sky():
-    import healpy as hp
+    hp = pytest.importorskip("healpy")
 
     geometry = _Geometry([0.0, 120.0], 42.44, [0.0, 0.0], [90.0, 90.0], [0.0, 0.0])
     beam = _gaussian_beam(64, 10.0)
@@ -207,7 +207,7 @@ def test_independent_oracle_normalizes_a_constant_sky():
 
 
 def test_independent_oracle_peak_is_the_pointed_zenith():
-    import healpy as hp
+    hp = pytest.importorskip("healpy")
 
     latitude = 42.44
     geometry = _Geometry([0.0], latitude, [0.0], [90.0], [0.0])
@@ -219,7 +219,7 @@ def test_independent_oracle_peak_is_the_pointed_zenith():
 
 
 def test_independent_oracle_masks_below_the_horizon():
-    import healpy as hp
+    hp = pytest.importorskip("healpy")
 
     geometry = _Geometry([37.0], 42.44, [0.0], [90.0], [0.0])
     beam = _gaussian_beam(64, 30.0)

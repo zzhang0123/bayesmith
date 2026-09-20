@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from examples.inference.tris_notebook import (
     build_notebook,
     default_configs,
@@ -24,6 +26,7 @@ def test_built_notebook_is_valid_nbformat():
 
 
 def test_execute_captures_stdout_and_writes_figures(tmp_path):
+    pytest.importorskip("matplotlib")
     notebook = {
         "cells": [
             {"cell_type": "code", "metadata": {}, "source": [
@@ -51,6 +54,7 @@ def test_execute_captures_stdout_and_writes_figures(tmp_path):
 
 
 def test_execute_keeps_markdown_cells_in_order(tmp_path):
+    pytest.importorskip("matplotlib")
     notebook = {
         "cells": [
             {"cell_type": "markdown", "metadata": {}, "source": ["## Head" + NL]},
@@ -90,6 +94,7 @@ def test_default_configs_records_rerun_entries():
 
 
 def test_execute_recaptures_a_rewritten_figure(tmp_path):
+    pytest.importorskip("matplotlib")
     notebook = {
         "cells": [
             {"cell_type": "code", "metadata": {}, "source": [

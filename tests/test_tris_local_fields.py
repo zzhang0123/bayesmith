@@ -12,6 +12,7 @@ from examples.inference.tris_local_fields import (
 
 
 def test_node_prior_reconstructs_projected_angular_covariance():
+    pytest.importorskip("healpy")
     loading, covariance = node_loading(2, [(1.0, 30.0), (0.5, 7.0)])
     n = len(loading)
     project = np.eye(n) - np.ones((n, n)) / n
@@ -23,7 +24,7 @@ def test_node_prior_reconstructs_projected_angular_covariance():
 
 
 def test_interpolation_preserves_constants_and_never_extrapolates_node_range():
-    import healpy as hp
+    hp = pytest.importorskip("healpy")
 
     theta = np.r_[0.0, np.pi, np.linspace(0.1, 3.0, 80)]
     phi = np.linspace(-0.4, 6.7, len(theta))
@@ -47,6 +48,7 @@ def test_interpolation_preserves_constants_and_never_extrapolates_node_range():
 
 
 def test_same_field_at_same_direction_does_not_depend_on_quadrature_batch():
+    pytest.importorskip("healpy")
     loading, _ = node_loading(2, [(1.0, 30.0), (0.5, 7.0)])
     t, p = np.array([0.4, 1.7]), np.array([0.7, 4.1])
     basis = field_basis(2, t, p, loading)
@@ -61,6 +63,7 @@ def test_same_field_at_same_direction_does_not_depend_on_quadrature_batch():
 
 
 def test_invalid_node_priors_and_coordinates_refuse():
+    pytest.importorskip("healpy")
     for scales in ([], [(0, 5)], [(1, -2)], [(1, np.nan)]):
         with pytest.raises(ValueError):
             node_loading(2, scales)
