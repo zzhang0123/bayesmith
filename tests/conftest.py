@@ -61,12 +61,12 @@ SERIAL_EXAMPLE_MODULES = frozenset(
     {
         "test_inference_examples",
         "test_examples",
-        # NOTE on this branch: main also carries test_campbell_scaling, a
-        # plotting entry point that satisfies the same property. It does not
-        # exist on this base, and the guard below is an equality, so naming it
-        # here would fail rather than quietly over-serialise. That is the guard
-        # working: the list is checked against the tests that are actually
-        # present, not against a memory of another branch.
+        # A plotting entry point rather than an inference run, so it is far
+        # lighter than the two above. It is here because it satisfies the same
+        # property -- an example launched in a child interpreter -- and the
+        # guard asserts the list against that property, not against a guess at
+        # which children are big enough to matter.
+        "test_campbell_scaling",
     }
 )
 
