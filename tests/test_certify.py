@@ -288,7 +288,23 @@ class TestTheNewtonDecrement:
             return 0.5 * jnp.sum(values["x"] * (matrix @ values["x"]))
 
         measured = certify.decrement(objective, {"x": jnp.asarray(point, dtype)})
-        assert measured.lambda2 <= exact * (1 + 1e-6), "the estimate is a lower bound"
+        # ``exact`` belongs to the 8-byte problem. The one ``decrement`` was
+        # handed has ``matrix`` and its gradient rounded to ``dtype``, and a
+        # relative perturbation ``eps`` of either moves ``g^T H^-1 g`` by up to
+        # ``eps * kappa`` of itself: the allowance ``decrement`` applies to its
+        # own bound. ``kappa`` is the fixture's (the cluster's top over the
+        # planted eigenvalue), not a measured one. At ``eps * kappa >= 1`` the
+        # estimate's digits are rounding and nothing is asserted about it.
+        #
+        # Measured 2026-10-02 at [1e-6, float32], where ``eps * kappa`` is 0.12:
+        # on arm64 macOS the probe refuses before the solve and the estimate is
+        # 0; on x86_64 Linux the solve runs and the estimate is 8.5e-5 above
+        # ``exact``. The 8-byte rows keep the 1e-6 band to within 2e-8 of it.
+        rounding = float(jnp.finfo(dtype).eps) * float(spectrum.max()) / tiny
+        if rounding < 1.0:
+            assert measured.lambda2 <= exact * (1 + 1e-6) / (1.0 - rounding), (
+                "the estimate is a lower bound"
+            )
         assert math.sqrt(exact) <= measured.distance, (
             f"{measured} reported a bound below the true {math.sqrt(exact):.4g}"
         )
@@ -299,8 +315,11 @@ class TestTheNewtonDecrement:
             assert measured.status == certify.CONVERGED
             assert measured.distance == pytest.approx(math.sqrt(exact), rel=1e-3)
         else:
-            # in float32 that spectrum is numerically singular; the probe
-            # cannot put its interval above zero and the point is refused
+            # A probed floor never certifies, whatever the probe found. On
+            # arm64 macOS it cannot put its interval above zero at either
+            # ``tiny`` and the solve is refused outright; on x86_64 Linux it
+            # can at 1e-6, and the bound it reports there (0.0546 over a true
+            # 0.0502) is covered by the assertion above.
             assert not measured.certifies(LIMIT)
 
     @pytest.mark.parametrize("path", ["dense", "conjugate_gradients"])

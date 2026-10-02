@@ -359,8 +359,26 @@ class TestOverFittingIsVisibleOnlyInTheHeldOutSplit:
 
     def test_the_validation_curve_turns_around(self, two_runs):
         _, (_, history) = two_runs
-        # Measured: minimum -0.605, last +34.08.
-        assert float(history.validation[-1]) > float(jnp.min(history.validation)) + 10.0
+        # One late value of this curve is a single sample of a chaotic
+        # trajectory. With the minimum near -0.6 in every case, the last step
+        # read +34.08 under jax 0.11.1 and +2.77 under jax 0.11.2 on one arm64
+        # Mac, +8.90 on a GitHub x86_64 runner and +17.23 in an emulated x86_64
+        # container; within one run the last quarter spans 0.25 to 6.59. A
+        # constant taken from one of those is not a property of the fixture.
+        #
+        # So the claim is read off the last quarter of the run and scaled by
+        # the fixture itself: after the best step the training loss keeps
+        # falling, and the held-out loss rises by more than that fall. The
+        # form is chosen; the margins are measured (median rise over training
+        # fall): 32.9 over 1.29 and 3.59 over 1.10 in the two Mac environments,
+        # 8.21 over 1.46 in the x86_64 container.
+        validation = np.asarray(history.validation, dtype=float)
+        train = np.asarray(history.train, dtype=float)
+        tail = slice(-(self.N_STEPS // 4), None)
+        rise = float(np.median(validation[tail]) - validation.min())
+        fall = float(train[int(history.best_step) - 1] - train[tail].mean())
+        assert fall > 0.0, "the training split stopped improving"
+        assert rise > fall, (rise, fall)
 
     def test_the_returned_estimator_is_the_argmin_of_that_curve(self, two_runs):
         """Not the last step, and not an arbitrary one."""
