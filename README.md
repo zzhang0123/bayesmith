@@ -43,8 +43,8 @@ The [English documentation](site/index.html) opens with what the package does
 and why, then works through examples ordered by how much of the model is solved
 exactly, the concepts a plan and a result are made of, and the design and its
 verification. Build and verify it with `python tools/build_docs.py --check`. All
-documentation pages request `noindex`, and Pages requires explicit manual
-opt-in. Source fragments and
+documentation pages request `noindex`, and a push to main that changes the
+site redeploys it to Pages. Source fragments and
 generated output are described in [site/README.md](site/README.md).
 
 ## What bayesmith is not

@@ -18,7 +18,7 @@ Use `--source-root /path/to/checkout` only when preparing documentation against 
 
 Tutorial snippets are syntax checked by the build, not automatically executed. Numerical execution and browser validation are separate checks and must be recorded separately. `five_tasks.py` needs `JAX_ENABLE_X64=1`. Research records and internal specifications remain in the repository, linked only as clearly labeled supporting material.
 
-The site is English-only. Every served HTML page, including the standalone architecture diagram, requests `noindex, nofollow, noarchive`. This is a crawler directive, not access control. Pages does not deploy on push; its manual workflow defaults to no publication and requires explicit opt-in.
+The site is English-only. Every served HTML page, including the standalone architecture diagram, requests `noindex, nofollow, noarchive`. This is a crawler directive, not access control. Pages redeploys when a push to main changes the site, and the same workflow can be run by hand.
 
 The Graph chapter treats a flowchart as a hierarchical probability model. `hierarchical_model.py` checks its joint density against an independent Gaussian formula; it complements the four inference/artifact examples.
 

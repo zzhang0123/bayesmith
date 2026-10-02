@@ -1,12 +1,23 @@
-# Local candidate documentation is not deployed on push.
-# Explicit manual opt-in is required for any future Pages publication.
+# Deploys the documentation site to Pages when a push to main changes it, and
+# on request. Every page asks crawlers not to index it; that is the builder's
+# doing and this workflow does not change it.
+#
+# The path filter names the generated site rather than `src/`: API pages are
+# built from the source, but their output is committed under `site/` and the
+# first step below refuses a tree whose committed output is stale.
 name: Pages
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "tools/build_docs.py"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
     inputs:
       publish_docs:
-        description: "Publish the unindexed documentation candidate to Pages"
+        description: "Publish the documentation site to Pages"
         type: boolean
         default: false
         required: true
@@ -16,13 +27,16 @@ permissions:
   pages: write
   id-token: write
 
+# One deployment at a time, and a running one is allowed to finish: cancelling
+# a deployment midway can leave Pages waiting on an artifact that never lands.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    if: ${{ inputs.publish_docs }}
+    # A push always deploys; a manual run deploys only when the box is ticked.
+    if: ${{ github.event_name == 'push' || inputs.publish_docs }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
