@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,6 +84,10 @@ def test_the_records_show_the_routes_the_pages_describe():
         ]
 
     assert routes("overview", "mixed") == [(["x"], "GCR exact"), (["nu"], "NUTS")]
+    assert routes("overview_hierarchy", "hierarchy") == [
+        (["x"], "GCR exact"),
+        (["sigma", "theta"], "NUTS"),
+    ]
     assert routes("partial", "hierarchy") == [
         (["groups"], "GCR exact"),
         (["population"], "NUTS"),
@@ -93,6 +98,59 @@ def test_the_records_show_the_routes_the_pages_describe():
     ]
     assert routes("decay", "decay") == [(["rate"], "NUTS")]
     assert routes("first", "level") == [(["level"], "GCR exact")]
+
+
+def test_overview_hyperparameters_reach_the_density_and_match_the_formula():
+    """The drawing and density must retain both hyperparameter dependencies."""
+    code = """
+import json
+import runpy
+import bayesmith as bs
+ns = runpy.run_path('site/snippets/overview_hierarchy.py')
+graph = bs.trace(ns['model'], ns['DATA'])
+ns['verify_density']()
+print(json.dumps({n.name: n.parents for n in graph.nodes}))
+"""
+    done = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=ROOT,
+        env={**os.environ, "JAX_ENABLE_X64": "1"},
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    parents = json.loads(done.stdout)
+
+    class Diagram(HTMLParser):
+        active = False
+
+        def __init__(self):
+            super().__init__()
+            self.nodes = set()
+            self.edges = set()
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "svg":
+                self.active = attrs.get("id") == "overview-graph"
+            if self.active:
+                if "data-node" in attrs:
+                    self.nodes.add(attrs["data-node"])
+                if "data-from" in attrs:
+                    self.edges.add((attrs["data-from"], attrs["data-to"]))
+
+        def handle_endtag(self, tag):
+            if tag == "svg":
+                self.active = False
+
+    diagram = Diagram()
+    diagram.feed((ROOT / "site/content/index.html").read_text())
+    assert diagram.nodes == set(parents)
+    assert diagram.edges == {
+        (parent, child) for child, inputs in parents.items() for parent in inputs
+    }
 
 
 def test_the_readme_prints_lines_from_the_recorded_plan():

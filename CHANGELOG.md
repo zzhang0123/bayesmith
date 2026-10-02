@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0 — a convergence certificate for the gradient route (local, unpublished)
+## 0.10.0 — a convergence certificate for the gradient route
 
 A pre-1.0 minor that adds a capability and changes no existing behaviour. Every
 call that worked in 0.9.0 returns what it returned; `Fit` gained three fields,
@@ -45,7 +45,7 @@ Not changed: `sweep_estimate` still runs a fixed number of sweeps and reports
 no verdict. Certifying a sweep needs a decrement over every latent at the end
 of it, which is an unmade decision rather than a missing line.
 
-## 0.9.0 — stable baseline (publication pending)
+## 0.9.0 — stable baseline (not published separately; first released with 0.10.0)
 
 - Bound NumPyro below 0.22: its changed validation and Gibbs support contracts are not yet compatible with the verified 0.9 baseline.
 
@@ -270,7 +270,7 @@ printed `All checks passed!` in the development checkout while the identical
 command from the same binary, in a fresh worktree of the same commit, found an
 `I001` that had been in `tests/dispatch/test_predictive_seam.py` since R2. The
 difference was `.ruff_cache/`, which is gitignored and so exists only where
-ruff has run before. The import block is sorted, and CLAUDE.md's linting
+ruff has run before. The import block is sorted, and the repository notes' linting
 section now says to pass `--no-cache` -- the third documented instance in this
 repository of a check that cannot distinguish "clean" from "the check did not
 really run".
@@ -395,7 +395,7 @@ release since 2026-08-28, while this file's 0.6.2 entry and the README's
 "published so other packages can depend on it by name" said otherwise. Both
 are corrected here rather than rewritten in place. The three 0.6.x tags stay
 where they are, for the reason 0.6.1's entry gives; nothing can depend on them.
-CLAUDE.md's rule applies to this file too: ask `/simple/`, not a changelog.
+The repository notes' rule applies to this file too: ask `/simple/`, not a changelog.
 
 The minor slot, for the same reason 0.3.0 through 0.6.0 took it: four of the
 fixes below CHANGE VALUES a caller could have been reading. A campaign fold
@@ -529,8 +529,8 @@ pinned from both sides.
 machine-readable 文档状态 -- `normative` (exactly one), `module-spec`,
 `decision-home`, `plan-active`, `record` or `superseded` -- `docs/README.md`
 indexes them, and `tests/test_document_status.py` checks the two against each
-other in both directions. `AGENTS.md` is tracked and held byte-identical to
-`CLAUDE.md` by a test, reversing the 2026-08-26 ruling for the reason recorded
+other in both directions. The repository's working notes are tracked under two names and held
+byte-identical by a test, reversing the 2026-08-26 ruling for the reason recorded
 in `.gitignore`. `docs/ownership.md` classifies every shipped module as
 first-party core, thin adapter, reference / upstream candidate or
 compatibility. The README no longer calls the streamed marginal-likelihood

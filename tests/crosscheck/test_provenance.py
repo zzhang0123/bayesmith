@@ -96,7 +96,9 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.util
 import pathlib
+import sys
 
 import pytest
 
@@ -122,7 +124,7 @@ OWN: dict[tuple[str, str], frozenset[str]] = {
     ("rheplicant.inference.likelihood", "GaussianLikelihood"): frozenset(),
     ("rheplicant.inference.numpyro_bridge", "init_to_declared"): frozenset(),
     ("rheplicant.inference.parameters", "refuse_stochastic_stages"): frozenset(),
-    ("rheplicant.inference.plan", "Block"): frozenset(),
+    ("rheplicant.inference.plan_results", "Block"): frozenset(),
 }
 
 #: Far sides measured and ruled to be wrappers or facades over this
@@ -135,7 +137,7 @@ OWN: dict[tuple[str, str], frozenset[str]] = {
 #: * ``fisher_information`` -- `2026-08-27-wave-A-uncertainty-covariance.md`
 #:   (mutation U5); ``test_noise_logdet.py``'s two Fisher classes, which
 #:   compare two CONSTRUCTION ROUTES to one arithmetic.
-#: * ``SamplingPlan`` -- T-004: convergence certification delegates to
+#: * ``run_estimate`` (formerly ``SamplingPlan``) -- T-004: certification delegates to
 #:   optimize.certify; test_dispatch.py compares route outputs and explicitly
 #:   tests refusal of a frozen-noise fixed point. It is not an independent
 #:   test of the shared certificate arithmetic.
@@ -145,13 +147,14 @@ OWN: dict[tuple[str, str], frozenset[str]] = {
 SHARED_KERNEL: frozenset[tuple[str, str]] = frozenset(
     {
         ("rheplicant.inference.sqrtinfo", "marginalise_arrays"),
-        ("rheplicant.inference.linear", "wiener_solve"),
-        ("rheplicant.inference.linear", "gcr_sample"),
-        ("rheplicant.inference.linear", "condition_bound"),
-        ("rheplicant.inference.linear", "condition_estimate"),
+        ("rheplicant.inference.linear_solve", "wiener_solve"),
+        ("rheplicant.inference.linear_solve", "gcr_sample"),
+        ("rheplicant.inference.linear_solve", "condition_bound"),
+        ("rheplicant.inference.linear_solve", "condition_estimate"),
         ("rheplicant.inference.uncertainty", "fisher_information"),
         ("rheplicant.inference.partition", "auto_blocks"),
-        ("rheplicant.inference.plan", "SamplingPlan"),
+        ("rheplicant.inference.plan_estimate", "run_estimate"),
+        ("rheplicant.inference.plan_settings", "_certify"),
     }
 )
 
@@ -207,6 +210,35 @@ DELEGATION_PERMITTED: dict[tuple[str, str], str] = {
     ("rheplicant.inference.linear", "check_linearity"): "test_linear.py",
     ("rheplicant.inference.linear", "linear_operator"): "test_linear.py",
 }
+
+
+# Explicit migration map, not a general search for a definition that passes.
+# The split is still local-only. Keep the old layout testable until the
+# consumer's main includes it; module presence chooses the layout, never the
+# outcome of the ownership/delegation assertion. A malformed new module must
+# fail rather than falling back to a healthy legacy facade. The seventh entry
+# follows the certificate helper across the new module boundary: run_estimate
+# itself only references certify.real_size/DENSE_MAX, not its arithmetic.
+_LEGACY_SUBJECTS = {
+    ("rheplicant.inference.linear_solve", name): ("rheplicant.inference.linear", name)
+    for name in ("wiener_solve", "gcr_sample", "condition_bound", "condition_estimate")
+}
+_LEGACY_SUBJECTS.update({
+    ("rheplicant.inference.plan_results", "Block"):
+        ("rheplicant.inference.plan", "Block"),
+    ("rheplicant.inference.plan_estimate", "run_estimate"):
+        ("rheplicant.inference.plan", "SamplingPlan"),
+    ("rheplicant.inference.plan_settings", "_certify"):
+        ("rheplicant.inference.plan", "_certify"),
+})
+
+
+def _subject(module_name: str, symbol: str) -> tuple[str, str]:
+    """Resolve declared moves only; import errors are not absence."""
+    row = (module_name, symbol)
+    if row in _LEGACY_SUBJECTS and importlib.util.find_spec(module_name) is None:
+        return _LEGACY_SUBJECTS[row]
+    return row
 
 
 def _module_tree(module_name: str) -> ast.Module:
@@ -280,6 +312,8 @@ def _row_id(row: tuple[str, str]) -> str:
     ("module_name", "symbol"), _OWN_ROWS, ids=[_row_id(r) for r in _OWN_ROWS]
 )
 def test_an_own_subject_reaches_exactly_its_allowance(module_name, symbol):
+    allowed = OWN[(module_name, symbol)]
+    module_name, symbol = _subject(module_name, symbol)
     reached = _reach(_module_tree(module_name), symbol)
     assert reached is not None, (
         f"{module_name}.{symbol} is no longer a top-level def or class over "
@@ -287,7 +321,6 @@ def test_an_own_subject_reaches_exactly_its_allowance(module_name, symbol):
         "the guard is the correct loudness -- find where it went, then "
         "update this row and the test that compares it."
     )
-    allowed = OWN[(module_name, symbol)]
     assert reached == allowed, {
         "subject": f"{module_name}.{symbol}",
         "reached beyond the allowance (delegation creeping in?)": sorted(
@@ -309,6 +342,7 @@ def test_an_own_subject_reaches_exactly_its_allowance(module_name, symbol):
     ("module_name", "symbol"), _SHARED_ROWS, ids=[_row_id(r) for r in _SHARED_ROWS]
 )
 def test_a_shared_kernel_subject_still_delegates(module_name, symbol):
+    module_name, symbol = _subject(module_name, symbol)
     reached = _reach(_module_tree(module_name), symbol)
     assert reached is not None, (
         f"{module_name}.{symbol} is no longer a top-level def or class over "
@@ -389,3 +423,91 @@ def test_every_permitted_row_names_a_comparison_that_exists_today():
             f"{filename} never mentions {symbol}, so it is not the file that "
             "stands on this subject. Point the row at the one that does."
         )
+
+
+@pytest.mark.parametrize("split", [False, True])
+def test_declared_moves_resolve_by_module_presence(monkeypatch, split):
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if split else None)
+    for current, legacy in _LEGACY_SUBJECTS.items():
+        assert _subject(*current) == (current if split else legacy)
+    unmoved = ("rheplicant.inference.linear", "check_linearity")
+    assert _subject(*unmoved) == unmoved
+
+
+@pytest.mark.parametrize("source", ["", "def run_estimate(): return 1"])
+def test_a_broken_split_subject_does_not_fall_back(monkeypatch, source):
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(sys.modules[__name__], "_module_tree",
+                        lambda name: ast.parse(source))
+    message = "no longer a top-level" if not source else "no longer reaches bayesmith"
+    with pytest.raises(AssertionError, match=message):
+        test_a_shared_kernel_subject_still_delegates(
+            "rheplicant.inference.plan_estimate", "run_estimate"
+        )
+
+
+def test_moved_public_exports_are_the_guarded_definitions():
+    for current, legacy in _LEGACY_SUBJECTS.items():
+        if current[1] in ("run_estimate", "_certify"):
+            continue  # Execution helpers, checked through the public exit below.
+        module_name, symbol = _subject(*current)
+        definition = getattr(importlib.import_module(module_name), symbol)
+        public = getattr(importlib.import_module(legacy[0]), legacy[1])
+        assert public is definition, (current, legacy)
+
+
+def test_estimate_exit_reaches_the_guarded_split_function(monkeypatch):
+    row = ("rheplicant.inference.plan_estimate", "run_estimate")
+    module_name, symbol = _subject(*row)
+    plan = importlib.import_module("rheplicant.inference.plan")
+    if (module_name, symbol) != row:
+        assert getattr(importlib.import_module(module_name), symbol) is plan.SamplingPlan
+        return  # Legacy class itself is the guarded subject.
+    target = getattr(importlib.import_module(module_name), symbol)
+    assert plan.run_estimate is target
+    arguments = tuple(object() for _ in range(4))
+    noise, result = object(), object()
+    calls = []
+
+    def sentinel(*args, **kwargs):
+        calls.append((args, kwargs))
+        return result
+
+    monkeypatch.setattr(plan, "run_estimate", sentinel)
+    assert plan.SamplingPlan.estimate(*arguments, noise=noise) is result
+    assert len(calls) == 1
+    assert calls[0][0] == arguments
+    assert calls[0][1]["noise"] is noise
+
+
+
+def test_estimate_exit_calls_bayesmith_certificate_arithmetic(monkeypatch):
+    """Size utilities alone do not establish certificate delegation.
+
+    Exercise the public estimate exit through its real scheduling/helper
+    chain. Replacing the decrement with a sentinel must interrupt that run;
+    a helper which silently calculates its own verdict cannot pass this.
+    """
+    import jax
+    from rheplicant.inference.noise import HomoscedasticNoise
+
+    from bayesmith.optimize import certify
+    from tests.crosscheck.test_dispatch import NOISE_STD, _arrays, _rheplicant_plan
+
+    class CertificateReached(Exception):
+        pass
+
+    def sentinel(objective, at, *, program, **kwargs):
+        assert objective is None
+        assert callable(program)
+        assert "coeff" in at
+        raise CertificateReached
+
+    monkeypatch.setattr(certify, "decrement", sentinel)
+    with jax.enable_x64(True):
+        basis, data = _arrays()
+        plan, pipeline, template = _rheplicant_plan(basis)
+        with pytest.raises(CertificateReached):
+            plan.estimate(
+                pipeline, template, data, noise=HomoscedasticNoise(sigma=NOISE_STD)
+            )

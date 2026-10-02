@@ -1,0 +1,124 @@
+{
+  "schema": "bayesmith.tris.rsb.background.v2",
+  "release": "fixsen2011-final-six-channel",
+  "quantity": "foreground_subtracted_isotropic_temperature_including_cmb",
+  "radio_component": "non_cmb_residual_including_known_source_background",
+  "temperature_convention": "absolute_thermodynamic_temperature",
+  "galactic_subtraction": "Kogut 2011 synchrotron/free-free foreground with csc|b| and CII zero-level estimates",
+  "known_source_count_subtraction": false,
+  "source_selection": "published ARCADE product; not automatically identical to Haslam DSDS",
+  "source_pdf": {
+    "url": "https://lhea.gsfc.nasa.gov/archive/arcade/pubs/arc2_apj_cmb_2011.pdf",
+    "sha256": "deea977b6e80748758a519edd8858c6acb0a5a6109bb8c908da0277c4a679b5b",
+    "publication": "2011 final journal PDF"
+  },
+  "rows": [
+    {
+      "survey": "ARCADE",
+      "frequency_mhz": 3200,
+      "temperature_thermodynamic_k": 2.787,
+      "sigma_table4_rounded_k": 0.01,
+      "source": "Fixsen et al. 2011, ApJ 734:5, Table 4",
+      "row": "3.2 GHz"
+    },
+    {
+      "survey": "ARCADE",
+      "frequency_mhz": 3410,
+      "temperature_thermodynamic_k": 2.77,
+      "sigma_table4_rounded_k": 0.008,
+      "source": "Fixsen et al. 2011, ApJ 734:5, Table 4",
+      "row": "3.41 GHz"
+    },
+    {
+      "survey": "ARCADE",
+      "frequency_mhz": 7980,
+      "temperature_thermodynamic_k": 2.761,
+      "sigma_table4_rounded_k": 0.013,
+      "source": "Fixsen et al. 2011, ApJ 734:5, Table 4",
+      "row": "7.98 GHz"
+    },
+    {
+      "survey": "ARCADE",
+      "frequency_mhz": 8330,
+      "temperature_thermodynamic_k": 2.743,
+      "sigma_table4_rounded_k": 0.015,
+      "source": "Fixsen et al. 2011, ApJ 734:5, Table 4",
+      "row": "8.33 GHz"
+    },
+    {
+      "survey": "ARCADE",
+      "frequency_mhz": 9720,
+      "temperature_thermodynamic_k": 2.731,
+      "sigma_table4_rounded_k": 0.005,
+      "source": "Fixsen et al. 2011, ApJ 734:5, Table 4",
+      "row": "9.72 GHz"
+    },
+    {
+      "survey": "ARCADE",
+      "frequency_mhz": 10490,
+      "temperature_thermodynamic_k": 2.738,
+      "sigma_table4_rounded_k": 0.006,
+      "source": "Fixsen et al. 2011, ApJ 734:5, Table 4",
+      "row": "10.49 GHz"
+    }
+  ],
+  "covariance_thermodynamic_k2": [
+    [
+      9.39e-05,
+      6.78e-06,
+      2.3399999999999996e-05,
+      2.6899999999999997e-05,
+      2.8599999999999997e-06,
+      2.4999999999999998e-06
+    ],
+    [
+      6.78e-06,
+      6.9e-05,
+      1.3e-05,
+      1.48e-05,
+      2.04e-06,
+      1.7599999999999999e-06
+    ],
+    [
+      2.3399999999999996e-05,
+      1.3e-05,
+      0.000173,
+      8.599999999999999e-05,
+      6.789999999999999e-06,
+      5.48e-06
+    ],
+    [
+      2.6899999999999997e-05,
+      1.48e-05,
+      8.599999999999999e-05,
+      0.000222,
+      7.719999999999999e-06,
+      6.1599999999999995e-06
+    ],
+    [
+      2.8599999999999997e-06,
+      2.04e-06,
+      6.789999999999999e-06,
+      7.719999999999999e-06,
+      3.01e-05,
+      1.1899999999999998e-06
+    ],
+    [
+      2.4999999999999998e-06,
+      1.7599999999999999e-06,
+      5.48e-06,
+      6.1599999999999995e-06,
+      1.1899999999999998e-06,
+      3.0299999999999998e-05
+    ]
+  ],
+  "covariance_source": "Fixsen 2011 Table 5; includes Galactic and instrument uncertainty; printed rounded entries",
+  "shared_inputs": [
+    "ARCADE 2006 flight",
+    "Haslam 408 MHz Galactic template",
+    "FIRAS CII foreground tracer"
+  ],
+  "unresolved_dependence": "Covariance with a separately reused Haslam template or LWA summary is not provided by this six-channel submatrix.",
+  "cmb_reference": "CMB retained in data; its physical temperature is a model parameter/explicit conditional value",
+  "bandpass": "published effective frequencies; full passband/color-correction response not supplied here"
+}

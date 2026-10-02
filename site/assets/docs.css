@@ -214,3 +214,8 @@ img, svg { max-width: 100%; height: auto; }
 ol.invariants { counter-reset: none; padding-left: 1.3em; }
 ol.invariants li { margin: .55rem 0; }
 ol.invariants strong { display: block; }
+
+/* Preserve readable plot labels on small screens without widening the page. */
+@media (max-width: 760px) {
+  .result-plot .plot-frame img { min-width: 580px; max-width: none; }
+}

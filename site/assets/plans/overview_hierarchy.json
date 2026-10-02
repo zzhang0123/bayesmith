@@ -1,0 +1,47 @@
+{
+  "snippet": "overview_hierarchy.py",
+  "snippet_sha256": "971881485726543b74b99b6cd13805306ba2635523da6da9b86786a51ad5456d",
+  "environment": {
+    "recorded": "2026-09-20",
+    "git_head": "2ca8b349f0dffccc7950535b1dec30c6abbd7af3",
+    "src_differs_from_head": true,
+    "src_sha256": "e9b814b881bff1a010c29a1784111a722df3b59fdb861d14a3c117968605b98e",
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine": "arm64",
+    "python": "3.12.9",
+    "bayesmith": "0.9.0",
+    "jax": "0.11.1",
+    "numpy": "2.5.2",
+    "numpyro": "0.21.0",
+    "blas": "accelerate",
+    "jax_enable_x64": true
+  },
+  "plans": {
+    "hierarchy": {
+      "text": "block 0  {x}              GCR exact         structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)\n         kappa in [2.2003166, 485.25358] -> tol=2.0607782e-06, guard hoisted out of the\n         sweep\n         exact block ['x']: sigma does not move with the block (0.000e+00 relative,\n         rtol=1.0e-08), so the covariance is fixed and one Wiener solve is exact; the\n         linearity check held ['sigma'] at their prior centre rather than drawing them\n         -- they are not Gaussian, so their prior has no draw this module will take; the\n         kappa sweep held ['sigma'] at their prior centre rather than moving them --\n         they are not Gaussian, so this module has no prior width to sweep them by, and\n         the interval is not an interval in them\nblock 1  {sigma, theta}   NUTS\n         outside the exact block ['x']: sampled by NUTS, and the exact block is solved\n         CONDITIONAL on them, once per sweep\nexecution: HMCGibbs(inner=NUTS, gibbs_sites=['x']); noise_std rebuilt every sweep",
+      "blocks": [
+        {
+          "latents": [
+            "x"
+          ],
+          "method": "gcr",
+          "route": "GCR exact",
+          "evidence": "structurally certified; numerical check 3 scales x 3 at-points (max 0.00e+00)",
+          "refused_claim": false
+        },
+        {
+          "latents": [
+            "sigma",
+            "theta"
+          ],
+          "method": "nuts",
+          "route": "NUTS",
+          "evidence": "outside the exact block ['x']: sampled by NUTS, and the exact block is solved CONDITIONAL on them, once per sweep",
+          "refused_claim": false
+        }
+      ],
+      "execution": "HMCGibbs(inner=NUTS, gibbs_sites=['x']); noise_std rebuilt every sweep"
+    }
+  },
+  "tables": {}
+}

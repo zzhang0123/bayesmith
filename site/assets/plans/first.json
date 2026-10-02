@@ -1,11 +1,11 @@
 {
   "snippet": "first_model.py",
-  "snippet_sha256": "a2a7151767844c128929a411fd57eb2b2d34f290788d8baf15a596a2c5ac90c2",
+  "snippet_sha256": "2a6043b85aeaac8c9063de6151d527f3dd61b15f7077f36ce3e574382cc47a1d",
   "environment": {
     "recorded": "2026-09-19",
-    "git_head": "f53e10afc6b01640fd23febb3161d89dc89512a8",
+    "git_head": "2ca8b349f0dffccc7950535b1dec30c6abbd7af3",
     "src_differs_from_head": true,
-    "src_sha256": "22abe9ba078e5a5b81e3a3cf2744f418b3812586c992f1dfa7c9a68421dfb369",
+    "src_sha256": "e9b814b881bff1a010c29a1784111a722df3b59fdb861d14a3c117968605b98e",
     "platform": "macOS-26.5-arm64-arm-64bit",
     "machine": "arm64",
     "python": "3.12.9",

@@ -32,8 +32,36 @@
     ],
     "index.html": [
       {
+        "display": false,
+        "tex": "\\mathbf z"
+      },
+      {
+        "display": false,
+        "tex": "\\mathbf d"
+      },
+      {
+        "display": false,
+        "tex": "\\mathbf c"
+      },
+      {
         "display": true,
-        "tex": "p(\\theta, d) = \\prod_{v \\in \\text{latents}} p(v \\mid \\mathrm{pa}(v)) \\prod_{o \\in \\text{observed}} p(d_o \\mid \\mathrm{pa}(o))"
+        "tex": "p(\\mathbf z\\mid\\mathbf d,\\mathbf c)\\propto\\prod_{a\\in\\mathcal F}\\phi_a(\\mathbf z,\\mathbf d;\\mathbf c)"
+      },
+      {
+        "display": false,
+        "tex": "s_k=f_k(\\mathrm{pa}(s_k))"
+      },
+      {
+        "display": false,
+        "tex": "\\mathbf z=(\\theta,x,\\psi)"
+      },
+      {
+        "display": true,
+        "tex": "\\begin{aligned}\\eta&=g(\\theta),\\qquad s=f(x,\\mathbf c),\\\\p(\\theta,x,\\psi,\\mathbf d\\mid\\mathbf c)&=p(\\theta)\\,p(\\psi)\\\\&\\quad\\cdot p(x\\mid\\eta)\\,p(\\mathbf d\\mid s,\\psi).\\end{aligned}"
+      },
+      {
+        "display": true,
+        "tex": "\\begin{aligned}\\theta&\\sim\\mathcal N(0,0.5^2),\\\\\\eta&=\\exp(\\theta),\\\\\\mathbf x\\mid\\eta&\\sim\\mathcal N(\\mathbf 0,\\eta^2 I_2),\\\\\\log\\sigma&\\sim\\mathcal N(-1,0.3^2),\\\\\\mathbf s&=A\\mathbf x,\\\\\\mathbf d\\mid\\mathbf s,\\sigma&\\sim\\mathcal N(\\mathbf s,\\sigma^2 I_4).\\end{aligned}"
       }
     ],
     "modeling.html": [
@@ -196,6 +224,7 @@
     "api/bayesmith.marginal.html",
     "api/bayesmith.marginal.logdet.html",
     "api/bayesmith.marginal.sqrtinfo.html",
+    "api/bayesmith.optimize.certify.html",
     "api/bayesmith.optimize.html",
     "api/bayesmith.reweight.html",
     "architecture.html",
@@ -222,7 +251,7 @@
     "reweighting.html",
     "tasks.html"
   ],
-  "source_digest": "22abe9ba078e5a5b81e3a3cf2744f418b3812586c992f1dfa7c9a68421dfb369",
+  "source_digest": "a6f9a9fc3b6255b571587fac34fa1c6749a10f4291188c5cb0b8a96289f0295c",
   "symbols": {
     "bayesmith.AffinityRefused": {
       "owner": "bayesmith.errors",
@@ -262,7 +291,7 @@
     "bayesmith.Fit": {
       "owner": "bayesmith.optimize",
       "path": "api/bayesmith.html#Fit",
-      "signature": "class Fit(NamedTuple)\nvalues: dict[str, Any]\nobjective: jax.Array\nhistory: jax.Array"
+      "signature": "class Fit(NamedTuple)\nvalues: dict[str, Any]\nobjective: jax.Array\nhistory: jax.Array\ncertificate: Decrement | None = None\nlimit: float | None = None\npolished: int = 0"
     },
     "bayesmith.Graph": {
       "owner": "bayesmith.graph.graph",
@@ -3309,6 +3338,11 @@
       "path": "api/bayesmith.exact.html#dense_operator",
       "signature": "dense_operator(block: LinearBlock) -> jax.Array"
     },
+    "bayesmith.exact.diagonal_from": {
+      "owner": "bayesmith.exact.precision",
+      "path": "api/bayesmith.exact.html#diagonal_from",
+      "signature": "diagonal_from(noise_std: dict[str, Any]) -> dict[str, DiagonalPrecision]"
+    },
     "bayesmith.exact.discrete.ENUMERATION_BUDGET": {
       "owner": "bayesmith.exact.discrete",
       "path": "api/bayesmith.exact.discrete.html#ENUMERATION_BUDGET",
@@ -3847,7 +3881,7 @@
     "bayesmith.fit": {
       "owner": "bayesmith.optimize",
       "path": "api/bayesmith.html#fit",
-      "signature": "fit(graph: Graph, at: Mapping[str, Any] | None=None, *, names: tuple[str, ...] | None=None, method: str='adam', steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -> Fit"
+      "signature": "fit(graph: Graph, at: Mapping[str, Any] | None=None, *, names: tuple[str, ...] | None=None, method: str='adam', steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08, certify: float | None=None, floor: float | None=None, polish: bool=True) -> Fit"
     },
     "bayesmith.gcr_sample": {
       "owner": "bayesmith.exact.solve",
@@ -4527,7 +4561,7 @@
     "bayesmith.minimize": {
       "owner": "bayesmith.optimize",
       "path": "api/bayesmith.html#minimize",
-      "signature": "minimize(objective: Callable[[Any], jax.Array], at: Any, *, method: str='adam', steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -> Fit"
+      "signature": "minimize(objective: Callable[[Any], jax.Array], at: Any, *, method: str='adam', steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08, certify: float | None=None, floor: float | None=None, polish: bool=True) -> Fit"
     },
     "bayesmith.multiplicative_log_data": {
       "owner": "bayesmith.exact.loglinear",
@@ -4554,10 +4588,15 @@
       "path": "api/bayesmith.html#observe",
       "signature": "observe(name: str, dist_fn: Callable[..., Any], *parents: NodeRef, obs: Any, mask: Any=None, support: Support | None=None, depends_on_prediction: bool=True, plate: PlateRef | Iterable[PlateRef] | None=None) -> NodeRef"
     },
+    "bayesmith.optimize.Decrement": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.html#Decrement",
+      "signature": "class Decrement\nestimate: float\ndistance: float\nlambda2: float\nresidual: float\nreach: float\nkappa: float\nproducts: int\ndense: bool\nfloor_source: str\nstatus: int"
+    },
     "bayesmith.optimize.Fit": {
       "owner": "bayesmith.optimize",
       "path": "api/bayesmith.optimize.html#Fit",
-      "signature": "class Fit(NamedTuple)\nvalues: dict[str, Any]\nobjective: jax.Array\nhistory: jax.Array"
+      "signature": "class Fit(NamedTuple)\nvalues: dict[str, Any]\nobjective: jax.Array\nhistory: jax.Array\ncertificate: Decrement | None = None\nlimit: float | None = None\npolished: int = 0"
     },
     "bayesmith.optimize.MAXIMIZE": {
       "owner": "bayesmith.optimize",
@@ -4569,6 +4608,146 @@
       "path": "api/bayesmith.optimize.html#MINIMIZE",
       "signature": "MINIMIZE: str = 'minimize'"
     },
+    "bayesmith.optimize.certify.ARMIJO": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#ARMIJO",
+      "signature": "ARMIJO: float = 0.0001"
+    },
+    "bayesmith.optimize.certify.ARMIJO_HALVINGS": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#ARMIJO_HALVINGS",
+      "signature": "ARMIJO_HALVINGS: int = 30"
+    },
+    "bayesmith.optimize.certify.BATCH": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#BATCH",
+      "signature": "BATCH: int = 16"
+    },
+    "bayesmith.optimize.certify.DENSE_MAX": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#DENSE_MAX",
+      "signature": "DENSE_MAX: int = 1024"
+    },
+    "bayesmith.optimize.certify.Decrement": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#Decrement",
+      "signature": "class Decrement\nestimate: float\ndistance: float\nlambda2: float\nresidual: float\nreach: float\nkappa: float\nproducts: int\ndense: bool\nfloor_source: str\nstatus: int"
+    },
+    "bayesmith.optimize.certify.GapState": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#GapState",
+      "signature": "class GapState\ncontraction: float | None = None\nmoved: bool = False\ndecrease: float | None = None\nresolution: float | None = None"
+    },
+    "bayesmith.optimize.certify.MAXITER": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#MAXITER",
+      "signature": "MAXITER: int = 1000"
+    },
+    "bayesmith.optimize.certify.OBJECTIVE_FLOOR_EPS": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#OBJECTIVE_FLOOR_EPS",
+      "signature": "OBJECTIVE_FLOOR_EPS: int = 64"
+    },
+    "bayesmith.optimize.certify.POLISH_CG_MAXITER": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#POLISH_CG_MAXITER",
+      "signature": "POLISH_CG_MAXITER: int = 50"
+    },
+    "bayesmith.optimize.certify.POLISH_CG_TOL": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#POLISH_CG_TOL",
+      "signature": "POLISH_CG_TOL: float = 1e-05"
+    },
+    "bayesmith.optimize.certify.POLISH_ITERATIONS": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#POLISH_ITERATIONS",
+      "signature": "POLISH_ITERATIONS: int = 3"
+    },
+    "bayesmith.optimize.certify.PROBE_STEPS": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#PROBE_STEPS",
+      "signature": "PROBE_STEPS: int = 32"
+    },
+    "bayesmith.optimize.certify.PROVEN_FLOORS": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#PROVEN_FLOORS",
+      "signature": "PROVEN_FLOORS: frozenset[str] = frozenset({FLOOR_DENSE, FLOOR_SUPPLIED})"
+    },
+    "bayesmith.optimize.certify.RESOLUTION_EPS": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#RESOLUTION_EPS",
+      "signature": "RESOLUTION_EPS: float = 4.0"
+    },
+    "bayesmith.optimize.certify.RTOL": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#RTOL",
+      "signature": "RTOL: dict[int, float] = {4: 0.0001, 8: 1e-08}"
+    },
+    "bayesmith.optimize.certify.SETTLED_CHANGES": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#SETTLED_CHANGES",
+      "signature": "SETTLED_CHANGES: int = 2"
+    },
+    "bayesmith.optimize.certify.SOLVE_TOL_FLOOR": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#SOLVE_TOL_FLOOR",
+      "signature": "SOLVE_TOL_FLOOR: dict[int, float] = {4: 2.4e-07, 8: 1e-12}"
+    },
+    "bayesmith.optimize.certify.SOLVE_TOL_STEP": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#SOLVE_TOL_STEP",
+      "signature": "SOLVE_TOL_STEP: float = 0.01"
+    },
+    "bayesmith.optimize.certify.STATUS_SAID": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#STATUS_SAID",
+      "signature": "STATUS_SAID: dict[int, str] = {CONVERGED: 'reached its residual', UNREACHED: 'did not reach its residual within its iteration cap', NONCONVEX: 'met a direction of non-positive curvature, so the point is not near a minimum', NONFINITE: 'was not finite'}"
+    },
+    "bayesmith.optimize.certify.change_program": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#change_program",
+      "signature": "change_program(resolution_eps: float=RESOLUTION_EPS) -> Callable"
+    },
+    "bayesmith.optimize.certify.decrement": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#decrement",
+      "signature": "decrement(objective: Callable[[Any], jax.Array], at: Any, *, program: Callable[[Any], tuple[jax.Array, ...]] | None=None, floor: float | None=None, limit: float | None=None) -> Decrement"
+    },
+    "bayesmith.optimize.certify.decrement_program": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#decrement_program",
+      "signature": "decrement_program(objective: Callable[[Any], jax.Array], template: Any, *, floor: float | None=None, limit: float | None=None) -> Callable[[Any], tuple[jax.Array, ...]]"
+    },
+    "bayesmith.optimize.certify.effective_tol": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#effective_tol",
+      "signature": "effective_tol(tol: float, objective: jax.Array) -> float"
+    },
+    "bayesmith.optimize.certify.gap_step": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#gap_step",
+      "signature": "gap_step(state: GapState, decrease: float, resolution: float, tol: float) -> tuple[GapState, bool, float | None, float | None]"
+    },
+    "bayesmith.optimize.certify.polish": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#polish",
+      "signature": "polish(objective: Callable[[Any], jax.Array], at: Any, *, iterations: int=POLISH_ITERATIONS) -> tuple[Any, jax.Array]"
+    },
+    "bayesmith.optimize.certify.real_size": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#real_size",
+      "signature": "real_size(template: Any) -> int"
+    },
+    "bayesmith.optimize.certify.settled": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#settled",
+      "signature": "settled(trace: list[float], tol: float) -> bool"
+    },
+    "bayesmith.optimize.certify.solve_tol_floor": {
+      "owner": "bayesmith.optimize.certify",
+      "path": "api/bayesmith.optimize.certify.html#solve_tol_floor",
+      "signature": "solve_tol_floor(objective: jax.Array) -> float"
+    },
     "bayesmith.optimize.check_loss_sense": {
       "owner": "bayesmith.optimize",
       "path": "api/bayesmith.optimize.html#check_loss_sense",
@@ -4577,12 +4756,12 @@
     "bayesmith.optimize.fit": {
       "owner": "bayesmith.optimize",
       "path": "api/bayesmith.optimize.html#fit",
-      "signature": "fit(graph: Graph, at: Mapping[str, Any] | None=None, *, names: tuple[str, ...] | None=None, method: str='adam', steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -> Fit"
+      "signature": "fit(graph: Graph, at: Mapping[str, Any] | None=None, *, names: tuple[str, ...] | None=None, method: str='adam', steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08, certify: float | None=None, floor: float | None=None, polish: bool=True) -> Fit"
     },
     "bayesmith.optimize.minimize": {
       "owner": "bayesmith.optimize",
       "path": "api/bayesmith.optimize.html#minimize",
-      "signature": "minimize(objective: Callable[[Any], jax.Array], at: Any, *, method: str='adam', steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -> Fit"
+      "signature": "minimize(objective: Callable[[Any], jax.Array], at: Any, *, method: str='adam', steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08, certify: float | None=None, floor: float | None=None, polish: bool=True) -> Fit"
     },
     "bayesmith.optimize.sense_of": {
       "owner": "bayesmith.optimize",
@@ -4730,5 +4909,5 @@
       "signature": "wiener_solve(block: LinearBlock, *, precision: dict[str, Precision], tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -> tuple[dict[str, jax.Array], jax.Array]"
     }
   },
-  "version": "0.9.0"
+  "version": "0.10.0"
 }

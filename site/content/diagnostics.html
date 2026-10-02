@@ -3,3 +3,22 @@
 <h2 id="axes">Read both report axes</h2><p>An <code>EvaluationReport</code> separates applicability (<code>APPLICABLE</code>, <code>INAPPLICABLE</code>, <code>UNVERIFIABLE</code>) from conclusion (<code>PASS</code>, <code>FAIL</code>, <code>ABSTAIN</code>). Only applicable checks can pass or fail. Missing inputs, a missing optional backend or unsupported noise must not become a statistical PASS.</p><table><tr><th>Applicability</th><th>Allowed conclusion</th></tr><tr><td>APPLICABLE</td><td>PASS, FAIL or ABSTAIN</td></tr><tr><td>INAPPLICABLE</td><td>ABSTAIN</td></tr><tr><td>UNVERIFIABLE</td><td>ABSTAIN</td></tr></table><p>A quality gate aggregates reports under a declared policy. The evaluation layer reads completed results and existing diagnostic verdicts; it does not alter the posterior, choose the next sampler or invent a second numerical threshold.</p>
 <h2 id="checks">Select and interpret checks</h2><p>{{api:bayesmith.evaluation:check_posterior}} is the orchestration entry point. Individual checks include posterior/prior prediction, held-out scores, optional ArviZ PSIS-LOO, SBC, identifiability and prior sensitivity. Observation grouping, draw floors and replicate budgets are part of applicability.</p><p>The declared false-positive rate is <code>ALPHA = 0.05</code>. Do not tune discrepancies, seeds or tolerances after seeing whether the model passes. Record which statistics were actually checked.</p>
 <h2 id="limits">A PASS has a scope</h2><div class="note"><p>A predictive PASS bounds the discrepancies evaluated, not all possible model errors. SBC can be satisfied by prior draws that ignore data; it is not evidence of useful posterior learning. Good importance-weight ESS cannot discover an unseen mode.</p></div><p>Use complementary checks and independent oracles. <a href="experimental.html">Experimental primitives</a> need separate overlap and truncation-validity assessments.</p>
+
+<h2 id="point-estimates">Certify a point estimate</h2>
+<p>Since 0.10.0, {{api:bayesmith.optimize:minimize}} and {{api:bayesmith.optimize:fit}} accept <code>certify=&lt;limit&gt;</code>. This asks for a bound on the Newton decrement at the returned point, using the objective's gradient and Hessian. For a quadratic negative log posterior, that decrement is the distance to its minimum in curvature-standard-deviation units. For a nonlinear objective it describes the local quadratic model; it does not establish a global MAP or posterior sampling convergence.</p>
+<pre><code>import jax
+import jax.numpy as jnp
+from bayesmith.optimize import minimize
+
+with jax.enable_x64(True):
+    result = minimize(
+        lambda p: 0.5 * jnp.sum(((p["x"] - 2.0) / 0.5) ** 2),
+        {"x": jnp.asarray([0.0])},
+        steps=200,
+        certify=0.1,
+    )
+    print(result.converged, result.refusal)
+    print(result.certificate.distance)
+</code></pre>
+<p><code>result.converged</code> requires an accepted curvature floor, a successful certificate solve and an upper bound within the requested limit. A small estimated decrement alone is insufficient. Small problems use a dense Hessian calculation; above 1024 real parameters, certification requires a caller-supplied, justified <code>floor=</code>. The Lanczos probe cannot approve a certificate. The Newton polish runs by default when certification is requested.</p>
+<p>Without <code>certify=</code>, <code>converged</code> is false because no certificate was requested; read <code>refusal</code> for the reason. With <code>fit(names=...)</code>, the certificate concerns only the moved block conditional on held parameters. Factor sweeps do not attach a certificate automatically: a caller can measure the full joint objective afterwards through <code>bayesmith.optimize.certify</code>. The descent engine remains experimental; the certificate API is maintained within these numerical and local-model limits.</p>

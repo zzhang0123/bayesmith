@@ -21,6 +21,7 @@ def main():
     posterior = plan.sample(jax.random.key(7), num_samples=256)
     print("Posterior sample shape:", posterior.samples["level"].shape)
     print("Posterior mean estimate:", posterior.samples["level"].mean())
+    return posterior
 
 
 if __name__ == "__main__":

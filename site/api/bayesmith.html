@@ -4,9 +4,9 @@
 <meta name="description" content="bayesmith"><title>bayesmith · bayesmith</title>
 <link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
 <body><a class="skip-link" href="#main">Skip to content</a>
-<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.10.0 source</span>
 <div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
-<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a></section><section><h2>Tutorials and examples</h2><a href="../quickstart.html">01 · First posterior</a><a href="../nonlinear.html">02 · Partial structure</a><a href="../notebook.html">03 · Hierarchical notebook</a><a href="../reweighting.html">04 · Near-Gaussian targets</a><a href="../tasks.html">05 · Five questions</a><a href="../predictive.html">06 · Prediction and simulation</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
 <main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith</span></nav>
 <article><h1>bayesmith</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">bayesmith: a graph of operators is a Bayesian model.
 
@@ -462,6 +462,37 @@ trajectory rather than two spliced ones.
 on a mixed plan the history can dip where a gradient block overshoots;
 monotonicity is a property of the all-exact case only, and is asserted
 there.
+
+That first sentence is about THIS function and stopped being true of
+:func:`~bayesmith.optimize.fit` in 0.10.0, which certifies on request.
+The certificate is not passed through here, and the reason is not
+oversight: a decrement measures the distance to the minimum of the
+objective it is handed, so one taken inside a block&#x27;s own call would
+certify that BLOCK&#x27;s conditional minimum given the rest, not the sweep&#x27;s.
+A verdict about the joint needs a decrement over every latent at the end
+of the sweep, which this function does not take.
+
+**A caller can take it, though, and that is measured rather than
+asserted.** :attr:`SweepEstimate.values` is every latent, so the joint
+objective is in hand and
+:func:`~bayesmith.optimize.certify.decrement_program` accepts it
+directly::
+
+    objective = lambda v: -log_joint(graph, v)
+    program = certify.decrement_program(objective, swept.values, limit=0.1)
+    measured = certify.decrement(None, swept.values, program=program)
+    measured.certifies(0.1)
+
+On ``two_linear_latents`` over a two-block plan that returns a proven
+certificate at distance 3.2e-15, and
+``tests/test_optimize_certificate.py::TestCertifyingASweepByHand`` pins it
+so the paragraph cannot go stale. What is unmade is therefore narrower
+than it first looks: not whether a sweep CAN be certified -- it can, today,
+through the public API -- but whether this function should do it for the
+caller, spend the solve on every call, and own the resulting verdict. The
+downstream consumer builds exactly this construction around its own
+sweeps rather than asking for it here, which is evidence that the seam is
+in a usable place and not that it is missing.
 
 Args:
     graph: the model.
@@ -1736,7 +1767,7 @@ Raises:
         about how many draws there are. The leading axis IS the draw axis,
         and a transposed square stack broadcasts into a finite, correctly
         shaped, wrong answer -- the same guard, and the same measurement,
-        as ``predict``&#x27;s.</pre></section><section class="api-symbol"><h2 id="fit">fit</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 374.</p><pre><code>fit(graph: Graph, at: Mapping[str, Any] | None=None, *, names: tuple[str, ...] | None=None, method: str=&#x27;adam&#x27;, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; Fit</code></pre><pre class="docstring">Gradient MAP: maximise the graph&#x27;s joint log-density over its latents.
+        as ``predict``&#x27;s.</pre></section><section class="api-symbol"><h2 id="fit">fit</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 610.</p><pre><code>fit(graph: Graph, at: Mapping[str, Any] | None=None, *, names: tuple[str, ...] | None=None, method: str=&#x27;adam&#x27;, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08, certify: float | None=None, floor: float | None=None, polish: bool=True) -&gt; Fit</code></pre><pre class="docstring">Gradient MAP: maximise the graph&#x27;s joint log-density over its latents.
 
 Args:
     graph: the model. Its ``log_joint`` is the objective, negated -- the
@@ -1763,7 +1794,7 @@ Returns:
 Raises:
     StructureError: for a graph with no latents, a ``names`` entry the
         graph does not declare, an empty ``names``, or anything
-        :func:`minimize` refuses.</pre></section><section class="api-symbol"><h2 id="minimize">minimize</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 268.</p><pre><code>minimize(objective: Callable[[Any], jax.Array], at: Any, *, method: str=&#x27;adam&#x27;, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; Fit</code></pre><pre class="docstring">Descend ``objective`` from ``at`` for ``steps`` steps.
+        :func:`minimize` refuses.</pre></section><section class="api-symbol"><h2 id="minimize">minimize</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 452.</p><pre><code>minimize(objective: Callable[[Any], jax.Array], at: Any, *, method: str=&#x27;adam&#x27;, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08, certify: float | None=None, floor: float | None=None, polish: bool=True) -&gt; Fit</code></pre><pre class="docstring">Descend ``objective`` from ``at`` for ``steps`` steps.
 
 Args:
     objective: ``f(values) -&gt; scalar``, MINIMISED. Handing it something
@@ -1778,6 +1809,35 @@ Args:
     learning_rate: the step size for every leaf without one of its own.
     step_sizes: per-name step sizes, in each parameter&#x27;s own units.
     beta1, beta2, eps: Adam&#x27;s, ignored by ``&quot;gradient&quot;``.
+    certify: a distance to PROVE the returned point is within, in units of
+        the curvature&#x27;s own standard deviation -- for a negative log
+        posterior, the posterior sigma. Given one, the fit carries a
+        :class:`~bayesmith.optimize.certify.Decrement` and
+        :attr:`Fit.converged` answers. Left out, nothing is measured and
+        :attr:`Fit.converged` is ``False`` for that reason; see
+        :attr:`Fit.refusal`.
+    floor: a verified lower bound on the smallest eigenvalue of the
+        objective&#x27;s Hessian. Only consulted above
+        :data:`~bayesmith.optimize.certify.DENSE_MAX` real parameters,
+        where the Hessian is not formed; below it the floor is computed
+        and this is not needed. It is a CLAIM the caller must be able to
+        prove -- a model affine in every parameter jointly, with proper
+        Gaussian priors and a noise scale that does not depend on the
+        prediction, is bounded below by its prior precision. An unsound
+        floor makes an unsound certificate, which is the one way to get a
+        wrong answer here. Refused without ``certify=``.
+    polish: whether to take Newton steps after the descent before the
+        certificate is measured. Only consulted with ``certify=``, and on
+        by default there because without it almost nothing certifies: a
+        first-order step of ``rate * sign(gradient)`` does not shrink with
+        the gradient, so Adam settles a fraction of a step size from the
+        optimum -- measured upstream at 2881 curvature standard deviations
+        on a two-parameter power law, at every step count. Each Newton
+        step is kept only if it lowers the objective, so this cannot make
+        the answer worse. Ignored without ``certify=``, on the same rule
+        as ``beta1``/``beta2`` under ``method=&quot;gradient&quot;``: refuse where
+        it changes the answer, honour &quot;ignored&quot; where the contract says
+        ignored.
 
 Returns:
     A :class:`Fit`.
@@ -1799,10 +1859,13 @@ Note:
     converges at 0.006 and returns NaN at 0.02, while ``&quot;adam&quot;``
     converges at both. Switching ``method=`` without revisiting
     ``learning_rate=`` is therefore a real hazard, which is why the
-    non-finite result is refused rather than returned.</pre></section><section class="api-symbol"><h2 id="Fit">Fit</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 71.</p><pre><code>class Fit(NamedTuple)
+    non-finite result is refused rather than returned.</pre></section><section class="api-symbol"><h2 id="Fit">Fit</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 115.</p><pre><code>class Fit(NamedTuple)
 values: dict[str, Any]
 objective: jax.Array
-history: jax.Array</code></pre><pre class="docstring">Where a descent got to, and how it got there.
+history: jax.Array
+certificate: Decrement | None = None
+limit: float | None = None
+polished: int = 0</code></pre><pre class="docstring">Where a descent got to, and how it got there.
 
 Attributes:
     values: the fitted point. For :func:`fit` this is EVERY latent, with
@@ -1815,7 +1878,41 @@ Attributes:
         off-by-one that reads as a converged fit.
     history: the objective at the start of each step, shape ``(steps,)``.
         So ``history[0]`` is the objective the caller started from, and
-        ``objective &lt; history[0]`` is what &quot;it improved&quot; means.</pre></section><section class="api-symbol"><h2 id="check_loss_sense">check_loss_sense</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 104.</p><pre><code>check_loss_sense(loss_fn: Callable[[jax.Array, jax.Array], jax.Array], predicted: jax.Array, observed: jax.Array) -&gt; None</code></pre><pre class="docstring">Refuse a scoring function whose optimum lies the way a minimiser walks.
+        ``objective &lt; history[0]`` is what &quot;it improved&quot; means.
+    certificate: the :class:`~bayesmith.optimize.certify.Decrement`
+        measured at :attr:`values`, or ``None`` when no ``certify=`` was
+        asked for. Read :attr:`converged` rather than this, unless the
+        question is WHY.
+    limit: the distance, in units of the curvature&#x27;s own standard
+        deviation, that the caller asked to be proven. ``None`` with no
+        certificate.
+    polished: Newton steps kept after the descent, when ``certify=``
+        turned the polish on. ``0`` means the point came back as the
+        descent left it.</pre><h3 id="Fit.converged">Fit.converged</h3><pre><code>converged(self) -&gt; bool</code></pre><pre class="docstring">Whether this point is PROVEN within :attr:`limit` of the minimum.
+
+Three conditions, all required: the curvature floor the bound divides
+by is a proof rather than an estimate, the decrement&#x27;s own solve
+converged, and the upper bound it allows is inside the limit. See
+:meth:`~bayesmith.optimize.certify.Decrement.certifies`.
+
+**``False`` is not &quot;it was measured and it failed&quot;.** It is also what
+a fit that was never asked for a certificate reports, which is most of
+them. The two are worth telling apart and :attr:`refusal` is what
+tells them apart, in a sentence. This attribute is deliberately not
+tri-state: a caller writing ``if fit.converged:`` gets the safe
+reading of every case, and one who needs more asks for more.</pre><h3 id="Fit.refusal">Fit.refusal</h3><pre><code>refusal(self) -&gt; str | None</code></pre><pre class="docstring">Why :attr:`converged` is ``False``, or ``None`` when it is ``True``.
+
+Reports the FIRST unmet condition in the order
+:meth:`~bayesmith.optimize.certify.Decrement.certifies` reads them, so
+the sentence names the thing to fix rather than the last thing
+checked.
+
+**The verdict is read from :attr:`converged`, not re-derived here.**
+Two chains of conditions over one object can disagree, and this pair
+did: written as independent branches, the last one returned &quot;outside
+the limit&quot; for a point whose distance was 0.0 and whose
+:attr:`converged` was ``True``. Delegating makes that
+unrepresentable rather than merely tested for.</pre></section><section class="api-symbol"><h2 id="check_loss_sense">check_loss_sense</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 253.</p><pre><code>check_loss_sense(loss_fn: Callable[[jax.Array, jax.Array], jax.Array], predicted: jax.Array, observed: jax.Array) -&gt; None</code></pre><pre class="docstring">Refuse a scoring function whose optimum lies the way a minimiser walks.
 
 Measured on a one-parameter gain fit with truth ``g = 1.0``, before this
 guard existed::
@@ -1842,7 +1939,7 @@ Raises:
         score is not finite. The last is not scope creep: NaN compares
         False against everything, so treating a non-finite score as
         &quot;cannot tell, proceed&quot; would wave through exactly the case this
-        guard exists for whenever it arrives with a NaN attached.</pre></section><section class="api-symbol"><h2 id="MINIMIZE">MINIMIZE</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 61.</p><pre><code>MINIMIZE: str = &#x27;minimize&#x27;</code></pre></section><section class="api-symbol"><h2 id="MAXIMIZE">MAXIMIZE</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 64.</p><pre><code>MAXIMIZE: str = &#x27;maximize&#x27;</code></pre></section><section class="api-symbol"><h2 id="residual_summary">residual_summary</h2><p class="source-note">Defined in <code>bayesmith.marginal.compress</code>, line 446.</p><pre><code>residual_summary(fitted: SqrtInfo, precision: Any, *, templates: Mapping[str, jax.Array] | None=None) -&gt; ResidualSummary</code></pre><pre class="docstring">One epoch&#x27;s out-of-span residual and its named template projections.
+        guard exists for whenever it arrives with a NaN attached.</pre></section><section class="api-symbol"><h2 id="MINIMIZE">MINIMIZE</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 105.</p><pre><code>MINIMIZE: str = &#x27;minimize&#x27;</code></pre></section><section class="api-symbol"><h2 id="MAXIMIZE">MAXIMIZE</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 108.</p><pre><code>MAXIMIZE: str = &#x27;maximize&#x27;</code></pre></section><section class="api-symbol"><h2 id="residual_summary">residual_summary</h2><p class="source-note">Defined in <code>bayesmith.marginal.compress</code>, line 446.</p><pre><code>residual_summary(fitted: SqrtInfo, precision: Any, *, templates: Mapping[str, jax.Array] | None=None) -&gt; ResidualSummary</code></pre><pre class="docstring">One epoch&#x27;s out-of-span residual and its named template projections.
 
 **``fitted`` must be the term over EVERY column the epoch fits, nuisances
 included, and it must not have been marginalised or QR&#x27;d yet** -- so it is
@@ -2449,7 +2546,7 @@ the magnitude form is the same number and hides which convention is
 in force.</pre><h3 id="ComplexNormal.mean">ComplexNormal.mean</h3><pre><code>mean(self) -&gt; jax.Array</code></pre><h3 id="ComplexNormal.variance">ComplexNormal.variance</h3><pre><code>variance(self) -&gt; jax.Array</code></pre><pre class="docstring">``2 * scale**2`` -- the TOTAL, both parts.
 
 Not ``scale**2``. A reader who takes this for one part&#x27;s variance gets
-the sqrt(2) this module&#x27;s docstring is about, so it says which.</pre><pre><code>support = constraints.real</code></pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+the sqrt(2) this module&#x27;s docstring is about, so it says which.</pre><pre><code>support = constraints.real</code></pre></section></article><footer><p>Version 0.10.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
 <aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#trace">trace</a><a href="#const">const</a><a href="#det">det</a><a href="#sample">sample</a><a href="#observe">observe</a><a href="#plate">plate</a><a href="#joint_prior">joint_prior</a><a href="#NodeRef">NodeRef</a><a href="#PlateRef">PlateRef</a><a href="#Graph">Graph</a><a href="#Plate">Plate</a><a href="#Node">Node</a><a href="#Const">Const</a><a href="#Deterministic">Deterministic</a><a href="#Probabilistic">Probabilistic</a><a href="#evaluate">evaluate</a><a href="#log_joint">log_joint</a><a href="#compile">compile</a><a href="#compile_task">compile_task</a><a href="#execute_task">execute_task</a><a href="#factor_partition">factor_partition</a><a href="#sample_factors">sample_factors</a><a href="#declared_partition">declared_partition</a><a href="#estimate_factors">estimate_factors</a><a href="#SweepReport">SweepReport</a><a href="#SweepEstimate">SweepEstimate</a><a href="#Posterior">Posterior</a><a href="#Estimate">Estimate</a><a href="#to_numpyro">to_numpyro</a><a href="#nuts">nuts</a><a href="#predict">predict</a><a href="#linear_operator">linear_operator</a><a href="#check_linearity">check_linearity</a><a href="#check_log_linearity">check_log_linearity</a><a href="#log_linear_operator">log_linear_operator</a><a href="#log_space">log_space</a><a href="#multiplicative_log_data">multiplicative_log_data</a><a href="#wiener_solve">wiener_solve</a><a href="#gcr_sample">gcr_sample</a><a href="#condition_bound">condition_bound</a><a href="#condition_estimate">condition_estimate</a><a href="#orthonormal_transform">orthonormal_transform</a><a href="#orthonormalise">orthonormalise</a><a href="#numerical_rank">numerical_rank</a><a href="#select_svd">select_svd</a><a href="#select_greedy">select_greedy</a><a href="#LinearGaussianTransition">LinearGaussianTransition</a><a href="#HyperTransition">HyperTransition</a><a href="#ornstein_uhlenbeck">ornstein_uhlenbeck</a><a href="#chain_marginal">chain_marginal</a><a href="#chain_log_likelihood">chain_log_likelihood</a><a href="#smooth">smooth</a><a href="#iterative_gls">iterative_gls</a><a href="#sigma_from_graph">sigma_from_graph</a><a href="#noise_std_at">noise_std_at</a><a href="#precision_at">precision_at</a><a href="#fisher_information">fisher_information</a><a href="#parameter_covariance">parameter_covariance</a><a href="#identifiability">identifiability</a><a href="#prior_sensitivity">prior_sensitivity</a><a href="#JeffreysPrior">JeffreysPrior</a><a href="#init_to_declared">init_to_declared</a><a href="#propagate_covariance">propagate_covariance</a><a href="#push_forward">push_forward</a><a href="#fit">fit</a><a href="#minimize">minimize</a><a href="#Fit">Fit</a><a href="#check_loss_sense">check_loss_sense</a><a href="#MINIMIZE">MINIMIZE</a><a href="#MAXIMIZE">MAXIMIZE</a><a href="#residual_summary">residual_summary</a><a href="#ResidualSummary">ResidualSummary</a><a href="#epoch_residuals">epoch_residuals</a><a href="#template_modes">template_modes</a><a href="#held_out_z">held_out_z</a><a href="#shrinkage_power">shrinkage_power</a><a href="#shrinkage_report">shrinkage_report</a><a href="#systematic_floor">systematic_floor</a><a href="#NeuralPosterior">NeuralPosterior</a><a href="#train_posterior">train_posterior</a><a href="#TrainingHistory">TrainingHistory</a><a href="#MIN_SCALE">MIN_SCALE</a><a href="#BayesmithError">BayesmithError</a><a href="#GraphError">GraphError</a><a href="#TraceError">TraceError</a><a href="#StructureError">StructureError</a><a href="#AffinityRefused">AffinityRefused</a><a href="#ConvergenceError">ConvergenceError</a><a href="#NotGaussian">NotGaussian</a><a href="#NotLogLinear">NotLogLinear</a><a href="#NOT_GAUSSIAN_REASONS">NOT_GAUSSIAN_REASONS</a><a href="#NOT_LOG_LINEAR_REASONS">NOT_LOG_LINEAR_REASONS</a><a href="#ComplexNormal">ComplexNormal</a></aside></div>
 <dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
 </body></html>

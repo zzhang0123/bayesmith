@@ -150,6 +150,10 @@ def _notebook_invariants(measured):
 
 
 RECORDS: dict[str, Record] = {
+    "overview_hierarchy": Record(
+        snippet="overview_hierarchy.py",
+        plans={"hierarchy": lambda ns: (ns["model"], (ns["DATA"],))},
+    ),
     "overview": Record(
         snippet="overview_plan.py",
         plans={

@@ -43,6 +43,7 @@ def main():
         raise SystemExit(result.failed_premise)
     print(result.run.backend)
     print(result.run.termination)
+    return result
 
 
 if __name__ == "__main__":

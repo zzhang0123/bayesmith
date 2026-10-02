@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import itertools
 import json
 import platform
@@ -48,6 +49,14 @@ MC_DRAWS = 200
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def limtod_root() -> Path:
+    """Directory of the importable limTOD package, whose git HEAD is recorded."""
+    spec = importlib.util.find_spec("limTOD")
+    if spec is None or spec.origin is None:
+        return Path("limTOD")
+    return Path(spec.origin).resolve().parent
 
 
 def git_head(root: Path) -> str:
@@ -592,7 +601,7 @@ def main(argv=None) -> int:
         "python": sys.version,
         "git": {
             "bayesmith": git_head(Path.cwd()),
-            "limTOD": git_head(Path("/Users/zzhang/Workspace/RadioCosmology/limTOD")),
+            "limTOD": git_head(limtod_root()),
         },
     }
 

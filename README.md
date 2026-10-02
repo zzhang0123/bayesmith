@@ -42,9 +42,9 @@ The complete workflow-control layer remains a roadmap item.
 The [English documentation](site/index.html) opens with what the package does
 and why, then works through examples ordered by how much of the model is solved
 exactly, the concepts a plan and a result are made of, and the design and its
-verification. Build and verify it with `python tools/build_docs.py --check`. The
-0.10.0 candidate is local and unpublished; all documentation pages request
-`noindex`, and Pages requires explicit manual opt-in. Source fragments and
+verification. Build and verify it with `python tools/build_docs.py --check`. All
+documentation pages request `noindex`, and Pages requires explicit manual
+opt-in. Source fragments and
 generated output are described in [site/README.md](site/README.md).
 
 ## What bayesmith is not
@@ -235,7 +235,7 @@ boundaries are maintained under the [stability policy](docs/stability.md).
 Correctness repairs may reject previously accepted inputs that produced a wrong
 answer; such changes require release notes and consumer regression checks.
 
-Implemented and tested, 7,212 tests: the graph core with plates and joint
+Implemented and tested, 7,224 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every
 route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR

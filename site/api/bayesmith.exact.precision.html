@@ -4,9 +4,9 @@
 <meta name="description" content="bayesmith.exact.precision"><title>bayesmith.exact.precision · bayesmith</title>
 <link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
 <body><a class="skip-link" href="#main">Skip to content</a>
-<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.10.0 source</span>
 <div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
-<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a></section><section><h2>Tutorials and examples</h2><a href="../quickstart.html">01 · First posterior</a><a href="../nonlinear.html">02 · Partial structure</a><a href="../notebook.html">03 · Hierarchical notebook</a><a href="../reweighting.html">04 · Near-Gaussian targets</a><a href="../tasks.html">05 · Five questions</a><a href="../predictive.html">06 · Prediction and simulation</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
 <main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.exact.precision</span></nav>
 <article><h1>bayesmith.exact.precision</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">``N^-1`` as two operations, so a covariance need not be per-sample diagonal.
 
@@ -62,13 +62,14 @@ builds from it, and :class:`DiagonalPrecision` keeps a normaliser that is never
 silently wrong. Masking is DIAGONAL and that is measured, not assumed --
 :mod:`bayesmith.marginal.compress` carries the number.
 
-**Nothing in this module is exported, and that is the design rather than an
-oversight.** :func:`~bayesmith.exact.gaussian.precision_at` is the seam a
-caller touches: it builds the object from the graph at a point, and the three
-consumers above take it from there. A user declares correlated noise by
-declaring the DISTRIBUTION -- numpyro&#x27;s ``CirculantNormal`` is the case B9 was
-built for -- not by constructing a :class:`CirculantPrecision` and handing it
-in. So the protocol and its implementations are machinery, and
+**The protocol and its implementations are not exported, and that is the
+design rather than an oversight.** :func:`~bayesmith.exact.gaussian.precision_at`
+is the seam a caller touches: it builds the object from the graph at a point,
+and the three consumers above take it from there. A user declares correlated
+noise by declaring the DISTRIBUTION -- numpyro&#x27;s ``CirculantNormal`` is the
+case B9 was built for -- not by constructing a :class:`CirculantPrecision` and
+handing it in. So :class:`Precision`, :class:`DiagonalPrecision`,
+:class:`CirculantPrecision` and :class:`MaskedPrecision` are machinery, and
 ``bayesmith.exact.__all__`` says so by leaving them out.
 
 Written down because omission is a poor way to say anything. An absent export
@@ -77,7 +78,28 @@ by a reviewer who had no way to tell -- the same shape as every other entry in
 this repository that exists only as a gap. If a caller ever does need to
 implement :class:`Precision` themselves, a Toeplitz kernel being the obvious
 candidate and the paragraph above saying why it is not this class, then the
-protocol becomes public API and this is the paragraph to revisit, on purpose.</pre></details><div class="symbol-index"><a href="#Precision">Precision</a> <a href="#quadratic">quadratic</a> <a href="#log_density">log_density</a> <a href="#DiagonalPrecision">DiagonalPrecision</a> <a href="#CirculantPrecision">CirculantPrecision</a> <a href="#MaskedPrecision">MaskedPrecision</a> <a href="#masked">masked</a> <a href="#check_positive_definite">check_positive_definite</a> <a href="#PrecisionMismatch">PrecisionMismatch</a> <a href="#check_precision">check_precision</a> <a href="#per_sample_sigma">per_sample_sigma</a> <a href="#diagonal_from">diagonal_from</a> <a href="#dense">dense</a></div><section class="api-symbol"><h2 id="Precision">Precision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 84.</p><pre><code>class Precision(Protocol)</code></pre><pre class="docstring">``N^-1``, as the two things every consumer of a covariance needs.
+protocol becomes public API and this is the paragraph to revisit, on purpose.
+
+**:func:`diagonal_from` is the exception, and a different revisit condition
+fired to make it one.** The paragraph above anticipated a caller wanting to
+IMPLEMENT the protocol. What actually happened is narrower and harder to
+argue with: :func:`~bayesmith.exact.solve.wiener_solve`,
+:func:`~bayesmith.exact.solve.gcr_sample` and
+:func:`~bayesmith.exact.solve.condition_bound` are all in
+``bayesmith.exact.__all__``, all take ``precision=`` as a REQUIRED keyword,
+and all three docstrings name this function as the way to build one from a
+decided sigma. A public entry point whose documented call needs an
+undeclared name has not been kept private; it has been left ambiguous, which
+is the defect the paragraph above names. rheplicant reached in and imported it
+from this module directly (``inference/linear.py::_far_precision``) -- the
+only thing it could do, and evidence rather than misuse. So the CONSTRUCTOR
+from the dict form is declared while the protocol stays machinery: a caller
+gets an opaque token to hand back, not a class to subclass.
+
+:func:`per_sample_sigma` is deliberately NOT declared alongside it. Its
+callers read a sigma off a finished result, and both results that do
+(``GLSResult.noise_std``, ``Estimate.noise_std``) already expose it as an
+attribute, so no public call requires the function itself.</pre></details><div class="symbol-index"><a href="#Precision">Precision</a> <a href="#quadratic">quadratic</a> <a href="#log_density">log_density</a> <a href="#DiagonalPrecision">DiagonalPrecision</a> <a href="#CirculantPrecision">CirculantPrecision</a> <a href="#MaskedPrecision">MaskedPrecision</a> <a href="#masked">masked</a> <a href="#check_positive_definite">check_positive_definite</a> <a href="#PrecisionMismatch">PrecisionMismatch</a> <a href="#check_precision">check_precision</a> <a href="#per_sample_sigma">per_sample_sigma</a> <a href="#diagonal_from">diagonal_from</a> <a href="#dense">dense</a></div><section class="api-symbol"><h2 id="Precision">Precision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 106.</p><pre><code>class Precision(Protocol)</code></pre><pre class="docstring">``N^-1``, as the two things every consumer of a covariance needs.
 
 Deliberately not ``sigma``: a sigma is only a covariance when the samples
 are independent, and the whole point here is that they need not be.</pre><h3 id="Precision.apply">Precision.apply</h3><pre><code>apply(self, residual: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``N^-1 r``, shaped like ``r``.</pre><h3 id="Precision.log_normalizer">Precision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><pre class="docstring">``log det (2 pi N)`` -- the Gaussian&#x27;s normalisation, a scalar.</pre><h3 id="Precision.log_spectrum">Precision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><pre class="docstring">``log lambda_k`` -- the log of ``N``&#x27;s eigenvalues, as a VECTOR.
@@ -123,7 +145,7 @@ layer would call.
 The defining property, and what the tests assert rather than any
 particular square root: applying it twice is :meth:`apply`, because
 ``N^-1/2 N^-1/2 = N^-1``. Any square root satisfying that is a legal
-implementation, which is why this does not promise a Cholesky.</pre></section><section class="api-symbol"><h2 id="quadratic">quadratic</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 153.</p><pre><code>quadratic(precision: Precision, residual: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``r^T N^-1 r``.
+implementation, which is why this does not promise a Cholesky.</pre></section><section class="api-symbol"><h2 id="quadratic">quadratic</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 175.</p><pre><code>quadratic(precision: Precision, residual: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``r^T N^-1 r``.
 
 Derived from :meth:`Precision.apply` rather than being a third protocol
 method, so an implementation cannot make the quadratic form and the
@@ -147,10 +169,10 @@ poisoned datum that WAS observed stays loud. Mapping that one to zero would
 mean &quot;unobserved&quot;, which is a claim only the model may make -- the same
 argument the sibling package makes for keeping two weight formulas that
 disagree on ``nan``. For every finite residual this is bitwise the
-expression it replaces, since ``r * 0`` is exactly ``0``.</pre></section><section class="api-symbol"><h2 id="log_density">log_density</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 184.</p><pre><code>log_density(precision: Precision, residual: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``-1/2 [ r^T N^-1 r + log det 2 pi N ]``.
+expression it replaces, since ``r * 0`` is exactly ``0``.</pre></section><section class="api-symbol"><h2 id="log_density">log_density</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 206.</p><pre><code>log_density(precision: Precision, residual: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``-1/2 [ r^T N^-1 r + log det 2 pi N ]``.
 
 Both halves from ONE object. A caller assembling them from two would be
-free to take them at different covariances, which is defect B1.</pre></section><section class="api-symbol"><h2 id="DiagonalPrecision">DiagonalPrecision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 193.</p><pre><code>class DiagonalPrecision(eqx.Module)
+free to take them at different covariances, which is defect B1.</pre></section><section class="api-symbol"><h2 id="DiagonalPrecision">DiagonalPrecision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 215.</p><pre><code>class DiagonalPrecision(eqx.Module)
 sigma: jax.Array</code></pre><pre class="docstring">Independent samples: the behaviour this package had before.
 
 The degenerate case, and the cross-check for everything else. Its numbers
@@ -164,7 +186,7 @@ subset determinant is a subset SUM, and a sum of logs cannot be
 un-summed. It exists so the masked normaliser is the same expression
 as the full one with terms dropped, rather than a second spelling of
 it that can drift -- ``test_the_masked_normaliser_is_the_kept_terms``
-pins that the two agree bitwise.</pre><h3 id="DiagonalPrecision.log_normalizer">DiagonalPrecision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><h3 id="DiagonalPrecision.log_spectrum">DiagonalPrecision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><h3 id="DiagonalPrecision.whiten">DiagonalPrecision.whiten</h3><pre><code>whiten(self, omega: jax.Array) -&gt; jax.Array</code></pre></section><section class="api-symbol"><h2 id="CirculantPrecision">CirculantPrecision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 233.</p><pre><code>class CirculantPrecision(eqx.Module)
+pins that the two agree bitwise.</pre><h3 id="DiagonalPrecision.log_normalizer">DiagonalPrecision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><h3 id="DiagonalPrecision.log_spectrum">DiagonalPrecision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><h3 id="DiagonalPrecision.whiten">DiagonalPrecision.whiten</h3><pre><code>whiten(self, omega: jax.Array) -&gt; jax.Array</code></pre></section><section class="api-symbol"><h2 id="CirculantPrecision">CirculantPrecision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 255.</p><pre><code>class CirculantPrecision(eqx.Module)
 first_column: jax.Array</code></pre><pre class="docstring">A stationary covariance with a periodic boundary, exactly by FFT.
 
 ``first_column`` is the covariance&#x27;s first column, i.e. the
@@ -190,7 +212,7 @@ made this class raise ``ConcretizationTypeError`` under ``jit``,
 was traced, which is the entire solve path. ``gaussian.py`` already splits
 ``gaussian_parts`` from ``check_gaussian`` for exactly this reason, and
 this follows it: validate once, eagerly, at the boundary; trace freely
-afterwards.</pre><h3 id="CirculantPrecision.eigenvalues">CirculantPrecision.eigenvalues</h3><pre><code>eigenvalues(self) -&gt; jax.Array</code></pre><pre class="docstring">``fft(first_column)``, real. The covariance&#x27;s spectrum.</pre><h3 id="CirculantPrecision.apply">CirculantPrecision.apply</h3><pre><code>apply(self, residual: jax.Array) -&gt; jax.Array</code></pre><h3 id="CirculantPrecision.log_normalizer">CirculantPrecision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><h3 id="CirculantPrecision.log_spectrum">CirculantPrecision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><h3 id="CirculantPrecision.whiten">CirculantPrecision.whiten</h3><pre><code>whiten(self, omega: jax.Array) -&gt; jax.Array</code></pre></section><section class="api-symbol"><h2 id="MaskedPrecision">MaskedPrecision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 295.</p><pre><code>class MaskedPrecision(eqx.Module)
+afterwards.</pre><h3 id="CirculantPrecision.eigenvalues">CirculantPrecision.eigenvalues</h3><pre><code>eigenvalues(self) -&gt; jax.Array</code></pre><pre class="docstring">``fft(first_column)``, real. The covariance&#x27;s spectrum.</pre><h3 id="CirculantPrecision.apply">CirculantPrecision.apply</h3><pre><code>apply(self, residual: jax.Array) -&gt; jax.Array</code></pre><h3 id="CirculantPrecision.log_normalizer">CirculantPrecision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><h3 id="CirculantPrecision.log_spectrum">CirculantPrecision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><h3 id="CirculantPrecision.whiten">CirculantPrecision.whiten</h3><pre><code>whiten(self, omega: jax.Array) -&gt; jax.Array</code></pre></section><section class="api-symbol"><h2 id="MaskedPrecision">MaskedPrecision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 317.</p><pre><code>class MaskedPrecision(eqx.Module)
 base: DiagonalPrecision
 seen: jax.Array</code></pre><pre class="docstring">A per-sample covariance in which some samples were not taken at all.
 
@@ -251,7 +273,7 @@ it guards there.
 
 Attributes:
     base: the covariance in force on the samples that WERE taken.
-    seen: boolean, shaped like ``sigma``; ``True`` = observed.</pre><h3 id="MaskedPrecision.apply">MaskedPrecision.apply</h3><pre><code>apply(self, residual: jax.Array) -&gt; jax.Array</code></pre><h3 id="MaskedPrecision.log_normalizer">MaskedPrecision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><h3 id="MaskedPrecision.log_spectrum">MaskedPrecision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><h3 id="MaskedPrecision.whiten">MaskedPrecision.whiten</h3><pre><code>whiten(self, omega: jax.Array) -&gt; jax.Array</code></pre></section><section class="api-symbol"><h2 id="masked">masked</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 377.</p><pre><code>masked(precision: Any, seen: jax.Array) -&gt; MaskedPrecision</code></pre><pre class="docstring">Wrap ``precision`` so the samples ``seen`` is ``False`` at inform nothing.
+    seen: boolean, shaped like ``sigma``; ``True`` = observed.</pre><h3 id="MaskedPrecision.apply">MaskedPrecision.apply</h3><pre><code>apply(self, residual: jax.Array) -&gt; jax.Array</code></pre><h3 id="MaskedPrecision.log_normalizer">MaskedPrecision.log_normalizer</h3><pre><code>log_normalizer(self) -&gt; jax.Array</code></pre><h3 id="MaskedPrecision.log_spectrum">MaskedPrecision.log_spectrum</h3><pre><code>log_spectrum(self) -&gt; jax.Array</code></pre><h3 id="MaskedPrecision.whiten">MaskedPrecision.whiten</h3><pre><code>whiten(self, omega: jax.Array) -&gt; jax.Array</code></pre></section><section class="api-symbol"><h2 id="masked">masked</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 399.</p><pre><code>masked(precision: Any, seen: jax.Array) -&gt; MaskedPrecision</code></pre><pre class="docstring">Wrap ``precision`` so the samples ``seen`` is ``False`` at inform nothing.
 
 Asks :func:`per_sample_sigma` whether the covariance HAS per-sample sigmas
 to mask, rather than testing its type here -- that question has one home
@@ -269,7 +291,7 @@ Raises:
     StructureError: if ``seen`` is not boolean, or does not match the
         sigma&#x27;s shape. A float mask would multiply rather than select, and
         a broadcasting one would mask a different set of samples than the
-        caller named while every shape downstream stayed right.</pre></section><section class="api-symbol"><h2 id="check_positive_definite">check_positive_definite</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 430.</p><pre><code>check_positive_definite(precision: CirculantPrecision) -&gt; None</code></pre><pre class="docstring">Refuse a circulant covariance that is not positive definite.
+        caller named while every shape downstream stayed right.</pre></section><section class="api-symbol"><h2 id="check_positive_definite">check_positive_definite</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 452.</p><pre><code>check_positive_definite(precision: CirculantPrecision) -&gt; None</code></pre><pre class="docstring">Refuse a circulant covariance that is not positive definite.
 
 Call this EAGERLY, at the point a kernel enters the system, the way
 ``block.py`` and ``classify.py`` call ``check_gaussian``. It reads the
@@ -282,7 +304,7 @@ and pushes that mode&#x27;s residual the WRONG WAY, and neither announces
 itself downstream.
 
 Raises:
-    ValueError: if any eigenvalue is not strictly positive.</pre></section><section class="api-symbol"><h2 id="PrecisionMismatch">PrecisionMismatch</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 459.</p><pre><code>class PrecisionMismatch(Exception)</code></pre><pre class="docstring">A :class:`Precision` does not describe the distribution it was paired with.</pre></section><section class="api-symbol"><h2 id="check_precision">check_precision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 463.</p><pre><code>check_precision(distribution: Any, precision: Precision, loc: jax.Array, *, rtol: float | None=None, key: jax.Array | None=None) -&gt; dict[str, float]</code></pre><pre class="docstring">Verify a ``Precision`` really is the covariance of ``distribution``.
+    ValueError: if any eigenvalue is not strictly positive.</pre></section><section class="api-symbol"><h2 id="PrecisionMismatch">PrecisionMismatch</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 481.</p><pre><code>class PrecisionMismatch(Exception)</code></pre><pre class="docstring">A :class:`Precision` does not describe the distribution it was paired with.</pre></section><section class="api-symbol"><h2 id="check_precision">check_precision</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 485.</p><pre><code>check_precision(distribution: Any, precision: Precision, loc: jax.Array, *, rtol: float | None=None, key: jax.Array | None=None) -&gt; dict[str, float]</code></pre><pre class="docstring">Verify a ``Precision`` really is the covariance of ``distribution``.
 
 The counterpart of :func:`~bayesmith.exact.gaussian.check_gaussian` for a
 covariance that is not per-sample diagonal, and the piece that decides
@@ -340,7 +362,7 @@ Returns:
 Raises:
     PrecisionMismatch: if any of the three exceeds ``rtol``. Which one is
         named, because &quot;the covariance is wrong&quot; and &quot;the normaliser is
-        wrong&quot; and &quot;the density is not Gaussian&quot; need different fixes.</pre></section><section class="api-symbol"><h2 id="per_sample_sigma">per_sample_sigma</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 582.</p><pre><code>per_sample_sigma(precision: dict[str, Any]) -&gt; dict[str, jax.Array] | None</code></pre><pre class="docstring">``{observed: sigma}`` when every covariance has one, else ``None``.
+        wrong&quot; and &quot;the density is not Gaussian&quot; need different fixes.</pre></section><section class="api-symbol"><h2 id="per_sample_sigma">per_sample_sigma</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 604.</p><pre><code>per_sample_sigma(precision: dict[str, Any]) -&gt; dict[str, jax.Array] | None</code></pre><pre class="docstring">``{observed: sigma}`` when every covariance has one, else ``None``.
 
 The inverse of :func:`diagonal_from`, and the one place in this package
 that asks which IMPLEMENTATION a ``Precision`` is. That question is
@@ -364,17 +386,17 @@ is not a second encoding but the one this package already had: it is what
 the mask reached bayesmith from upstream in the first place. So
 ``GLSResult.noise_std`` and ``Estimate.noise_std`` say &quot;not observed&quot; in
 the same word their caller used, and ``compress`` masks a masked
-covariance without knowing this class exists.</pre></section><section class="api-symbol"><h2 id="diagonal_from">diagonal_from</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 622.</p><pre><code>diagonal_from(noise_std: dict[str, Any]) -&gt; dict[str, DiagonalPrecision]</code></pre><pre class="docstring">``{observed: sigma}`` -&gt; ``{observed: Precision}``.
+covariance without knowing this class exists.</pre></section><section class="api-symbol"><h2 id="diagonal_from">diagonal_from</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 644.</p><pre><code>diagonal_from(noise_std: dict[str, Any]) -&gt; dict[str, DiagonalPrecision]</code></pre><pre class="docstring">``{observed: sigma}`` -&gt; ``{observed: Precision}``.
 
 The bridge from the decided-sigma dict the package passes around today.
 It exists so the generalisation can land without every caller changing at
 once, and so the diagonal path keeps going through the SAME code the
 correlated one does -- a compatibility shim that bypassed the protocol
-would leave the degeneracy untested where it matters.</pre></section><section class="api-symbol"><h2 id="dense">dense</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 637.</p><pre><code>dense(precision: Precision, size: int, dtype: Any=None) -&gt; jax.Array</code></pre><pre class="docstring">``N^-1`` materialised, by applying it to a basis. For tests and oracles.
+would leave the degeneracy untested where it matters.</pre></section><section class="api-symbol"><h2 id="dense">dense</h2><p class="source-note">Defined in <code>bayesmith.exact.precision</code>, line 659.</p><pre><code>dense(precision: Precision, size: int, dtype: Any=None) -&gt; jax.Array</code></pre><pre class="docstring">``N^-1`` materialised, by applying it to a basis. For tests and oracles.
 
 Deliberately built by APPLICATION rather than by any implementation&#x27;s own
 internals, so an oracle comparing against it is comparing against what
-callers will actually get.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+callers will actually get.</pre></section></article><footer><p>Version 0.10.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
 <aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#Precision">Precision</a><a href="#quadratic">quadratic</a><a href="#log_density">log_density</a><a href="#DiagonalPrecision">DiagonalPrecision</a><a href="#CirculantPrecision">CirculantPrecision</a><a href="#MaskedPrecision">MaskedPrecision</a><a href="#masked">masked</a><a href="#check_positive_definite">check_positive_definite</a><a href="#PrecisionMismatch">PrecisionMismatch</a><a href="#check_precision">check_precision</a><a href="#per_sample_sigma">per_sample_sigma</a><a href="#diagonal_from">diagonal_from</a><a href="#dense">dense</a></aside></div>
 <dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
 </body></html>

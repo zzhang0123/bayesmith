@@ -18,51 +18,51 @@
   },
   {
     "path": "quickstart.html",
-    "title": "First model",
-    "group": "Start",
+    "title": "Example 01 \u00b7 Your first posterior",
+    "group": "Tutorials and examples",
     "source": "quickstart.html",
     "lang": "en",
-    "nav_title": "First model"
+    "nav_title": "01 \u00b7 First posterior"
   },
   {
     "path": "nonlinear.html",
-    "title": "Partial structure in a hierarchy",
-    "group": "Worked examples",
+    "title": "Example 02 \u00b7 Partial structure in a hierarchy",
+    "group": "Tutorials and examples",
     "source": "nonlinear.html",
     "lang": "en",
-    "nav_title": "Partial structure"
+    "nav_title": "02 \u00b7 Partial structure"
   },
   {
     "path": "notebook.html",
-    "title": "Hierarchical inference notebook",
-    "nav_title": "Hierarchical notebook",
-    "group": "Worked examples",
+    "title": "Example 03 \u00b7 Hierarchical inference notebook",
+    "nav_title": "03 \u00b7 Hierarchical notebook",
+    "group": "Tutorials and examples",
     "source": "notebook.html",
     "lang": "en"
   },
   {
     "path": "reweighting.html",
     "source": "reweighting.html",
-    "title": "Reweighting a Gaussian sample bank",
-    "nav_title": "Near-Gaussian targets",
-    "group": "Worked examples",
+    "title": "Example 04 \u00b7 Reweighting a Gaussian sample bank",
+    "nav_title": "04 \u00b7 Near-Gaussian targets",
+    "group": "Tutorials and examples",
     "lang": "en"
   },
   {
-    "path": "predictive.html",
-    "title": "Prediction, simulation and checking",
-    "group": "Worked examples",
-    "source": "predictive.html",
-    "lang": "en",
-    "nav_title": "Prediction and simulation"
-  },
-  {
     "path": "tasks.html",
-    "title": "Five questions, one model",
-    "group": "Worked examples",
+    "title": "Example 05 \u00b7 Five questions, one model",
+    "group": "Tutorials and examples",
     "source": "tasks.html",
     "lang": "en",
-    "nav_title": "Five questions"
+    "nav_title": "05 \u00b7 Five questions"
+  },
+  {
+    "path": "predictive.html",
+    "title": "Example 06 \u00b7 Prediction, simulation and checking",
+    "group": "Tutorials and examples",
+    "source": "predictive.html",
+    "lang": "en",
+    "nav_title": "06 \u00b7 Prediction and simulation"
   },
   {
     "path": "concepts.html",

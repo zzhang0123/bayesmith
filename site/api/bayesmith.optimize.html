@@ -4,9 +4,9 @@
 <meta name="description" content="bayesmith.optimize"><title>bayesmith.optimize · bayesmith</title>
 <link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
 <body><a class="skip-link" href="#main">Skip to content</a>
-<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.10.0 source</span>
 <div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
-<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a></section><section><h2>Tutorials and examples</h2><a href="../quickstart.html">01 · First posterior</a><a href="../nonlinear.html">02 · Partial structure</a><a href="../notebook.html">03 · Hierarchical notebook</a><a href="../reweighting.html">04 · Near-Gaussian targets</a><a href="../tasks.html">05 · Five questions</a><a href="../predictive.html">06 · Prediction and simulation</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
 <main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.optimize</span></nav>
 <article><h1>bayesmith.optimize</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Gradient MAP -- the exit an exact solve does not have.
 
@@ -36,14 +36,71 @@ Three things are public, and the split is the one the callers need:
   descends a function unbounded below while the loss history looks like
   textbook convergence.
 
-**What this is not.** There is no convergence verdict. ``steps`` steps are
-taken and the objective reached is reported; a caller who needs a verdict
-compares it against something, and this module has no opinion about what.
-That is deliberate and matches the exact route&#x27;s own division of labour,
-where the verdict is raised one level up by whoever knows the tolerance.</pre></details><div class="symbol-index"><a href="#MAXIMIZE">MAXIMIZE</a> <a href="#MINIMIZE">MINIMIZE</a> <a href="#Fit">Fit</a> <a href="#check_loss_sense">check_loss_sense</a> <a href="#fit">fit</a> <a href="#minimize">minimize</a> <a href="#sense_of">sense_of</a></div><section class="api-symbol"><h2 id="MAXIMIZE">MAXIMIZE</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 64.</p><pre><code>MAXIMIZE: str = &#x27;maximize&#x27;</code></pre></section><section class="api-symbol"><h2 id="MINIMIZE">MINIMIZE</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 61.</p><pre><code>MINIMIZE: str = &#x27;minimize&#x27;</code></pre></section><section class="api-symbol"><h2 id="Fit">Fit</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 71.</p><pre><code>class Fit(NamedTuple)
+**There is a convergence verdict, and only when it is asked for.** Until
+0.10.0 there was none: ``steps`` steps were taken and the objective reached
+was reported, and a caller who needed a verdict compared it against something
+of their own. That is still what a call without ``certify=`` does, and it is
+still what every existing caller gets.
+
+Given ``certify=&lt;limit&gt;``, :func:`minimize` and :func:`fit` return a
+:class:`Fit` whose :attr:`~Fit.converged` is a PROOF: the Newton decrement
+``sqrt(g^T H^-1 g)`` at the returned point is bounded above by ``limit``, in
+units of the curvature&#x27;s own standard deviation -- for a negative log
+posterior, the posterior sigma. The Hessian is never formed from the model,
+every product being a ``jvp`` of a ``grad``, and the inexactness of the solve
+behind ``H^-1 g`` is bounded from the recomputed residual, so a truncated
+iteration can only make the verdict REFUSE and never approve. Where the
+arithmetic cannot support the claim -- an unproven curvature floor, a solve
+that did not converge, a precision in which the decrement&#x27;s digits are
+rounding -- the answer is a refusal with its reason (:attr:`Fit.refusal`),
+not a certificate. :mod:`bayesmith.optimize.certify` is where that lives and
+says at length what each piece rests on.
+
+The verdict bounds the Newton decrement of the local quadratic model at
+this point. For a quadratic objective this is a distance to its minimum;
+for a nonlinear objective it is a local statement, not proof of a global
+MAP. It says nothing about whether the objective is the right one, nor --
+with ``names=`` -- about anything beyond that block&#x27;s conditional objective.</pre></details><div class="symbol-index"><a href="#MAXIMIZE">MAXIMIZE</a> <a href="#MINIMIZE">MINIMIZE</a> <a href="#Decrement">Decrement</a> <a href="#Fit">Fit</a> <a href="#check_loss_sense">check_loss_sense</a> <a href="#fit">fit</a> <a href="#minimize">minimize</a> <a href="#sense_of">sense_of</a></div><section class="api-symbol"><h2 id="MAXIMIZE">MAXIMIZE</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 108.</p><pre><code>MAXIMIZE: str = &#x27;maximize&#x27;</code></pre></section><section class="api-symbol"><h2 id="MINIMIZE">MINIMIZE</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 105.</p><pre><code>MINIMIZE: str = &#x27;minimize&#x27;</code></pre></section><section class="api-symbol"><h2 id="Decrement">Decrement</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 163.</p><pre><code>class Decrement
+estimate: float
+distance: float
+lambda2: float
+residual: float
+reach: float
+kappa: float
+products: int
+dense: bool
+floor_source: str
+status: int</code></pre><pre class="docstring">One Newton decrement: what it measured, and how well.
+
+Attributes:
+    estimate: ``sqrt(g^T x)`` for the computed ``x``, in units of the
+        curvature&#x27;s standard deviation -- the distance to the minimum of
+        the objective&#x27;s quadratic model, as the solve left it, and a
+        lower bound on it.
+    distance: the upper bound on that distance, ``inf`` when the residual
+        or the curvature cannot bound it. This is what a verdict reads.
+    lambda2, residual, reach, kappa: ``g^T x``; the true residual&#x27;s size
+        relative to ``g``; that residual divided by the square root of
+        the curvature floor, which is the ``R`` of the bound; and the
+        condition number the rounding allowance was computed from.
+    products: Hessian-vector products spent, the residual&#x27;s own and any
+        spectral probe&#x27;s included.
+    dense: whether the Hessian was formed and solved directly.
+    floor_source: ``&quot;dense&quot;``, ``&quot;supplied&quot;``, ``&quot;probe&quot;`` or ``&quot;none&quot;``
+        -- where the curvature the bound divides by came from, and
+        whether it is a proof (see the module docstring).
+    status: one of :data:`CONVERGED`, :data:`UNREACHED`,
+        :data:`NONCONVEX`, :data:`NONFINITE`.</pre><h3 id="Decrement.proven">Decrement.proven</h3><pre><code>proven(self) -&gt; bool</code></pre><pre class="docstring">Whether the floor the bound rests on is a proof and not an estimate.</pre><h3 id="Decrement.certifies">Decrement.certifies</h3><pre><code>certifies(self, limit: float) -&gt; bool</code></pre><pre class="docstring">Whether the point is PROVEN within ``limit`` of the minimum.
+
+Three things, and a probed floor fails the first however good the
+other two look: the floor is a proof, the solve converged, and the
+upper bound it allows is inside ``limit``.</pre></section><section class="api-symbol"><h2 id="Fit">Fit</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 115.</p><pre><code>class Fit(NamedTuple)
 values: dict[str, Any]
 objective: jax.Array
-history: jax.Array</code></pre><pre class="docstring">Where a descent got to, and how it got there.
+history: jax.Array
+certificate: Decrement | None = None
+limit: float | None = None
+polished: int = 0</code></pre><pre class="docstring">Where a descent got to, and how it got there.
 
 Attributes:
     values: the fitted point. For :func:`fit` this is EVERY latent, with
@@ -56,7 +113,41 @@ Attributes:
         off-by-one that reads as a converged fit.
     history: the objective at the start of each step, shape ``(steps,)``.
         So ``history[0]`` is the objective the caller started from, and
-        ``objective &lt; history[0]`` is what &quot;it improved&quot; means.</pre></section><section class="api-symbol"><h2 id="check_loss_sense">check_loss_sense</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 104.</p><pre><code>check_loss_sense(loss_fn: Callable[[jax.Array, jax.Array], jax.Array], predicted: jax.Array, observed: jax.Array) -&gt; None</code></pre><pre class="docstring">Refuse a scoring function whose optimum lies the way a minimiser walks.
+        ``objective &lt; history[0]`` is what &quot;it improved&quot; means.
+    certificate: the :class:`~bayesmith.optimize.certify.Decrement`
+        measured at :attr:`values`, or ``None`` when no ``certify=`` was
+        asked for. Read :attr:`converged` rather than this, unless the
+        question is WHY.
+    limit: the distance, in units of the curvature&#x27;s own standard
+        deviation, that the caller asked to be proven. ``None`` with no
+        certificate.
+    polished: Newton steps kept after the descent, when ``certify=``
+        turned the polish on. ``0`` means the point came back as the
+        descent left it.</pre><h3 id="Fit.converged">Fit.converged</h3><pre><code>converged(self) -&gt; bool</code></pre><pre class="docstring">Whether this point is PROVEN within :attr:`limit` of the minimum.
+
+Three conditions, all required: the curvature floor the bound divides
+by is a proof rather than an estimate, the decrement&#x27;s own solve
+converged, and the upper bound it allows is inside the limit. See
+:meth:`~bayesmith.optimize.certify.Decrement.certifies`.
+
+**``False`` is not &quot;it was measured and it failed&quot;.** It is also what
+a fit that was never asked for a certificate reports, which is most of
+them. The two are worth telling apart and :attr:`refusal` is what
+tells them apart, in a sentence. This attribute is deliberately not
+tri-state: a caller writing ``if fit.converged:`` gets the safe
+reading of every case, and one who needs more asks for more.</pre><h3 id="Fit.refusal">Fit.refusal</h3><pre><code>refusal(self) -&gt; str | None</code></pre><pre class="docstring">Why :attr:`converged` is ``False``, or ``None`` when it is ``True``.
+
+Reports the FIRST unmet condition in the order
+:meth:`~bayesmith.optimize.certify.Decrement.certifies` reads them, so
+the sentence names the thing to fix rather than the last thing
+checked.
+
+**The verdict is read from :attr:`converged`, not re-derived here.**
+Two chains of conditions over one object can disagree, and this pair
+did: written as independent branches, the last one returned &quot;outside
+the limit&quot; for a point whose distance was 0.0 and whose
+:attr:`converged` was ``True``. Delegating makes that
+unrepresentable rather than merely tested for.</pre></section><section class="api-symbol"><h2 id="check_loss_sense">check_loss_sense</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 253.</p><pre><code>check_loss_sense(loss_fn: Callable[[jax.Array, jax.Array], jax.Array], predicted: jax.Array, observed: jax.Array) -&gt; None</code></pre><pre class="docstring">Refuse a scoring function whose optimum lies the way a minimiser walks.
 
 Measured on a one-parameter gain fit with truth ``g = 1.0``, before this
 guard existed::
@@ -83,7 +174,7 @@ Raises:
         score is not finite. The last is not scope creep: NaN compares
         False against everything, so treating a non-finite score as
         &quot;cannot tell, proceed&quot; would wave through exactly the case this
-        guard exists for whenever it arrives with a NaN attached.</pre></section><section class="api-symbol"><h2 id="fit">fit</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 374.</p><pre><code>fit(graph: Graph, at: Mapping[str, Any] | None=None, *, names: tuple[str, ...] | None=None, method: str=&#x27;adam&#x27;, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; Fit</code></pre><pre class="docstring">Gradient MAP: maximise the graph&#x27;s joint log-density over its latents.
+        guard exists for whenever it arrives with a NaN attached.</pre></section><section class="api-symbol"><h2 id="fit">fit</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 610.</p><pre><code>fit(graph: Graph, at: Mapping[str, Any] | None=None, *, names: tuple[str, ...] | None=None, method: str=&#x27;adam&#x27;, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08, certify: float | None=None, floor: float | None=None, polish: bool=True) -&gt; Fit</code></pre><pre class="docstring">Gradient MAP: maximise the graph&#x27;s joint log-density over its latents.
 
 Args:
     graph: the model. Its ``log_joint`` is the objective, negated -- the
@@ -110,7 +201,7 @@ Returns:
 Raises:
     StructureError: for a graph with no latents, a ``names`` entry the
         graph does not declare, an empty ``names``, or anything
-        :func:`minimize` refuses.</pre></section><section class="api-symbol"><h2 id="minimize">minimize</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 268.</p><pre><code>minimize(objective: Callable[[Any], jax.Array], at: Any, *, method: str=&#x27;adam&#x27;, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; Fit</code></pre><pre class="docstring">Descend ``objective`` from ``at`` for ``steps`` steps.
+        :func:`minimize` refuses.</pre></section><section class="api-symbol"><h2 id="minimize">minimize</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 452.</p><pre><code>minimize(objective: Callable[[Any], jax.Array], at: Any, *, method: str=&#x27;adam&#x27;, steps: int=200, learning_rate: float=0.01, step_sizes: Mapping[str, float] | None=None, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08, certify: float | None=None, floor: float | None=None, polish: bool=True) -&gt; Fit</code></pre><pre class="docstring">Descend ``objective`` from ``at`` for ``steps`` steps.
 
 Args:
     objective: ``f(values) -&gt; scalar``, MINIMISED. Handing it something
@@ -125,6 +216,35 @@ Args:
     learning_rate: the step size for every leaf without one of its own.
     step_sizes: per-name step sizes, in each parameter&#x27;s own units.
     beta1, beta2, eps: Adam&#x27;s, ignored by ``&quot;gradient&quot;``.
+    certify: a distance to PROVE the returned point is within, in units of
+        the curvature&#x27;s own standard deviation -- for a negative log
+        posterior, the posterior sigma. Given one, the fit carries a
+        :class:`~bayesmith.optimize.certify.Decrement` and
+        :attr:`Fit.converged` answers. Left out, nothing is measured and
+        :attr:`Fit.converged` is ``False`` for that reason; see
+        :attr:`Fit.refusal`.
+    floor: a verified lower bound on the smallest eigenvalue of the
+        objective&#x27;s Hessian. Only consulted above
+        :data:`~bayesmith.optimize.certify.DENSE_MAX` real parameters,
+        where the Hessian is not formed; below it the floor is computed
+        and this is not needed. It is a CLAIM the caller must be able to
+        prove -- a model affine in every parameter jointly, with proper
+        Gaussian priors and a noise scale that does not depend on the
+        prediction, is bounded below by its prior precision. An unsound
+        floor makes an unsound certificate, which is the one way to get a
+        wrong answer here. Refused without ``certify=``.
+    polish: whether to take Newton steps after the descent before the
+        certificate is measured. Only consulted with ``certify=``, and on
+        by default there because without it almost nothing certifies: a
+        first-order step of ``rate * sign(gradient)`` does not shrink with
+        the gradient, so Adam settles a fraction of a step size from the
+        optimum -- measured upstream at 2881 curvature standard deviations
+        on a two-parameter power law, at every step count. Each Newton
+        step is kept only if it lowers the objective, so this cannot make
+        the answer worse. Ignored without ``certify=``, on the same rule
+        as ``beta1``/``beta2`` under ``method=&quot;gradient&quot;``: refuse where
+        it changes the answer, honour &quot;ignored&quot; where the contract says
+        ignored.
 
 Returns:
     A :class:`Fit`.
@@ -146,12 +266,12 @@ Note:
     converges at 0.006 and returns NaN at 0.02, while ``&quot;adam&quot;``
     converges at both. Switching ``method=`` without revisiting
     ``learning_rate=`` is therefore a real hazard, which is why the
-    non-finite result is refused rather than returned.</pre></section><section class="api-symbol"><h2 id="sense_of">sense_of</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 93.</p><pre><code>sense_of(scoring: Any) -&gt; str</code></pre><pre class="docstring">:data:`MAXIMIZE` if ``scoring`` declares it, :data:`MINIMIZE` otherwise.
+    non-finite result is refused rather than returned.</pre></section><section class="api-symbol"><h2 id="sense_of">sense_of</h2><p class="source-note">Defined in <code>bayesmith.optimize</code>, line 242.</p><pre><code>sense_of(scoring: Any) -&gt; str</code></pre><pre class="docstring">:data:`MAXIMIZE` if ``scoring`` declares it, :data:`MINIMIZE` otherwise.
 
 A declaration is cheap and exact and gives the best message, but on its
 own it is a whitelist -- and a whitelist is wrong about precisely the code
 it has not met. :func:`check_loss_sense` therefore uses this as its first
-half and measures the second.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
-<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#MAXIMIZE">MAXIMIZE</a><a href="#MINIMIZE">MINIMIZE</a><a href="#Fit">Fit</a><a href="#check_loss_sense">check_loss_sense</a><a href="#fit">fit</a><a href="#minimize">minimize</a><a href="#sense_of">sense_of</a></aside></div>
+half and measures the second.</pre></section></article><footer><p>Version 0.10.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#MAXIMIZE">MAXIMIZE</a><a href="#MINIMIZE">MINIMIZE</a><a href="#Decrement">Decrement</a><a href="#Fit">Fit</a><a href="#check_loss_sense">check_loss_sense</a><a href="#fit">fit</a><a href="#minimize">minimize</a><a href="#sense_of">sense_of</a></aside></div>
 <dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
 </body></html>

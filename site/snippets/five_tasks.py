@@ -38,7 +38,8 @@ def model(data):
     bs.observe("signal", lambda x: dist.Normal(x, 0.5), level, obs=data)
 
 
-def main():
+def run_workflow():
+    """Return each result so the tutorial can plot what was actually run."""
     graph = bs.trace(model, jnp.array([0.8, 1.0, 1.2]))
     model_ref = model_ref_from_callable(model, identifier="level-example")
     keys = iter(jax.random.split(jax.random.key(7), 10))
@@ -93,7 +94,7 @@ def main():
     print(predictive.replicated_draws[0].value.shape)
 
     # 4. Simulation: sample from the declared prior, then generate data.
-    run(
+    simulation = run(
         SimulationTask(
             meta=new_task_meta(label="prior simulation"),
             parameter_source=ParameterSource(kind=ParameterSourceKind.PRIOR),
@@ -117,7 +118,24 @@ def main():
         restored = load_artifact(path)
         assert isinstance(restored, PosteriorResult)
         assert restored.meta.artifact_id == posterior.meta.artifact_id
-    return graph, model_ref, posterior, predictive, evidence
+    print("Artifact round trip: identity preserved")
+    return {
+        "graph": graph,
+        "model_ref": model_ref,
+        "posterior": posterior,
+        "point": point,
+        "predictive": predictive,
+        "simulation": simulation,
+        "evidence": evidence,
+    }
+
+
+def main():
+    results = run_workflow()
+    return tuple(
+        results[name]
+        for name in ("graph", "model_ref", "posterior", "predictive", "evidence")
+    )
 
 
 if __name__ == "__main__":

@@ -53,38 +53,7 @@ saved Campbell case when re-rendering the full notebook.
 
 ## Real observations: TRIS × Haslam
 
-**Current analysis entry:** [physical-model acceptance overview](PHYSICAL_SKY_ACCEPTANCE_20260915.md)
-(in progress), [current numerical stop and diagnosis at 2000 draws](PHYSICAL_SKY_STOP_2000_20260916.md),
-[actual setup, priors, beams and intermediate products](PHYSICAL_SKY_SETUP_REVIEW_20260916.md),
-[existing mapmaker: bounded local comparison](PHYSICAL_SKY_MAPMAKER_20260916.md),
-[exact-target mapmaker proposals: low acceptance, not adopted](PHYSICAL_SKY_MAPMAKER_PROPOSALS_20260916.md),
-[covariance diagnosis and failed shared-covariance candidate](PHYSICAL_SKY_MAPMAKER_COVARIANCE_20260917.md),
-[condition-specific reference covariance: verified target, failed efficiency](PHYSICAL_SKY_MAPMAKER_CONDITIONALREF_20260917.md),
-[local node blocks: finite screen passed, cross-block mixing still open](PHYSICAL_SKY_MAPMAKER_NODEBLOCKS_20260917.md),
-[slow-direction maps and overlapping caps: all 288 proposals verified, no posterior chain](PHYSICAL_SKY_MAPMAKER_OVERLAP_20260917.md),
-[sequential conditional A: 144 diagnostic transitions verified, joint kernel pending](PHYSICAL_SKY_MAPMAKER_SEQUENTIAL_20260917.md),
-[fixed-A theta target and NUTS cache controls passed; physical joint kernel pending](PHYSICAL_SKY_MAPMAKER_THETA_20260917.md),
-[physical hybrid: 24 diagnostic rounds verified; depth proxy subsequently checked](PHYSICAL_SKY_MAPMAKER_HYBRID_20260917.md),
-[paired depth replay and A-update schedule: K=8 selected for recovery validation, no posterior admission](PHYSICAL_SKY_MAPMAKER_SCHEDULE_20260917.md),
-[new NSIDE256 injection: target verified; transferred theta metric fails in an H-alpha direction](PHYSICAL_SKY_MAPMAKER_SIMBRIDGE_20260917.md),
-[D22 calibrated screening and resumable multichain budget](PHYSICAL_SKY_MULTICHAIN_BUDGET_20260915.md),
-[D21 joint EM slice updates with reference amplitude](PHYSICAL_SKY_JOINT_SLICE_20260915.md),
-[D20 calibration-aware amplitude reference and saved chain prefixes](PHYSICAL_SKY_CALIBRATION_REFERENCE_20260915.md),
-[D19 joint amplitude compensation and exact reference coordinates](PHYSICAL_SKY_JOINT_COMPENSATION_20260915.md),
-[D18 EM block experiments and fail-closed ESS screening](PHYSICAL_SKY_EM_BLOCKS_20260915.md),
-[D17 exact 820-MHz calibration and spectral coordinates](PHYSICAL_SKY_SCAN_COORDINATE_20260915.md),
-[D16 recovery, sampler repairs and integration sensitivity](PHYSICAL_SKY_RECOVERY_20260915.md),
-[D15 local fields, source epochs and staged validation](PHYSICAL_SKY_LOCAL_FIELDS_20260915.md),
-[bright-source measurement contract](BRIGHT_SOURCE_CONTRACT_20260915.md),
-[HartRAO 2326 MHz product and file contract](HARTRAO_CONTRACT_20260916.md),
-[S-PASS I/Q/U product and shared-zero contract](SPASS_CONTRACT_20260916.md),
-[D14 spatial, optical-mask and Galactic-source audit](PHYSICAL_SKY_SPATIAL_AUDIT_20260914.md),
-[D13 spatial-mode experiments and actual stage outcomes](PHYSICAL_SKY_MODES_20260914.md),
-[staged inference workflow](PHYSICAL_INFERENCE_WORKFLOW.md),
-[D12 joint physical pilot and sampling diagnostics](PHYSICAL_SKY_JOINT_20260914.md),
-[D11 physical implementation and input diagnostics](PHYSICAL_SKY_IMPLEMENTATION_20260914.md),
-[original physical design](PHYSICAL_SKY_MODEL_REPORT_20260914.md),
-and [versioned modelling decisions](RSB_DEFINITIONS.md). The joint component model includes independent optical H-alpha.
+The joint component model includes independent optical H-alpha.
 The restricted D13 model passed controlled multichain recovery; the expanded
 D15 local-field simulation stopped after a divergent first chain. D16 preserves
 those failures, repairs antithetic ESS, integrates the Haslam common zero exactly,

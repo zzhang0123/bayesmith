@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="description" content="bayesmith.optimize.certify"><title>bayesmith.optimize.certify · bayesmith</title>
+<link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
+<body><a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.10.0 source</span>
+<div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a></section><section><h2>Tutorials and examples</h2><a href="../quickstart.html">01 · First posterior</a><a href="../nonlinear.html">02 · Partial structure</a><a href="../notebook.html">03 · Hierarchical notebook</a><a href="../reweighting.html">04 · Near-Gaussian targets</a><a href="../tasks.html">05 · Five questions</a><a href="../predictive.html">06 · Prediction and simulation</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.optimize.certify</span></nav>
+<article><h1>bayesmith.optimize.certify</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">How far an iterative optimiser is from the minimum, and when to ask.
+
+Everything here takes a real-valued objective ``f`` over a pytree of arrays
+and nothing else: no model, no data, no parameter names. It answers two
+questions a block-coordinate or alternating optimiser cannot answer from its
+own iterates.
+
+**Where am I?** :func:`decrement` computes the Newton decrement
+``lambda = sqrt(g^T H^-1 g)`` at a point, for ``g`` and ``H`` the gradient and
+Hessian of ``f`` there. Near a minimum ``f`` is quadratic and
+``f - f* = lambda**2 / 2``, so ``lambda`` is the distance to the minimum in
+units of the curvature&#x27;s own standard deviation -- which does not grow with
+the number of terms in ``f`` and does not care which coordinates are slow.
+A tolerance on the CHANGE of ``f`` between iterations answers neither: it is
+relative to ``|f|``, and the contraction it can be extrapolated at is the
+fastest mode still moving, so a slow mode hidden under a fast one passes.
+
+**Can I trust the number?** The Hessian is never formed from the model --
+every product is ``jax.jvp`` of ``jax.grad`` -- and the linear solve behind
+``H^-1 g`` is inexact. :class:`Decrement` therefore carries an upper bound,
+not only an estimate. With ``r = g - H x`` the true residual of the computed
+``x`` and ``mu`` a LOWER bound on the smallest eigenvalue of ``H``,
+
+    lambda  &lt;=  (R + sqrt(R**2 + 4 g^T x)) / 2,      R = |r| / sqrt(mu)
+
+by Cauchy-Schwarz in the ``H^-1`` inner product (``lambda**2 - g^T x = g^T
+H^-1 r &lt;= lambda R``), inflated by ``1 / sqrt(1 - eps kappa)`` for the
+rounding of ``g`` and ``H`` themselves. :meth:`Decrement.certifies` reads
+that bound, so an inexact solve can only make a verdict refuse.
+
+**Everything turns on that lower bound, and only a proof will do.** A
+:class:`Decrement` says where its floor came from, and
+:meth:`Decrement.certifies` answers ``True`` for two of the three:
+
+* ``&quot;dense&quot;`` -- the formed Hessian&#x27;s own smallest eigenvalue, computed (up
+  to :data:`DENSE_MAX` parameters). It also decides positive definiteness.
+* ``&quot;supplied&quot;`` -- the caller&#x27;s ``floor=``, which is a CLAIM the caller must
+  be able to prove. A model with proper Gaussian priors can: ``H = J^T N^-1 J
+  + P`` is bounded below by the prior precision ``P`` whenever the map is
+  linear in every parameter jointly and the noise does not depend on it.
+* ``&quot;probe&quot;`` -- a :data:`PROBE_STEPS`-step Lanczos probe of ``H``, whose
+  Ritz interval is an ESTIMATE and not a bound. ``theta[0] - beta |s[0]|``
+  says how far ``theta[0]`` is from SOME eigenvalue, not from the smallest,
+  so where the Krylov space never reaches the bottom of the spectrum the
+  probe&#x27;s floor can sit above it: measured over 480 random spectra, 5 in 240
+  did in float32, the worst by a factor 7.4. A probe therefore never
+  certifies here. It still refuses -- non-positive curvature, or a bound
+  already outside the caller&#x27;s limit -- which is what it is kept for.
+
+``&quot;none&quot;`` is the fourth value: no usable floor at all -- the dense path&#x27;s
+smallest eigenvalue was not positive, or the probe&#x27;s interval did not clear
+zero -- which is a refusal by itself.
+
+**Getting there.** :func:`polish` takes Newton steps -- a Steihaug-truncated
+conjugate-gradient direction, an Armijo backtracking line search, and each
+step kept only if it lowers ``f`` -- which is what removes a first-order
+optimiser&#x27;s step-size floor before the decrement is asked.
+
+**When to ask.** A decrement costs a gradient and a solve, so
+:func:`settled`, :func:`gap_step` and :func:`change_program` are the cheap
+tests that pick the iterations worth spending one on. They schedule; none of
+them certifies.
+
+**Where this came from, and what was checked before it moved.** Lifted from
+``rheplicant.inference.certify`` at ``e1acb6f`` (T-004 half B), byte for byte:
+the module took plain callables and pytrees and imported nothing from that
+package, so there was nothing to adapt. Its 50 unit tests came with it, as
+``tests/test_certify.py``. The acceptance test that drives a whole estimate to
+its MAP stays upstream, because it needs that package&#x27;s models.
+
+It arrived having been through five independent reviews there. What they
+established, recorded here because a reader of THIS repository cannot see
+them: the bound&#x27;s derivation holds; both proven floors were attacked
+row by row (over four model families at 1200 latents, every claimed lower
+bound sat below the true smallest eigenvalue); a zero gradient and a singular
+Hessian refuse on both the dense and the conjugate-gradient path; and 23
+mutants were each killed by a named assertion. The probe&#x27;s unsoundness as a
+floor is the measurement in the list above and is why :meth:`Decrement.
+certifies` reads :data:`PROVEN_FLOORS` rather than the floor&#x27;s value.
+
+Limits. The decrement is a statement about the quadratic model of ``f`` at
+the point, so where the curvature changes over one unit of distance it is
+local. Above :data:`DENSE_MAX` parameters with no ``floor``, nothing here
+certifies: the probe is a heuristic, and a direction of negative curvature
+that neither it nor the Krylov space meets is not seen. In a precision
+whose epsilon times ``kappa`` approaches one, the gradient and the Hessian
+are rounding and nothing here recovers them; the status says so instead.</pre></details><div class="symbol-index"><a href="#RTOL">RTOL</a> <a href="#MAXITER">MAXITER</a> <a href="#DENSE_MAX">DENSE_MAX</a> <a href="#BATCH">BATCH</a> <a href="#PROBE_STEPS">PROBE_STEPS</a> <a href="#PROVEN_FLOORS">PROVEN_FLOORS</a> <a href="#STATUS_SAID">STATUS_SAID</a> <a href="#Decrement">Decrement</a> <a href="#real_size">real_size</a> <a href="#decrement_program">decrement_program</a> <a href="#decrement">decrement</a> <a href="#POLISH_ITERATIONS">POLISH_ITERATIONS</a> <a href="#POLISH_CG_MAXITER">POLISH_CG_MAXITER</a> <a href="#POLISH_CG_TOL">POLISH_CG_TOL</a> <a href="#ARMIJO">ARMIJO</a> <a href="#ARMIJO_HALVINGS">ARMIJO_HALVINGS</a> <a href="#polish">polish</a> <a href="#SETTLED_CHANGES">SETTLED_CHANGES</a> <a href="#OBJECTIVE_FLOOR_EPS">OBJECTIVE_FLOOR_EPS</a> <a href="#RESOLUTION_EPS">RESOLUTION_EPS</a> <a href="#SOLVE_TOL_STEP">SOLVE_TOL_STEP</a> <a href="#SOLVE_TOL_FLOOR">SOLVE_TOL_FLOOR</a> <a href="#settled">settled</a> <a href="#effective_tol">effective_tol</a> <a href="#solve_tol_floor">solve_tol_floor</a> <a href="#change_program">change_program</a> <a href="#GapState">GapState</a> <a href="#gap_step">gap_step</a></div><section class="api-symbol"><h2 id="RTOL">RTOL</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 107.</p><pre><code>RTOL: dict[int, float] = {4: 0.0001, 8: 1e-08}</code></pre></section><section class="api-symbol"><h2 id="MAXITER">MAXITER</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 113.</p><pre><code>MAXITER: int = 1000</code></pre></section><section class="api-symbol"><h2 id="DENSE_MAX">DENSE_MAX</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 129.</p><pre><code>DENSE_MAX: int = 1024</code></pre></section><section class="api-symbol"><h2 id="BATCH">BATCH</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 130.</p><pre><code>BATCH: int = 16</code></pre></section><section class="api-symbol"><h2 id="PROBE_STEPS">PROBE_STEPS</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 136.</p><pre><code>PROBE_STEPS: int = 32</code></pre></section><section class="api-symbol"><h2 id="PROVEN_FLOORS">PROVEN_FLOORS</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 150.</p><pre><code>PROVEN_FLOORS: frozenset[str] = frozenset({FLOOR_DENSE, FLOOR_SUPPLIED})</code></pre></section><section class="api-symbol"><h2 id="STATUS_SAID">STATUS_SAID</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 153.</p><pre><code>STATUS_SAID: dict[int, str] = {CONVERGED: &#x27;reached its residual&#x27;, UNREACHED: &#x27;did not reach its residual within its iteration cap&#x27;, NONCONVEX: &#x27;met a direction of non-positive curvature, so the point is not near a minimum&#x27;, NONFINITE: &#x27;was not finite&#x27;}</code></pre></section><section class="api-symbol"><h2 id="Decrement">Decrement</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 163.</p><pre><code>class Decrement
+estimate: float
+distance: float
+lambda2: float
+residual: float
+reach: float
+kappa: float
+products: int
+dense: bool
+floor_source: str
+status: int</code></pre><pre class="docstring">One Newton decrement: what it measured, and how well.
+
+Attributes:
+    estimate: ``sqrt(g^T x)`` for the computed ``x``, in units of the
+        curvature&#x27;s standard deviation -- the distance to the minimum of
+        the objective&#x27;s quadratic model, as the solve left it, and a
+        lower bound on it.
+    distance: the upper bound on that distance, ``inf`` when the residual
+        or the curvature cannot bound it. This is what a verdict reads.
+    lambda2, residual, reach, kappa: ``g^T x``; the true residual&#x27;s size
+        relative to ``g``; that residual divided by the square root of
+        the curvature floor, which is the ``R`` of the bound; and the
+        condition number the rounding allowance was computed from.
+    products: Hessian-vector products spent, the residual&#x27;s own and any
+        spectral probe&#x27;s included.
+    dense: whether the Hessian was formed and solved directly.
+    floor_source: ``&quot;dense&quot;``, ``&quot;supplied&quot;``, ``&quot;probe&quot;`` or ``&quot;none&quot;``
+        -- where the curvature the bound divides by came from, and
+        whether it is a proof (see the module docstring).
+    status: one of :data:`CONVERGED`, :data:`UNREACHED`,
+        :data:`NONCONVEX`, :data:`NONFINITE`.</pre><h3 id="Decrement.proven">Decrement.proven</h3><pre><code>proven(self) -&gt; bool</code></pre><pre class="docstring">Whether the floor the bound rests on is a proof and not an estimate.</pre><h3 id="Decrement.certifies">Decrement.certifies</h3><pre><code>certifies(self, limit: float) -&gt; bool</code></pre><pre class="docstring">Whether the point is PROVEN within ``limit`` of the minimum.
+
+Three things, and a probed floor fails the first however good the
+other two look: the floor is a proof, the solve converged, and the
+upper bound it allows is inside ``limit``.</pre></section><section class="api-symbol"><h2 id="real_size">real_size</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 213.</p><pre><code>real_size(template: Any) -&gt; int</code></pre><pre class="docstring">Real degrees of freedom in a pytree: a complex leaf counts twice.
+
+What :data:`DENSE_MAX` is compared against, so a caller can ask the same
+question before paying for anything.</pre></section><section class="api-symbol"><h2 id="decrement_program">decrement_program</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 223.</p><pre><code>decrement_program(objective: Callable[[Any], jax.Array], template: Any, *, floor: float | None=None, limit: float | None=None) -&gt; Callable[[Any], tuple[jax.Array, ...]]</code></pre><pre class="docstring">``values -&gt; (lambda2, rho, reach, products, status, kappa)``, jitted once.
+
+``objective`` is a real function of a pytree shaped like ``template``; a
+complex leaf enters as its real and imaginary parts, so ``n`` counts real
+degrees of freedom. Build this once per shape and call it at each point:
+it is the expensive half, and :func:`decrement` is the reading of its
+output.
+
+Up to :data:`DENSE_MAX` parameters the Hessian is formed from ``n``
+products and solved by an eigendecomposition after scaling by its
+diagonal, and the curvature floor the bound needs is that scaled matrix&#x27;s
+own smallest eigenvalue. Above it, ``H x = g`` is conjugate gradients
+from zero, unpreconditioned, and the floor is either ``floor`` -- a
+verified lower bound on the smallest eigenvalue of ``H``, which is what
+makes a certificate there sound -- or, failing that, a
+:data:`PROBE_STEPS`-step Lanczos probe of ``H``.
+
+``limit`` is the distance the caller will certify. Given one, the
+iteration stops as soon as the verdict cannot change: when the bound is
+inside ``limit``, or when ``g^T x`` alone (which only grows) is already
+outside it. Without one it stops at a relative residual of
+:data:`RTOL`. Either way the residual returned is ``|g - H x|``
+recomputed with one more product, because a recursive residual drifts
+from the true one in finite precision, and it is the true one the bound
+needs.</pre></section><section class="api-symbol"><h2 id="decrement">decrement</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 315.</p><pre><code>decrement(objective: Callable[[Any], jax.Array], at: Any, *, program: Callable[[Any], tuple[jax.Array, ...]] | None=None, floor: float | None=None, limit: float | None=None) -&gt; Decrement</code></pre><pre class="docstring">The Newton decrement of ``objective`` at ``at``, with its error bound.
+
+``program`` is a :func:`decrement_program` built earlier for this shape;
+without one this builds (and compiles) a program for this call alone, and
+``floor`` and ``limit`` are passed to it.
+
+The bound is ``(R + sqrt(R**2 + 4 lambda2)) / 2`` for ``R`` the residual
+measured against the curvature floor, inflated by ``1 / sqrt(1 - eps
+kappa)``: a relative perturbation ``eps`` of ``H`` moves ``g^T H^-1 g`` by
+up to ``eps kappa`` of itself, and ``g`` and every Hessian product are
+rounded. That second term is negligible in an 8-byte float and refuses
+any Hessian with ``kappa`` near ``1 / eps`` in a 4-byte one, where the
+decrement&#x27;s digits are rounding.</pre></section><section class="api-symbol"><h2 id="POLISH_ITERATIONS">POLISH_ITERATIONS</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 515.</p><pre><code>POLISH_ITERATIONS: int = 3</code></pre></section><section class="api-symbol"><h2 id="POLISH_CG_MAXITER">POLISH_CG_MAXITER</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 523.</p><pre><code>POLISH_CG_MAXITER: int = 50</code></pre></section><section class="api-symbol"><h2 id="POLISH_CG_TOL">POLISH_CG_TOL</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 528.</p><pre><code>POLISH_CG_TOL: float = 1e-05</code></pre></section><section class="api-symbol"><h2 id="ARMIJO">ARMIJO</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 534.</p><pre><code>ARMIJO: float = 0.0001</code></pre></section><section class="api-symbol"><h2 id="ARMIJO_HALVINGS">ARMIJO_HALVINGS</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 538.</p><pre><code>ARMIJO_HALVINGS: int = 30</code></pre></section><section class="api-symbol"><h2 id="polish">polish</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 586.</p><pre><code>polish(objective: Callable[[Any], jax.Array], at: Any, *, iterations: int=POLISH_ITERATIONS) -&gt; tuple[Any, jax.Array]</code></pre><pre class="docstring">Newton steps on ``objective``, each kept only if it helps.
+
+Returns ``(point, kept)``, ``kept`` counting the steps that were taken --
+zero means the point came back unchanged.
+
+A first-order optimiser restarted at each outer iteration has a precision
+floor set by its step size rather than by the problem: Adam with zeroed
+moments takes a first bias-corrected step of ``step_size *
+sign(gradient)`` however small the gradient is, and the resulting map has
+a fixed point a fraction of a step size from the optimum -- measured at
+2881 curvature standard deviations on a two-parameter power law fitted
+over 4096 channels, at every inner step count, shrinking with the step
+size and not with the iterations.
+
+A Newton step uses the curvature, so its length goes to zero with the
+gradient and the iterate lands on the optimum wherever the first-order
+steps left it. The direction is :func:`_steihaug`&#x27;s: conjugate gradients
+on Hessian-vector products, no Hessian formed, stopped at negative
+curvature. The step along it is backtracked (halved up to
+:data:`ARMIJO_HALVINGS` times) until Armijo&#x27;s condition holds,
+``f(x + t p) - f(x) &lt;= ARMIJO * t * g.p`` with ``g.p &lt; 0`` and the result
+finite; otherwise the iteration keeps its point. The decrease is compared
+as a DIFFERENCE, because ``f(x) + small`` rounds to ``f(x)`` when ``|f|``
+is large: measured, ``after &lt;= before`` accepted a 4-byte-float jump from
+``y = 3`` to ``y = -97.9`` on a potential offset by 1e7, where no step
+could be resolved at all.
+
+A complex parameter set is returned unchanged: the Hessian-vector product
+of a real function of complex arguments is not the operator this step
+needs.</pre></section><section class="api-symbol"><h2 id="SETTLED_CHANGES">SETTLED_CHANGES</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 665.</p><pre><code>SETTLED_CHANGES: int = 2</code></pre></section><section class="api-symbol"><h2 id="OBJECTIVE_FLOOR_EPS">OBJECTIVE_FLOOR_EPS</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 678.</p><pre><code>OBJECTIVE_FLOOR_EPS: int = 64</code></pre></section><section class="api-symbol"><h2 id="RESOLUTION_EPS">RESOLUTION_EPS</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 688.</p><pre><code>RESOLUTION_EPS: float = 4.0</code></pre></section><section class="api-symbol"><h2 id="SOLVE_TOL_STEP">SOLVE_TOL_STEP</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 695.</p><pre><code>SOLVE_TOL_STEP: float = 0.01</code></pre></section><section class="api-symbol"><h2 id="SOLVE_TOL_FLOOR">SOLVE_TOL_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 696.</p><pre><code>SOLVE_TOL_FLOOR: dict[int, float] = {4: 2.4e-07, 8: 1e-12}</code></pre></section><section class="api-symbol"><h2 id="settled">settled</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 699.</p><pre><code>settled(trace: list[float], tol: float) -&gt; bool</code></pre><pre class="docstring">Whether the last :data:`SETTLED_CHANGES` changes of ``trace`` are within ``tol``.
+
+``trace`` holds the objective after each iteration. Each change is
+measured in both directions, ``|f[k] - f[k-1]|``, against ``tol *
+max(|f[k]|, 1)``, so a rise larger than that is never settled; and two
+changes rather than one, so an iteration that happens to land at the same
+value from the other side of a minimum is not read as a fixed point.</pre></section><section class="api-symbol"><h2 id="effective_tol">effective_tol</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 716.</p><pre><code>effective_tol(tol: float, objective: jax.Array) -&gt; float</code></pre><pre class="docstring">``max(tol, OBJECTIVE_FLOOR_EPS * eps)`` for the objective&#x27;s dtype.</pre></section><section class="api-symbol"><h2 id="solve_tol_floor">solve_tol_floor</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 722.</p><pre><code>solve_tol_floor(objective: jax.Array) -&gt; float</code></pre><pre class="docstring">How far an inner solve&#x27;s tolerance may be tightened, by precision.
+
+:data:`SOLVE_TOL_FLOOR` for the precisions it names, and two machine
+epsilons for any other -- a table lookup would raise on those, and a run
+should not fail because its dtype is unusual.</pre></section><section class="api-symbol"><h2 id="change_program">change_program</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 733.</p><pre><code>change_program(resolution_eps: float=RESOLUTION_EPS) -&gt; Callable</code></pre><pre class="docstring">``(terms0, scales0, terms1, scales1) -&gt; (decrease, resolution)``, jitted.
+
+The change of an objective given as per-element TERMS, summed term by
+term, and the rounding that change carries: ``resolution_eps * eps *
+sqrt(sum (scale0 + scale1)**2)``, each term&#x27;s two evaluations added as
+independent errors.
+
+Term by term because the difference of two totals is resolved only to
+``eps |f|``, and ``|f|`` carries every constant the change does not:
+near convergence the two evaluations of one term are within a factor of
+two of each other, so their difference is exact in the working dtype
+(Sterbenz), and the sum of small differences carries almost none of the
+total&#x27;s rounding.</pre></section><section class="api-symbol"><h2 id="GapState">GapState</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 760.</p><pre><code>class GapState
+contraction: float | None = None
+moved: bool = False
+decrease: float | None = None
+resolution: float | None = None</code></pre><pre class="docstring">What :func:`gap_step` carries from one iteration to the next.
+
+Attributes:
+    contraction: the last contraction estimated from a decrease the
+        arithmetic resolved, or ``None`` when there is none (none yet, or
+        a rise since).
+    moved: whether any decrease so far exceeded its resolution.
+    decrease, resolution: the previous iteration&#x27;s decrease and its
+        resolution.</pre></section><section class="api-symbol"><h2 id="gap_step">gap_step</h2><p class="source-note">Defined in <code>bayesmith.optimize.certify</code>, line 778.</p><pre><code>gap_step(state: GapState, decrease: float, resolution: float, tol: float) -&gt; tuple[GapState, bool, float | None, float | None]</code></pre><pre class="docstring">One iteration of the gap PRE-SCREEN: ``(state, passed, gap, rho)``.
+
+``decrease`` is ``D[k] = f[k-1] - f[k]`` and ``resolution`` bounds its
+rounding. The contraction is ``max(D[k], 0) / D[k-1]``, clipped to 1,
+re-estimated whenever ``D[k-1]`` exceeds its resolution (the last
+estimate is kept otherwise, and a run that never moved beyond the
+resolution uses 0); the gap is ``(max(D[k], 0) + resolution) / (1 - rho)``,
+the decrease plus its geometric tail, and the iteration passes when that
+is at most ``tol``. A rise the arithmetic resolves passes nothing and
+forgets the contraction: an exact conditional minimisation cannot raise
+the objective.
+
+This is a screen and not a certificate. The ratio reads the FASTEST mode
+still moving, so a slow mode with a gap left under a fast one&#x27;s decreases
+passes it -- measured at 0.5 to 1.0 curvature standard deviations on two
+correlated pairs, and at 1.33 over random dense precisions. What
+certifies is :func:`decrement`, which an outer loop computes on an
+iteration that passes this screen, so that it pays one solve per
+candidate stop and not one per iteration.</pre></section></article><footer><p>Version 0.10.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#RTOL">RTOL</a><a href="#MAXITER">MAXITER</a><a href="#DENSE_MAX">DENSE_MAX</a><a href="#BATCH">BATCH</a><a href="#PROBE_STEPS">PROBE_STEPS</a><a href="#PROVEN_FLOORS">PROVEN_FLOORS</a><a href="#STATUS_SAID">STATUS_SAID</a><a href="#Decrement">Decrement</a><a href="#real_size">real_size</a><a href="#decrement_program">decrement_program</a><a href="#decrement">decrement</a><a href="#POLISH_ITERATIONS">POLISH_ITERATIONS</a><a href="#POLISH_CG_MAXITER">POLISH_CG_MAXITER</a><a href="#POLISH_CG_TOL">POLISH_CG_TOL</a><a href="#ARMIJO">ARMIJO</a><a href="#ARMIJO_HALVINGS">ARMIJO_HALVINGS</a><a href="#polish">polish</a><a href="#SETTLED_CHANGES">SETTLED_CHANGES</a><a href="#OBJECTIVE_FLOOR_EPS">OBJECTIVE_FLOOR_EPS</a><a href="#RESOLUTION_EPS">RESOLUTION_EPS</a><a href="#SOLVE_TOL_STEP">SOLVE_TOL_STEP</a><a href="#SOLVE_TOL_FLOOR">SOLVE_TOL_FLOOR</a><a href="#settled">settled</a><a href="#effective_tol">effective_tol</a><a href="#solve_tol_floor">solve_tol_floor</a><a href="#change_program">change_program</a><a href="#GapState">GapState</a><a href="#gap_step">gap_step</a></aside></div>
+<dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
+</body></html>

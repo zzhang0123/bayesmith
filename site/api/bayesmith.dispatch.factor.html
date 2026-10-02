@@ -4,9 +4,9 @@
 <meta name="description" content="bayesmith.dispatch.factor"><title>bayesmith.dispatch.factor · bayesmith</title>
 <link rel="stylesheet" href="../assets/vendor/katex/katex.min.css"><link rel="stylesheet" href="../assets/docs.css"><script defer src="../assets/vendor/katex/katex.min.js"></script><script defer src="../assets/search-index.js"></script><script defer src="../assets/docs.js"></script></head>
 <body><a class="skip-link" href="#main">Skip to content</a>
-<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.9.0 source</span>
+<header class="topbar"><a class="brand" href="../index.html">bayesmith<span>Documentation</span></a><span class="version">0.10.0 source</span>
 <div class="header-actions"><button id="menu-toggle" aria-controls="sidebar" aria-expanded="false">Menu</button><button id="search-toggle" aria-haspopup="dialog">Search <kbd>/</kbd></button><button id="theme-toggle" aria-label="Switch color theme">Theme</button></div></header>
-<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a><a href="../quickstart.html">First model</a></section><section><h2>Worked examples</h2><a href="../nonlinear.html">Partial structure</a><a href="../notebook.html">Hierarchical notebook</a><a href="../reweighting.html">Near-Gaussian targets</a><a href="../predictive.html">Prediction and simulation</a><a href="../tasks.html">Five questions</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
+<div class="layout"><nav class="sidebar" id="sidebar" aria-label="Documentation"><section><h2>Start</h2><a href="../index.html">Overview</a><a href="../installation.html">Installation</a></section><section><h2>Tutorials and examples</h2><a href="../quickstart.html">01 · First posterior</a><a href="../nonlinear.html">02 · Partial structure</a><a href="../notebook.html">03 · Hierarchical notebook</a><a href="../reweighting.html">04 · Near-Gaussian targets</a><a href="../tasks.html">05 · Five questions</a><a href="../predictive.html">06 · Prediction and simulation</a></section><section><h2>Concepts</h2><a href="../concepts.html">Core concepts</a><a href="../modeling.html">Graph and hierarchy</a><a href="../inference.html">Inference routes</a><a href="../policies.html">Sampling policies</a><a href="../artifacts.html">Results and provenance</a><a href="../diagnostics.html">Diagnostics</a><a href="../evidence.html">Evidence</a><a href="../experimental.html">Experimental primitives</a></section><section><h2>Design</h2><a href="../architecture.html">Architecture</a><a href="../principles.html">Principles and verification</a><a href="../extensions.html">Extensions</a></section><section><h2>Reference</h2><a href="../reference.html">API reference</a></section><section><h2>Project</h2><a href="../project.html">Release status</a><a href="../contributing.html">Contributing</a><a href="../records.html">Research records</a></section></nav>
 <main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.factor</span></nav>
 <article><h1>bayesmith.dispatch.factor</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Factor partition: as many exact blocks as the model has factors.
 
@@ -196,6 +196,37 @@ on a mixed plan the history can dip where a gradient block overshoots;
 monotonicity is a property of the all-exact case only, and is asserted
 there.
 
+That first sentence is about THIS function and stopped being true of
+:func:`~bayesmith.optimize.fit` in 0.10.0, which certifies on request.
+The certificate is not passed through here, and the reason is not
+oversight: a decrement measures the distance to the minimum of the
+objective it is handed, so one taken inside a block&#x27;s own call would
+certify that BLOCK&#x27;s conditional minimum given the rest, not the sweep&#x27;s.
+A verdict about the joint needs a decrement over every latent at the end
+of the sweep, which this function does not take.
+
+**A caller can take it, though, and that is measured rather than
+asserted.** :attr:`SweepEstimate.values` is every latent, so the joint
+objective is in hand and
+:func:`~bayesmith.optimize.certify.decrement_program` accepts it
+directly::
+
+    objective = lambda v: -log_joint(graph, v)
+    program = certify.decrement_program(objective, swept.values, limit=0.1)
+    measured = certify.decrement(None, swept.values, program=program)
+    measured.certifies(0.1)
+
+On ``two_linear_latents`` over a two-block plan that returns a proven
+certificate at distance 3.2e-15, and
+``tests/test_optimize_certificate.py::TestCertifyingASweepByHand`` pins it
+so the paragraph cannot go stale. What is unmade is therefore narrower
+than it first looks: not whether a sweep CAN be certified -- it can, today,
+through the public API -- but whether this function should do it for the
+caller, spend the solve on every call, and own the resulting verdict. The
+downstream consumer builds exactly this construction around its own
+sweeps rather than asking for it here, which is evidence that the seam is
+in a usable place and not that it is missing.
+
 Args:
     graph: the model.
     plan: from :func:`factor_partition` or :func:`declared_partition`.
@@ -296,7 +327,7 @@ Raises:
         exact latents, including when a cached plan came from another
         graph state.
     StructureError: if ``on_sweep`` is given for a plan with a NUTS
-        remainder.</pre></section></article><footer><p>Version 0.9.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+        remainder.</pre></section></article><footer><p>Version 0.10.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
 <aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#FACTOR_METHODS">FACTOR_METHODS</a><a href="#FactorPlan">FactorPlan</a><a href="#SweepEstimate">SweepEstimate</a><a href="#SweepReport">SweepReport</a><a href="#declared_partition">declared_partition</a><a href="#estimate_factors">estimate_factors</a><a href="#factor_partition">factor_partition</a><a href="#first_fit">first_fit</a><a href="#sample_factors">sample_factors</a></aside></div>
 <dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
 </body></html>

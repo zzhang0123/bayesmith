@@ -1036,9 +1036,9 @@ class ConditionalPriorRange:
     adversarial review found ``degenerate == ()`` carrying two meanings --
     "swept, and every cell was a density" and "never swept at all" -- with
     nothing downstream able to tell them apart. A refusal built on the first
-    meaning then asserted a coverage the second did not have. That is the
-    failure family ``CLAUDE.md`` opens with, reproduced inside a guard written
-    to enforce it.
+    meaning then asserted a coverage the second did not have. That is a result
+    that cannot tell "absent" from "never checked", reproduced inside a guard
+    written to prevent it.
 
     So ``unresolved`` is a separate field from ``degenerate``, and
     :meth:`covers` is the question most callers actually have.

@@ -163,3 +163,33 @@ The radiometer frozen-noise fixed point is still compared under an explicitly
 uncertified fixed budget. A separate test requires the normal certified route
 to refuse it: unchanged iterates do not imply a stationary full joint density.
 The positive certificate oracle remains in `tests/test_certify.py`.
+
+
+### Local rheplicant module splits (2026-09-21)
+
+The local rheplicant 0.9 wheel built at `624b396` moves `Block` to
+`plan_results`, four linear solver/conditioning entry points to `linear_solve`,
+and the estimate body to `plan_estimate.run_estimate`. Public imports remain
+facades. The provenance table now names those definitions and uses an explicit
+legacy map only when the corresponding split module is absent. A missing
+symbol or lost delegation in an existing split module remains a failure.
+This supports the pre-split and local split layouts without changing CI's
+rheplicant installation source or claiming the split has been published.
+
+`run_estimate` directly reads certificate size utilities; that alone does not
+prove that it uses the shared certificate arithmetic. A separate provenance
+row follows `plan_settings._certify` (formerly `plan._certify`), and a runtime
+sentinel at `bayesmith.optimize.certify.decrement` must be reached from the
+public `SamplingPlan.estimate` exit. Export-identity and forwarding checks keep
+the guarded definitions connected to the public calls.
+
+The downstream stability table's `_zeta_joint` citation to
+`tests/crosscheck/test_provenance.py` is incorrect: that file does not compare
+joint covariances. `tests/marginal/test_chain_joint_covariance.py` validates
+bayesmith's assembly against its own independent mathematical oracle.
+rheplicant has its own full-covariance oracle tests in
+`tests/evidence/test_chain_smoother.py`, including
+`test_the_whole_covariance_matches_including_the_cross_epoch_blocks` and
+`test_a_wide_chains_whole_covariance_matches_too`. These are separate oracle
+checks, not a cross-package equality test; the downstream table should say so.
+The downstream repository was inspected but not modified here.
