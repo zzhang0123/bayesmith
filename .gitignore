@@ -56,3 +56,26 @@ scratchpad/
 
 # Local agent handoffs and installation backups
 /.agent-state/
+
+# Agent tooling and per-session files: locally installed skills, agent
+# worktrees and settings, browser-automation logs, and planning notes written
+# for one session. Leading slashes anchor these to the repository root.
+/.agents/
+/.claude/
+/.playwright-mcp/
+/task_plan.md
+/progress.md
+/findings.md
+/TODO.md
+
+# TRIS research outputs under examples: 13 MB of JSON and figures, kept local.
+# The two published background tables are tracked inputs:
+# tests/test_tris_rsb_external.py reads v2 through tris_rsb_external.py.
+/examples/inference/data/*
+!/examples/inference/data/tris_rsb_background_v1.json
+!/examples/inference/data/tris_rsb_background_v2.json
+
+# Dated run reports of the TRIS campaign, kept local with the outputs above.
+/examples/inference/PHYSICAL_*.md
+/examples/inference/RSB_*.md
+/examples/inference/*_CONTRACT_*.md
