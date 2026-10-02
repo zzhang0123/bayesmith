@@ -20,10 +20,13 @@ jobs:
         python: ["3.11", "3.12"]
     env:
       PYTHON_VERSION: ${{ matrix.python }}
-      VERIFY_ROOT: ${{ runner.temp }}/bayesmith-sdist
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      # The `runner` context does not exist at job level, so the path is set
+      # from the runner's own variable in a step and exported to later steps.
+      - name: Choose the verification root
+        run: echo "VERIFY_ROOT=$RUNNER_TEMP/bayesmith-sdist" >> "$GITHUB_ENV"
       - name: Build and inspect both distributions
         run: |
           uv venv --python "$PYTHON_VERSION" .release-env
