@@ -41,10 +41,9 @@ INDEX = DOCS / "README.md"
 
 #: Directories under `docs/` this guard does not govern.
 #:
-#: `migration/` has its own index and its own bidirectional test
-#: (`tests/test_migration_records.py`); giving it a second regime would be the
-#: duplication this file exists to prevent. `probes/` and `derivations/` hold
-#: executable artefacts rather than pages.
+#: `migration/` has its own index and is a closed record. `probes/` and
+#: `derivations/` hold executable artefacts rather than pages. `superpowers/`
+#: is a local directory that is not part of the repository.
 _EXEMPT_DIRS = ("migration", "probes", "derivations", "superpowers")
 
 #: The pinned status line. One per page, in the first few lines, rendered as a

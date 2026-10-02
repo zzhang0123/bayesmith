@@ -856,10 +856,10 @@ def test_the_fixed_point_is_the_unbiased_estimator_not_the_gls_biased_one(kappa)
     first draft asked for the opposite: that this frozen-sigma path differ
     from a live-sigma path by ``(1 + f^2)``. It does not, and a test written
     to that specification would have been satisfied only by pulling a correct
-    estimator onto the biased side. ``tests/crosscheck/test_noise_logdet.py``
-    carries the other half -- that rheplicant's log-det-dropped likelihood
-    really is ``(1 + f^2)`` high -- so the divergence between the two packages
-    is recorded on both sides rather than in neither.
+    estimator onto the biased side. The other half -- that rheplicant's
+    log-det-dropped likelihood really is ``(1 + f^2)`` high -- is a statement
+    about rheplicant and belongs to its suite, where the comparison against
+    this package is made.
     """
     with jax.enable_x64(True):
         graph = radiometer(kappa=kappa, floor=FLOOR)

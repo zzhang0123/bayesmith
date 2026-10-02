@@ -155,15 +155,14 @@ that were only ever in `src/`.
 `rm -rf __pycache__` between the mutation and the restore stays required
 either way.
 
-## The test subject moves when the sibling checkout does
+## rheplicant is downstream, and this suite does not import it
 
-The cross-checks under `tests/crosscheck/` import `rheplicant` from an
-**editable install**, so they test whatever rheplicant currently has checked out.
-Switching branches over there silently changes what passes here. Re-run this
-suite after any rheplicant checkout change, and before pushing either repo.
-
-The importable module of the second editable install is **`rhino_cal_jax`**,
-not `rhino_cal`; checking the wrong name reads exactly like "never installed".
+Until 2026-10-02 `tests/crosscheck/` compared this package with rheplicant
+through an editable install of the sibling checkout, and two workflows ran
+against rheplicant's main. They were removed: an upstream suite that needs
+its downstream cannot be green on its own, and it was red whenever
+rheplicant's main lagged. The comparisons are rheplicant's to carry. Their
+last revision here is commit `d861220`.
 
 ## Linting
 

@@ -226,16 +226,16 @@ log-space seams import `dispatch.factor.first_fit` and `exact.loglinear`; its
 adapter presents a pipeline as a `Graph`, reads `AffinityRefused`'s payload and
 declares complex latents with `ComplexNormal`; and its diagnostics delegate to
 `diagnose.identifiability`, `diagnose.sensitivity` and `diagnose.local`. It pins
-`bayesmith>=0.5`. The consumer contract is guarded by running rheplicant's own
-inference and seam suites against the candidate bayesmith checkout, not by a
-hard-coded count of importing modules.
+`bayesmith>=0.5`. The consumer contract is checked downstream, by rheplicant's
+own inference and seam suites run against the bayesmith it installs; this
+repository's suite does not import rheplicant.
 
 The 0.9 baseline is pre-1.0: existing supported interfaces and architecture
 boundaries are maintained under the [stability policy](docs/stability.md).
 Correctness repairs may reject previously accepted inputs that produced a wrong
 answer; such changes require release notes and consumer regression checks.
 
-Implemented and tested, 7,224 tests: the graph core with plates and joint
+Implemented and tested, 7,101 tests: the graph core with plates and joint
 log-density, with flagged samples declared per node and honoured by every
 route; the NumPyro bridge, so any graph is runnable through NUTS;
 structural dispatch with the linear-Gaussian exact solves; the FACTOR

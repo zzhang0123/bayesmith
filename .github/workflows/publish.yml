@@ -106,8 +106,6 @@ jobs:
           interpreter="$PWD/.testenv/bin/python"
           cd "/tmp/bayesmith-release-sdist/bayesmith-$version"
           "$interpreter" -m pytest -n 4 -m 'not full'
-        # tests/crosscheck skips without a rheplicant checkout. That is
-        # expected here, and those tests say so in their own skip reasons.
 
       - uses: actions/upload-artifact@v4
         with:

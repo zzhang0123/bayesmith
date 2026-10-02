@@ -1,5 +1,12 @@
 # Cross-check records — and what §六 is still waiting for
 
+> **2026-10-02.** This directory is a record. The cross-check tests these
+> pages cite (`tests/crosscheck/`) and the test that held this index to them
+> (`tests/test_migration_records.py`) were removed from this repository:
+> rheplicant is the downstream, and comparing the two implementations is its
+> suite's job. Their last revision here is commit `d861220`. The text below
+> describes the arrangement as it stood until then.
+
 Migration spec §二 requires one page per module and gates **all** of §六
 (rheplicant's wind-down) on step 6: *"全部通过后，才动 rheplicant 侧对应模
 块"*. This directory is where those pages live. It did not exist until

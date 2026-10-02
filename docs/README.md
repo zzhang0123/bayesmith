@@ -13,8 +13,7 @@
 | `record` | 已落地批次/审计/测量的历史记录，非当前权威 |
 | `superseded` | 已被指名的后继文档取代 |
 
-另外三处有自己的规矩，不在本索引内：`docs/migration/`（自带 README 与
-`tests/test_migration_records.py`）、`docs/probes/` 与 `docs/derivations/`（可执行探针
+另外三处有自己的规矩，不在本索引内：`docs/migration/`（自带 README，历史记录）、`docs/probes/` 与 `docs/derivations/`（可执行探针
 与推导，不是文档页）。`docs/superpowers/` 是本地目录，不随仓库发布，也不在本索引内。
 
 ## 先读这三份

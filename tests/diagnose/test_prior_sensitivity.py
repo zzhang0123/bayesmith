@@ -2,7 +2,7 @@
 
 Ported from rheplicant's ``tests/inference/test_prior_sensitivity.py``; the
 cross-check against rheplicant's own implementation on the shared tour
-fixture lives in ``tests/crosscheck/``, and this file carries the
+fixture belongs to rheplicant's suite, and this file carries the
 package-native properties: the two routes verify each other, the closed
 form's matrix is the LIKELIHOOD's and not the posterior's, the
 counterfactual ladder collapses onto the reported shift at the declared

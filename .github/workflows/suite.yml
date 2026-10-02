@@ -231,7 +231,7 @@ jobs:
           print(f"collected={tests} passed={passed} skipped={skipped} "
                 f"failed={failures} errors={errors}")
           # A suite that stood itself down exits 0 and looks identical to one
-          # that passed. crosscheck.yml learned this; the floor is the half
+          # that passed. The floor is the half
           # that tells them apart. 2500 is under the fast layer's own count,
           # which was 2826 at R3 and 3249 at R4 -- the floor is deliberately
           # well below either, because it exists to catch a collection that

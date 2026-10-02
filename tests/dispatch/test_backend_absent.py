@@ -704,9 +704,9 @@ def test_the_extras_table_is_exactly_what_pyproject_declares():
     **What it excludes.** The four ``[project].dependencies`` -- jax, equinox,
     numpy, numpyro -- are hard requirements; the pyproject comment says numpyro
     is "the last row of the dispatch table, not an optional extra".
-    ``[dependency-groups]`` (``dev``, ``crosscheck``) are a different table:
-    they never reach a wheel and ``pip install bayesmith[...]`` cannot ask for
-    them.
+    ``[dependency-groups]`` (``dev``) is a different table:
+    it never reaches a wheel and ``pip install bayesmith[...]`` cannot ask for
+    it.
 
     **Compared as an ordered sequence, not as a set.** A review added a
     duplicate row to the table and the set comparison passed, so the docstring's

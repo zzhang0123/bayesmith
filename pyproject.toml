@@ -121,7 +121,7 @@ dev = [
     # of these need `>=3.12`, so an unmarked pin makes the project's
     # requirements unsatisfiable on 3.11 -- measured: it left the suite jobs
     # green, because `uv pip install` resolves for the active interpreter only,
-    # and turned crosscheck.yml red, because `uv run` resolves across the whole
+    # and turned a `uv run` job red, because `uv run` resolves across the whole
     # declared range. On 3.11 the dev group therefore carries no arviz at all
     # and the `requires_arviz` tests skip, which is the honest outcome: the
     # newest arviz supporting 3.11 is 0.23.4, a different major line whose
@@ -129,44 +129,11 @@ dev = [
     "arviz==1.3.0; python_version >= '3.12'",
     "arviz-stats==1.3.2; python_version >= '3.12'",
 ]
-# The cross-check harness, and the only place rheplicant is ever named. It is a
-# LOCAL PATH dependency, it is not in the wheel, and it is not in `dev` -- so a
-# clone that has no rheplicant checkout installs and tests normally, with the
-# cross-checks skipping and saying why.
-#
-# Install it WITHOUT its dependencies:
-#
-#     uv pip install --python .venv/bin/python --no-deps -e ../rheplicant
-#
-# Measured, and the reason `--no-deps` is not a shortcut: rheplicant's declared
-# dependencies include limTOD, which drags roughly seventy-eight transitive
-# packages in and would resolve jax/numpy against a second set of constraints.
-# `rheplicant`, `rheplicant.inference` and even `rheplicant.config` all import
-# with limTOD and PyYAML absent -- the sky engines import limTOD lazily -- so
-# the layer these cross-checks compare needs only jax, equinox and numpy, all
-# of which this venv already has. Measured before and after: 26 packages became
-# 27, and this suite went 637 passed -> 637 passed.
-#
-# The path is written relative to nothing here on purpose: it differs per
-# machine, so it is an install-time argument rather than a pinned string.
-#
-# The P5 sensitivity cross-check additionally needs rheplicant's tour twin,
-# which imports rhino-cal-jax -- another local editable, same recipe, plus
-# `editables` (its editable hook's runtime, which uv does not install with
-# --no-deps; measured: the .pth hook fails on import without it and the
-# package silently is not on the path):
-#
-#     uv pip install --python .venv/bin/python --no-deps -e ../rhino-cal
-#     uv pip install --python .venv/bin/python editables
-#
-# Without it that one fixture skips loudly and says so; the identifiability
-# and Jeffreys cross-checks need only rheplicant.
-crosscheck = []
 
 [tool.hatch.build.targets.sdist]
-# Rebuildable source plus the portable package suite. Repository governance,
-# research campaigns and cross-repository integration are tested in the checkout,
-# not shipped without their inputs. CI runs the extracted sdist's actual suite.
+# Rebuildable source plus the portable package suite. Repository governance
+# and research campaigns are tested in the checkout, not shipped without
+# their inputs. CI runs the extracted sdist's actual suite.
 # Leading slashes anchor top-level files: "README.md" alone includes every
 # nested README, including indexes whose linked documents are not distributed.
 include = [
@@ -193,11 +160,9 @@ exclude = [
     "/tests/test_example_serialization.py",
     "/tests/test_distribution_contract.py",
     "/tests/test_ownership.py",
-    "/tests/test_migration_records.py",
     "/tests/test_pytest_gate.py",
     "/tests/test_readme_count.py",
     "/tests/evaluation/test_probe28_pins.py",
-    "/tests/crosscheck",
     # Executable research/tutorial integration remains in repository CI.
     "/tests/test_examples.py",
     "/tests/test_campbell_*.py",
@@ -220,7 +185,6 @@ markers = [
     "full: heavy numerical-gate boundary and mutation grids; run in the nightly layer, excluded from the fast layer",
     "slow: tests that take more than a few seconds",
     "x64: requires JAX_ENABLE_X64=1 (run as a separate session)",
-    "crosscheck: compares this package against rheplicant, which must be installed",
 ]
 
 [tool.ruff]

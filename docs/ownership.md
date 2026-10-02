@@ -165,6 +165,17 @@ to refuse it: unchanged iterates do not imply a stationary full joint density.
 The positive certificate oracle remains in `tests/test_certify.py`.
 
 
+### Cross-checks moved downstream (2026-10-02)
+
+`tests/crosscheck/`, including the provenance table the two sections around
+this one describe, was removed from this repository together with the
+`crosscheck.yml` and `seam.yml` workflows. rheplicant is the downstream; a
+suite here that imports it cannot pass on its own, and its CI could not go
+green until rheplicant's main moved. The comparisons and the delegation guard
+are for rheplicant's suite to carry. Their last revision here is commit
+`d861220`. The two sections that follow and precede are kept as the record of
+what those tests established.
+
 ### Local rheplicant module splits (2026-09-21)
 
 The local rheplicant 0.9 wheel built at `624b396` moves `Block` to
