@@ -251,7 +251,7 @@
     "reweighting.html",
     "tasks.html"
   ],
-  "source_digest": "a6f9a9fc3b6255b571587fac34fa1c6749a10f4291188c5cb0b8a96289f0295c",
+  "source_digest": "ade82c7ac383392613c37ff51e13e0acbfb4953a9ee98b202fb8dac249dd0a4f",
   "symbols": {
     "bayesmith.AffinityRefused": {
       "owner": "bayesmith.errors",

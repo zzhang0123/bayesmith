@@ -35,6 +35,8 @@ from __future__ import annotations
 import pathlib
 import re
 
+import pytest
+
 DOCS = pathlib.Path(__file__).resolve().parents[1] / "docs"
 MIGRATION = DOCS / "migration"
 SPEC = DOCS / "superpowers" / "specs" / "2026-08-24-rheplicant-migration.md"
@@ -190,6 +192,11 @@ def _spec_module_names() -> set[str]:
     Parsed rather than listed: a row added to the spec must show up here
     without this test being edited.
     """
+    if not SPEC.is_file():
+        pytest.skip(
+            "THIS IS NOT A PASS: the migration spec is a local document, absent "
+            "from this checkout, so its §四 ledger cannot be parsed"
+        )
     text = SPEC.read_text(encoding="utf-8")
     start = text.index("## 四、迁移台账")
     end = text.index("## 五、新能力")

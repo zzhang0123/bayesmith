@@ -27,9 +27,7 @@ htmlcov/
 # named for keeping it. One document, two names, one test.
 
 # Session handover notes: written for one execution session, addressed to the
-# next reader, true only while that session is open. The design record that
-# outlives them is the plan under docs/superpowers/plans/, which IS committed
-# and carries a 文档状态 like every other page.
+# next reader, true only while that session is open.
 _*handoff*.md
 _*HANDOFF*.md
 
@@ -74,6 +72,11 @@ scratchpad/
 /examples/inference/data/*
 !/examples/inference/data/tris_rsb_background_v1.json
 !/examples/inference/data/tris_rsb_background_v2.json
+
+# Plans, specifications and records of past work sessions, kept local. The
+# design and the block-methodology guide moved out of this directory to
+# docs/design.md and examples/inference/block_methodology_design.md.
+/docs/superpowers/
 
 # Dated run reports of the TRIS campaign, kept local with the outputs above.
 /examples/inference/PHYSICAL_*.md

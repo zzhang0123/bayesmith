@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "docs/superpowers/specs/2026-09-08-block-methodology-design.md"
+SOURCE = ROOT / "examples/inference/block_methodology_design.md"
 ASSETS = Path(__file__).parent
 
 

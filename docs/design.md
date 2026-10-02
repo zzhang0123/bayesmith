@@ -1321,9 +1321,9 @@ bayesmith 达到“通用 Bayesian workflow 工具”的成熟状态，不以支
 
 1. bayesmith 采用 **compiler-first** 的长期定位。
 2. 它的通用性来自完整 Bayesian workflow，而不是复制整个 PPL 生态。
-3. 当前 posterior 与结构化 exact inference 是基础优势；下一块最重要的缺口是通用 model checking。
+3. posterior、结构化 exact inference 与 R3 model checking 已构成当前基础；残余 evidence 的公开执行和完整 workflow 仍是后续缺口。
 4. Evidence 应建设为独立、task-aware 的产品能力。
-5. Nested sampling 应接入现成工具但不进入核心依赖；BlackJAX NS 与 JAXNS 先通过同一 oracle-driven evaluation，再选择至少一个 production adapter。
+5. Nested sampling 接入现成工具但不进入核心依赖。R5 的比较已选择 JAXNS 并实现低层 adapter；残余 EvidenceTask 的公开执行、稳定性和截断契约仍待验收。BlackJAX extra 为 0.x 安装兼容保留，不能据此声称存在可用后端。
 6. bayesmith 的独特 evidence 优势应是先精确消元，再对 residual problem 做 nested sampling。
 7. first-party linear-Gaussian sampler、GLS、sqrt-information 和范围有限的 exact routes 继续由 bayesmith 拥有；使用上游低层 kernel 不改变其统计所有权。
 8. 成熟上游优先承担通用 sampler、optimizer、diagnostic、distribution 和 amortized estimator 算法；替换必须通过 generality、效率、维护和 oracle 门槛。
@@ -1333,3 +1333,26 @@ bayesmith 达到“通用 Bayesian workflow 工具”的成熟状态，不以支
 12. agent 是未来外部控制策略；typed artifact、gate 和 Action protocol 才是核心。
 13. 先完成 posterior predictive、SBC、LOO/WAIC 和 evidence contracts，再建设完整 agent loop。
 14. 以后所有阶段性计划以本文为北极星，并用客观 gate 而不是日期或功能数量定义完成。
+
+## 15. T-002 / 0.9 的结构定型
+
+2026-09-19，用户确认以 0.9.0 为稳定基线。此处冻结模块责任和依赖方向，
+不把仍缺少科学或集成验收的路线宣告完成，也不替代 R8 的 1.0 门槛。
+
+1. `graph` 与分布声明承载模型与密度；`exact`、`marginal`、`diagnose`
+   承载各自的结构、算术和前提判决。共享 prior anchor 归 `exact._environment`，
+   下层不得为了获取它反向导入 `dispatch`。旧公共路径保持同对象重导出。
+2. `dispatch` 负责分析、编排与 runtime→artifact 投影；身份与 fingerprint
+   实现可置于内部模块，但 `dispatch.task` 保留原入口。精确性和阈值判决不迁入
+   编排器。`PRODUCER` 仍只有一个对象。
+3. `compiled` 是编译问题的独立叶子契约；backend adapter 只消费编译问题并返回
+   数值执行事实。由 dispatch 装配 Result、来源与执行记录，不让 backend 类型进入
+   通用 artifact schema。
+4. `artifacts` 保持无数值栈的数据协议；`evaluation` 消费完成的 Result，不重选
+   算法、不覆盖 owning check 的判决。研究实例只消费公共能力，不成为核心依赖。
+5. 每个实际分发模块必须在 `docs/ownership.md` 有归属，由测试校验覆盖。
+   公共、实验、兼容与尚未接通路线的边界见 `docs/stability.md`；网站是这些契约的
+   用户视图，不另立一份设计权威。
+
+结构后续可以在这些边界内演进。改变所有权、公共语义、schema 或依赖方向时，
+必须同时修改本设计、decision home、迁移说明与守卫；文件搬迁本身不构成重新设计。

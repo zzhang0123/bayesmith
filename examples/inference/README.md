@@ -413,7 +413,7 @@ kept in the repository.
 
 ## Automatic blocking: strategy, reasons and results
 
-The [block-methodology design](../../docs/superpowers/specs/2026-09-08-block-methodology-design.md)
+The [block-methodology design](block_methodology_design.md)
 explains the implemented explicit iterative-GLS, bias-corrected log-linear and
 Gauss–Newton proposal builders, their statistical targets, and the remaining
 automatic-selection work. The saved demo plans below report what actually ran.

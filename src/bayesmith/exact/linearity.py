@@ -62,7 +62,7 @@ DEFAULT_AT_POINTS: int = 3
 #: through moves no residual by as much as a thousandth of a noise width.
 #:
 #: Pinned by measurement over all 48 fixture rows at both dtypes
-#: (``docs/superpowers/plans/2026-08-23-p3b-task1-verdicts.md``): every named
+#: (the P3b task-1 verdicts record): every named
 #: false claim sits at least 4.9e+07x above it, and the worst honest fixture
 #: 2.05e+04x below it in float64 -- in float32 every honest fixture's
 #: above-floor departure is exactly 0.0, so nothing bounds it from below

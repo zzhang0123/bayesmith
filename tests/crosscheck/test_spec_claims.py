@@ -59,8 +59,11 @@ B11_CLAIM = _squash("config 完全够不着的子系统（`campaign:` 保留并�
 
 @pytest.fixture(scope="module")
 def spec_text() -> str:
-    if not SPEC.exists():  # pragma: no cover - the spec is tracked
-        pytest.fail(f"the migration spec is missing at {SPEC}")
+    if not SPEC.exists():  # pragma: no cover - the spec is a local document
+        pytest.skip(
+            "THIS IS NOT A PASS: the migration spec is a local document, absent "
+            f"from this checkout ({SPEC.name})"
+        )
     # ALL whitespace removed, not collapsed to spaces: the spec wraps CJK
     # mid-sentence and a newline there is not a space, so collapsing would
     # insert one that the claim strings below do not have.

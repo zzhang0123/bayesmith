@@ -929,7 +929,7 @@ def residual_backend() -> Any | None:
 
     **R5 Task 6 does NOT flip this, and the flip was measured before it was
     declined.** The backend evaluation's answer is jaxns
-    (``docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md`` §9, both
+    (the R5 backend evaluation record, §9, both
     owner decisions ruled), and the adapter exists at
     ``bayesmith.bridge.jaxns_bridge``. What is missing is not the sampler.
 

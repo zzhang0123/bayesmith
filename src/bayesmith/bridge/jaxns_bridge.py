@@ -1,7 +1,7 @@
 """The JAXNS nested-sampling adapter: one module, consuming one compiled problem.
 
-R5 Task 6. The backend decision is
-``docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md``: jaxns passes
+R5 Task 6. The backend decision is recorded in the R5 backend
+evaluation: jaxns passes
 every condition that scores a candidate, blackjax fails condition 1 because it
 does not answer ``overflowing_outside_latent``, and §0.6's default drops the
 second backend.

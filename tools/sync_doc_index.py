@@ -26,7 +26,7 @@ INDEX = DOCS / "README.md"
 # Kept identical to tests/test_document_status.py on purpose: this script and
 # that test are the two halves of one convention, and the test is the one that
 # fails loudly if they drift.
-EXEMPT_DIRS = ("migration", "probes", "derivations")
+EXEMPT_DIRS = ("migration", "probes", "derivations", "superpowers")
 STATUS = re.compile(r"^> \*\*文档状态：`(?P<status>[a-z-]+)`\*\*", re.MULTILINE)
 H1 = re.compile(r"^# (.+)$", re.MULTILINE)
 
@@ -47,11 +47,11 @@ HEADER = """# bayesmith 文档索引
 
 另外三处有自己的规矩，不在本索引内：`docs/migration/`（自带 README 与
 `tests/test_migration_records.py`）、`docs/probes/` 与 `docs/derivations/`（可执行探针
-与推导，不是文档页）。
+与推导，不是文档页）。`docs/superpowers/` 是本地目录，不随仓库发布，也不在本索引内。
 
 ## 先读这三份
 
-1. `docs/superpowers/specs/2026-08-30-bayesmith-top-level-design.md` — 顶层设计，唯一 `normative`。
+1. `docs/design.md` — 顶层设计，唯一 `normative`。
 2. `CLAUDE.md`（= `AGENTS.md`，一份文件两个名字）— 本仓库的实测工作笔记：跑法、退出码语义、变异纪律。
 3. `docs/ownership.md` — 哪些实现由 bayesmith 拥有，哪些应归上游。
 

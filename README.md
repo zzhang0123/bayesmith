@@ -36,7 +36,7 @@ is what the compiler reads. The longer-term direction is a task-aware Bayesian
 workflow layer whose posterior, predictive, model-checking and evidence results
 share explicit provenance and quality gates; the approved boundary and roadmap
 live in the
-[top-level design](docs/superpowers/specs/2026-08-30-bayesmith-top-level-design.md).
+[top-level design](docs/design.md).
 The complete workflow-control layer remains a roadmap item.
 
 The [English documentation](site/index.html) opens with what the package does

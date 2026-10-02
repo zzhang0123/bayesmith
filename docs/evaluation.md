@@ -29,9 +29,9 @@ never through the package `__init__`, so a clone without it gets an
 checks that in a subprocess rather than trusting the sentence.
 
 The governing spec is the
-[top-level design](superpowers/specs/2026-08-30-bayesmith-top-level-design.md)
+[top-level design](design.md)
 §2.4, §3.3 and §8 R3; the execution plan is
-[the R3 plan](superpowers/plans/2026-09-02-r3-model-checking.md), whose §0
+the R3 plan, whose §0
 holds the rulings this page describes. The artifact protocol the reports live
 in is [`docs/artifacts.md`](artifacts.md).
 
@@ -434,7 +434,7 @@ fixture as much as by the replicate count.
 
 ### The amortized battery has a hole, and it is recorded rather than patched
 
-[The amortized calibration record](superpowers/specs/2026-09-04-amortized-calibration.md)
+The amortized calibration record
 prices what the local reference NPE's pins can and cannot catch. Two results
 belong on this page:
 

@@ -10,8 +10,8 @@
 <main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.bridge.jaxns_bridge</span></nav>
 <article><h1>bayesmith.bridge.jaxns_bridge</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><div class="warning"><p>Residual-evidence adapter. Public residual EvidenceTask execution is not enabled by this adapter or by installing its optional dependency. See <a href="../evidence.html#residual">the evidence boundary</a>.</p></div><details><summary>Module contract</summary><pre class="docstring">The JAXNS nested-sampling adapter: one module, consuming one compiled problem.
 
-R5 Task 6. The backend decision is
-``docs/superpowers/specs/2026-09-06-r5-backend-evaluation.md``: jaxns passes
+R5 Task 6. The backend decision is recorded in the R5 backend
+evaluation: jaxns passes
 every condition that scores a candidate, blackjax fails condition 1 because it
 does not answer ``overflowing_outside_latent``, and §0.6&#x27;s default drops the
 second backend.

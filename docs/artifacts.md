@@ -13,21 +13,21 @@ bridge is `bayesmith.dispatch.task`, reached from the package root through
 `compile_task` / `execute_task`.
 
 The governing spec is the
-[top-level design](superpowers/specs/2026-08-30-bayesmith-top-level-design.md)
+[top-level design](design.md)
 §2, §4 and §8 R1; the execution plan is
-[the R1 plan](superpowers/plans/2026-08-30-r1-task-artifact-provenance.md).
+the R1 plan.
 R2 moved exactly two things on this page: it made `PredictiveTask` executable,
 and it added one member to `ArtifactKind`. Its plan is
-[the R2 plan](superpowers/plans/2026-08-31-r2-predictive-seam.md), and what was
+the R2 plan, and what was
 accepted rather than merely planned is
-[the R2 close-out](superpowers/specs/2026-08-31-r2-close-out.md).
+the R2 close-out.
 
 R3 moved two more, and neither is a schema change: it made `SimulationTask`
 executable, and it began writing `EvaluationReport`s under seven new
 `report_kind` codes -- which cost no migration, because R1 froze that field as
 a code string rather than as an enum. The layer that writes them is
 [`docs/evaluation.md`](evaluation.md); its plan is
-[the R3 plan](superpowers/plans/2026-09-02-r3-model-checking.md).
+the R3 plan.
 
 ---
 
@@ -112,7 +112,7 @@ and R3 did not change that. What R3 did add is the calibration number, which is
 a different thing: the local `NeuralPosterior` has now been through the SBC
 harness's sampler arm and scored `PASS` at KS D = 0.0683, p = 0.1159, with 90%
 interval coverage 0.890 over 300 replicates
-([the record](superpowers/specs/2026-09-04-amortized-calibration.md)). A
+(the record). A
 measurement is not a route. And `AnalyticPosterior` is still reserved in the
 original sense: nothing under `src/` constructs one.
 

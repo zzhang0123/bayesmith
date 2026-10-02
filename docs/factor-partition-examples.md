@@ -15,7 +15,7 @@ at 1 s — which is what makes the log-space route live: see
 caveat.
 
 For the current capability inventory and proposed selectable GLS/log-linear
-options, read the [block-methodology design](superpowers/specs/2026-09-08-block-methodology-design.md).
+options, read the [block-methodology design](../examples/inference/block_methodology_design.md).
 In these examples, the sampler combines an approximate log-space update with
 original-space NUTS updates. The recorded partitions and numerical results do
 not establish that this combination preserves the original joint posterior,
