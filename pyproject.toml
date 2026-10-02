@@ -186,6 +186,11 @@ exclude = [
     "/tests/test_document_status.py",
     "/tests/test_document_contract.py",
     "/tests/test_documentation_site.py",
+    # These two read `site/` and run `tools/record_site_*.py`; neither ships.
+    "/tests/test_site_plans.py",
+    "/tests/test_site_results.py",
+    # Compares conftest's serial list with the example launchers excluded below.
+    "/tests/test_example_serialization.py",
     "/tests/test_distribution_contract.py",
     "/tests/test_ownership.py",
     "/tests/test_migration_records.py",
