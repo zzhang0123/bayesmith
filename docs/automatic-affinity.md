@@ -62,7 +62,10 @@ Examples:
 | `where(b >= 0, a, a**2)` | Not certified affine in `a` across complementary values |
 
 Unknown primitives, unsupported control flow and custom derivative semantics
-remain unknown. A failed sufficient proof does not establish nonlinearity;
+remain unknown where a block-dependent value reaches them; on inputs that are
+constant in the block they are functions of the symbolic complement and
+contribute degree 0, so an emulator on the sampled branch does not withhold
+the exact block's certificate. A failed sufficient proof does not establish nonlinearity;
 algebraic cancellation may simply exceed the analyzer. The interpreter examines
 primal operations, so custom JVP/VJP rules or `stop_gradient` cannot manufacture
 a proof. The final proposed group is certified as a whole.

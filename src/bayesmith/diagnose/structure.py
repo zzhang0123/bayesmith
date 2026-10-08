@@ -129,7 +129,12 @@ def _combined(states, *, degree=None, unsupported=()):
 
 
 def _walk(jaxpr, inputs, constants=None):
-    """Follow only the primal ancestors of outputs, including inside JIT."""
+    """Follow only the primal ancestors of outputs, including inside JIT.
+
+    A primitive outside the tables is refused only where a block-dependent
+    value reaches it; on a block-constant input it is a function of the
+    complement and contributes degree 0 (see the ``else`` branch).
+    """
     env = dict(zip(jaxpr.invars, inputs, strict=True))
     needed = {var for var in jaxpr.outvars if isinstance(var, core.Var)}
     live = []
@@ -216,7 +221,19 @@ def _walk(jaxpr, inputs, constants=None):
             elif primitive is lax.iota_p:
                 state = combined
             else:
-                state = _combined(states, unsupported=(primitive.name,))
+                # An unknown primitive whose inputs are all block-constant
+                # yields a block-constant output: the proof quantifies over
+                # the complement's values, so whatever the primitive computes
+                # from them is some function of the complement alone, of
+                # degree 0 in the block. Only a block-dependent input makes
+                # its primal or derivative semantics matter -- the same gate
+                # the stop_gradient branch applies. Measured before this gate
+                # (2026-10-08): an emulator's erf/custom_jvp_call/scan on the
+                # NUTS branch withheld the exact block's certificate on a
+                # prediction that is affine in that block by inspection.
+                state = _combined(
+                    states, unsupported=(primitive.name,) if combined.degree else ()
+                )
             outputs = [state] * len(equation.outvars)
         env.update(zip(equation.outvars, outputs, strict=True))
     return [read(var) for var in jaxpr.outvars]

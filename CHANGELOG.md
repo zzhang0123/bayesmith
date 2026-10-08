@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **The structural affinity prover refuses an unknown primitive only where a
+  block-dependent value reaches it.** `diagnose.structure._walk` flagged every
+  primitive outside its tables as unsupported, whichever latent fed it, so a
+  nonlinear branch on the sampled latents (an emulator's `erf`,
+  `custom_jvp_call`, `scan`) withheld the certificate of a block that was
+  affine by inspection and `compile` put the whole graph on NUTS. On a
+  block-constant input such a primitive is a function of the symbolic
+  complement and contributes degree 0, the gate the `stop_gradient` branch
+  already applied. Measured on the RHINO global 21-cm graph
+  (`examples/inference/rhino_moment_foreground`): before, one NUTS block;
+  after, `block 0 {fg_coeff} GCR exact, structurally certified` and
+  `block 1 {u} NUTS`. The same primitives on the block's own path, also
+  through a nested `jit`, still refuse (`tests/dispatch/test_automatic_affinity.py`).
+
 ## 0.10.0 — a convergence certificate for the gradient route
 
 A pre-1.0 minor that adds a capability and changes no existing behaviour. Every

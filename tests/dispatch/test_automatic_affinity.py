@@ -156,6 +156,64 @@ def test_custom_derivative_does_not_certify_the_primal():
     assert not certificate(graph, ("a",))["certified"]
 
 
+def _deceptive_custom_jvp():
+    @jax.custom_jvp
+    def deceptive(x):
+        return x**2
+
+    @deceptive.defjvp
+    def derivative(primals, tangents):
+        return deceptive(primals[0]), tangents[0]
+
+    return deceptive
+
+
+def _scanned(x):
+    return jax.lax.scan(lambda carry, _: (carry * x + 0.1, None), x, None, length=3)[0]
+
+
+@pytest.mark.parametrize("branch", [
+    lambda b: jax.scipy.special.erf(b),
+    lambda b: _deceptive_custom_jvp()(b),
+    _scanned,
+    lambda b: jax.jit(lambda v: _deceptive_custom_jvp()(jax.scipy.special.erf(v)))(b),
+])
+def test_unknown_primitives_on_another_latents_branch_leave_the_block_certified(branch):
+    """Only a block-dependent input makes a primitive's semantics matter.
+
+    ``a`` enters the prediction affinely; ``b`` reaches it through a primitive
+    the prover has no table entry for. The complement is symbolic, so that
+    primitive is a function of ``b`` alone and of degree 0 in ``a``; before the
+    dependence gate it withheld ``a``'s certificate anyway, and ``compile``
+    put the whole graph on NUTS.
+    """
+    graph = graph_for(lambda a, b: a + branch(b))
+    proof = certificate(graph, ("a",))
+    assert proof["certified"], proof["reason"]
+    assert proof["observations"][0]["unsupported_primitives"] == ()
+    assert not certificate(graph, ("b",))["certified"]
+    assert compile(graph).exact.latents == ("a",)
+
+
+@pytest.mark.parametrize("mean", [
+    lambda a, b: jax.scipy.special.erf(a) + b,
+    lambda a, b: _deceptive_custom_jvp()(a) + b,
+    lambda a, b: _scanned(a) + b,
+    # the bypass: the same primitive hidden inside a nested jit on the block's path
+    lambda a, b: jax.jit(lambda v: _deceptive_custom_jvp()(v))(a) + b,
+    # and reached through an affine mix of both latents
+    lambda a, b: _deceptive_custom_jvp()(a + b),
+])
+def test_unknown_primitives_on_the_blocks_own_path_still_refuse(mean):
+    graph = graph_for(mean, declared=("a",))
+    proof = certificate(graph, ("a",))
+    assert not proof["certified"]
+    assert proof["reason"] == "unsupported_primal_or_derivative_semantics"
+    assert proof["observations"][0]["unsupported_primitives"]
+    assert not any("a" in block.latents and block.method == "gcr"
+                   for block in compile(graph).blocks)
+
+
 def test_final_group_is_certified_with_all_other_latents_symbolic():
     def model():
         a = sample("a", lambda: dist.Normal(0., 1.))

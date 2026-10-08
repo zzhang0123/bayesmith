@@ -17,11 +17,11 @@ Neither user annotations nor vanishing automatic derivatives are proofs.
 
 The supported algebra is interpreted over real arithmetic; the preflight
 report retains its numerical rank, roundoff and contradictory-probe checks.
-Unknown operations, control flow and custom derivative rules are refused.</pre></details><div class="symbol-index"><a href="#derivative_semantics_evidence">derivative_semantics_evidence</a> <a href="#conditional_affinity_certificate">conditional_affinity_certificate</a> <a href="#gaussian_flatness_certificate">gaussian_flatness_certificate</a></div><section class="api-symbol"><h2 id="derivative_semantics_evidence">derivative_semantics_evidence</h2><p class="source-note">Defined in <code>bayesmith.diagnose.structure</code>, line 250.</p><pre><code>derivative_semantics_evidence(function, *arguments)</code></pre><pre class="docstring">Check primal derivative semantics without certifying any distribution.
+Unknown operations, control flow and custom derivative rules are refused.</pre></details><div class="symbol-index"><a href="#derivative_semantics_evidence">derivative_semantics_evidence</a> <a href="#conditional_affinity_certificate">conditional_affinity_certificate</a> <a href="#gaussian_flatness_certificate">gaussian_flatness_certificate</a></div><section class="api-symbol"><h2 id="derivative_semantics_evidence">derivative_semantics_evidence</h2><p class="source-note">Defined in <code>bayesmith.diagnose.structure</code>, line 267.</p><pre><code>derivative_semantics_evidence(function, *arguments)</code></pre><pre class="docstring">Check primal derivative semantics without certifying any distribution.
 
 Numerical non-Gaussian information can use this same conservative walk.
 Known nonlinear primitives remain eligible for ordinary automatic
-differentiation; custom/unknown operations and control flow do not.</pre></section><section class="api-symbol"><h2 id="conditional_affinity_certificate">conditional_affinity_certificate</h2><p class="source-note">Defined in <code>bayesmith.diagnose.structure</code>, line 275.</p><pre><code>conditional_affinity_certificate(graph, names, values)</code></pre><pre class="docstring">Certify affine predictions with *symbolic* complementary latents.
+differentiation; custom/unknown operations and control flow do not.</pre></section><section class="api-symbol"><h2 id="conditional_affinity_certificate">conditional_affinity_certificate</h2><p class="source-note">Defined in <code>bayesmith.diagnose.structure</code>, line 292.</p><pre><code>conditional_affinity_certificate(graph, names, values)</code></pre><pre class="docstring">Certify affine predictions with *symbolic* complementary latents.
 
 Unlike ``gaussian_flatness_certificate``, every latent is an abstract
 Jaxpr input. Degree zero means independent of this block, NOT frozen at
@@ -32,7 +32,7 @@ This is a sufficient real-arithmetic proof for the traced shapes/static
 configuration, wherever the pure program defines valid distributions.
 It neither proves domain validity nor finite-precision accuracy. Failure
 to certify is unknown, not proof of nonlinearity. Priors are assessed
-separately and do not change the prediction&#x27;s structural verdict.</pre></section><section class="api-symbol"><h2 id="gaussian_flatness_certificate">gaussian_flatness_certificate</h2><p class="source-note">Defined in <code>bayesmith.diagnose.structure</code>, line 367.</p><pre><code>gaussian_flatness_certificate(graph, names, values)</code></pre><pre class="docstring">Return serializable structural evidence, with full rank left to the caller.
+separately and do not change the prediction&#x27;s structural verdict.</pre></section><section class="api-symbol"><h2 id="gaussian_flatness_certificate">gaussian_flatness_certificate</h2><p class="source-note">Defined in <code>bayesmith.diagnose.structure</code>, line 384.</p><pre><code>gaussian_flatness_certificate(graph, names, values)</code></pre><pre class="docstring">Return serializable structural evidence, with full rank left to the caller.
 
 A positive result concerns every block value for which this traced, pure
 program defines a valid Gaussian likelihood, conditional on the supplied
