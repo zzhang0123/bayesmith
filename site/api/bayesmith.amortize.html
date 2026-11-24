@@ -62,7 +62,7 @@ Usage::
 
     q = NeuralPosterior.create(thetas, bank, key=jax.random.key(1))
     q, losses = train_posterior(q, thetas, bank, key=jax.random.key(2))
-    draws = q.sample(observed, key=jax.random.key(3), n_samples=4000)</pre></details><div class="symbol-index"><a href="#MIN_SCALE">MIN_SCALE</a> <a href="#NeuralPosterior">NeuralPosterior</a> <a href="#TrainingHistory">TrainingHistory</a> <a href="#train_posterior">train_posterior</a></div><section class="api-symbol"><h2 id="MIN_SCALE">MIN_SCALE</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 86.</p><pre><code>MIN_SCALE: float = 0.001</code></pre></section><section class="api-symbol"><h2 id="NeuralPosterior">NeuralPosterior</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 106.</p><pre><code>class NeuralPosterior(eqx.Module)
+    draws = q.sample(observed, key=jax.random.key(3), n_samples=4000)</pre></details><div class="symbol-index"><a href="#MIN_SCALE">MIN_SCALE</a> <a href="#NeuralPosterior">NeuralPosterior</a> <a href="#TrainingHistory">TrainingHistory</a> <a href="#train_posterior">train_posterior</a></div><section class="api-symbol"><h2 id="MIN_SCALE">MIN_SCALE</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 87.</p><pre><code>MIN_SCALE: float = 0.001</code></pre></section><section class="api-symbol"><h2 id="NeuralPosterior">NeuralPosterior</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 118.</p><pre><code>class NeuralPosterior(eqx.Module)
 net: eqx.nn.MLP
 embed: Callable[[jax.Array], jax.Array] = eqx.field(static=True)
 n_components: int = eqx.field(static=True)
@@ -89,7 +89,7 @@ Attributes:
         posterior, which is what makes the linear-Gaussian check sharp.
     n_params: length of the latent vector (static).
     theta_mean, theta_scale, data_mean, data_scale: standardization,
-        derived from the bank.
+        derived from the bank and held fixed during training.
     min_scale: floor on a component&#x27;s standardized scale (static).</pre><h3 id="NeuralPosterior.create">NeuralPosterior.create</h3><pre><code>create(cls, thetas: jax.Array, data: jax.Array, *, key: jax.Array, embed: Callable[[jax.Array], jax.Array]=jnp.ravel, n_components: int=4, width: int=64, depth: int=3, min_scale: float=MIN_SCALE) -&gt; NeuralPosterior</code></pre><pre class="docstring">Build an untrained estimator sized and standardized to a bank.
 
 Args:
@@ -104,9 +104,9 @@ Args:
 
 Raises:
     StructureError: if ``thetas`` is not a two-dimensional stack, if
-        the two halves disagree on how many simulations there are, if
+        the bank is empty or the two halves disagree in length, if
         ``n_components`` is not positive, or if ``min_scale`` is
-        negative.</pre><h3 id="NeuralPosterior.log_prob">NeuralPosterior.log_prob</h3><pre><code>log_prob(self, theta: jax.Array, datum: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``log q(theta | x)`` for one pair, in the latent&#x27;s own units.</pre><h3 id="NeuralPosterior.sample">NeuralPosterior.sample</h3><pre><code>sample(self, datum: jax.Array, key: jax.Array, n_samples: int) -&gt; jax.Array</code></pre><pre class="docstring">Draw ``(n_samples, n_params)`` from ``q(theta | x)``.</pre></section><section class="api-symbol"><h2 id="TrainingHistory">TrainingHistory</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 262.</p><pre><code>class TrainingHistory(NamedTuple)
+        negative or nonfinite.</pre><h3 id="NeuralPosterior.log_prob">NeuralPosterior.log_prob</h3><pre><code>log_prob(self, theta: jax.Array, datum: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``log q(theta | x)`` for one pair, in the latent&#x27;s own units.</pre><h3 id="NeuralPosterior.sample">NeuralPosterior.sample</h3><pre><code>sample(self, datum: jax.Array, key: jax.Array, n_samples: int) -&gt; jax.Array</code></pre><pre class="docstring">Draw ``(n_samples, n_params)`` from ``q(theta | x)``.</pre></section><section class="api-symbol"><h2 id="TrainingHistory">TrainingHistory</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 268.</p><pre><code>class TrainingHistory(NamedTuple)
 train: jax.Array
 validation: jax.Array
 best_step: jax.Array</code></pre><pre class="docstring">Per-step losses from :func:`train_posterior`.
@@ -128,7 +128,7 @@ visibly bad one.
 Non-finite entries are left in place rather than scrubbed. A diverged run
 is a fact about the run, and the only record of it is here -- the returned
 estimator, having been selected on the held-out split, is usually finite
-and says nothing.</pre></section><section class="api-symbol"><h2 id="train_posterior">train_posterior</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 290.</p><pre><code>train_posterior(posterior: NeuralPosterior, thetas: jax.Array, data: jax.Array, *, key: jax.Array, n_steps: int=3000, batch_size: int=256, learning_rate: float=0.001, validation_fraction: float=0.1, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; tuple[NeuralPosterior, TrainingHistory]</code></pre><pre class="docstring">Maximize the mean ``log q(theta | x)`` over the simulation bank.
+and says nothing.</pre></section><section class="api-symbol"><h2 id="train_posterior">train_posterior</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 296.</p><pre><code>train_posterior(posterior: NeuralPosterior, thetas: jax.Array, data: jax.Array, *, key: jax.Array, n_steps: int=3000, batch_size: int=256, learning_rate: float=0.001, validation_fraction: float=0.1, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; tuple[NeuralPosterior, TrainingHistory]</code></pre><pre class="docstring">Maximize the mean ``log q(theta | x)`` over the simulation bank.
 
 That objective is what makes ``q`` a posterior rather than a fit to
 anything else: its population optimum is the true ``p(theta | x)``, because
@@ -140,7 +140,7 @@ package does not depend on optax.
 Args:
     posterior: from :meth:`NeuralPosterior.create` (or a partly trained one;
         training resumes from wherever it is).
-    thetas, data: the bank.
+    thetas, data: paired simulations with the parameter width of the estimator.
     key: PRNG key for the split and the minibatching.
     n_steps: Adam steps.
     batch_size: simulations per step; capped at the training split.
@@ -156,14 +156,14 @@ Returns:
     a :class:`TrainingHistory`.
 
 Raises:
-    StructureError: for a non-positive step count, a ``validation_fraction``
-        outside ``[0, 1)``, or a fraction that holds out zero simulations.
+    StructureError: for an invalid bank, step count, batch size or split.
     Exception: from ``eqx.error_if`` if the returned estimator is not
         finite. See the second note.
 
 Note:
     **Over-fitting an NPE makes it over-confident, which is the failure that
-    does not look like one.** Measured here, on the linear-Gaussian problem
+    does not look like one.** A historical run (before bank standardization
+    was frozen) on the linear-Gaussian problem
     this module&#x27;s tests use (exact posterior width 0.134): a bank of 512
     with four components, run 8000 steps with ``validation_fraction=0.0``,
     returns a posterior **0.271** of the exact width while its training loss

@@ -187,6 +187,7 @@ class ComplexNormal(Distribution):
 
     arg_constraints: ClassVar[dict[str, Any]] = {}
     support = constraints.real
+    pytree_data_fields = ("loc", "scale")
     reparametrized_params: ClassVar[list[str]] = ["loc", "scale"]
 
     def __init__(self, loc: Any, scale: Any, *, validate_args: bool | None = None):

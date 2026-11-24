@@ -266,7 +266,7 @@ _SEEDS = (
     ),
     *_seed_group(
         LADDER,
-        "check_logdet_premises",
+        "_check_logdet_premises",
         CandidateFamily.COMPARE,
         "LADDER:sigma:finite-two-sum",
     ),
@@ -282,7 +282,7 @@ _SEEDS = (
     ),
     *_seed_group(
         LADDER,
-        "check_logdet_premises",
+        "_check_logdet_premises",
         CandidateFamily.COMPARE,
         """LADDER:sigma:symmetry-spd-condition
         LADDER:rank:evidence
@@ -1028,107 +1028,107 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "LADDER:determinant-lemma:payload": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::8f473f76dc3f6936::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::8f473f76dc3f6936::0",
             "problem.low_rank_factors is not None and rank_evidence_valid and sigma_formation_valid and sigma_exactly_symmetric",
         ),
     ),
     "LADDER:finite:payload-rho": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::numerical_premise_call::d3068b908ee92dee::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::numerical_premise_call::d3068b908ee92dee::0",
             "spectral_radius(lam, finite_payload_perturbation)",
         ),
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::057b7b726f746fbf::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::057b7b726f746fbf::0",
             "finite_payload_rho_measurement_valid and finite_payload_rho <= 1.0",
         ),
     ),
     "LADDER:rank:evidence": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::numerical_premise_call::32b77c3c606be73a::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::numerical_premise_call::32b77c3c606be73a::0",
             "_algebraic_rank_bound(perturb)",
         ),
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::numerical_premise_call::fe4f7ab1beecdb99::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::numerical_premise_call::fe4f7ab1beecdb99::0",
             "_factor_projection_certificate(perturb, problem.low_rank_factors, lam)",
         ),
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::c515480aa003dc6d::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::c515480aa003dc6d::0",
             "rank_evidence_valid",
         ),
     ),
     "LADDER:rho:measurement": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::numerical_premise_call::a443ff27e05df6b5::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::numerical_premise_call::a443ff27e05df6b5::0",
             "spectral_radius(lam, perturb)",
         ),
     ),
     "LADDER:rung0:base": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::7fbc415aee154691::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::7fbc415aee154691::0",
             "sigma_formation_valid and bool(np.array_equal(sigma, lam)) and dense_arithmetic_resolved",
         ),
     ),
     "LADDER:rung1:low-rank-size": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::efa1c96a45b8a99d::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::efa1c96a45b8a99d::0",
             "rank_evidence_valid and (compact_diagonal_payload or determinant_lemma_payload) and sigma_spd and (rank <= config.low_rank_max) and (rank <= config.low_rank_fraction * n)",
         ),
     ),
     "LADDER:rung2:chain": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::7d56f970127e454a::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::7d56f970127e454a::0",
             "chain_structure and sigma_spd and condition_resolved",
         ),
     ),
     "LADDER:rung3:structured": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::gate_qualifier::2ea8744b9588c9b7::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::gate_qualifier::2ea8744b9588c9b7::0",
             "structured",
         ),
     ),
     "LADDER:rung4:dense": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::3ca3ab1fd1c3fc27::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::3ca3ab1fd1c3fc27::0",
             "n <= config.dense_max_n and condition_resolved and sigma_spd",
         ),
     ),
     "LADDER:rung5:finite-executable": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::ed70d0b90f2a707b::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::ed70d0b90f2a707b::0",
             "finite_size_qualified and finite_payload_stable and sigma_spd and (determinant_lemma_payload or dense_arithmetic_resolved)",
         ),
     ),
     "LADDER:rung5:finite-size": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::6d8dda4ea60f3e75::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::6d8dda4ea60f3e75::0",
             "n <= config.finite_max_n or ((compact_diagonal_payload or determinant_lemma_payload) and rank <= config.finite_max_rank)",
         ),
     ),
     "LADDER:rung6:trace": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::7f581995d7238d06::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::7f581995d7238d06::0",
             "sigma_formation_valid and traces_verified and measured_rho_converges and rho_covers_input and (0.0 <= rho < 1.0)",
         ),
     ),
     "LADDER:rung7:frozen": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::1f75b0ed3ab0d827::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::1f75b0ed3ab0d827::0",
             "sigma_formation_valid and frozen_width_valid and (problem.trace_order is not None) and (problem.trace_order >= 0) and measured_rho_converges and rho_covers_input and (0.0 <= rho < 1.0)",
         ),
     ),
     "LADDER:sigma:finite-two-sum": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::numerical_premise_call::4025d304e4487b7c::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::numerical_premise_call::4025d304e4487b7c::0",
             "_two_sum_error(lam, perturb)",
         ),
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::ad0571b6919536d8::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::ad0571b6919536d8::0",
             "not sigma_formation_valid",
         ),
     ),
     "LADDER:sigma:payload-symmetry": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::numerical_premise_call::fae93f08468cafbe::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::numerical_premise_call::fae93f08468cafbe::0",
             "_sigma_payload(sigma, config)",
         ),
         (
@@ -1138,15 +1138,15 @@ _GATE_SOURCE_LINKS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "LADDER:sigma:symmetry-spd-condition": (
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::e990d931da5e772e::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::e990d931da5e772e::0",
             "sigma.ndim == 1 or _is_symmetric(sigma, rtol=config.structure_rtol, atol=config.structure_atol)",
         ),
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::7ce742d10265b420::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::7ce742d10265b420::0",
             "sigma_symmetric and _is_positive_definite(sigma, rtol=config.structure_rtol, atol=config.structure_atol)",
         ),
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::d69a1ae0cf7be478::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::d69a1ae0cf7be478::0",
             "not condition_resolved",
         ),
     ),
@@ -1994,125 +1994,125 @@ _DECLARED_SOURCE_ANCHORS: dict[str, tuple[SourceAnchor, ...]] = {
     "LADDER:determinant-lemma:payload": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:finite:payload-rho": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.NUMERICAL_PREMISE_CALL,
         ),
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:rank:evidence": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.NUMERICAL_PREMISE_CALL,
         ),
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.NUMERICAL_PREMISE_CALL,
         ),
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:rho:measurement": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.NUMERICAL_PREMISE_CALL,
         ),
     ),
     "LADDER:rung0:base": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:rung1:low-rank-size": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:rung2:chain": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:rung3:structured": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.GATE_QUALIFIER,
         ),
     ),
     "LADDER:rung4:dense": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:rung5:finite-executable": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:rung5:finite-size": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:rung6:trace": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:rung7:frozen": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:sigma:finite-two-sum": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.NUMERICAL_PREMISE_CALL,
         ),
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
     "LADDER:sigma:payload-symmetry": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.NUMERICAL_PREMISE_CALL,
         ),
         SourceAnchor(
@@ -2124,17 +2124,17 @@ _DECLARED_SOURCE_ANCHORS: dict[str, tuple[SourceAnchor, ...]] = {
     "LADDER:sigma:symmetry-spd-condition": (
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
         SourceAnchor(
             "src/bayesmith/marginal/_logdet_ladder.py",
-            "<module>.check_logdet_premises",
+            "<module>._check_logdet_premises",
             CandidateFamily.DECISION_PREDICATE,
         ),
     ),
@@ -3004,52 +3004,52 @@ _GATE_ATOM_LINKS: dict[str, tuple[str, ...]] = {
         "src/bayesmith/marginal/_logdet_eager.py::<module>.choose_trace_order::compare::be8bebac0fc5f981::0",
     ),
     "LADDER:determinant-lemma:payload": (
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::14820d49ac03ef64::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::c515480aa003dc6d::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::48196fb8375388cd::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::91367abf12d9ecf4::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::14820d49ac03ef64::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::c515480aa003dc6d::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::48196fb8375388cd::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::91367abf12d9ecf4::0",
     ),
     "LADDER:finite:payload-rho": (
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::compare::4a956d9542c5c0c2::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::compare::4a956d9542c5c0c2::0",
     ),
     "LADDER:rho:measurement": (),
     "LADDER:rung0:base": (
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::predicate_call_atom::d9082e7801c0ca71::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::predicate_call_atom::0daa42baad4d8b5a::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::predicate_call_atom::d9082e7801c0ca71::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::predicate_call_atom::0daa42baad4d8b5a::0",
     ),
     "LADDER:rung1:low-rank-size": (
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::df59227e94deb60c::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::compare::44f3815eb0ce7bcd::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::compare::59f66427dc73ee94::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::df59227e94deb60c::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::compare::44f3815eb0ce7bcd::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::compare::59f66427dc73ee94::0",
     ),
     "LADDER:rung3:structured": (),
     "LADDER:rung4:dense": (
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::compare::f0ba3f1026fc300c::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::compare::f0ba3f1026fc300c::0",
     ),
     "LADDER:rung5:finite-executable": (
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::6a781d45dfcc23af::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::6a781d45dfcc23af::0",
     ),
     "LADDER:rung5:finite-size": (
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::compare::5b64ae2cb778a757::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::554111cb2ca3295d::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::decision_predicate::df59227e94deb60c::1",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::compare::80d02c27a4b17ad0::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::compare::5b64ae2cb778a757::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::554111cb2ca3295d::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::decision_predicate::df59227e94deb60c::1",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::compare::80d02c27a4b17ad0::0",
     ),
     "LADDER:rung6:trace": (
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::48196fb8375388cd::3",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::bc108dc8b78fe54f::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::5d6aaa0c807a1bf8::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::75bdf97ba8300ea7::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6f6bf7e28f2b4e29::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::48196fb8375388cd::3",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::bc108dc8b78fe54f::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::5d6aaa0c807a1bf8::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::75bdf97ba8300ea7::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::6f6bf7e28f2b4e29::0",
     ),
     "LADDER:rung7:frozen": (
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::48196fb8375388cd::4",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::c087bc09f45f17ee::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::c62b0e04d76df049::1",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::5a38bc5f8f0f2d61::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::5d6aaa0c807a1bf8::1",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::75bdf97ba8300ea7::1",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6f6bf7e28f2b4e29::1",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::48196fb8375388cd::4",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::c087bc09f45f17ee::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::c62b0e04d76df049::1",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::5a38bc5f8f0f2d61::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::5d6aaa0c807a1bf8::1",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::75bdf97ba8300ea7::1",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::6f6bf7e28f2b4e29::1",
     ),
     "LADDER:sigma:payload-symmetry": (
         "src/bayesmith/marginal/_logdet_ladder.py::<module>._sigma_payload::compare::3204fd05446ce318::0",
@@ -3057,9 +3057,9 @@ _GATE_ATOM_LINKS: dict[str, tuple[str, ...]] = {
         "src/bayesmith/marginal/_logdet_ladder.py::<module>._sigma_payload::predicate_call_atom::5092fdf71a6d9964::0",
     ),
     "LADDER:sigma:symmetry-spd-condition": (
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::compare::3204fd05446ce318::1",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::predicate_call_atom::5092fdf71a6d9964::0",
-        "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::predicate_call_atom::ded5826f515f9d49::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::compare::3204fd05446ce318::1",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::predicate_call_atom::5092fdf71a6d9964::0",
+        "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::predicate_call_atom::ded5826f515f9d49::0",
     ),
     "LADDER:structure:circulant-tolerance-spectrum": (
         "src/bayesmith/marginal/_logdet_ladder.py::<module>._structure_request::predicate_call_atom::7ead0b7ae54d3a4a::0",
@@ -3240,34 +3240,34 @@ _GATE_ATOM_LINKS: dict[str, tuple[str, ...]] = {
 _GATE_ATOM_LINKS.update(
     {
         "LADDER:rung0:base": (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::48196fb8375388cd::2",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::d9082e7801c0ca71::0",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::969c43f564c8d1e8::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::48196fb8375388cd::2",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::d9082e7801c0ca71::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::969c43f564c8d1e8::0",
         ),
         "LADDER:rung1:low-rank-size": (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::c515480aa003dc6d::1",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::772b10fa9b76b884::0",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::fee2daab0ef0a42e::1",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::2acb41d6956562c0::0",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::44f3815eb0ce7bcd::0",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::59f66427dc73ee94::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::c515480aa003dc6d::1",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::772b10fa9b76b884::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::fee2daab0ef0a42e::1",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::2acb41d6956562c0::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::44f3815eb0ce7bcd::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::59f66427dc73ee94::0",
         ),
         "LADDER:rung2:chain": (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::2df45b3b0a16f43b::0",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::2acb41d6956562c0::1",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::1",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::2df45b3b0a16f43b::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::2acb41d6956562c0::1",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::6bb5018fea5f3016::1",
         ),
         "LADDER:rung4:dense": (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::f0ba3f1026fc300c::0",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::6bb5018fea5f3016::2",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::2acb41d6956562c0::2",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::f0ba3f1026fc300c::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::6bb5018fea5f3016::2",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::2acb41d6956562c0::2",
         ),
         "LADDER:rung5:finite-executable": (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::57439eb4dffa740a::0",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::cbe2295ff59158de::0",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::2acb41d6956562c0::3",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::fee2daab0ef0a42e::3",
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::boolean_atom::969c43f564c8d1e8::1",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::57439eb4dffa740a::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::cbe2295ff59158de::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::2acb41d6956562c0::3",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::fee2daab0ef0a42e::3",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::boolean_atom::969c43f564c8d1e8::1",
         ),
     }
 )
@@ -6770,7 +6770,7 @@ NON_GATE_REGISTRY = (
     NonGateEntry(
         "POLICY:ladder-rung8-unconditional",
         (
-            "src/bayesmith/marginal/_logdet_ladder.py::<module>.check_logdet_premises::policy_literal::bfdbc42f821a1db3::0",
+            "src/bayesmith/marginal/_logdet_ladder.py::<module>._check_logdet_premises::policy_literal::bfdbc42f821a1db3::0",
         ),
         CandidateClassification.POLICY_STATIC_REFUSAL,
         "The final ladder refusal is unconditional after all live numeric routes fail.",

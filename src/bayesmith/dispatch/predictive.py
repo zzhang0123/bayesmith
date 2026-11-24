@@ -1,12 +1,8 @@
 """Predictive forward generation: push posterior draws onto observations.
 
-The two primitives of the R2 predictive seam, both built on the SAME loc/scale
-:func:`bayesmith.exact.gaussian.observation_parts` reads (§0.1): replay and
-replicate differ only by log_prob vs sample, never by a second, parallel
-forward model.  This module is part of the dispatch bridge -- it reads a Graph
-and JAX, and returns a :class:`~bayesmith.artifacts.base.NamedArray` for the
-pointwise log-likelihood -- and it never reaches the higher artifact protocol
-(results, tasks, identity, refusal): those are `dispatch.task`'s business.
+Prediction samples each observed site's declared distribution. Pointwise
+replay scores the recorded observation under the same diagonal Gaussian law
+at each posterior draw. The dispatch layer packages these arrays in artifacts.
 
 R3 §0.7 adds the two remaining forward primitives -- `prior_draws`, which
 walks the whole graph from its priors, and `forward_draws`, which pushes ONE
@@ -16,31 +12,30 @@ is structural, not asserted: the fixed arm IS the replicate arm at a parameter
 that happens not to vary, and `tests/dispatch/test_predictive_seam.py` compares
 them at `rtol=0`.
 
-**Generation law (§0.3).**  A replicated draw is `Normal(loc, scale).sample`
-at the node's own observation distribution, one per source posterior draw
-(draw axis one-to-one, no resampling).  This is the node's own distribution --
-for a diagonal Gaussian it is exactly `apply_probabilistic(...).sample` -- so
-density and generator are one object, not a hand-written simulator.
-
-**Coverage domain (§0.4).**  `observation_parts` is a diagonal walk, so a
-correlated or non-Gaussian observed node raises
-:class:`~bayesmith.errors.NotGaussian` here rather than being silently
-approximated.  The caller turns that into a typed Refusal.
+The predictive seam accepts diagonal Gaussian observations, including
+independent complex components. Unsupported observation noise raises
+:class:`~bayesmith.errors.NotGaussian`, which the task converts into a refusal.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from functools import cache
 from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-import numpyro.distributions as dist
 
 from bayesmith.artifacts.base import NamedArray
-from bayesmith.exact.gaussian import observation_parts
-from bayesmith.graph.evaluate import apply_deterministic, apply_probabilistic, evaluate
+from bayesmith.exact.gaussian import _diagonal_gaussian
+from bayesmith.graph.evaluate import (
+    _apply_deterministic,
+    _law_builder,
+    apply_probabilistic,
+    distribution_batch_shape,
+    evaluate,
+)
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Const, Deterministic, Probabilistic
 
@@ -52,26 +47,51 @@ __all__ = [
 ]
 
 
-def _dims(graph: Graph, name: str, value: Any, *, draw: bool) -> tuple[str, ...]:
-    """One name per axis: draw, the node's plate, then its own shape.
-
-    The §0.2 axis-naming rule, shared with `dispatch.task`.  A plate has a
-    NAME the model declared, so a plated node's second axis is called what the
-    model calls it rather than `dim0`; axes the graph has no name for get one
-    derived from the site.
-    """
-    remaining = int(np.ndim(value))
-    names: list[str] = []
+def _dims(
+    graph: Graph, name: str, value: Any, *, draw: bool, environment: Callable
+) -> tuple[str, ...]:
+    """A declared plate occupies the rightmost batch axis, before the event."""
+    axes = np.ndim(value) - int(draw)
+    node = graph.node(name)
+    names = [f"{name}_dim{i}" for i in range(axes - len(node.plate))]
+    if node.plate and axes:
+        event_rank = (
+            apply_probabilistic(graph, node, environment()).event_dim if axes > 1 else 0
+        )
+        names.insert(axes - event_rank - 1, node.plate[0])
     if draw:
-        names.append("draw")
-        remaining -= 1
-    for plate in graph.node(name).plate:
-        if remaining <= 0:
-            break
-        names.append(plate)
-        remaining -= 1
-    names.extend(f"{name}_dim{index}" for index in range(max(remaining, 0)))
+        names.insert(0, "draw")
     return tuple(names)
+
+
+def _named_arrays(
+    graph: Graph,
+    values: Mapping[str, Any],
+    latent_values: Mapping[str, Any],
+    *,
+    draw: bool,
+    fixed: bool = False,
+    generated: Mapping[str, Any] | None = None,
+) -> tuple[NamedArray, ...]:
+    @cache
+    def environment():
+        # Evaluate the graph only if a multi-axis plate needs its event rank.
+        point = (
+            {name: value[0] for name, value in latent_values.items()}
+            if draw and not fixed else latent_values
+        )
+        if generated is None:
+            return evaluate(graph, point)
+        return evaluate(
+            graph, point, observed_value=lambda node, _: (
+                generated[node.name][0] if node.name in generated else node.observed
+            ),
+        )
+
+    return tuple(
+        NamedArray(name, np.asarray(value), _dims(graph, name, value, draw=draw, environment=environment))
+        for name, value in values.items()
+    )
 
 
 def _draw_count(latent_draws: Mapping[str, Any]) -> int:
@@ -88,21 +108,24 @@ def _draw_count(latent_draws: Mapping[str, Any]) -> int:
     return counts.pop()
 
 
-def _masked_log_prob(graph: Graph, name: str, loc: Any, scale: Any, data: Any) -> Any:
-    """`Normal(loc, scale).log_prob(data)`, with never-taken samples zeroed.
-
-    The mask is read off the NODE (as `log_joint` reads it), so the pointwise
-    log-likelihood and the joint agree about which samples contribute a term.
-    """
-    node = graph.node(name)
-    log_prob = dist.Normal(loc, scale).log_prob(data)
+def _masked_log_prob(graph: Graph, node: Probabilistic, env: dict[str, Any]) -> Any:
+    """Score each observed scalar under the declared diagonal Gaussian law."""
+    distribution = apply_probabilistic(graph, node, env)
+    base = _diagonal_gaussian(node, distribution)
+    shape = distribution_batch_shape(graph, node, distribution) + distribution.event_shape
+    data = jnp.broadcast_to(node.observed, shape)
+    log_prob = base.log_prob(data)
     if node.observed_mask is not None:
         log_prob = jnp.where(node.observed_mask, log_prob, 0.0)
     return log_prob
 
 
 def replicated_draws(
-    graph: Graph, latent_draws: Mapping[str, Any], key: jax.Array
+    graph: Graph,
+    latent_draws: Mapping[str, Any],
+    key: jax.Array,
+    *,
+    conditioned_sites: frozenset[str] = frozenset(),
 ) -> dict[str, jax.Array]:
     """`{obs: draws}` -- one replicated draw per source draw, per observed node.
 
@@ -110,11 +133,12 @@ def replicated_draws(
         graph: the model.
         latent_draws: every latent's posterior draws, each with the draw axis
             leading.  They must cover every latent `evaluate` needs.
-        key: PRNG key, split once per source draw so the replicated draws do
-            not share a stream.
+        key: PRNG key, split per draw and per observed site.
+        conditioned_sites: sites held at their recorded values while generating
+            descendants. All other observations are drawn in graph order.
 
     Returns:
-        One array per observed node, shape `(draws, *node_shape)`, sampled from
+        One array per generated site, shape `(draws, *node_shape)`, sampled from
         the node's own observation distribution at each source draw's loc/scale.
 
     Raises:
@@ -128,13 +152,28 @@ def replicated_draws(
     count = _draw_count(draws)
     keys = jax.random.split(key, count)
 
+    names = graph.observed
+    unknown = conditioned_sites.difference(names)
+    if unknown:
+        raise ValueError(f"conditioned_sites names unknown observations {sorted(unknown)}")
+
     def per_draw(draw_values: dict[str, Any], draw_key: jax.Array) -> dict[str, Any]:
-        env = evaluate(graph, draw_values)
-        _data, loc, scale = observation_parts(graph, env)
-        return {
-            name: dist.Normal(loc[name], scale[name]).sample(draw_key)
-            for name in graph.observed
-        }
+        # Preserve the single-site stream while giving every site in a joint
+        # replication its own noise, including when only a subset is returned.
+        site_keys = (
+            (draw_key,) if len(names) == 1 else jax.random.split(draw_key, len(names))
+        )
+        keys_by_name = dict(zip(names, site_keys, strict=True))
+
+        def observed_value(node: Probabilistic, env: dict[str, Any]) -> Any:
+            if node.name in conditioned_sites:
+                return node.observed
+            distribution = apply_probabilistic(graph, node, env)
+            _diagonal_gaussian(node, distribution)
+            return _node_draw(graph, node, distribution, keys_by_name[node.name])
+
+        env = evaluate(graph, draw_values, observed_value=observed_value)
+        return {name: env[name] for name in names if name not in conditioned_sites}
 
     in_axes = (jax.tree.map(lambda _: 0, draws), 0)
     return jax.vmap(per_draw, in_axes=in_axes)(draws, keys)
@@ -145,7 +184,7 @@ def pointwise_log_likelihood(
 ) -> NamedArray | None:
     """The observed-data replay: pointwise log-likelihood, indexed by draw first.
 
-    For every source posterior draw, evaluates `Normal(loc, scale).log_prob(data)`
+    For every source posterior draw, evaluates the declared scalar log density
     at the observed node's own data -- the conditioning half, NOT a posterior
     predictive (§0.1) -- zeroing masked positions.  The leading axis is `draw`;
     the remaining axes are observation units named by `_dims` (a single
@@ -170,9 +209,8 @@ def pointwise_log_likelihood(
 
     def per_draw(draw_values: dict[str, Any]) -> dict[str, Any]:
         env = evaluate(graph, draw_values)
-        data, loc, scale = observation_parts(graph, env)
         return {
-            name: _masked_log_prob(graph, name, loc[name], scale[name], data[name])
+            name: _masked_log_prob(graph, graph.node(name), env)
             for name in names
         }
 
@@ -181,9 +219,11 @@ def pointwise_log_likelihood(
     if len(names) == 1:
         name = names[0]
         array = np.asarray(per_node[name])
-        return NamedArray(
-            name="log_likelihood", value=array, dims=_dims(graph, name, array, draw=True)
+        dims = _dims(
+            graph, name, array, draw=True,
+            environment=lambda: evaluate(graph, {n: v[0] for n, v in draws.items()}),
         )
+        return NamedArray("log_likelihood", array, dims)
 
     units = [jnp.reshape(per_node[name], (_count, -1)) for name in names]
     array = np.asarray(jnp.concatenate(units, axis=1))
@@ -193,39 +233,12 @@ def pointwise_log_likelihood(
 # ------------------------------------------------------------ the §0.7 seam
 
 
-def _plate_shape(graph: Graph, node: Probabilistic) -> tuple[int, ...]:
-    """The declared sizes of the plates ``node`` sits under."""
-    return tuple(graph.plate_size(name) for name in node.plate)
-
-
 def _node_draw(
-    graph: Graph, node: Probabilistic, env: Mapping[str, Any], key: jax.Array
+    graph: Graph, node: Probabilistic, distribution: Any, key: jax.Array
 ) -> Any:
-    """One draw from ``node``'s own distribution, expanded to its plate.
-
-    :func:`~bayesmith.graph.evaluate.apply_probabilistic` deliberately returns
-    an UNMAPPED distribution for a plated node whose parents are not plated --
-    that is the "N iid draws from one shared prior" pattern, and its
-    ``log_prob`` broadcasts across the plate correctly, which is why
-    ``log_joint`` and the numpyro bridge are both happy with it.  Its
-    ``.sample``, though, returns ONE value, so a forward walk that trusted it
-    would write the same latent at every plate index and look entirely
-    plausible doing it (probe_28 §8 refused to guess and left the decision
-    here).  §0.7 expands with ``graph.plate_size``.
-
-    Which case it is, is read off the distribution's own ``batch_shape``
-    rather than by re-deriving whether ``apply_probabilistic`` vmapped: that
-    decision has a home, and a second copy of it here would agree with the
-    first until the day it did not.  A distribution already carrying the plate
-    in its batch shape is left alone; anything else is drawn at
-    ``sample_shape`` equal to the plate.
-    """
-    distribution = apply_probabilistic(graph, node, env)
-    plate = _plate_shape(graph, node)
-    batch = tuple(distribution.batch_shape)
-    if plate and batch[: len(plate)] != plate:
-        return distribution.sample(key, plate)
-    return distribution.sample(key)
+    """Sample independent batch entries, including recorded repetitions."""
+    batch = distribution_batch_shape(graph, node, distribution)
+    return distribution.expand(batch).sample(key)
 
 
 def prior_draws(graph: Graph, key: jax.Array, n: int) -> dict[str, jax.Array]:
@@ -268,15 +281,17 @@ def prior_draws(graph: Graph, key: jax.Array, n: int) -> dict[str, jax.Array]:
 
     def one(draw_key: jax.Array) -> dict[str, Any]:
         env: dict[str, Any] = {}
+        law_for = _law_builder(graph, env)
         for node, node_key in zip(
             nodes, jax.random.split(draw_key, len(nodes)), strict=True
         ):
             if isinstance(node, Const):
                 env[node.name] = node.value
             elif isinstance(node, Deterministic):
-                env[node.name] = apply_deterministic(graph, node, env)
+                env[node.name] = _apply_deterministic(graph, node, env, law_for)
             else:
-                env[node.name] = _node_draw(graph, node, env, node_key)
+                distribution = law_for(node.name)
+                env[node.name] = _node_draw(graph, node, distribution, node_key)
         return env
 
     return jax.vmap(one)(jax.random.split(key, count))

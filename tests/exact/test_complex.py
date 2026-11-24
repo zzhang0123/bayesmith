@@ -525,3 +525,11 @@ class TestTheDeclarationRoute:
         assert np.all(ess > 100), ess
         standard_error = np.sqrt(np.diag(covariance) / ess)
         np.testing.assert_array_less(np.abs((mean - expected) / standard_error), 4.0)
+
+
+def test_complex_normal_parameters_survive_jax_transforms():
+    distribution = ComplexNormal(1 + 2j, 0.75)
+    value = 2 - 0.4j
+    got = jax.jit(lambda d: d.log_prob(value))(distribution)
+    expected = ndist.Normal(1, 0.75).log_prob(2) + ndist.Normal(2, 0.75).log_prob(-0.4)
+    np.testing.assert_allclose(got, expected, rtol=1e-6)

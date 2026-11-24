@@ -251,7 +251,7 @@
     "reweighting.html",
     "tasks.html"
   ],
-  "source_digest": "b5e64053a4ded9db3233b5c26238ad5616959c90ee08cd6f4d2fb512b28122bc",
+  "source_digest": "187c6bf5f58a406846996a820f988272b2022a8e1c36fea4d70ffda53efa63fe",
   "symbols": {
     "bayesmith.AffinityRefused": {
       "owner": "bayesmith.errors",
@@ -2456,7 +2456,7 @@
     "bayesmith.dispatch.predictive.replicated_draws": {
       "owner": "bayesmith.dispatch.predictive",
       "path": "api/bayesmith.dispatch.predictive.html#replicated_draws",
-      "signature": "replicated_draws(graph: Graph, latent_draws: Mapping[str, Any], key: jax.Array) -> dict[str, jax.Array]"
+      "signature": "replicated_draws(graph: Graph, latent_draws: Mapping[str, Any], key: jax.Array, *, conditioned_sites: frozenset[str]=frozenset()) -> dict[str, jax.Array]"
     },
     "bayesmith.dispatch.preflight.analyze_preflight": {
       "owner": "bayesmith.dispatch.preflight",
@@ -2516,12 +2516,12 @@
     "bayesmith.dispatch.sampling.SamplingControl": {
       "owner": "bayesmith.dispatch.sampling",
       "path": "api/bayesmith.dispatch.sampling.html#SamplingControl",
-      "signature": "class SamplingControl\ninitialization: InitializationPolicy | None = None\nstopping: StoppingPolicy = field(default_factory=StoppingPolicy)\nmax_seconds: float | None = None\ninitial_values: tuple[NamedArray, ...] = ()\ndetails: dict = field(default_factory=dict)\ncheckpoints: list = field(default_factory=list)"
+      "signature": "class SamplingControl\ninitialization: InitializationPolicy | None = None\nstopping: StoppingPolicy = field(default_factory=StoppingPolicy)\nmax_seconds: float | None = None\ninitial_values: tuple[NamedArray, ...] = ()\ndetails: dict = field(default_factory=dict)\ncheckpoints: list = field(default_factory=list)\nfinal_diagnostics: tuple | None = field(default=None, init=False, repr=False)"
     },
     "bayesmith.dispatch.sampling.checkpoint_diagnostics": {
       "owner": "bayesmith.dispatch.sampling",
       "path": "api/bayesmith.dispatch.sampling.html#checkpoint_diagnostics",
-      "signature": "checkpoint_diagnostics(grouped, divergences, policy)"
+      "signature": "checkpoint_diagnostics(grouped, divergences, policy, *, control=None)"
     },
     "bayesmith.dispatch.sampling.prepare_initial_params": {
       "owner": "bayesmith.dispatch.sampling",
@@ -2691,7 +2691,7 @@
     "bayesmith.evaluate": {
       "owner": "bayesmith.graph.evaluate",
       "path": "api/bayesmith.html#evaluate",
-      "signature": "evaluate(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None) -> Env"
+      "signature": "evaluate(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None, *, observed_value: Callable[[Probabilistic, Env], Any] | None=None) -> Env"
     },
     "bayesmith.evaluation.ALPHA": {
       "owner": "bayesmith.evaluation",
@@ -2716,7 +2716,7 @@
     "bayesmith.evaluation.SbcRanks": {
       "owner": "bayesmith.evaluation.sbc",
       "path": "api/bayesmith.evaluation.html#SbcRanks",
-      "signature": "class SbcRanks\ncoordinates: tuple[str, ...]\nranks: tuple[tuple[float, ...], ...]\nrequested: int\nusable: int\nrefused: int\nunconverged: int\nundrawn: int\nroute: str\nsubject_ref: ArtifactRef\nfingerprints: FingerprintBundle"
+      "signature": "class SbcRanks\ncoordinates: tuple[str, ...]\nranks: tuple[tuple[float, ...], ...]\nrequested: int\nusable: int\nrefused: int\nunconverged: int\nundrawn: int\nroute: str\nsubject_ref: ArtifactRef\nfingerprints: FingerprintBundle\nuniformity_ranks: tuple[tuple[float, ...], ...] | None = None"
     },
     "bayesmith.evaluation.check_posterior": {
       "owner": "bayesmith.evaluation.gate",
@@ -2921,12 +2921,12 @@
     "bayesmith.evaluation.loo.loo_report": {
       "owner": "bayesmith.evaluation.loo",
       "path": "api/bayesmith.evaluation.loo.html#loo_report",
-      "signature": "loo_report(result: Any, *, graph: Graph, chain_shape: tuple[int, int] | None=None, source_posterior: Any=None) -> EvaluationReport"
+      "signature": "loo_report(result: Any, *, graph: Graph, chain_shape: tuple[int, int] | None=None, source_posterior: Any=None, model_ref: ModelRef | None=None, extra_data: tuple[tuple[str, Any], ...]=()) -> EvaluationReport"
     },
     "bayesmith.evaluation.loo_report": {
       "owner": "bayesmith.evaluation.loo",
       "path": "api/bayesmith.evaluation.html#loo_report",
-      "signature": "loo_report(result: Any, *, graph: Graph, chain_shape: tuple[int, int] | None=None, source_posterior: Any=None) -> EvaluationReport"
+      "signature": "loo_report(result: Any, *, graph: Graph, chain_shape: tuple[int, int] | None=None, source_posterior: Any=None, model_ref: ModelRef | None=None, extra_data: tuple[tuple[str, Any], ...]=()) -> EvaluationReport"
     },
     "bayesmith.evaluation.posterior_predictive_check": {
       "owner": "bayesmith.evaluation.checks",
@@ -2956,7 +2956,7 @@
     "bayesmith.evaluation.sbc.SbcRanks": {
       "owner": "bayesmith.evaluation.sbc",
       "path": "api/bayesmith.evaluation.sbc.html#SbcRanks",
-      "signature": "class SbcRanks\ncoordinates: tuple[str, ...]\nranks: tuple[tuple[float, ...], ...]\nrequested: int\nusable: int\nrefused: int\nunconverged: int\nundrawn: int\nroute: str\nsubject_ref: ArtifactRef\nfingerprints: FingerprintBundle"
+      "signature": "class SbcRanks\ncoordinates: tuple[str, ...]\nranks: tuple[tuple[float, ...], ...]\nrequested: int\nusable: int\nrefused: int\nunconverged: int\nundrawn: int\nroute: str\nsubject_ref: ArtifactRef\nfingerprints: FingerprintBundle\nuniformity_ranks: tuple[tuple[float, ...], ...] | None = None"
     },
     "bayesmith.evaluation.sbc.continuous_rank": {
       "owner": "bayesmith.evaluation.sbc",
@@ -2976,7 +2976,7 @@
     "bayesmith.evaluation.sbc.sbc_ranks": {
       "owner": "bayesmith.evaluation.sbc",
       "path": "api/bayesmith.evaluation.sbc.html#sbc_ranks",
-      "signature": "sbc_ranks(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, subject_ref: ArtifactRef | None=None) -> SbcRanks | Refusal"
+      "signature": "sbc_ranks(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, sampler_iid: bool=True, subject_ref: ArtifactRef | None=None) -> SbcRanks | Refusal"
     },
     "bayesmith.evaluation.sbc.sbc_report": {
       "owner": "bayesmith.evaluation.sbc",
@@ -2986,12 +2986,12 @@
     "bayesmith.evaluation.sbc.simulation_based_calibration": {
       "owner": "bayesmith.evaluation.sbc",
       "path": "api/bayesmith.evaluation.sbc.html#simulation_based_calibration",
-      "signature": "simulation_based_calibration(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, subject_ref: ArtifactRef | None=None, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -> EvaluationReport | Refusal"
+      "signature": "simulation_based_calibration(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, sampler_iid: bool=True, subject_ref: ArtifactRef | None=None, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -> EvaluationReport | Refusal"
     },
     "bayesmith.evaluation.sbc_ranks": {
       "owner": "bayesmith.evaluation.sbc",
       "path": "api/bayesmith.evaluation.html#sbc_ranks",
-      "signature": "sbc_ranks(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, subject_ref: ArtifactRef | None=None) -> SbcRanks | Refusal"
+      "signature": "sbc_ranks(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, sampler_iid: bool=True, subject_ref: ArtifactRef | None=None) -> SbcRanks | Refusal"
     },
     "bayesmith.evaluation.sbc_report": {
       "owner": "bayesmith.evaluation.sbc",
@@ -3001,7 +3001,7 @@
     "bayesmith.evaluation.simulation_based_calibration": {
       "owner": "bayesmith.evaluation.sbc",
       "path": "api/bayesmith.evaluation.html#simulation_based_calibration",
-      "signature": "simulation_based_calibration(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, subject_ref: ArtifactRef | None=None, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -> EvaluationReport | Refusal"
+      "signature": "simulation_based_calibration(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, sampler_iid: bool=True, subject_ref: ArtifactRef | None=None, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -> EvaluationReport | Refusal"
     },
     "bayesmith.evidence.Factorization": {
       "owner": "bayesmith.marginal.factorize",
@@ -3356,7 +3356,7 @@
     "bayesmith.exact.discrete.enumeration_states": {
       "owner": "bayesmith.exact.discrete",
       "path": "api/bayesmith.exact.discrete.html#enumeration_states",
-      "signature": "enumeration_states(graph: Graph) -> int"
+      "signature": "enumeration_states(graph: Graph, values: Mapping[str, Any] | None=None) -> int"
     },
     "bayesmith.exact.discrete.marginal_log_likelihood": {
       "owner": "bayesmith.exact.discrete",
@@ -3903,10 +3903,15 @@
       "path": "api/bayesmith.graph.evaluate.html#apply_probabilistic",
       "signature": "apply_probabilistic(graph: Graph, node: Probabilistic, env: Env) -> Any"
     },
+    "bayesmith.graph.evaluate.distribution_batch_shape": {
+      "owner": "bayesmith.graph.evaluate",
+      "path": "api/bayesmith.graph.evaluate.html#distribution_batch_shape",
+      "signature": "distribution_batch_shape(graph: Graph, node: Probabilistic, distribution: Any) -> tuple[int, ...]"
+    },
     "bayesmith.graph.evaluate.evaluate": {
       "owner": "bayesmith.graph.evaluate",
       "path": "api/bayesmith.graph.evaluate.html#evaluate",
-      "signature": "evaluate(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None) -> Env"
+      "signature": "evaluate(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None, *, observed_value: Callable[[Probabilistic, Env], Any] | None=None) -> Env"
     },
     "bayesmith.graph.evaluate.graph_density": {
       "owner": "bayesmith.graph.evaluate",

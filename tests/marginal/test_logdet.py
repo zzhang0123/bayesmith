@@ -3686,3 +3686,33 @@ def test_kronecker_descriptor_is_verified_not_trusted():
     wrong = KroneckerStructure((factor, np.diag([1.3, 2.3])))
     with pytest.raises(ValueError, match="factors do not reconstruct"):
         structured_logdet(matrix, kind="kronecker", structure=wrong)
+
+
+def test_eager_factor_certificate_is_constructed_once_per_call(monkeypatch):
+    import bayesmith.marginal._logdet_eager as eager
+    import bayesmith.marginal._logdet_ladder as ladder
+
+    original = eager._factor_projection_certificate
+    calls = []
+
+    def count(*args):
+        calls.append(None)
+        return original(*args)
+
+    monkeypatch.setattr(ladder, "_factor_projection_certificate", count)
+    monkeypatch.setattr(eager, "_factor_projection_certificate", count)
+    lam = np.diag(np.linspace(1.3, 2.4, 8) ** 2)
+    left = np.column_stack((np.linspace(0.02, 0.09, 8), np.linspace(0.07, 0.01, 8)))
+    perturbation = left @ left.T
+    factors = LowRankFactors(left)
+    problem = LogDetProblem(lam, perturbation, low_rank_factors=factors)
+    for _ in range(2):
+        calls.clear()
+        result = dispatch_logdet(problem, config=LadderConfig(low_rank_fraction=0.5))
+        assert result.level == 1
+        assert result.value == pytest.approx(_oracle(lam + perturbation), rel=2e-13)
+        assert len(calls) == 1
+    for method in (low_rank_logdet, finite_perturbation_logdet):
+        calls.clear()
+        assert method(lam, perturbation, factors=factors) == result.value
+        assert len(calls) == 1

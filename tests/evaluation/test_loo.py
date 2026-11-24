@@ -1210,3 +1210,222 @@ class TestTheModuleStaysCheapWithoutArviZ:
         )
         assert out.returncode == 0, out.stderr
         assert out.stdout.strip() == "[]"
+
+
+def test_weighted_predictive_and_legacy_artifact_provenance(tmp_path):
+    from bayesmith.artifacts import dump_artifact, load_artifact
+
+    graph, posterior = weighted_posterior()
+    predictive = predictive_of(graph, posterior, key=jax.random.key(3))
+    path = tmp_path / "predictive.json"
+    dump_artifact(predictive, path)
+    reloaded = load_artifact(path)
+    assert loo_report(reloaded, graph=graph).applicability is Applicability.UNVERIFIABLE
+    for field, value in (
+        ("artifact_id", predictive.meta.artifact_id),
+        ("revision", posterior.meta.revision + 1),
+    ):
+        wrong = dataclasses.replace(
+            posterior, meta=dataclasses.replace(posterior.meta, **{field: value})
+        )
+        with pytest.raises(TypeError, match="source_posterior_ref"):
+            loo_report(reloaded, graph=graph, source_posterior=wrong)
+    approximation = predictive.run.approximation
+    legacy = dataclasses.replace(
+        predictive,
+        run=dataclasses.replace(
+            predictive.run,
+            approximation=dataclasses.replace(
+                approximation,
+                details=tuple(
+                    (k, v) for k, v in approximation.details if k != "source_weighting"
+                ),
+            ),
+        ),
+    )
+    dump_artifact(legacy, path)
+    reloaded = load_artifact(path)
+    assert (
+        loo_report(reloaded, graph=graph).findings[0].code == "source_weighting_unknown"
+    )
+    assert (
+        loo_report(reloaded, graph=graph, source_posterior=posterior).findings[0].code
+        == "weights_not_carried_by_export"
+    )
+
+
+@pytest.mark.parametrize("as_predictive", [True, False])
+@requires_arviz
+def test_masked_loo_matches_explicitly_retained_columns(as_predictive):
+    from bayesmith.bridge.arviz import to_inference_data
+    from tests.dispatch.test_predictive_seam import _masked_graph
+
+    graph = _masked_graph()
+    posterior = posterior_of(graph, key=jax.random.key(2), draws=512, warmup=8)
+    result = (
+        predictive_of(graph, posterior, key=jax.random.key(3))
+        if as_predictive
+        else posterior
+    )
+    exported = to_inference_data(result, graph=graph, chain_shape=(1, 512))
+    likelihood = exported["log_likelihood"]["log_likelihood"]
+    exported["log_likelihood"] = exported["log_likelihood"].isel(
+        {likelihood.dims[-1]: [0, 1, 2]}
+    )
+    reference = _arviz.loo(exported)
+    actual = measurements(loo_report(result, graph=graph))
+    assert actual["n_data_points"] == 3
+    assert actual["elpd"] == pytest.approx(reference.elpd)
+
+
+@pytest.mark.parametrize("all_held_out", [True, False])
+@requires_arviz
+def test_multisite_loo_concatenates_masks_in_pointwise_site_order(all_held_out, monkeypatch):
+    def model():
+        w = sample("w", lambda: dist.Normal(0.0, 2.0))
+        for name, values, retain in (
+            ("z", [0.4, 0.2], [False, True]),
+            ("a", [-0.4, 0.3, -0.1], [True, False, True]),
+        ):
+            mask = (
+                jnp.zeros(len(retain), dtype=bool)
+                if all_held_out
+                else jnp.array(retain)
+            )
+            observe(
+                name,
+                lambda loc: dist.Normal(loc, 1.0),
+                w,
+                obs=jnp.array(values),
+                mask=mask,
+            )
+
+    graph = trace(model)
+    posterior = posterior_of(graph, key=jax.random.key(7), draws=512, warmup=8)
+    if all_held_out:
+        monkeypatch.setitem(sys.modules, "arviz", None)
+    report = loo_report(posterior, graph=graph)
+    if all_held_out:
+        assert report.applicability is Applicability.INAPPLICABLE
+        assert report.conclusion is Conclusion.ABSTAIN
+        assert report.findings[0].code == "no_observed_units"
+    else:
+        from bayesmith.bridge.arviz import to_inference_data
+
+        projected = to_inference_data(posterior, graph=graph, chain_shape=(1, 512))
+        name = "log_likelihood"
+        projected[name] = projected[name].isel(observation=[1, 2, 4])
+        assert measurements(report)["n_data_points"] == 3
+        assert measurements(report)["elpd"] == pytest.approx(_arviz.loo(projected).elpd)
+
+
+@requires_arviz
+def test_predictive_omitting_its_latents_can_use_the_verified_source():
+    graph = straight_line()
+    posterior = posterior_of(graph, key=jax.random.key(2), draws=512, warmup=8)
+    predictive = predictive_of(graph, posterior, key=jax.random.key(3), latent_sites=())
+    assert (
+        loo_report(predictive, graph=graph).findings[0].code == "source_draws_required"
+    )
+    supplied = loo_report(predictive, graph=graph, source_posterior=posterior)
+    expected = loo_report(posterior, graph=graph)
+    assert measurements(supplied) == measurements(expected)
+
+
+@requires_arviz
+def test_masked_loo_accepts_a_plate_named_loo_unit():
+    from bayesmith import plate
+
+    def model():
+        axis = plate("loo_unit", 3)
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        observe(
+            "d", lambda loc: dist.Normal(loc, 1.0), w, plate=axis,
+            obs=jnp.array([0.4, -0.2, 0.1]), mask=jnp.array([True, False, True]),
+        )
+
+    graph = trace(model)
+    posterior = posterior_of(graph, key=jax.random.key(2), draws=512, warmup=8)
+    assert measurements(loo_report(posterior, graph=graph))["n_data_points"] == 2
+
+
+def test_loo_checks_data_masks_and_parent_edges_before_scoring():
+    def model(mask, coupled):
+        w = sample("w", lambda: dist.Normal(0., 0.1))
+        a = observe("a", lambda w: dist.Normal(w, 1.), w, obs=0.4)
+        parent = a if coupled else w
+        observe("b", lambda v: dist.Normal(v, 1.), parent,
+                obs=jnp.array([0., 1., 3.]), mask=jnp.array(mask))
+
+    def build(mask, coupled):
+        return trace(lambda: model(mask, coupled))
+
+    fitted = build([True, False, True], False)
+    posterior = posterior_of(fitted, key=jax.random.key(9), draws=128, warmup=8)
+    for graph in (build([True, False, False], False), build([True, False, True], True)):
+        report = loo_report(posterior, graph=graph)
+        assert report.applicability is Applicability.UNVERIFIABLE
+        assert report.conclusion is Conclusion.ABSTAIN
+        assert report.findings[0].code == "loo_graph_mismatch"
+
+
+@requires_arviz
+def test_legacy_loo_can_verify_its_original_model_and_extra_data():
+    from bayesmith.artifacts._codec import canonical_dumps, canonical_loads
+    from bayesmith.artifacts.results import PosteriorResult
+
+    graph = straight_line()
+    task = PosteriorTask(
+        meta=new_task_meta(label="legacy"),
+        budget=ComputeBudget(draws=128, warmup=8, chains=1),
+    )
+    extra = (("calibration", np.arange(3)),)
+    plan = compile_task(graph, task, model_ref=model_ref(), extra_data=extra)
+    posterior = execute_task(plan, key=jax.random.key(1))
+    approximation = posterior.run.approximation
+    legacy = dataclasses.replace(
+        posterior, run=dataclasses.replace(
+            posterior.run, approximation=dataclasses.replace(
+                approximation, details=tuple(
+                    item for item in approximation.details if item[0] != "model_identifier"
+                ),
+            ),
+        ),
+    )
+    loaded = canonical_loads(canonical_dumps(legacy), expected=PosteriorResult)
+    assert loo_report(loaded, graph=graph).findings[0].code == "loo_model_ref_required"
+    assert loo_report(loaded, graph=graph, model_ref=model_ref()).findings[0].code == "loo_graph_mismatch"
+    report = loo_report(loaded, graph=graph, model_ref=model_ref(), extra_data=extra)
+    assert measurements(report)["n_data_points"] == np.size(graph.node("d").observed)
+
+
+@pytest.mark.parametrize("intermediate", [False, True])
+def test_loo_requires_conditional_scores_for_observed_ancestors(intermediate):
+    def model():
+        w = sample("w", lambda: dist.Normal(0., 0.01))
+        a = observe("a", lambda w: dist.Normal(w, 1.), w, obs=3.)
+        parent = det("centre", lambda a: a, a) if intermediate else a
+        observe("b", lambda a, w: dist.Normal(a + w, .5), parent, w, obs=2.5)
+
+    graph = trace(model)
+    posterior = posterior_of(graph, key=jax.random.key(12), draws=128, warmup=8)
+    report = loo_report(posterior, graph=graph)
+    assert report.applicability is Applicability.INAPPLICABLE
+    assert report.conclusion is Conclusion.ABSTAIN
+    assert report.findings[0].code == "dependent_observation_factors"
+    assert report.findings[0].observed == ("a", "b")
+
+
+@requires_arviz
+def test_loo_fully_held_out_intermediate_remains_a_fixed_predictor():
+    def model():
+        w = sample("w", lambda: dist.Normal(0., 0.01))
+        a = observe("a", lambda w: dist.Normal(w, 1.), w, obs=3.)
+        b = observe("b", lambda v: dist.Normal(v, 1.), a, obs=2., mask=jnp.array(False))
+        observe("c", lambda b, w: dist.Normal(b + w, 1.), b, w, obs=1.5)
+
+    graph = trace(model)
+    posterior = posterior_of(graph, key=jax.random.key(45), draws=256, warmup=8)
+    report = loo_report(posterior, graph=graph)
+    assert report.applicability is Applicability.APPLICABLE
+    assert measurements(report)["n_data_points"] == 2

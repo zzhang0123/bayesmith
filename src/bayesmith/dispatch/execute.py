@@ -428,27 +428,54 @@ def chain_diagnostics(
             numpyro's ``split_gelman_rubin`` refuses with a bare
             ``AssertionError``. A library assertion is not a diagnosis.
     """
-    grouped: dict[str, Any] = {}
+    return _site_reports(_coordinate_statistics(_group_chains(samples, num_chains)))
+
+
+def _group_chains(samples, num_chains):
+    grouped = {}
     for name, draws in samples.items():
-        values = _real_diagnostic_values(draws)
-        block = values.reshape((num_chains, -1, *values.shape[1:]))
+        values = np.asarray(draws)
+        grouped[name] = values.reshape((num_chains, -1, *values.shape[1:]))
+    return grouped
+
+
+class _CoordinateStatistics(NamedTuple):
+    values: np.ndarray
+    ess: np.ndarray
+    rhat: np.ndarray
+
+
+def _coordinate_statistics(grouped) -> dict[str, _CoordinateStatistics]:
+    statistics = {}
+    for name, draws in grouped.items():
+        block = _real_diagnostic_values(draws)
         if block.shape[1] < 4:
             raise ValueError(
                 f"site {name!r} has {block.shape[1]} draws per chain; split "
-                f"r-hat needs at least 4 draws. Sample for longer, or read "
-                f"`ess` alone."
+                "r-hat needs at least 4 draws. Sample for longer, or read `ess` alone."
             )
-        grouped[name] = block
+        statistics[name] = _CoordinateStatistics(
+            block, np.asarray(effective_sample_size(block), dtype=float),
+            np.asarray(split_gelman_rubin(block), dtype=float),
+        )
+    return statistics
 
-    total = sum(
-        int(np.prod(block.shape[2:], dtype=int)) for block in grouped.values()
-    ) or 1
 
+def _posterior_summary(statistics):
+    worst = min(
+        (float(np.min(np.where(np.isfinite(site.ess), site.ess, 1.0)))
+         for site in statistics.values()),
+        default=math.inf,
+    )
+    return worst, _site_reports(statistics)
+
+
+def _site_reports(statistics) -> dict[str, SiteDiagnostic]:
+    total = sum(site.ess.size for site in statistics.values()) or 1
     report: dict[str, SiteDiagnostic] = {}
-    for name, block in grouped.items():
-        r = np.atleast_1d(np.asarray(split_gelman_rubin(block), dtype=float))
-        e = np.atleast_1d(np.asarray(effective_sample_size(block), dtype=float))
-        shape = block.shape[2:]
+    for name, site in statistics.items():
+        r, e = np.atleast_1d(site.rhat), np.atleast_1d(site.ess)
+        shape = site.values.shape[2:]
         # `inf` wherever either statistic is unusable, so the worst coordinate
         # is chosen on a comparison that a nan would have silently won.
         usable = np.isfinite(r) & np.isfinite(e) & (e > 0.0)
@@ -495,23 +522,13 @@ def chain_diagnostics(
     return report
 
 
-def _diagnostics_or_none(
-    samples: Mapping[str, Any], num_chains: int
-) -> dict[str, SiteDiagnostic] | None:
-    """:func:`chain_diagnostics`, or ``None`` where it cannot be computed.
-
-    A run too short for split r-hat is not a reason to fail a sample that
-    otherwise succeeded -- the draws are still the draws, and :attr:`ess` still
-    describes them. So the refusal :func:`chain_diagnostics` raises is caught
-    HERE and nowhere else: a caller asking for diagnostics directly gets the
-    error and the diagnosis in it, while a caller who merely sampled gets
-    ``None`` and the abstention that :class:`Posterior` documents.
-    """
-    try:
-        return chain_diagnostics(samples, num_chains=num_chains)
-    except ValueError:
-        return None
-
+def _posterior_diagnostics(samples, num_chains, control=None):
+    if control is not None and control.final_diagnostics is not None:
+        return control.final_diagnostics
+    grouped = _group_chains(samples, num_chains)
+    if any(draws.shape[1] < 4 for draws in grouped.values()):
+        return chain_ess(samples, num_chains=num_chains), None
+    return _posterior_summary(_coordinate_statistics(grouped))
 
 
 def run_sample(
@@ -731,10 +748,10 @@ def _nuts_posterior(
     and ``nuts_options``.
     """
     samples = _latents_only(nuts_draws(graph, key, **chain), graph)
-    ess = chain_ess(samples, num_chains=chain["num_chains"])
+    ess, diagnostics = _posterior_diagnostics(samples, chain["num_chains"], chain.get("_control"))
     return Posterior(
         samples, None, ess, None, False, "nuts", reason,
-        _diagnostics_or_none(samples, chain["num_chains"]),
+        diagnostics,
     )
 
 
@@ -769,10 +786,10 @@ def _swept(
         from bayesmith.dispatch.sampling import run_mcmc
         raw = run_mcmc(mcmc, key, plan.graph, control, plan.exact.latents)
     samples = _latents_only(raw, plan.graph)
-    ess = chain_ess(samples, num_chains=chain["num_chains"])
+    ess, diagnostics = _posterior_diagnostics(samples, chain["num_chains"], control)
     return Posterior(
         samples, None, ess, None, False, plan.exact.method, plan._execution(),
-        _diagnostics_or_none(samples, chain["num_chains"]),
+        diagnostics,
     )
 
 

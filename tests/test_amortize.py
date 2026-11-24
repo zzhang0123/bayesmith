@@ -516,3 +516,53 @@ class TestADivergedRun:
         )
         assert bool(jnp.isfinite(fitted.log_prob(jnp.asarray([1.0]), data[0])))
         assert bool(jnp.all(jnp.isfinite(history.train)))
+
+
+def test_training_preserves_the_bank_standardization():
+    x = jnp.arange(8, dtype=jnp.float32)[:, None] / 10
+    start = NeuralPosterior.create(x, x, key=jax.random.key(3), n_components=1, width=4, depth=1)
+    fitted, _ = train_posterior(start, x, x, key=jax.random.key(10), n_steps=1,
+                                batch_size=1, learning_rate=0.3, validation_fraction=0)
+    for field in ("theta_mean", "theta_scale", "data_mean", "data_scale"):
+        np.testing.assert_array_equal(getattr(fitted, field), getattr(start, field))
+    assert np.isfinite(fitted.log_prob(x[0], x[0]))
+
+
+@pytest.mark.parametrize("case", ["missing_data", "empty", "wrong_width", "zero_batch", "empty_train"])
+def test_training_refuses_invalid_simulation_banks(case):
+    x = jnp.arange(8, dtype=jnp.float32)[:, None]
+    start = NeuralPosterior.create(x, x, key=jax.random.key(1))
+    theta, data = (x, x[:4]) if case == "missing_data" else (x, x)
+    if case == "empty":
+        theta, data = x[:0], x[:0]
+    if case == "wrong_width":
+        theta = jnp.repeat(x, 2, axis=1)
+    with pytest.raises(StructureError):
+        train_posterior(start, theta, data, key=jax.random.key(2), n_steps=1,
+                        batch_size=0 if case == "zero_batch" else 1,
+                        validation_fraction=0.99 if case == "empty_train" else 0.)
+
+
+def test_nonfinite_bank_statistics_are_refused_even_if_the_network_is_finite():
+    theta = jnp.tile(jnp.array([[2e20], [-2e20]], dtype=jnp.float32), (5, 1))
+    data = jnp.ones_like(theta)
+    start = NeuralPosterior.create(theta, data, key=jax.random.key(0))
+    with pytest.raises(Exception, match="non-finite estimator"):
+        train_posterior(start, theta, data, key=jax.random.key(1), n_steps=1)
+
+
+def test_missing_features_cannot_be_broadcast_into_the_trained_layout():
+    theta, data = draw_bank(jax.random.key(8), 16)
+    start = NeuralPosterior.create(theta, data, key=jax.random.key(9))
+    with pytest.raises(StructureError, match="feature"):
+        train_posterior(start, theta, data[:, :1], key=jax.random.key(10), n_steps=1)
+    with pytest.raises(StructureError, match="feature"):
+        start.sample(data[0, :1], jax.random.key(11), 2)
+    assert np.isfinite(start.log_prob(theta[0], data[0]))
+
+
+def test_density_requires_one_coordinate_per_parameter():
+    theta, data = draw_bank(jax.random.key(3), 8)
+    start = NeuralPosterior.create(jnp.tile(theta, (1, 2)), data, key=jax.random.key(4))
+    with pytest.raises(StructureError, match="parameter"):
+        start.log_prob(theta[0], data[0])

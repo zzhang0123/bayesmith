@@ -167,8 +167,7 @@ def test_a_homogeneous_campaign_is_unchanged(g_value):
 
 #: A per-epoch latent of COMPONENT width > 1, which is the only thing that
 #: makes ``(size, *domain.shape[name][1:])`` different from ``(size,)``.
-#: ``node_shape`` broadcasts the plate as a trailing axis, so a ``(E, k)``
-#: declaration is expressible only at ``k == E``; hence 3 epochs, 3 components.
+#: Each row is one epoch and each column a component of its vector event.
 SQUARE_EPOCHS = 3
 SQUARE_SCALES = np.array([[0.5, 1.0, 2.0], [3.0, 0.25, 1.5], [0.75, 4.0, 0.6]])
 SQUARE_MEANS = np.array([[0.1, -0.2, 0.3], [0.4, 0.0, -0.5], [1.0, 0.2, -0.1]])
@@ -182,7 +181,7 @@ def _square_campaign():
         g = sample("g", lambda: dist.Normal(0.0, 2.0))
         n = sample(
             "n",
-            lambda: dist.Normal(jnp.asarray(SQUARE_MEANS), jnp.asarray(SQUARE_SCALES)),
+            lambda: dist.Normal(jnp.asarray(SQUARE_MEANS), jnp.asarray(SQUARE_SCALES)).to_event(1),
             plate=epoch,
         )
         mu = det(
@@ -230,9 +229,8 @@ def _square_dense(g_value):
 def test_a_per_epoch_latent_of_component_width_uses_each_component(g_value):
     """Every component of every epoch's declaration is read.
 
-    ``target = (size,)`` -- the broadcast target with ``[1:]`` deleted -- passes
-    the entire fast layer, because every other campaign fixture in this package
-    has a per-epoch latent of component width 1, where the two tuples are equal.
+    The epoch indexes rows of the model literals. Its vector event indexes
+    columns, so each epoch uses the mean and width of every component.
     """
     with jax.enable_x64(True):
         term = compress_campaign(_square_campaign(), "epoch")

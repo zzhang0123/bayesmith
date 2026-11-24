@@ -214,7 +214,7 @@ Raises:
         ``linear_in`` (see :func:`affinity_errors`); or if an outside
         latent&#x27;s prior has no sampler (propagated from
         :func:`prior_at_points`).
-    NotGaussian: propagated from the block machinery.</pre></section><section class="api-symbol"><h2 id="gaussian_parts">gaussian_parts</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 96.</p><pre><code>gaussian_parts(graph: Graph, node: Node, env: dict[str, Any]) -&gt; tuple[jax.Array, jax.Array]</code></pre><pre class="docstring">``(loc, scale)`` of ``node``&#x27;s distribution, ``scale`` broadcast to ``loc``.
+    NotGaussian: propagated from the block machinery.</pre></section><section class="api-symbol"><h2 id="gaussian_parts">gaussian_parts</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 100.</p><pre><code>gaussian_parts(graph: Graph, node: Node, env: dict[str, Any]) -&gt; tuple[jax.Array, jax.Array]</code></pre><pre class="docstring">``(loc, scale)`` of ``node``&#x27;s distribution, ``scale`` broadcast to ``loc``.
 
 Traceable and **unchecked** -- pair it with :func:`check_gaussian`, which
 runs once on concrete values before any trace is opened.
@@ -232,7 +232,7 @@ Raises:
         is a **classification outcome, not a fault**: P3b&#x27;s dispatcher
         catches it and routes the block to NUTS.
     StructureError: if ``loc`` has an integer dtype. That one IS a fault --
-        a conjugate solve differentiates through ``loc``.</pre></section><section class="api-symbol"><h2 id="check_gaussian">check_gaussian</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 221.</p><pre><code>check_gaussian(graph: Graph, node: Node, env: dict[str, Any], *, rtol: float | None=None) -&gt; dict[float, float]</code></pre><pre class="docstring">Verify the extracted ``(loc, scale)`` really reproduce ``node``&#x27;s log_prob.
+        a conjugate solve differentiates through ``loc``.</pre></section><section class="api-symbol"><h2 id="check_gaussian">check_gaussian</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 205.</p><pre><code>check_gaussian(graph: Graph, node: Node, env: dict[str, Any], *, rtol: float | None=None) -&gt; dict[float, float]</code></pre><pre class="docstring">Verify the extracted ``(loc, scale)`` really reproduce ``node``&#x27;s log_prob.
 
 Costs ``len(PROBE_OFFSETS)`` evaluations of ``log_prob``. Runs on concrete
 values, **outside** any trace.
@@ -270,13 +270,13 @@ Returns:
 Raises:
     NotGaussian: propagated from :func:`gaussian_parts`.
     StructureError: if the scale is not strictly positive and finite, or
-        if any probe disagrees by more than ``rtol`` at any entry.</pre></section><section class="api-symbol"><h2 id="noise_std_at">noise_std_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 572.</p><pre><code>noise_std_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">``{obs: scale}`` with the latents at ``values`` -- the GLS seam.
+        if any probe disagrees by more than ``rtol`` at any entry.</pre></section><section class="api-symbol"><h2 id="noise_std_at">noise_std_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 553.</p><pre><code>noise_std_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">``{obs: scale}`` with the latents at ``values`` -- the GLS seam.
 
 ``iterative_gls`` iterates this: solve at the current sigma, recompute
 sigma at the new solution, repeat. Whether it moves at all is what
 separates a single Wiener solve from a reweighting loop, and
 ``test_noise_std_at_moves_with_the_latent_only_for_a_prediction_dependent_node``
-exercises both sides.</pre></section><section class="api-symbol"><h2 id="precision_parts">precision_parts</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 418.</p><pre><code>precision_parts(graph: Graph, node: Node, env: dict[str, Any]) -&gt; tuple[jax.Array, Any]</code></pre><pre class="docstring">``(loc, Precision)`` -- the ONE object the whole exact path should read.
+exercises both sides.</pre></section><section class="api-symbol"><h2 id="precision_parts">precision_parts</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 399.</p><pre><code>precision_parts(graph: Graph, node: Node, env: dict[str, Any]) -&gt; tuple[jax.Array, Any]</code></pre><pre class="docstring">``(loc, Precision)`` -- the ONE object the whole exact path should read.
 
 The widened counterpart of :func:`gaussian_parts`, which returns a
 per-sample ``scale`` and so can only ever describe a diagonal covariance.
@@ -319,7 +319,7 @@ written to be deleted and this is its deletion.
 
 Raises:
     NotGaussian: for any other distribution, as before.
-    StructureError: for an integer ``loc``, as before.</pre></section><section class="api-symbol"><h2 id="precision_at">precision_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 585.</p><pre><code>precision_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, Any]</code></pre><pre class="docstring">``{obs: Precision}`` with the latents at ``values`` -- the OPERATOR seam.
+    StructureError: for an integer ``loc``, as before.</pre></section><section class="api-symbol"><h2 id="precision_at">precision_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 566.</p><pre><code>precision_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, Any]</code></pre><pre class="docstring">``{obs: Precision}`` with the latents at ``values`` -- the OPERATOR seam.
 
 The counterpart of :func:`noise_std_at`, and deliberately **not** its
 replacement. The seam SPLITS rather than renames, because the two sides
@@ -357,7 +357,7 @@ The bridge from the decided-sigma dict the package passes around today.
 It exists so the generalisation can land without every caller changing at
 once, and so the diagonal path keeps going through the SAME code the
 correlated one does -- a compatibility shim that bypassed the protocol
-would leave the degeneracy untested where it matters.</pre></section><section class="api-symbol"><h2 id="wiener_solve">wiener_solve</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 481.</p><pre><code>wiener_solve(block: LinearBlock, *, precision: dict[str, Precision], tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Posterior mean of a linear-Gaussian block -- the Wiener filter, by CG.
+would leave the degeneracy untested where it matters.</pre></section><section class="api-symbol"><h2 id="wiener_solve">wiener_solve</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 484.</p><pre><code>wiener_solve(block: LinearBlock, *, precision: dict[str, Precision], tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Posterior mean of a linear-Gaussian block -- the Wiener filter, by CG.
 
 This is the posterior **mean**, not a sample. For a draw see
 :func:`gcr_sample`, which adds a fluctuation term to this same right-hand
@@ -426,15 +426,16 @@ Args:
 
 Returns:
     ``(x_hat, relative_residual)``, the residual being
-    ``||M x_hat - b|| / ||b||``. Note this is the residual, not the error;
-    multiply by :func:`condition_bound` for the error bound.
+    ``||M x_hat - b|| / ||b||``. For a zero right-hand side an exact
+    solution has residual zero and a nonzero misfit has infinite relative
+    residual. Multiply by :func:`condition_bound` for the error bound.
 
 Note:
     **Where S comes from.** Each latent&#x27;s own ``dist_fn`` is this
     package&#x27;s one statement of what it is a priori, and it is the
     statement ``to_numpyro`` reads. So it is the statement this solve
     reads too -- there is no keyword to override it, and therefore no way
-    for the exact exit and NUTS to target different posteriors.</pre></section><section class="api-symbol"><h2 id="gcr_sample">gcr_sample</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 578.</p><pre><code>gcr_sample(block: LinearBlock, *, precision: dict[str, Precision], key: jax.Array, tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Draw an EXACT posterior sample of a linear-Gaussian block.
+    for the exact exit and NUTS to target different posteriors.</pre></section><section class="api-symbol"><h2 id="gcr_sample">gcr_sample</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 582.</p><pre><code>gcr_sample(block: LinearBlock, *, precision: dict[str, Precision], key: jax.Array, tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Draw an EXACT posterior sample of a linear-Gaussian block.
 
 The constrained-realization identity: solve the same system
 :func:`wiener_solve` does, with two white-noise terms added to the

@@ -10,7 +10,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from numpyro import handlers
-from numpyro.diagnostics import effective_sample_size, split_gelman_rubin
 from numpyro.infer import init_to_value
 from numpyro.infer.util import initialize_model
 
@@ -28,6 +27,7 @@ class SamplingControl:
     initial_values: tuple[NamedArray, ...] = ()
     details: dict = field(default_factory=dict)
     checkpoints: list = field(default_factory=list)
+    final_diagnostics: tuple | None = field(default=None, init=False, repr=False)
 
     def record(self):
         return tuple(
@@ -121,39 +121,35 @@ def _finite(value):
     return value if math.isfinite(value) else None
 
 
-def checkpoint_diagnostics(grouped, divergences, policy):
+def checkpoint_diagnostics(grouped, divergences, policy, *, control=None):
     """Every coordinate is monitored; missing/nonfinite evidence cannot pass."""
-    from bayesmith.dispatch.execute import (
-        _real_diagnostic_values,
-        chain_diagnostics,
-    )
+    from bayesmith.dispatch.execute import _coordinate_statistics, _posterior_summary
 
-    chains, draws = next(iter(grouped.values())).shape[:2]
-    if draws < 4:
+    if next(iter(grouped.values())).shape[1] < 4:
+        if control is not None:
+            control.final_diagnostics = None
         return False, (("diagnostics", "insufficient_draws"),)
-    flat = {n: v.reshape((-1,) + v.shape[2:]) for n, v in grouped.items()}
-    owned = chain_diagnostics(flat, num_chains=chains)
-    passed = all(d.converged for d in owned.values())
+    statistics = _coordinate_statistics(grouped)
+    summary = _posterior_summary(statistics)
+    if control is not None:
+        control.final_diagnostics = summary
+    passed = all(d.converged for d in summary[1].values())
     min_ess, max_rhat, max_mcse = math.inf, -math.inf, -math.inf
-    for value in grouped.values():
-        value = _real_diagnostic_values(value)
-        ess = np.asarray(effective_sample_size(value))
-        rhat = np.asarray(split_gelman_rubin(value))
-        variance = np.var(
-            np.asarray(value).reshape((-1,) + value.shape[2:]), axis=0, ddof=1
-        )
+    invalid_sites = []
+    for name, (value, ess, rhat) in statistics.items():
+        variance = np.var(value.reshape((-1,) + value.shape[2:]), axis=0, ddof=1)
         with np.errstate(divide="ignore", invalid="ignore"):
             mcse = np.sqrt(variance / ess)
-        if not (
-            np.all(np.isfinite(ess))
-            and np.all(ess > 0)
-            and np.all(np.isfinite(rhat))
-            and np.all(np.isfinite(mcse))
-        ):
+        valid_ess = bool(np.all(np.isfinite(ess) & (ess > 0)))
+        valid_rhat = bool(np.all(np.isfinite(rhat)))
+        valid_mcse = bool(np.all(np.isfinite(mcse))) and valid_ess
+        if not (valid_ess and valid_rhat and valid_mcse):
             passed = False
-        min_ess = min(min_ess, float(np.min(ess)))
-        max_rhat = max(max_rhat, float(np.max(rhat)))
-        max_mcse = max(max_mcse, float(np.max(mcse)))
+            invalid_sites.append(name)
+        # The invalid sentinel wins the reduction in either site order.
+        min_ess = min(min_ess, float(np.min(ess)) if valid_ess else -math.inf)
+        max_rhat = max(max_rhat, float(np.max(rhat)) if valid_rhat else math.inf)
+        max_mcse = max(max_mcse, float(np.max(mcse)) if valid_mcse else math.inf)
         if policy.ess_min is not None:
             passed &= bool(np.all(ess >= policy.ess_min))
         if policy.rhat_max is not None:
@@ -166,6 +162,7 @@ def checkpoint_diagnostics(grouped, divergences, policy):
         ("rhat_max", _finite(max_rhat)),
         ("mcse_mean_max", _finite(max_mcse)),
         ("divergences", divergences),
+        ("invalid_sites", tuple(sorted(invalid_sites))),
     )
 
 
@@ -218,7 +215,7 @@ def run_mcmc(mcmc, key, graph, control, gibbs_names=()):
             else divergence_count + int(np.sum(np.asarray(extra)))
         )
         count += size
-        passed, metrics = checkpoint_diagnostics(grouped, divergence_count, policy)
+        passed, metrics = checkpoint_diagnostics(grouped, divergence_count, policy, control=control)
         control.checkpoints.append(
             (("draws_per_chain", count), ("passed", passed), *metrics)
         )

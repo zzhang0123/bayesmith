@@ -38,7 +38,7 @@ over a model whose ``obs=`` is baked in returns the observed node&#x27;s DATA,
 identical in every draw -- standard deviation ``0`` across 3000 draws
 against a prediction spread of 0.26. That is correct of NumPyro and is
 not what &quot;posterior predictive&quot; usually means, so the mode that gives the
-other reading has to exist rather than be assumed.</pre></section><section class="api-symbol"><h2 id="init_to_declared">init_to_declared</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 201.</p><pre><code>init_to_declared(graph: Graph | ReducedGraph) -&gt; Any</code></pre><pre class="docstring">A NumPyro init strategy that starts where the graph&#x27;s priors sit.
+other reading has to exist rather than be assumed.</pre></section><section class="api-symbol"><h2 id="init_to_declared">init_to_declared</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 202.</p><pre><code>init_to_declared(graph: Graph | ReducedGraph) -&gt; Any</code></pre><pre class="docstring">A NumPyro init strategy that starts where the graph&#x27;s priors sit.
 
 Pass it as ``nuts(graph, key, nuts_options={&quot;init_strategy&quot;:
 init_to_declared(graph)})``.
@@ -66,7 +66,7 @@ second spelling of that point lets the sampler start somewhere the
 classifier never looked.
 
 The declared point does not have to be GOOD -- only somewhere a gradient
-can be followed.</pre></section><section class="api-symbol"><h2 id="nuts">nuts</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 241.</p><pre><code>nuts(graph: Graph | ReducedGraph, key: jax.Array, *, num_warmup: int=1000, num_samples: int=2000, num_chains: int=1, chain_method: str=&#x27;sequential&#x27;, progress_bar: bool=False, nuts_options: Mapping[str, Any] | None=None, _control: Any=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Sample the posterior of ``graph`` with NUTS.
+can be followed.</pre></section><section class="api-symbol"><h2 id="nuts">nuts</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 242.</p><pre><code>nuts(graph: Graph | ReducedGraph, key: jax.Array, *, num_warmup: int=1000, num_samples: int=2000, num_chains: int=1, chain_method: str=&#x27;sequential&#x27;, progress_bar: bool=False, nuts_options: Mapping[str, Any] | None=None, _control: Any=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Sample the posterior of ``graph`` with NUTS.
 
 ``chain_method`` and ``nuts_options`` are here because
 :meth:`~bayesmith.dispatch.plan.InferencePlan.sample` promises them on
@@ -116,7 +116,7 @@ Args:
         was the sentence saying so.
 
 Returns:
-    A mapping from latent node name to its draws.</pre></section><section class="api-symbol"><h2 id="predict">predict</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 320.</p><pre><code>predict(graph: Graph | ReducedGraph, samples: Mapping[str, Any], key: jax.Array | None=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Posterior predictive: every node&#x27;s value over a stack of draws.
+    A mapping from latent node name to its draws.</pre></section><section class="api-symbol"><h2 id="predict">predict</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 321.</p><pre><code>predict(graph: Graph | ReducedGraph, samples: Mapping[str, Any], key: jax.Array | None=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Posterior predictive: every node&#x27;s value over a stack of draws.
 
 Args:
     graph: the model the draws came from.

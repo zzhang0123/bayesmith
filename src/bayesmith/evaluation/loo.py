@@ -72,6 +72,7 @@ construction rather than by maintenance.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.metadata
 from typing import Any
 
@@ -81,17 +82,28 @@ from bayesmith.artifacts.base import (
     ArtifactRef,
     new_artifact_meta,
 )
-from bayesmith.artifacts.identity import ArtifactKind
+from bayesmith.artifacts.identity import (
+    ArtifactKind,
+    FingerprintKind,
+    ModelRef,
+    fingerprint,
+)
 from bayesmith.artifacts.refusal import Finding
 from bayesmith.artifacts.reports import Applicability, Conclusion, EvaluationReport
 from bayesmith.artifacts.results import (
+    DrawsPosterior,
     PosteriorResult,
     PredictiveResult,
     WeightedDrawsPosterior,
 )
 from bayesmith.bridge.arviz import to_inference_data
+from bayesmith.dispatch._task_identity import (
+    data_manifest,
+    graph_manifest_for_identifier,
+)
 from bayesmith.dispatch.task import PRODUCER
 from bayesmith.graph.graph import Graph
+from bayesmith.graph.nodes import Probabilistic
 
 __all__ = ["REPORT_KIND", "loo_report"]
 
@@ -137,27 +149,105 @@ def _chain_shape(
     return (1, draws)
 
 
-def _weighted(result: Any, source_posterior: Any) -> WeightedDrawsPosterior | None:
-    """The importance-weighted sample in play, if the caller handed one over.
+def _source_weighting(
+    result: PosteriorResult | PredictiveResult,
+    source_posterior: PosteriorResult | None,
+) -> tuple[str | None, WeightedDrawsPosterior | None]:
+    """Read the source representation or the weighting recorded at execution."""
+    recorded = None
+    if isinstance(result, PosteriorResult):
+        posterior = result
+    else:
+        recorded = dict(result.run.approximation.details).get("source_weighting")
+        if source_posterior is None:
+            return recorded, None
+        ref = result.source_posterior_ref
+        if not isinstance(source_posterior, PosteriorResult) or (
+            source_posterior.meta.artifact_id != ref.artifact_id
+            or source_posterior.meta.revision != ref.revision
+        ):
+            raise TypeError(
+                "source_posterior must match the predictive source_posterior_ref"
+            )
+        posterior = source_posterior
+    representation = posterior.representation
+    if isinstance(representation, WeightedDrawsPosterior):
+        weighting, weighted = "importance", representation
+    elif isinstance(representation, DrawsPosterior):
+        weighting, weighted = "equal", None
+    else:
+        return None, None
+    if recorded is not None and recorded != weighting:
+        raise TypeError("source posterior weighting differs from the predictive record")
+    return weighting, weighted
 
-    Two places to look, because a result does not always carry the sample it
-    was made from. A :class:`~bayesmith.artifacts.results.PosteriorResult`
-    holds its own representation; a
-    :class:`~bayesmith.artifacts.results.PredictiveResult` holds only a
-    ``source_posterior_ref``, so a caller who still has the source hands it in
-    the way it hands in ``chain_shape``.
 
-    The four posterior representations are frozen by R1, so naming the one
-    that carries weights ENUMERATES rather than guesses -- a ``hasattr`` on
-    ``log_weights`` would silently answer "no" for anything spelled
-    differently, and answering "no" here is the failure mode this function
-    exists to remove.
-    """
-    for candidate in (result, source_posterior):
-        representation = getattr(candidate, "representation", None)
-        if isinstance(representation, WeightedDrawsPosterior):
-            return representation
+def _graph_identity_finding(result, graph, model_ref, extra_data) -> Finding | None:
+    """Verify the graph inputs that select the observation columns and their factors."""
+    recorded = result.run.fingerprints
+    identifier = dict(result.run.approximation.details).get("model_identifier")
+    if model_ref is not None:
+        if not isinstance(model_ref, ModelRef):
+            raise TypeError("model_ref must be the ModelRef used to compile the result")
+        if fingerprint(FingerprintKind.MODEL_SOURCE, model_ref) != recorded.model_source:
+            return Finding(code="loo_graph_mismatch", message="The model source fingerprint differs.")
+        identifier = model_ref.identifier
+    if identifier is None:
+        return Finding(
+            code="loo_model_ref_required",
+            message="Supply the original model_ref to verify this result's graph structure.",
+        )
+    structure = graph_manifest_for_identifier(graph, identifier)
+    if fingerprint(FingerprintKind.GRAPH_STRUCTURE, structure) != recorded.graph_structure:
+        return Finding(code="loo_graph_mismatch", message="The graph structure fingerprint differs.")
+    if fingerprint(FingerprintKind.DATA, data_manifest(graph, extra_data)) != recorded.data:
+        return Finding(
+            code="loo_graph_mismatch",
+            message="The graph data fingerprint differs. Supply the original data, masks and extra_data.",
+        )
     return None
+
+
+def _dependent_factor(graph: Graph, retained: set[str]) -> tuple[str, str] | None:
+    """Find a retained observation used to parameterise another fitted factor.
+
+    A deterministic node carries all of its parents' inputs forward. At a
+    probabilistic node the value in the fitted joint is an observed datum or
+    a latent draw. A fully masked observation contributes no factor, and its
+    recorded value stays fixed when another observation is left out.
+    """
+    origins: dict[str, str] = {}
+    for node in graph.nodes:
+        parent = next((origins[name] for name in node.parents if name in origins), None)
+        if isinstance(node, Probabilistic):
+            if parent is not None and (node.is_latent or node.name in retained):
+                return parent, node.name
+            if node.name in retained:
+                origins[node.name] = node.name
+        elif parent is not None:
+            origins[node.name] = parent
+    return None
+
+
+def _retain_observed_units(idata: Any, graph: Graph) -> None:
+    """Select the same site order and row-major units as pointwise_log_likelihood."""
+    if all(graph.node(name).observed_mask is None for name in graph.observed):
+        return
+    masks = []
+    for name in graph.observed:
+        mask = graph.node(name).observed_mask
+        shape = idata["observed_data"][name].shape
+        masks.append(np.broadcast_to(True if mask is None else mask, shape).ravel())
+    retained = np.concatenate(masks)
+    if not retained.all():
+        from xarray import Dataset
+
+        likelihood = idata["log_likelihood"]["log_likelihood"].values
+        chains, draws = likelihood.shape[:2]
+        values = likelihood.reshape(chains, draws, -1)[:, :, retained]
+        idata["log_likelihood"] = Dataset(
+            {"log_likelihood": (("chain", "draw", "observation"), values)}
+        )
 
 
 def _finite(value: Any) -> float | None:
@@ -267,6 +357,8 @@ def loo_report(
     graph: Graph,
     chain_shape: tuple[int, int] | None = None,
     source_posterior: Any = None,
+    model_ref: ModelRef | None = None,
+    extra_data: tuple[tuple[str, Any], ...] = (),
 ) -> EvaluationReport:
     """Judge one result's PSIS-LOO, via ``arviz.loo`` over R2's export.
 
@@ -281,12 +373,16 @@ def loo_report(
             holding the source posterior's may supply it here; left out, an
             unchained result is exported as one chain.
         source_posterior: the :class:`~bayesmith.artifacts.results.PosteriorResult`
-            a predictive result came from, read ONLY for its representation --
-            it is what says whether the sample is importance-weighted, and a
-            ``source_posterior_ref`` is a pointer, not a representation. It
+            a predictive result came from. Its ID and revision must match.
+            It supplies weighting provenance for older predictives and any latent
+            draws omitted from the predictive that the ArviZ export needs. It
             deliberately does not supply ``chain_shape``: that override already
             has a home above, and one argument quietly feeding two decisions is
             how the second one stops being visible.
+
+        model_ref: original model reference for older results which do not record
+            their model identifier. When supplied, its source fingerprint is checked.
+        extra_data: additional conditioning data supplied to compile_task, if any.
 
     Returns:
         An :class:`~bayesmith.artifacts.reports.EvaluationReport` of kind
@@ -324,9 +420,39 @@ def loo_report(
             summary="no pointwise log density to cross-validate",
         )
 
-    weighted = _weighted(result, source_posterior)
-    if weighted is not None:
-        draws = int(weighted.log_weights.value.shape[0])
+    weighting, weighted = _source_weighting(result, source_posterior)
+    if weighting not in ("importance", "equal"):
+        return _report(
+            result,
+            applicability=Applicability.UNVERIFIABLE,
+            conclusion=Conclusion.ABSTAIN,
+            findings=(
+                Finding(
+                    code="source_weighting_unknown",
+                    message=(
+                        "A predictive result with no recorded weighting needs its source posterior."
+                    ),
+                ),
+            ),
+            summary="source posterior weighting is unknown",
+        )
+    if weighting == "importance":
+        description = ()
+        if weighted is not None:
+            description = (
+                Finding(
+                    code="weighted_sample",
+                    message="the weighted representation supplied to this check",
+                    observed=(
+                        ("representation", type(weighted).__name__),
+                        ("method", weighted.method),
+                        ("draws", int(weighted.log_weights.value.shape[0])),
+                        ("recorded_ess", _finite(weighted.ess)),
+                        ("recorded_khat", _finite(weighted.khat)),
+                        ("recorded_unreliable", bool(weighted.unreliable)),
+                    ),
+                ),
+            )
         return _report(
             result,
             applicability=Applicability.UNVERIFIABLE,
@@ -342,20 +468,56 @@ def loo_report(
                     observed=False,
                     expected=True,
                 ),
-                Finding(
-                    code="weighted_sample",
-                    message="the weighted representation this report declined to read",
-                    observed=(
-                        ("representation", type(weighted).__name__),
-                        ("method", weighted.method),
-                        ("draws", draws),
-                        ("recorded_ess", _finite(weighted.ess)),
-                        ("recorded_khat", _finite(weighted.khat)),
-                        ("recorded_unreliable", bool(weighted.unreliable)),
-                    ),
-                ),
+                *description,
             ),
             summary="the sample is weighted and the export is not; LOO was not computed",
+        )
+
+    identity = _graph_identity_finding(result, graph, model_ref, extra_data)
+    if identity is not None:
+        return _report(
+            result,
+            applicability=Applicability.UNVERIFIABLE,
+            conclusion=Conclusion.ABSTAIN,
+            findings=(identity,),
+            summary="the supplied graph could not be matched to the fitted result",
+        )
+
+    retained = {
+        name for name in graph.observed
+        if graph.node(name).observed_mask is None or np.any(graph.node(name).observed_mask)
+    }
+    if not retained:
+        return _report(
+            result,
+            applicability=Applicability.INAPPLICABLE,
+            conclusion=Conclusion.ABSTAIN,
+            findings=(
+                Finding(
+                    code="no_observed_units", message="Every observation was held out."
+                ),
+            ),
+            summary="no fitted observations to cross-validate",
+        )
+
+    dependency = _dependent_factor(graph, retained)
+    if dependency is not None:
+        parent, child = dependency
+        return _report(
+            result,
+            applicability=Applicability.INAPPLICABLE,
+            conclusion=Conclusion.ABSTAIN,
+            findings=(
+                Finding(
+                    code="dependent_observation_factors",
+                    message=(
+                        f"Leaving out {parent!r} also changes the factor for {child!r}. "
+                        "Ordinary pointwise PSIS-LOO requires a single removable likelihood factor."
+                    ),
+                    observed=dependency,
+                ),
+            ),
+            summary="dependent observations require conditional leave-one-out densities",
         )
 
     try:
@@ -380,9 +542,33 @@ def loo_report(
         )
 
     draws = int(pointwise.value.shape[0])
+    export_result = result
+    if isinstance(result, PredictiveResult) and not set(graph.latents).issubset(
+        array.name for array in result.latent_draws
+    ):
+        if source_posterior is None:
+            return _report(
+                result,
+                applicability=Applicability.UNVERIFIABLE,
+                conclusion=Conclusion.ABSTAIN,
+                findings=(
+                    Finding(
+                        code="source_draws_required",
+                        message=(
+                            "The predictive omitted latent draws needed by the ArviZ projection. "
+                            "Supply its source posterior."
+                        ),
+                    ),
+                ),
+                summary="source draws are required for the ArviZ projection",
+            )
+        export_result = dataclasses.replace(
+            result, latent_draws=source_posterior.representation.draws
+        )
     idata = to_inference_data(
-        result, graph=graph, chain_shape=_chain_shape(result, chain_shape, draws)
+        export_result, graph=graph, chain_shape=_chain_shape(result, chain_shape, draws)
     )
+    _retain_observed_units(idata, graph)
     elpd = az.loo(idata)
 
     warned = bool(elpd.warning)

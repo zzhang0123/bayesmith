@@ -788,3 +788,11 @@ def test_check_frozen_sigma_is_not_wired_into_the_freeze_and_should_not_be():
         }
         with pytest.raises(FrozenSigmaMismatch, match="away from the solution"):
             check_frozen_sigma(block, wide, fixed.solution)
+
+
+def test_self_normalise_uses_all_draw_axes():
+    mass = np.array([[1, 2, 3], [4, 5, 6]], dtype=float)
+    weights, ess = self_normalise(jnp.log(mass))
+    expected = mass / mass.sum()
+    np.testing.assert_allclose(weights, expected, rtol=1e-6)
+    assert float(ess) == pytest.approx(1 / (expected**2).sum(), rel=1e-6)

@@ -863,3 +863,38 @@ class TestTheSVDAsksForWhatItUses:
                 np.asarray(v_true[rank:], dtype=np.float64),
                 np.asarray(v_false[rank:], dtype=np.float64),
             )
+
+
+@pytest.mark.parametrize("mask", [[True, False], [False, False], [True, True]])
+def test_rank_uses_only_observed_jacobian_rows(mask):
+    import numpyro.distributions as dist
+
+    import bayesmith as bs
+
+    def model():
+        x = bs.sample("x", lambda: dist.Normal(jnp.zeros(2), 1).to_event(1))
+        bs.observe("y", lambda v: dist.Normal(v, 1), x, obs=jnp.zeros(2),
+                   mask=jnp.array(mask))
+
+    with jax.enable_x64():
+        result = identifiability(bs.trace(model))
+    kept = np.eye(2)[mask, :]
+    assert (result.n_data, result.rank, result.nullity) == (sum(mask), sum(mask), 2 - sum(mask))
+    np.testing.assert_array_equal(result.jacobian, kept)
+    np.testing.assert_allclose(result.null_space.T @ result.null_space, np.eye(2) - kept.T @ kept)
+
+
+def test_masks_follow_the_named_row_layout_of_the_joint_jacobian():
+    import numpyro.distributions as dist
+
+    import bayesmith as bs
+
+    def model():
+        x = bs.sample("x", lambda: dist.Normal(jnp.zeros(2), 1).to_event(1))
+        bs.observe("z", lambda v: dist.Normal(v, 1), x, obs=jnp.zeros(2),
+                   mask=jnp.array([False, True]))
+        bs.observe("a", lambda v: dist.Normal(v[0], 1), x, obs=0.)
+
+    with jax.enable_x64():
+        result = identifiability(bs.trace(model))
+    np.testing.assert_array_equal(result.jacobian, np.eye(2))

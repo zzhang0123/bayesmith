@@ -107,7 +107,7 @@ Attributes:
     spans: ``(start, stop)`` of each latent within the flat parameter
         vector, in the same order.
     n_par: total number of real parameters.
-    n_data: size of the flattened prediction over every observed node.
+    n_data: number of retained scalar data entries across observed nodes.
         ``nullity`` can never be below ``n_par - n_data``: more
         parameters than data points is a null space by counting alone.
     rank: number of singular values of the COLUMN-NORMALISED Jacobian
@@ -157,6 +157,7 @@ out at 0.50/0.50, which is the true statement about it.</pre></section><section 
 
 The diagnostic that sees ACROSS blocks. See the module docstring for why
 no per-block guard can, and for the measured case that motivates it.
+Only rows retained by each observation mask enter the rank calculation.
 
 Args:
     graph: the model.

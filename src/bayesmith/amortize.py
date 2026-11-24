@@ -57,6 +57,7 @@ Usage::
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
@@ -86,6 +87,17 @@ __all__ = [
 MIN_SCALE: float = 1e-3
 
 
+def _validate_bank(thetas: jax.Array, data: jax.Array) -> None:
+    if thetas.ndim != 2:
+        raise StructureError(f"thetas must be (n_simulations, n_params), got shape {thetas.shape}.")
+    if data.ndim == 0 or thetas.shape[0] != data.shape[0]:
+        raise StructureError(
+            f"theta and data banks must be the same pairs, got shapes {thetas.shape} and {data.shape}."
+        )
+    if thetas.shape[0] == 0:
+        raise StructureError("the simulation bank must contain at least one pair")
+
+
 def _standardize(values: jax.Array) -> tuple[jax.Array, jax.Array]:
     """Per-feature mean and a strictly positive scale."""
     mean = jnp.mean(values, axis=0)
@@ -95,7 +107,7 @@ def _standardize(values: jax.Array) -> tuple[jax.Array, jax.Array]:
 
 def _all_finite(tree: Any) -> jax.Array:
     """One boolean over every inexact leaf of ``tree``."""
-    leaves = jax.tree.leaves(tree)
+    leaves = jax.tree.leaves(eqx.filter(tree, eqx.is_inexact_array))
     if not leaves:
         return jnp.asarray(True)
     return jnp.all(
@@ -122,7 +134,7 @@ class NeuralPosterior(eqx.Module):
             posterior, which is what makes the linear-Gaussian check sharp.
         n_params: length of the latent vector (static).
         theta_mean, theta_scale, data_mean, data_scale: standardization,
-            derived from the bank.
+            derived from the bank and held fixed during training.
         min_scale: floor on a component's standardized scale (static).
     """
 
@@ -163,34 +175,18 @@ class NeuralPosterior(eqx.Module):
 
         Raises:
             StructureError: if ``thetas`` is not a two-dimensional stack, if
-                the two halves disagree on how many simulations there are, if
+                the bank is empty or the two halves disagree in length, if
                 ``n_components`` is not positive, or if ``min_scale`` is
-                negative.
+                negative or nonfinite.
         """
-        if thetas.ndim != 2:
-            raise StructureError(
-                f"thetas must be (n_simulations, n_params), got shape {thetas.shape}."
-            )
-        if thetas.shape[0] != data.shape[0]:
-            raise StructureError(
-                f"thetas has {thetas.shape[0]} simulations but data has "
-                f"{data.shape[0]}; they must be the same pairs."
-            )
+        _validate_bank(thetas, data)
         if not n_components >= 1:  # `not >=` so a NaN count is refused too
             raise StructureError(f"n_components must be positive, got {n_components}.")
-        if not min_scale >= 0.0:  # likewise, and this one is measured below
-            raise StructureError(
-                f"min_scale must be non-negative, got {min_scale}. A negative "
-                "floor is subtracted from a strictly positive softplus, so a "
-                "component whose raw output is sufficiently negative gets a "
-                "NEGATIVE scale -- and `log(scale)` in the density is then NaN "
-                "for every query, while the network's own parameters stay "
-                "perfectly finite. Measured: min_scale=-1.0 returns NaN from "
-                "log_prob on an untrained estimator, and no guard downstream "
-                "sees it, because there is nothing wrong with the estimator. "
-                "Zero IS allowed: softplus never reaches it."
-            )
+        if not math.isfinite(min_scale) or min_scale < 0:
+            raise StructureError(f"min_scale must be finite and non-negative, got {min_scale}.")
         features = jax.vmap(embed)(data)
+        if features.ndim != 2:
+            raise StructureError("embed must return a one-dimensional feature vector per datum.")
         n_params = thetas.shape[1]
         theta_mean, theta_scale = _standardize(thetas)
         data_mean, data_scale = _standardize(features)
@@ -215,7 +211,12 @@ class NeuralPosterior(eqx.Module):
 
     def _mixture(self, datum: jax.Array):
         """``(log_weights, means, scales)`` in STANDARDIZED latent space."""
-        features = (self.embed(datum) - self.data_mean) / self.data_scale
+        features = jnp.asarray(self.embed(datum))
+        if features.shape != self.data_mean.shape:
+            raise StructureError(
+                f"expected embedded feature shape {self.data_mean.shape}, got {features.shape}."
+            )
+        features = (features - self.data_mean) / self.data_scale
         raw = self.net(features)
         k, d = self.n_components, self.n_params
         logits = raw[:k]
@@ -229,7 +230,12 @@ class NeuralPosterior(eqx.Module):
     def log_prob(self, theta: jax.Array, datum: jax.Array) -> jax.Array:
         """``log q(theta | x)`` for one pair, in the latent's own units."""
         log_weights, means, scales = self._mixture(datum)
-        z = (jnp.ravel(theta) - self.theta_mean) / self.theta_scale
+        coordinates = jnp.ravel(theta)
+        if coordinates.shape != self.theta_mean.shape:
+            raise StructureError(
+                f"expected {self.n_params} parameter coordinates, got {coordinates.size}."
+            )
+        z = (coordinates - self.theta_mean) / self.theta_scale
         per_component = jnp.sum(
             -0.5 * ((z - means) / scales) ** 2
             - jnp.log(scales)
@@ -313,7 +319,7 @@ def train_posterior(
     Args:
         posterior: from :meth:`NeuralPosterior.create` (or a partly trained one;
             training resumes from wherever it is).
-        thetas, data: the bank.
+        thetas, data: paired simulations with the parameter width of the estimator.
         key: PRNG key for the split and the minibatching.
         n_steps: Adam steps.
         batch_size: simulations per step; capped at the training split.
@@ -329,14 +335,14 @@ def train_posterior(
         a :class:`TrainingHistory`.
 
     Raises:
-        StructureError: for a non-positive step count, a ``validation_fraction``
-            outside ``[0, 1)``, or a fraction that holds out zero simulations.
+        StructureError: for an invalid bank, step count, batch size or split.
         Exception: from ``eqx.error_if`` if the returned estimator is not
             finite. See the second note.
 
     Note:
         **Over-fitting an NPE makes it over-confident, which is the failure that
-        does not look like one.** Measured here, on the linear-Gaussian problem
+        does not look like one.** A historical run (before bank standardization
+        was frozen) on the linear-Gaussian problem
         this module's tests use (exact posterior width 0.134): a bank of 512
         with four components, run 8000 steps with ``validation_fraction=0.0``,
         returns a posterior **0.271** of the exact width while its training loss
@@ -386,6 +392,11 @@ def train_posterior(
         raise StructureError(
             f"validation_fraction must be in [0, 1), got {validation_fraction}."
         )
+    _validate_bank(thetas, data)
+    if thetas.shape[1] != posterior.n_params:
+        raise StructureError(f"expected {posterior.n_params} parameters per simulation, got {thetas.shape[1]}.")
+    if batch_size < 1:
+        raise StructureError(f"batch_size must be positive, got {batch_size}.")
     n_bank = thetas.shape[0]
     n_validation = round(validation_fraction * n_bank)
     if validation_fraction > 0.0 and n_validation < 1:
@@ -395,16 +406,22 @@ def train_posterior(
             "train without a held-out split."
         )
 
+    if n_validation == n_bank:
+        raise StructureError("the validation split leaves no pairs for training.")
+
     split_key, train_key = jax.random.split(key)
     shuffled = jax.random.permutation(split_key, n_bank)
     validation_index = shuffled[:n_validation]
     train_index = shuffled[n_validation:]
     batch = min(batch_size, int(train_index.shape[0]))
 
-    params, static = eqx.partition(posterior, eqx.is_inexact_array)
+    params, static = eqx.partition(posterior.net, eqx.is_inexact_array)
+
+    def with_network(free: Any) -> NeuralPosterior:
+        return eqx.tree_at(lambda model: model.net, posterior, eqx.combine(free, static))
 
     def loss(free: Any, index: jax.Array) -> jax.Array:
-        model = eqx.combine(free, static)
+        model = with_network(free)
         return -jnp.mean(jax.vmap(model.log_prob)(thetas[index], data[index]))
 
     zeros = jax.tree.map(jnp.zeros_like, params)
@@ -450,7 +467,9 @@ def train_posterior(
     # every later query reads; an unused check can be optimised away.
     best = eqx.error_if(
         best,
-        ~_all_finite(best),
+        ~_all_finite(with_network(best))
+        | jnp.any(posterior.theta_scale <= 0)
+        | jnp.any(posterior.data_scale <= 0),
         "this training run returned a non-finite estimator, so every log_prob "
         "and every sample it produces is NaN -- shaped correctly, from an "
         "object that looks like any other posterior. The usual cause is a "
@@ -464,4 +483,4 @@ def train_posterior(
         validation=validation_losses if n_validation else jnp.zeros((0,)),
         best_step=best_step,
     )
-    return eqx.combine(best, static), history
+    return with_network(best), history

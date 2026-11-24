@@ -41,7 +41,7 @@ the arrangement §2.4 describes as the thing to avoid.
 **ArviZ stays optional.**  It is imported inside the function that needs it,
 never at module scope and never through this ``__init__``, so a clone without
 it installed gets an UNVERIFIABLE report rather than an ImportError (§7.3).
-``tests/test_layering.py`` checks that in a subprocess.</pre></details><div class="symbol-index"><a href="#ALPHA">ALPHA</a> <a href="#DEFAULT_DISCREPANCIES">DEFAULT_DISCREPANCIES</a> <a href="#DRAW_FLOOR">DRAW_FLOOR</a> <a href="#REPLICATE_FLOOR">REPLICATE_FLOOR</a> <a href="#SbcRanks">SbcRanks</a> <a href="#check_posterior">check_posterior</a> <a href="#discrepancy_identity">discrepancy_identity</a> <a href="#held_out_report">held_out_report</a> <a href="#identifiability_report">identifiability_report</a> <a href="#loo_report">loo_report</a> <a href="#posterior_predictive_check">posterior_predictive_check</a> <a href="#prior_predictive_check">prior_predictive_check</a> <a href="#prior_sensitivity_report">prior_sensitivity_report</a> <a href="#sbc_ranks">sbc_ranks</a> <a href="#sbc_report">sbc_report</a> <a href="#simulation_based_calibration">simulation_based_calibration</a></div><section class="api-symbol"><h2 id="ALPHA">ALPHA</h2><p class="source-note">Defined in <code>bayesmith.evaluation</code>, line 75.</p><pre><code>ALPHA = 0.05</code></pre></section><section class="api-symbol"><h2 id="DEFAULT_DISCREPANCIES">DEFAULT_DISCREPANCIES</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 218.</p><pre><code>DEFAULT_DISCREPANCIES: tuple[Callable[..., Any], ...] = (mean, sd, smallest, largest, residual_sd)</code></pre></section><section class="api-symbol"><h2 id="DRAW_FLOOR">DRAW_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 138.</p><pre><code>DRAW_FLOOR: int = math.ceil(1.0 / (ALPHA / 2.0))</code></pre></section><section class="api-symbol"><h2 id="REPLICATE_FLOOR">REPLICATE_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 149.</p><pre><code>REPLICATE_FLOOR = 100</code></pre></section><section class="api-symbol"><h2 id="SbcRanks">SbcRanks</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 247.</p><pre><code>class SbcRanks
+``tests/test_layering.py`` checks that in a subprocess.</pre></details><div class="symbol-index"><a href="#ALPHA">ALPHA</a> <a href="#DEFAULT_DISCREPANCIES">DEFAULT_DISCREPANCIES</a> <a href="#DRAW_FLOOR">DRAW_FLOOR</a> <a href="#REPLICATE_FLOOR">REPLICATE_FLOOR</a> <a href="#SbcRanks">SbcRanks</a> <a href="#check_posterior">check_posterior</a> <a href="#discrepancy_identity">discrepancy_identity</a> <a href="#held_out_report">held_out_report</a> <a href="#identifiability_report">identifiability_report</a> <a href="#loo_report">loo_report</a> <a href="#posterior_predictive_check">posterior_predictive_check</a> <a href="#prior_predictive_check">prior_predictive_check</a> <a href="#prior_sensitivity_report">prior_sensitivity_report</a> <a href="#sbc_ranks">sbc_ranks</a> <a href="#sbc_report">sbc_report</a> <a href="#simulation_based_calibration">simulation_based_calibration</a></div><section class="api-symbol"><h2 id="ALPHA">ALPHA</h2><p class="source-note">Defined in <code>bayesmith.evaluation</code>, line 75.</p><pre><code>ALPHA = 0.05</code></pre></section><section class="api-symbol"><h2 id="DEFAULT_DISCREPANCIES">DEFAULT_DISCREPANCIES</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 218.</p><pre><code>DEFAULT_DISCREPANCIES: tuple[Callable[..., Any], ...] = (mean, sd, smallest, largest, residual_sd)</code></pre></section><section class="api-symbol"><h2 id="DRAW_FLOOR">DRAW_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.evaluation.checks</code>, line 138.</p><pre><code>DRAW_FLOOR: int = math.ceil(1.0 / (ALPHA / 2.0))</code></pre></section><section class="api-symbol"><h2 id="REPLICATE_FLOOR">REPLICATE_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 124.</p><pre><code>REPLICATE_FLOOR = 100</code></pre></section><section class="api-symbol"><h2 id="SbcRanks">SbcRanks</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 221.</p><pre><code>class SbcRanks
 coordinates: tuple[str, ...]
 ranks: tuple[tuple[float, ...], ...]
 requested: int
@@ -51,7 +51,8 @@ unconverged: int
 undrawn: int
 route: str
 subject_ref: ArtifactRef
-fingerprints: FingerprintBundle</code></pre><pre class="docstring">What the replicate loop measured, with no verdict attached.
+fingerprints: FingerprintBundle
+uniformity_ranks: tuple[tuple[float, ...], ...] | None = None</code></pre><pre class="docstring">What the replicate loop measured, with no verdict attached.
 
 Separated from :func:`sbc_report` so that the two arms of §0.11 -- a
 compiled route and an arbitrary sampler -- reach one judgement through one
@@ -165,7 +166,7 @@ Returns:
     APPLICABLE × PASS when nothing is degenerate, APPLICABLE × FAIL with a
     ``null_participation`` finding naming the latents the first blind
     direction mixes, or UNVERIFIABLE × ABSTAIN carrying the diagnostic&#x27;s
-    refusal.</pre></section><section class="api-symbol"><h2 id="loo_report">loo_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.loo</code>, line 264.</p><pre><code>loo_report(result: Any, *, graph: Graph, chain_shape: tuple[int, int] | None=None, source_posterior: Any=None) -&gt; EvaluationReport</code></pre><pre class="docstring">Judge one result&#x27;s PSIS-LOO, via ``arviz.loo`` over R2&#x27;s export.
+    refusal.</pre></section><section class="api-symbol"><h2 id="loo_report">loo_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.loo</code>, line 354.</p><pre><code>loo_report(result: Any, *, graph: Graph, chain_shape: tuple[int, int] | None=None, source_posterior: Any=None, model_ref: ModelRef | None=None, extra_data: tuple[tuple[str, Any], ...]=()) -&gt; EvaluationReport</code></pre><pre class="docstring">Judge one result&#x27;s PSIS-LOO, via ``arviz.loo`` over R2&#x27;s export.
 
 Args:
     result: a :class:`~bayesmith.artifacts.results.PosteriorResult` or
@@ -178,12 +179,16 @@ Args:
         holding the source posterior&#x27;s may supply it here; left out, an
         unchained result is exported as one chain.
     source_posterior: the :class:`~bayesmith.artifacts.results.PosteriorResult`
-        a predictive result came from, read ONLY for its representation --
-        it is what says whether the sample is importance-weighted, and a
-        ``source_posterior_ref`` is a pointer, not a representation. It
+        a predictive result came from. Its ID and revision must match.
+        It supplies weighting provenance for older predictives and any latent
+        draws omitted from the predictive that the ArviZ export needs. It
         deliberately does not supply ``chain_shape``: that override already
         has a home above, and one argument quietly feeding two decisions is
         how the second one stops being visible.
+
+    model_ref: original model reference for older results which do not record
+        their model identifier. When supplied, its source fingerprint is checked.
+    extra_data: additional conditioning data supplied to compile_task, if any.
 
 Returns:
     An :class:`~bayesmith.artifacts.reports.EvaluationReport` of kind
@@ -275,7 +280,7 @@ Returns:
     ``worst_shift`` finding carries ``(latent, index, shift)`` against
     ``CRITERION_SHIFT``, and whose ``prior_width_margin`` finding carries
     the declared width against the width at which that latent&#x27;s shift
-    would reach it.</pre></section><section class="api-symbol"><h2 id="sbc_ranks">sbc_ranks</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 411.</p><pre><code>sbc_ranks(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, subject_ref: ArtifactRef | None=None) -&gt; SbcRanks | Refusal</code></pre><pre class="docstring">Run the replicate loop and return its ranks, unjudged.
+    would reach it.</pre></section><section class="api-symbol"><h2 id="sbc_ranks">sbc_ranks</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 387.</p><pre><code>sbc_ranks(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, sampler_iid: bool=True, subject_ref: ArtifactRef | None=None) -&gt; SbcRanks | Refusal</code></pre><pre class="docstring">Run the replicate loop and return its ranks, unjudged.
 
 Args:
     graph: the model, used for the prior simulation. Its own observed data
@@ -297,6 +302,9 @@ Args:
         route -- SBC is a statement about one route.
     sampler: the §0.11 arm. ``sampler(datum, key, n) -&gt; {name: draws}``.
     sampler_draws: ``n`` for the sampler arm.
+    sampler_iid: the plain sampler contract supplies independent posterior
+        draws given the datum. Set False for dependent draws to keep their
+        empirical ranks without issuing a uniformity verdict.
     subject_ref: required with ``sampler``, which produces no Result to
         point at; ignored by the route arm, which uses the first usable
         replicate&#x27;s posterior (§0.2&#x27;s &quot;routing representative&quot;).
@@ -306,7 +314,7 @@ Returns:
     simulation. A REPLICATE&#x27;s refusal is never returned: §0.6 says a
     refused replicate is COUNTED and the report abstains, so propagating
     one would replace a verdict about a calibration run with a verdict
-    about its first bad draw.</pre></section><section class="api-symbol"><h2 id="sbc_report">sbc_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 636.</p><pre><code>sbc_report(ranks: SbcRanks, *, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -&gt; EvaluationReport</code></pre><pre class="docstring">Judge one :class:`SbcRanks`, on §0.2&#x27;s two axes.
+    about its first bad draw.</pre></section><section class="api-symbol"><h2 id="sbc_report">sbc_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 665.</p><pre><code>sbc_report(ranks: SbcRanks, *, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -&gt; EvaluationReport</code></pre><pre class="docstring">Judge one :class:`SbcRanks`, on §0.2&#x27;s two axes.
 
 * Any replicate that produced no rank -&gt; APPLICABLE x ABSTAIN, finding
   ``replicates_not_completed``, with all three counts. Checked BEFORE the
@@ -314,6 +322,8 @@ Returns:
   45&quot; are different facts and the first is the one worth reporting.
 * Fewer usable replicates than D106 -&gt; APPLICABLE x ABSTAIN, finding
   ``replicates_below_floor``.
+* With no continuous PIT ranks -&gt; APPLICABLE x ABSTAIN, finding
+  ``sbc_rank_null_unavailable``.
 * Otherwise every coordinate&#x27;s KS p against ``alpha / K`` decides:
   all at or above -&gt; PASS, any below -&gt; FAIL.
 
@@ -322,7 +332,7 @@ coordinates; it is a derivation from D104 and carries no threshold of its
 own. The per-coordinate findings record the level they were compared
 against, so the verdict can be recomputed from the report -- which is
 §8&#x27;s gate G8, and the reason the level is in ``expected`` rather than only
-in the message.</pre></section><section class="api-symbol"><h2 id="simulation_based_calibration">simulation_based_calibration</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 734.</p><pre><code>simulation_based_calibration(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, subject_ref: ArtifactRef | None=None, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -&gt; EvaluationReport | Refusal</code></pre><pre class="docstring">Run the replicates and judge them: :func:`sbc_ranks` then :func:`sbc_report`.
+in the message.</pre></section><section class="api-symbol"><h2 id="simulation_based_calibration">simulation_based_calibration</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 778.</p><pre><code>simulation_based_calibration(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, sampler_iid: bool=True, subject_ref: ArtifactRef | None=None, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -&gt; EvaluationReport | Refusal</code></pre><pre class="docstring">Run the replicates and judge them: :func:`sbc_ranks` then :func:`sbc_report`.
 
 The convenience the gate runner calls. It decides nothing the two halves
 do not: everything about which arm runs is in the first, everything about

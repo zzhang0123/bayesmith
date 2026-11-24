@@ -128,8 +128,13 @@ def graph_manifest(graph: Graph, model_ref: ModelRef) -> dict[str, Any]:
     """
     _check(graph, Graph, "graph_manifest's graph")
     _check(model_ref, ModelRef, "graph_manifest's model_ref")
+    return graph_manifest_for_identifier(graph, model_ref.identifier)
+
+
+def graph_manifest_for_identifier(graph: Graph, identifier: str) -> dict[str, Any]:
+    """Rebuild the structure manifest from the model name stored in a run."""
     return {
-        "model": model_ref.identifier,
+        "model": identifier,
         "plates": tuple((plate.name, int(plate.size)) for plate in graph.plates),
         "nodes": tuple(_node_manifest(node) for node in graph.nodes),
         "joint_prior": _density_manifest(graph.joint_prior),

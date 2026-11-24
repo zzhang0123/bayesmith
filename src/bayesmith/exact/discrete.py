@@ -50,10 +50,19 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax.scipy.special import logsumexp
+from numpyro.distributions import constraints
 
+from bayesmith.errors import StructureError
+from bayesmith.graph.evaluate import (
+    _apply_deterministic,
+    _law_builder,
+    distribution_batch_shape,
+    log_joint,
+)
 from bayesmith.graph.graph import Graph
-from bayesmith.graph.nodes import Discrete, Probabilistic
+from bayesmith.graph.nodes import Const, Deterministic, Discrete, Probabilistic
 
 __all__ = [
     "ENUMERATION_BUDGET",
@@ -100,46 +109,109 @@ def discrete_latents(graph: Graph) -> tuple[str, ...]:
     )
 
 
-def _coordinates(graph: Graph, name: str) -> int:
-    """How many independent latents one site actually holds.
-
-    A plated site is one node and many latents. Counting it as one would
-    understate a 3-state site over 4 draws by a factor of 27, and the budget
-    that guards the run is computed from this number.
-    """
-    node = graph.node(name)
-    return math.prod(graph.plate_size(p) for p in node.plate)
-
-
-def enumeration_states(graph: Graph) -> int:
-    """How many joint assignments enumeration would visit. Exact, and cheap.
-
-    One when there are no discrete latents -- the empty product. That is not a
-    quibble: a sum over zero assignments returns ``-inf``, which is a silent
-    and entirely wrong answer for a graph that simply has nothing to
-    marginalise.
-    """
-    return math.prod(
-        graph.node(name).support.n ** _coordinates(graph, name)
-        for name in discrete_latents(graph)
+def _check_state_labels(node: Probabilistic, distribution: Any) -> None:
+    """Assignment indices must coincide with the distribution's actual scalar labels."""
+    support = distribution.support
+    if isinstance(support, constraints.independent):
+        support = support.base_constraint
+    n = node.support.n
+    if support is constraints.boolean and n == 2:
+        return
+    if isinstance(support, constraints.integer_interval):
+        bounds = ((support.lower_bound, 0), (support.upper_bound, n - 1))
+        if all(
+            not isinstance(bound, jax.core.Tracer) and np.all(np.asarray(bound) == expected)
+            for bound, expected in bounds
+        ):
+            return
+    raise StructureError(
+        f"discrete site {node.name!r} requires a Cartesian product of scalar states "
+        f"0 through {n - 1}; could not establish this for support {support}."
     )
 
 
-def _assignments(graph: Graph, names: tuple[str, ...]):
+def _site_shapes(graph: Graph, values: Mapping[str, Any]) -> dict[str, tuple[int, ...]]:
+    """Trace the shapes of discrete sites and their ancestors without drawing or scoring."""
+    names = discrete_latents(graph)
+
+    def prototypes():
+        class Ancestors(dict):
+            def __missing__(self, name):
+                self[name] = value(name)
+                return self[name]
+
+        env = Ancestors()
+        law_for = _law_builder(graph, env)
+
+        def value(name):
+            node = graph.node(name)
+            if isinstance(node, Const):
+                return node.value
+            if isinstance(node, Probabilistic):
+                if not node.is_latent:
+                    return node.observed
+                if name not in names and name in values:
+                    return values[name]
+            if isinstance(node, Deterministic):
+                return _apply_deterministic(graph, node, env, law_for)
+            # Keep fixed integer bounds concrete under shape tracing. Bounds
+            # that actually depend on an unknown parent still cannot certify support.
+            with jax.ensure_compile_time_eval():
+                distribution = law_for(name)
+            batch = distribution_batch_shape(graph, node, distribution)
+            shape = batch + distribution.event_shape
+            if name not in names:
+                # enumeration_states can be asked for a cost before any
+                # conditioning values exist. Trace the parent's native dtype.
+                try:
+                    prototype = distribution.sample(jax.random.key(0))
+                except NotImplementedError:
+                    # Improper priors have a support and shape but no sampler.
+                    prototype = distribution.support.feasible_like(jnp.zeros(shape))
+                return jnp.broadcast_to(prototype, shape)
+            _check_state_labels(node, distribution)
+            return jnp.zeros(shape, dtype=jnp.int32)
+
+        return tuple(env[name] for name in names)
+
+    try:
+        prototypes_by_site = jax.eval_shape(prototypes)
+    except jax.errors.ConcretizationTypeError as exc:
+        raise StructureError(
+            f"enumerating {list(names)} requires a fixed coordinate layout; "
+            "the graph requested a concrete latent value during shape inference."
+        ) from exc
+    return {name: item.shape for name, item in zip(names, prototypes_by_site, strict=True)}
+
+
+def _state_count(graph: Graph, shapes: Mapping[str, tuple[int, ...]]) -> int:
+    return math.prod(
+        graph.node(name).support.n ** math.prod(shape) for name, shape in shapes.items()
+    )
+
+
+def enumeration_states(graph: Graph, values: Mapping[str, Any] | None = None) -> int:
+    """How many joint assignments enumeration would visit before evaluating any density.
+
+    Each scalar coordinate in a site's batch, plate and independent event
+    dimensions contributes a factor of its declared cardinality. The empty
+    product is one. Each coordinate must have the fixed integer support
+    ``0, ..., n-1``. Supply conditioned ancestors in ``values`` if their
+    shapes differ from the model's own sample shapes.
+    """
+    return _state_count(graph, _site_shapes(graph, values or {}))
+
+
+def _assignments(graph: Graph, shapes: Mapping[str, tuple[int, ...]]):
     """Every joint assignment, as ``{site: value}`` with the site's own shape."""
-    shapes = [
-        tuple(graph.plate_size(p) for p in graph.node(name).plate) for name in names
-    ]
     ranges = [
-        itertools.product(range(graph.node(name).support.n), repeat=_coordinates(graph, name))
-        for name in names
+        itertools.product(range(graph.node(name).support.n), repeat=math.prod(shape))
+        for name, shape in shapes.items()
     ]
     for combination in itertools.product(*ranges):
         yield {
             name: jnp.asarray(flat, dtype=jnp.int32).reshape(shape)
-            if shape
-            else jnp.asarray(flat[0], dtype=jnp.int32)
-            for name, flat, shape in zip(names, combination, shapes, strict=True)
+            for (name, shape), flat in zip(shapes.items(), combination, strict=True)
         }
 
 
@@ -147,26 +219,23 @@ def _terms(
     graph: Graph,
     values: Mapping[str, Any] | None,
     budget: int,
-) -> tuple[tuple[str, ...], jax.Array]:
+) -> tuple[dict[str, tuple[int, ...]], jax.Array]:
     """``log_joint`` at every assignment, and the sites they range over."""
-    # Imported here rather than at module scope: `graph.evaluate` is the layer
-    # below this one, and `exact` importing it at import time would put a
-    # cycle one careless edit away.
-    from bayesmith.graph.evaluate import log_joint
-
-    names = discrete_latents(graph)
-    states = enumeration_states(graph)
+    supplied = dict(values or {})
+    shapes = _site_shapes(graph, supplied)
+    states = _state_count(graph, shapes)
     if states > budget:
+        # Very wide sites can exceed Python's limit on decimal integer conversion.
+        count = str(states) if states.bit_length() <= 64 else f"at least 2**{states.bit_length() - 1}"
         raise ValueError(
-            f"enumerating {list(names)} would visit {states} joint assignments, "
+            f"enumerating {list(shapes)} would visit {count} joint assignments, "
             f"past the budget of {budget}. Exact enumeration costs "
             f"n ** coordinates per site; pass `budget=` to allow it "
             f"deliberately, or marginalise a smaller set."
         )
-    supplied = dict(values or {})
     stacked = [
         log_joint(graph, {**supplied, **assignment})
-        for assignment in _assignments(graph, names)
+        for assignment in _assignments(graph, shapes)
     ]
     # No `if stacked` fallback, and that absence is load-bearing rather than
     # an oversight. `itertools.product()` over no iterables yields exactly ONE
@@ -176,7 +245,7 @@ def _terms(
     # implements it, so a special case here would be dead code. It WAS dead
     # code: a mutation replacing the hand-written empty branch survived the
     # whole suite, which is how the branch was found to be unreachable.
-    return names, jnp.stack(stacked)
+    return shapes, jnp.stack(stacked)
 
 
 def marginal_log_likelihood(
@@ -215,7 +284,7 @@ def posterior_marginals(
 ) -> dict[str, jax.Array]:
     """Per-site posterior probabilities over the states, exactly.
 
-    ``{site: probabilities}`` where each array has the site's plate shape with
+    ``{site: probabilities}`` where each array has the site's complete value shape with
     the ``n`` states as its LAST axis, so ``result["z"][..., k]`` is
     ``P(z = k | data)`` and the axis a caller reduces over is the one numpy
     conventions put last.
@@ -225,22 +294,15 @@ def posterior_marginals(
     normaliser -- the shape of defect this package records as B1, where two
     halves of one Gaussian disagreed about which covariance they described.
     """
-    names, terms = _terms(graph, values, budget)
+    shapes, terms = _terms(graph, values, budget)
     weights = jnp.exp(terms - logsumexp(terms))
-    layout = [
-        (
-            name,
-            tuple(graph.plate_size(p) for p in graph.node(name).plate),
-            graph.node(name).support.n,
-        )
-        for name in names
-    ]
     out: dict[str, jax.Array] = {}
-    for name, shape, n in layout:
+    for name, shape in shapes.items():
+        n = graph.node(name).support.n
         coordinates = math.prod(shape)
         totals = jnp.zeros((coordinates, n))
-        for index, assignment in enumerate(_assignments(graph, names)):
+        for index, assignment in enumerate(_assignments(graph, shapes)):
             flat = jnp.reshape(assignment[name], (coordinates,))
             totals = totals.at[jnp.arange(coordinates), flat].add(weights[index])
-        out[name] = jnp.reshape(totals, (*shape, n)) if shape else totals[0]
+        out[name] = jnp.reshape(totals, (*shape, n))
     return out

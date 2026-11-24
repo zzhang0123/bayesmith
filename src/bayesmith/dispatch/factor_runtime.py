@@ -11,7 +11,7 @@ from numpyro.infer.mcmc import MCMCKernel
 from numpyro.util import is_prng_key
 
 from bayesmith.bridge.numpyro_bridge import to_numpyro
-from bayesmith.dispatch.execute import Posterior, _diagnostics_or_none, chain_ess
+from bayesmith.dispatch.execute import Posterior, _posterior_diagnostics
 from bayesmith.dispatch.factor import FactorPlan, factor_sweep
 from bayesmith.dispatch.sampling import SamplingControl, run_mcmc
 from bayesmith.graph.reduction import check_evidence_nuts_boundary
@@ -205,6 +205,7 @@ class FactorRuntimePlan:
         draws = run_mcmc(
             mcmc, key, self.graph, control, gibbs_names if factors.nuts else ()
         )
-        return Posterior(draws, None, chain_ess(draws, num_chains=num_chains), None,
+        ess, diagnostics = _posterior_diagnostics(draws, num_chains, control)
+        return Posterior(draws, None, ess, None,
                          False, self.method, self._execution(),
-                         _diagnostics_or_none(draws, num_chains))
+                         diagnostics)

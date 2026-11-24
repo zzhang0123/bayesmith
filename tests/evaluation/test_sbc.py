@@ -147,6 +147,7 @@ def synthetic(
     return SbcRanks(
         coordinates=coordinates,
         ranks=tuple(ranks_by_coordinate[name] for name in coordinates),
+        uniformity_ranks=tuple(ranks_by_coordinate[name] for name in coordinates),
         requested=requested if requested is not None else usable,
         usable=usable,
         refused=refused,
@@ -807,49 +808,8 @@ BILINEAR = bilinear_with(
 
 @pytest.mark.full
 @pytest.mark.slow
-def test_the_sampled_route_is_calibrated_through_the_same_harness():
-    """G4's other half: NUTS, judged by the identical rank definition.
-
-    seed 1, N = 100 replicates at 500 warmup + 500 draws. Measured over three
-    seeds before this test existed, with the original unwrapped Normal
-    fixture: KS p = 0.3979 (seed 0), 0.6509 (seed 1), 0.6509 (seed 2).
-    These are historical measurements, not predictions for the equivalent
-    transformed-prior fixture. Seed 1 remains declared. The whole point of the cell is that
-    NOTHING about the harness changes between here and the exact-route cell
-    above -- same prior simulation, same continuous weighted rank, same
-    Bonferroni level -- so a comparison between the two routes is a comparison
-    rather than two differently-scored experiments.
-
-    **The verdict IS asserted, behind a conditional premise -- AGENTS.md's
-    rule (c).** G4 asks a known-calibrated fixture to be reported PASS on the
-    sampled route, so this cell says so in as many words. But passing at ALPHA
-    is a random acceptance with a declared 5% false-positive rate, and a NUTS
-    trajectory is chaotic -- one ULP of difference in a gradient sends the
-    chain somewhere else -- so a machine with a different BLAS redraws this
-    p-value from its null and reds a cell nobody touched, one time in twenty.
-    That is precisely the fixture this repository has burned release tags on.
-
-    So the ordering below is the one rule (c) prescribes. The CONTRACT
-    assertions -- the accounting, the coordinate, the replicate count, and a
-    band refusing gross miscalibration -- are unconditional and come first.
-    Only then is the PREMISE tested: if this platform's p landed below the
-    level, the cell SKIPS with ``THIS IS NOT A PASS`` and the measurement, and
-    if it did not, ``conclusion is PASS`` is asserted outright. That assertion
-    is not implied by the skip guard, which reads the FINDING while the
-    assertion reads the report's own conclusion: a ``sbc_report`` that
-    assembled FAIL or ABSTAIN out of uniform ranks passes the guard and reds
-    on the assertion.
-
-    The band's FORM is derived: the KS null makes P(p < L) = L for a correct
-    route, so the rate at which the guard fires on a correct route is exactly
-    L. The CONSTANT 1e-3 is FITTED, and bracketed on both sides by
-    measurements rather than chosen for roundness: it sits 650x below this
-    fixture's own p (0.6509) and still refuses both miscalibrated cells in this
-    file -- the 2x-stretched exact route at 6e-4 and the sign-symmetric
-    bilinear at 5e-19.
-
-    Costs about 35 s.
-    """
+def test_chained_ranks_are_descriptive_without_an_iid_null():
+    """A converged NUTS run can still have dependent draws."""
     report = simulation_based_calibration(
         LINE_NUTS,
         key=jax.random.key(1),
@@ -859,58 +819,18 @@ def test_the_sampled_route_is_calibrated_through_the_same_harness():
         budget=NUTS_BUDGET,
     )
     assert report.applicability is Applicability.APPLICABLE
-    assert report.conclusion is not Conclusion.ABSTAIN
+    assert report.conclusion is Conclusion.ABSTAIN
     accounting = finding(report, "sbc_replicate_accounting").observed
-    assert accounting[:5] == (REPLICATE_FLOOR, REPLICATE_FLOOR, 0, 0, 0)
-    assert accounting[5] == "nuts"
-    uniformity = finding(report, "sbc_rank_uniformity")
-    assert uniformity.observed[0] == "w"
-    assert uniformity.observed[3] == REPLICATE_FLOOR
-    assert uniformity.observed[2] > 1e-3, uniformity.message
-
-    # The PREMISE, and the only conditional line in the cell: everything above
-    # ran unconditionally and holds on every platform.
-    if not ranks_are_uniform(uniformity.observed[2], uniformity.expected):
-        pytest.skip(
-            "THIS IS NOT A PASS. G4 wants a known-calibrated fixture reported "
-            f"PASS on the sampled route; this run measured KS "
-            f"p={uniformity.observed[2]:.4g} against a level of "
-            f"{uniformity.expected:.4g}, so the report says FAIL and this cell "
-            "has no G4 evidence to give. Measured 0.3979 / 0.6509 / 0.6509 on "
-            "seeds 0 / 1 / 2 of the laptop the fixture was written on, so a p "
-            "below the level here is either the 5% the level declares or a "
-            "NUTS trajectory this platform walks differently -- re-run, and "
-            "read the CPU and BLAS lines suite.yml logs, before touching the "
-            "harness."
-        )
-    assert report.conclusion is Conclusion.PASS
+    assert accounting == (REPLICATE_FLOOR, REPLICATE_FLOOR, 0, 0, 0, "nuts")
+    assert finding(report, "sbc_rank_null_unavailable")
+    assert not any(item.code == "sbc_rank_uniformity" for item in report.findings)
 
 
 @pytest.mark.full
 @pytest.mark.slow
-def test_a_sign_symmetric_likelihood_is_caught_on_the_sampled_route():
-    """A real inference failure, found by this harness rather than assumed.
-
-    ``bilinear_pair`` was the fixture the R3 plan named for the NUTS SBC cell,
-    on the strength of a cost measurement (probe_28 §5) that never asked
-    whether it passes. It does not, and not marginally: measured KS p = 5.3e-19
-    for ``gain`` and 3.3e-14 for ``t_ant`` at seed 0, N = 100, 100 warmup + 100
-    draws, and unchanged at 2000 draws + 1000 warmup (D = 0.466 / 0.403), so it
-    is not an under-budgeted chain.
-
-    The cause is in the model rather than in the sampler: the likelihood is
-    invariant under a joint sign flip, single-chain NUTS settles in whichever
-    mirror mode it started in, and when the truth is in the other one the rank
-    saturates. About half of the ranks land in the top fifth of the interval.
-
-    Pinned as a FAIL because it is exactly what §3.3 says SBC is for -- "SBC
-    checks the inference algorithm and also exposes model implementation and
-    parameterisation errors" -- and because a fixture this far from calibrated
-    must not be quoted anywhere as a passing one.
-
-    Costs about 42 s.
-    """
-    report = simulation_based_calibration(
+def test_a_sign_symmetric_likelihood_keeps_the_raw_chain_ranks():
+    """Inspect the empirical pile-up without assigning iid KS probabilities."""
+    ranks = sbc_ranks(
         BILINEAR,
         key=jax.random.key(0),
         replicates=REPLICATE_FLOOR,
@@ -918,20 +838,12 @@ def test_a_sign_symmetric_likelihood_is_caught_on_the_sampled_route():
         build=bilinear_with_datum,
         budget=ComputeBudget(draws=100, warmup=100, chains=1),
     )
-    assert report.conclusion is Conclusion.FAIL
-    assert finding(report, "sbc_replicate_accounting").observed[:5] == (
-        REPLICATE_FLOOR,
-        REPLICATE_FLOOR,
-        0,
-        0,
-        0,
-    )
-    uniformity = [
-        item for item in report.findings if item.code == "sbc_rank_uniformity"
-    ]
-    assert {item.observed[0] for item in uniformity} == {"gain", "t_ant"}
-    assert all(item.expected == pytest.approx(ALPHA / 2) for item in uniformity)
-    assert all(item.observed[2] < 1e-10 for item in uniformity)
+    assert ranks.coordinates == ("gain", "t_ant")
+    assert ranks.usable == REPLICATE_FLOOR
+    assert all(np.mean(np.asarray(column) > 0.8) > 0.3 for column in ranks.ranks)
+    report = sbc_report(ranks)
+    assert report.conclusion is Conclusion.ABSTAIN
+    assert finding(report, "sbc_rank_null_unavailable")
 
 
 def bilinear_with_datum(datum):
@@ -1454,33 +1366,18 @@ def _assert_the_sampler_arm_ran_over_every_replicate(report, sampler):
 #: Monte-Carlo spread, too thin to carry an unconditional guard here.
 WIDTH_BAND = (0.60, 1.60)
 
-#: probe_29 §2's recorded trajectory, and the witness that says this machine
-#: reproduced it.  ``best_step`` is a 1500-way discrete fingerprint of the
-#: optimisation: measured, it takes 24 DISTINCT values over the 24-seed
-#: retrain sweep (292 .. 1190) and moves 322 -> 580 under ``JAX_ENABLE_X64=1``,
-#: so it detects a diverged trajectory rather than merely a diverged bit.  The
-#: validation minimum is checked beside it because a coincident argmin index
-#: is not a coincident set of weights.
-#:
-#: ``TRAJECTORY_RTOL``'s FORM is derived -- a relative tolerance on a float32
-#: loss -- and it is placed between two MEASURED scales rather than chosen:
-#: float32 eps on this loss is 6e-8 (900x below), and the gap from this
-#: minimum to the second-best validation value is 7.856e-4, i.e. 1.49e-3
-#: relative (15x above), so no other step of this run can satisfy it.
-RECORDED_BEST_STEP = 322
-RECORDED_VALIDATION_MIN = -0.5286270976
+#: Reference trajectory for fixed bank standardization. A second backend may
+#: select a different step; the unconditional width test above covers that case.
+#: The two lowest validation losses were -0.53976554 and -0.5393203 on arm64.
+#: The relative tolerance on the loss distinguishes those two steps.
+RECORDED_BEST_STEP = 323
+RECORDED_VALIDATION_MIN = -0.53976554
 TRAJECTORY_RTOL = 1e-4
 
-#: probe_29 §2's recorded width ratios and mean biases at
-#: ``probe_29.WIDTH_OBSERVATIONS``, and the tolerance they are pinned to
-#: BEHIND the witness above.  At fixed weights and probe_29's fixed draw key
-#: these are reproducible to ten digits in-process; the tolerances are three
-#: times the Monte-Carlo spread the same statistics show over twelve draw keys
-#: at fixed weights (0.0170 for the ratio, 0.0232 for the bias), rounded DOWN
-#: to two digits.  So the FORM is derived -- a pin at the instrument's own
-#: noise floor -- and the factor three is fitted.
-RECORDED_WIDTH_RATIOS = (0.9660, 1.0287, 0.9539)
-RECORDED_MEAN_BIASES = (0.2605, -0.0213, 0.0054)
+#: Width divided by the analytic posterior width, and mean error in units of
+#: that width, for the three observations in probe_29.WIDTH_OBSERVATIONS.
+RECORDED_WIDTH_RATIOS = (0.9657, 0.9866, 0.9704)
+RECORDED_MEAN_BIASES = (0.2199, -0.0025, 0.2167)
 WIDTH_PIN_TOLERANCE = 0.05
 BIAS_PIN_TOLERANCE = 0.07
 
@@ -1582,69 +1479,12 @@ def test_the_reference_npe_goes_through_the_sampler_arm_over_every_replicate():
 @pytest.mark.full
 @pytest.mark.slow
 def test_the_reference_npe_reproduces_its_recorded_calibration():
-    """R3 Task 9.1, the recorded half: probe_29 §2's numbers, behind a witness.
+    """Verify the reference trajectory against independent analytic moments.
 
-    **This is CLAUDE.md rung (c).**  The premise -- that the 1500-step float32
-    Adam run this fixture describes came out the way it came out here on
-    2026-09-04 -- is platform-dependent and is therefore conditional and
-    recorded.  The contract assertions are unconditional and live in
-    :func:`test_the_reference_npe_goes_through_the_sampler_arm_over_every_replicate`,
-    ahead of this cell.  Where the premise does not hold this cell SKIPS
-    saying ``THIS IS NOT A PASS`` and naming the two numbers it measured,
-    rather than passing quietly (rung (d)).
-
-    **Why the premise is not a property.**  Re-running the identical recipe at
-    24 other init/train seed pairs on this machine -- same bank, same harness
-    key, same budget -- gave 6 KS FAILs of 24 (p = 0.0025 / 0.0207 / 0.0016 /
-    0.0037 / 0.0046 / 0.0037), ``best_step`` from 292 to 1190, and
-    ``|bias|`` up to 0.5468 exact sds.  A quarter of the re-runs of its own
-    recipe fail this arm's KS test; ALPHA is 0.05.  Under
-    ``JAX_ENABLE_X64=1``, which is not a pure BLAS swap -- it changes the RNG
-    stream as well -- ``best_step`` moves 322 -> 580 and the three width
-    ratios move to 1.0255 / 0.9612 / 1.1103 and the biases to +0.0753 /
-    -0.0816 / +0.0216.  Those movements are 8-9 times the 0.0170 / 0.0232
-    Monte-Carlo spread of the same statistics over twelve draw keys at fixed
-    weights, so they are the WEIGHTS moving, not the sampling.
-
-    **Measured on this checkout** (``PYTHONPATH=. .venv/bin/python
-    docs/probes/probe_29_amortized_candidates.py 300 2``): ``best_step`` 322,
-    validation minimum -0.5286270976, APPLICABLE x PASS, KS D = 0.0683,
-    p = 0.1159, 90% coverage 0.890, 300 of 300 usable, width ratios 0.9660 /
-    1.0287 / 0.9539 and mean biases +0.2605 / -0.0213 / +0.0054 exact sds at
-    ``theta_true`` = +0.5 / +1.6 / -0.9.
-
-    **Expected false positives: 0.05** wherever the witness holds, which is
-    what ALPHA declares; §9.3 asks that the number be declared rather than
-    discovered.  Note what the seed sweep above says about that number: it
-    bounds the risk of THIS trajectory, not of the recipe.
-
-    **There is deliberately no assertion on the KS digits.**  At N = 300 a
-    PASS already means ``D <= 0.077832``
-    (``scipy.stats.kstwo.ppf(0.95, 300)``), so a band on D is implied by the
-    PASS and can never fail on its own.  The same is true of the coverage:
-    sweeping a width distortion at this seed, the three-sigma binomial band
-    ``0.90 +- 3 * sqrt(0.9 * 0.1 / 300) = [0.848, 0.952]`` is crossed only
-    where the KS verdict has already failed (1.3x gives p = 0.0046 and
-    coverage 0.9567; 1.2x gives p = 0.0558 and coverage 0.9400, inside the
-    band).
-
-    **What each pin catches, and what killed it.**
-
-    * the PASS -- an estimator whose stated uncertainty stops matching its
-      prior.  Killed by ``scales[component]`` -> ``2.0 * scales[component]``
-      in ``NeuralPosterior.sample`` (D = 0.1967, p = 1.2e-10).
-    * the width pin.  Killed by ``1.2 * scales[component]`` -- ratios
-      1.1592 / 1.2345 / 1.1447 -- which the PASS above SURVIVES, at a measured
-      p = 0.05576.  That mutant is why a width instrument exists at all.
-    * the bias pin.  Killed by ``means[component]`` ->
-      ``means[component] + 0.01`` -- a constant shift in STANDARDIZED latent
-      space, 0.147 exact sds, which moves the biases to +0.4079 / +0.1261 /
-      +0.1528 while leaving the width ratios untouched and IMPROVING the KS
-      statistic to D = 0.0533, p = 0.3486.  Neither the verdict nor the width
-      can see it.  It cannot be caught unconditionally either: 6 of the 72
-      bias cells in the 24-retrain sweep exceed 0.40 and one reaches 0.5468,
-      so no band on ``|bias|`` both survives the recipe and catches a 0.147
-      shift.  It is caught HERE, where the trajectory is pinned.
+    The held-out step and loss identify the fitted weights. For that fit,
+    compare draws at three observations with the closed-form posterior and
+    run the finite-sample SBC check on 300 independently simulated data sets.
+    The moment checks distinguish changes in spread from changes in location.
     """
     probe = probe_29()
     q, history, _ranks, report, _sampler = _reference_npe_arm()
@@ -1681,3 +1521,101 @@ def test_the_reference_npe_reproduces_its_recorded_calibration():
     assert biases == pytest.approx(
         list(RECORDED_MEAN_BIASES), abs=BIAS_PIN_TOLERANCE
     ), biases
+
+
+@pytest.mark.parametrize("draws", [1, 4])
+def test_exact_finite_sampler_has_the_declared_false_positive_rate(draws):
+    # Under the null the number of rejections over independent seeds is
+    # Binomial(16, .05). More than four has probability about 0.00086.
+    rejected = 0
+    for seed in range(16):
+        report = simulation_based_calibration(
+            LINE,
+            key=jax.random.key(seed),
+            replicates=100,
+            model_ref=model_ref(),
+            sampler=conjugate_sampler(1),
+            sampler_draws=draws,
+            subject_ref=a_ref(),
+        )
+        assert report.conclusion in (Conclusion.PASS, Conclusion.FAIL)
+        rejected += report.conclusion is Conclusion.FAIL
+    assert rejected <= 4
+
+
+def test_unknown_finite_rank_null_cannot_issue_a_verdict():
+    ranks = synthetic({"w": uniform_ranks(100)})
+    report = sbc_report(dataclasses.replace(ranks, uniformity_ranks=None))
+    assert report.conclusion is Conclusion.ABSTAIN
+    assert not any(f.code == "sbc_rank_uniformity" for f in report.findings)
+
+
+def test_randomized_ranks_handle_ties_and_replay():
+    # A degenerate posterior makes the whole M+1 slot range a tie.
+    def model():
+        w = sample("w", lambda: dist.Bernoulli(probs=1.0))
+        observe("d", lambda t: dist.Normal(t, 1.0), w, obs=jnp.array(1.0))
+
+    graph = trace(model)
+
+    def run():
+        return sbc_ranks(
+            graph,
+            key=jax.random.key(10),
+            replicates=100,
+            model_ref=model_ref(),
+            sampler=lambda data, key, n: {"w": np.ones(n)},
+            sampler_draws=4,
+            subject_ref=a_ref(),
+        )
+
+    first, replay = run(), run()
+    assert first.ranks[0] == (0.0,) * 100
+    assert first.uniformity_ranks == replay.uniformity_ranks
+    assert np.ptp(first.uniformity_ranks[0]) > 0.9
+    assert sbc_report(first).conclusion is Conclusion.PASS
+
+
+@pytest.mark.parametrize(
+    "invalid", [
+        np.empty((0,)), np.zeros((2, 2)), np.array([0.0, np.nan]),
+        np.array([0.0 + 1e6j, 1.0 + 1e6j]),
+    ]
+)
+def test_invalid_sampler_draws_abstain(invalid):
+    ranks = sbc_ranks(
+        LINE,
+        key=jax.random.key(1),
+        replicates=3,
+        model_ref=model_ref(),
+        sampler=lambda data, key, n: {"w": invalid},
+        sampler_draws=2,
+        subject_ref=a_ref(),
+    )
+    assert ranks.undrawn == 3
+    assert sbc_report(ranks, floor=1).conclusion is Conclusion.ABSTAIN
+
+
+def test_dependent_sampler_keeps_descriptive_ranks_without_a_ks_test():
+    ranks = sbc_ranks(
+        LINE,
+        key=jax.random.key(1),
+        replicates=3,
+        model_ref=model_ref(),
+        sampler=conjugate_sampler(1),
+        sampler_draws=4,
+        sampler_iid=False,
+        subject_ref=a_ref(),
+    )
+    assert len(ranks.ranks[0]) == 3
+    assert ranks.uniformity_ranks is None
+    assert sbc_report(ranks, floor=1).conclusion is Conclusion.ABSTAIN
+
+
+@pytest.mark.parametrize("values", [(), (float("nan"),), (1.5,)])
+def test_invalid_uniformity_values_cannot_produce_a_pass(values):
+    ranks = dataclasses.replace(
+        synthetic({"w": (0.5,)}), uniformity_ranks=(values,)
+    )
+    with pytest.raises(ValueError, match="PIT rank"):
+        sbc_report(ranks, floor=1)

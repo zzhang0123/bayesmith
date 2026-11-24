@@ -174,7 +174,7 @@ class IdentifiabilityReport:
         spans: ``(start, stop)`` of each latent within the flat parameter
             vector, in the same order.
         n_par: total number of real parameters.
-        n_data: size of the flattened prediction over every observed node.
+        n_data: number of retained scalar data entries across observed nodes.
             ``nullity`` can never be below ``n_par - n_data``: more
             parameters than data points is a null space by counting alone.
         rank: number of singular values of the COLUMN-NORMALISED Jacobian
@@ -314,6 +314,7 @@ def identifiability(
 
     The diagnostic that sees ACROSS blocks. See the module docstring for why
     no per-block guard can, and for the measured case that motivates it.
+    Only rows retained by each observation mask enter the rank calculation.
 
     Args:
         graph: the model.
@@ -361,6 +362,15 @@ def identifiability(
     block = local_block(graph, selected, values)
     jacobian = dense_operator(block)  # (n_data, n_par), tangent at `values`
     refuse_single_precision(jacobian, doing="the joint Jacobian")
+    # dense_operator stacks flattened observations in sorted site-name order.
+    # Held-out rows carry no likelihood information about the parameters.
+    if any(graph.node(name).observed_mask is not None for name in block.data):
+        rows = []
+        for name in sorted(block.data):
+            mask = graph.node(name).observed_mask
+            selected_rows = np.broadcast_to(True if mask is None else mask, block.data[name].shape)
+            rows.append(selected_rows.ravel())
+        jacobian = jacobian[np.concatenate(rows)]
 
     _, shapes, spans = flat_view(values, selected)
     norms = jnp.linalg.norm(jacobian, axis=0)

@@ -564,3 +564,47 @@ def test_unsupported_family_preflight_is_unresolved_and_does_not_break_compilati
     assert not isinstance(planned, Refusal)
     finding = next(f for f in planned.analysis.findings if f.code == "block_0_jeffreys")
     assert finding.conclusion == "unresolved"
+
+
+@pytest.mark.parametrize("stuck_first", [False, True])
+def test_checkpoint_names_undefined_coordinates_and_propagates_missing_metrics(stuck_first):
+    from bayesmith.dispatch.sampling import checkpoint_diagnostics
+
+    healthy = np.random.default_rng(17).normal(size=(2, 128))
+    grouped = {"healthy": healthy, "stuck": np.ones_like(healthy)}
+    if stuck_first:
+        grouped = dict(reversed(grouped.items()))
+    passed, metrics = checkpoint_diagnostics(grouped, 0, StoppingPolicy())
+    assert not passed
+    metrics = dict(metrics)
+    assert metrics["invalid_sites"] == ("stuck",)
+    assert all(metrics[name] is None for name in ("ess_min", "rhat_max", "mcse_mean_max"))
+
+
+def test_final_checkpoint_reuses_each_coordinate_estimate(monkeypatch):
+    from bayesmith.dispatch import execute
+    from bayesmith.dispatch.sampling import SamplingControl, checkpoint_diagnostics
+
+    counts = {}
+    for name in ("effective_sample_size", "split_gelman_rubin"):
+        estimator = getattr(execute, name)
+
+        def counted(values, original=estimator, key=name):
+            counts[key] = counts.get(key, 0) + 1
+            return original(values)
+        monkeypatch.setattr(execute, name, counted)
+    grouped = {"complex": np.random.default_rng(3).normal(size=(2, 128, 2)).view(np.complex128)}
+    control = SamplingControl()
+    checkpoint_diagnostics(grouped, 0, control.stopping, control=control)
+    flat = {key: val.reshape((-1, 1)) for key, val in grouped.items()}
+    ess, reports = execute._posterior_diagnostics(flat, 2, control)
+    assert counts == {"effective_sample_size": 1, "split_gelman_rubin": 1}
+    assert ess == execute.chain_ess(flat, num_chains=2)
+    assert reports == execute.chain_diagnostics(flat, num_chains=2)
+
+
+def test_chain_diagnostics_accepts_array_like_draws():
+    from bayesmith.dispatch.execute import chain_diagnostics
+
+    draws = np.random.default_rng(17).normal(size=128)
+    assert chain_diagnostics({"s": draws.tolist()}) == chain_diagnostics({"s": draws})

@@ -164,6 +164,12 @@ comparison is not in this release. The verdict comes from the PIT alone.
 | `arviz.loo` warns (its own `good_k` rule) | `APPLICABLE` | `ABSTAIN` | `psis_reliability` (`observed=True`) |
 | the result carries no pointwise log density | `INAPPLICABLE` | `ABSTAIN` | `no_pointwise_log_likelihood` |
 | the sample is importance-weighted | `UNVERIFIABLE` | `ABSTAIN` | `weighted_sample` |
+| a retained observation parameterises another fitted density | `INAPPLICABLE` | `ABSTAIN` | `dependent_observation_factors` |
+| the graph structure, observed data, mask, or extra conditioning data differs from the fitted result | `UNVERIFIABLE` | `ABSTAIN` | `loo_graph_mismatch` |
+| an older result needs its model reference to verify the graph | `UNVERIFIABLE` | `ABSTAIN` | `loo_model_ref_required` |
+| every observation is held out | `INAPPLICABLE` | `ABSTAIN` | `no_observed_units` |
+| the predictive omitted latent draws needed by the export, and its source is unavailable | `UNVERIFIABLE` | `ABSTAIN` | `source_draws_required` |
+| predictive weighting provenance is missing | `UNVERIFIABLE` | `ABSTAIN` | `source_weighting_unknown` |
 | ArviZ is not installed | `UNVERIFIABLE` | `ABSTAIN` | `arviz_unavailable` |
 
 The first two rows are one finding read two ways, not two codes: whenever
@@ -201,7 +207,20 @@ weights, so `arviz.loo` would cross-validate the proposal rather than the
 posterior and would return the same numbers whether the weights were
 near-uniform or collapsed onto one draw. That branch sits *before* the arviz
 import, so the answer is a property of the artifact rather than of the
-environment.
+environment. New predictive results record whether the source draws were
+equally weighted. For older results, pass the source posterior with its
+matching artifact ID and revision. PSIS receives only the observation units
+used to fit the posterior. The public pointwise arrays retain their original
+shape and their zero contributions for held-out units.
+
+LOO checks the graph structure and data fingerprints before selecting observation
+units. For a result created before the model identifier was recorded, pass the
+original `model_ref`. Pass the original `extra_data` if the fit used it.
+A retained observed parent can affect both its own density and the density of
+a child, including through deterministic nodes. Leaving out this parent requires
+a conditional density for the omitted observation. The pointwise check abstains
+for such declared dependencies. A fully masked observed node contributes no
+density and its recorded value remains fixed in its descendants.
 
 ### `sbc` — `evaluation.sbc`
 
@@ -211,20 +230,28 @@ environment.
 | any coordinate below `ALPHA / K` | `APPLICABLE` | `FAIL` | `sbc_rank_uniformity` |
 | any replicate produced no rank | `APPLICABLE` | `ABSTAIN` | `replicates_not_completed` |
 | usable replicates below the D106 floor | `APPLICABLE` | `ABSTAIN` | `replicates_below_floor` |
+| only empirical ranks are available | `APPLICABLE` | `ABSTAIN` | `sbc_rank_null_unavailable` |
 
-Every SBC report is `APPLICABLE`: the harness generates its own subject, so
-there is no result it could fail to apply to. When the prior simulation that
-feeds the harness is itself refused, `simulation_based_calibration` returns
-that `Refusal` rather than a report. As with `loo_psis`, the per-coordinate
-`sbc_rank_uniformity` findings and the `sbc_replicate_accounting` finding are
-present in **every** report, abstaining ones included — the two ABSTAIN codes
-are what *decided*, not all that was recorded, so a reader of an abstained
-report can still see how close the ranks were.
+The harness reports replicate accounting on every run. A refused prior
+simulation returns its original `Refusal`.
 
-The rank is continuous and weighted — `r = Σ_i w_i · 1[θ_i < θ_true]` in
-`[0, 1]` — because the classical integer rank would need a resample to accept
-weights, and a resample would make the answer depend on a second RNG nothing
-declared. **A replicate that did not finish abstains the whole report, with a
+`SbcRanks.ranks` stores the posterior mass strictly below each truth, using
+the posterior's own weights. For M finite iid posterior draws the truth and
+draws are exchangeable under calibration. If L draws fall below the truth
+and T tie it, the harness tests `(L + U * (T + 1)) / (M + 1)` using a fresh
+uniform U for each replicate and coordinate. Its independent PRNG stream is
+derived from the supplied key, so runs can be replayed. These continuous
+values are available as `SbcRanks.uniformity_ranks`. For importance-weighted
+or chained posterior draws the harness retains descriptive ranks and
+abstains from an iid KS judgement. The plain sampler arm assumes iid draws
+given the datum. Pass `sampler_iid=False` for a dependent sampler.
+SBC requires real-valued coordinates. Express complex parameters as separate
+real and imaginary coordinates to rank them. An unsupported complex or
+non-finite sample counts as an undrawn replicate. The D106
+floor was measured for a particular draw budget and width error. In
+particular, with one draw an unbiased width error can be undetectable.
+
+**A replicate that did not finish abstains the whole report, with a
 count**, never a silently dropped replicate: the three failure buckets
 (`refused`, `unconverged`, `undrawn`) all reach the findings. An SBC that
 discards its failures and reports uniformity over the survivors is checking an
@@ -412,25 +439,14 @@ the pins.
 
 A "posterior" that ignores `y` and hands back prior draws is uniform in rank
 **by construction** — the position of a prior draw among prior draws is uniform
-— so it scores `APPLICABLE × PASS`. Quoted from the pinning cell's own
-record, with a sampler that discards its datum and returns
-`2.0 * normal(key, (n,))`, N = 100 replicates on the straight-line fixture: KS p = 0.9532, 0.7265, 0.6004 and
-0.1842 at seeds 0, 1, 3 and 4 — a pass at every one — with seed 2's 0.0474 the
-false positive `ALPHA` declares in advance. The cell that pins it is
-`test_a_posterior_that_ignores_the_data_is_still_calibrated`.
+— so it can pass. The regression
+`test_a_posterior_that_ignores_the_data_is_still_calibrated` demonstrates
+this with draws from the prior. Use a predictive check or a held-out score to
+assess the model against the observations.
 
-SBC asks whether a route's stated uncertainty is consistent with its stated
-prior. **A route that is trivially self-consistent answers yes.** Something
-that reads the observation — a predictive check, a held-out score — has to be
-reported alongside it before anyone says a route works.
-
-A second limit of the same shape, and a property of the *fixture* rather than
-of the harness: where the likelihood dominates the prior, a posterior computed
-under the **wrong prior** still passes. Quoted from `sbc.py`'s module docstring: at N = 100, a conjugate sampler told the
-prior is `N(0, 0.5)` while the model declares `N(0, 2)` gives p = 0.1166 /
-0.4411 / 0.4049 at seeds 0 / 1 / 2, and is caught only once the sampler's prior
-is wrong by a further factor of five. What SBC has power against is set by the
-fixture as much as by the replicate count.
+A likelihood that dominates its prior can likewise leave little power to
+detect an incorrect prior. Power depends on the model and on the numbers of
+posterior draws and simulated datasets.
 
 ### The amortized battery has a hole, and it is recorded rather than patched
 

@@ -12,10 +12,17 @@
 
 Evaluation is one linear scan in topological order: every node&#x27;s parents are
 already in the environment by the time it is reached, which is what the
-ordering rule in :class:`~bayesmith.graph.graph.Graph` buys.</pre></details><div class="symbol-index"><a href="#Env">Env</a> <a href="#apply_deterministic">apply_deterministic</a> <a href="#apply_probabilistic">apply_probabilistic</a> <a href="#evaluate">evaluate</a> <a href="#graph_density">graph_density</a> <a href="#log_joint">log_joint</a></div><section class="api-symbol"><h2 id="Env">Env</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 21.</p><pre><code>Env = dict[str, Any]</code></pre></section><section class="api-symbol"><h2 id="apply_deterministic">apply_deterministic</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 40.</p><pre><code>apply_deterministic(graph: Graph, node: Deterministic, env: Env) -&gt; Any</code></pre><pre class="docstring">Call ``node.fn``, vmapped over the plate the node lives in.
+ordering rule in :class:`~bayesmith.graph.graph.Graph` buys.</pre></details><div class="symbol-index"><a href="#Env">Env</a> <a href="#apply_deterministic">apply_deterministic</a> <a href="#apply_probabilistic">apply_probabilistic</a> <a href="#distribution_batch_shape">distribution_batch_shape</a> <a href="#evaluate">evaluate</a> <a href="#graph_density">graph_density</a> <a href="#log_joint">log_joint</a></div><section class="api-symbol"><h2 id="Env">Env</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 25.</p><pre><code>Env = dict[str, Any]</code></pre></section><section class="api-symbol"><h2 id="apply_deterministic">apply_deterministic</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 218.</p><pre><code>apply_deterministic(graph: Graph, node: Deterministic, env: Env) -&gt; Any</code></pre><pre class="docstring">Call ``node.fn``, vmapped over the plate the node lives in.
 
 Public because the NumPyro bridge re-runs the same scan and must apply
-plates identically; a private name used across modules is not private.</pre></section><section class="api-symbol"><h2 id="apply_probabilistic">apply_probabilistic</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 60.</p><pre><code>apply_probabilistic(graph: Graph, node: Probabilistic, env: Env) -&gt; Any</code></pre><pre class="docstring">Build ``node``&#x27;s distribution, vmapping ``dist_fn`` over its plate.
+plates identically; a private name used across modules is not private.</pre></section><section class="api-symbol"><h2 id="apply_probabilistic">apply_probabilistic</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 241.</p><pre><code>apply_probabilistic(graph: Graph, node: Probabilistic, env: Env) -&gt; Any</code></pre><pre class="docstring">Build ``node``&#x27;s distribution, vmapping ``dist_fn`` over its plate.
+
+The plate occupies the last batch axis, immediately before the event.
+Parameterized transforms sample and score within each plate member.
+Inspecting their support raises :class:`~bayesmith.errors.StructureError`
+when the transform has array-valued bounds. Mapped Pareto and CirculantNormal
+laws also raise StructureError when an instance overrides a density, sampler
+or transform method that JAX cannot preserve through batching.
 
 Public for the same reason as :func:`apply_deterministic`: ``log_joint``
 and the NumPyro bridge must build the *same* distribution for the *same*
@@ -40,24 +47,29 @@ pattern -- already relied on today by a plated node with *no* parents at
 all (see ``test_a_plated_latent_site_carries_the_plate_axis``). Refusing
 it here would break that already-correct, already-tested pattern for no
 safety benefit: there is no shape for dist_fn&#x27;s output to get wrong,
-only a distribution object whose own broadcasting contract handles it.</pre></section><section class="api-symbol"><h2 id="evaluate">evaluate</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 106.</p><pre><code>evaluate(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None) -&gt; Env</code></pre><pre class="docstring">Compute every node&#x27;s value.
+only a distribution object whose own broadcasting contract handles it.</pre></section><section class="api-symbol"><h2 id="distribution_batch_shape">distribution_batch_shape</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 308.</p><pre><code>distribution_batch_shape(graph: Graph, node: Probabilistic, distribution: Any) -&gt; tuple[int, ...]</code></pre><pre class="docstring">Independent draw axes, including the plate and recorded repetitions.
+
+NumPyro plates expand the rightmost batch axis. Event axes belong to
+one draw from the law and must stay outside that expansion.</pre></section><section class="api-symbol"><h2 id="evaluate">evaluate</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 334.</p><pre><code>evaluate(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None, *, observed_value: Callable[[Probabilistic, Env], Any] | None=None) -&gt; Env</code></pre><pre class="docstring">Compute every node&#x27;s value.
 
 Args:
     graph: the graph to run.
-    values: values for the latent nodes. Observed nodes take their own
-        data and must not appear here; deterministic and constant nodes
+    values: values for the latent nodes. Deterministic and constant nodes
         are computed.
+    observed_value: an optional forward generator called at each observed
+        node with its parents already evaluated. By default each node
+        takes its recorded data.
 
 Returns:
     A mapping from node name to value, covering every node in the graph.
 
 Raises:
     GraphError: if a latent node has no value, or ``values`` names
-        something that is not a latent node.</pre></section><section class="api-symbol"><h2 id="graph_density">graph_density</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 176.</p><pre><code>graph_density(graph: Graph, term: Any, env: Env, *, label: str, names: tuple[str, ...]) -&gt; jax.Array</code></pre><pre class="docstring">Evaluate one graph-level term and require one scalar contribution.
+        something that is not a latent node.</pre></section><section class="api-symbol"><h2 id="graph_density">graph_density</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 412.</p><pre><code>graph_density(graph: Graph, term: Any, env: Env, *, label: str, names: tuple[str, ...]) -&gt; jax.Array</code></pre><pre class="docstring">Evaluate one graph-level term and require one scalar contribution.
 
 Shared by both density scans. NumPyro otherwise sums a vector-valued
 ``factor`` while :func:`log_joint` broadcasts it, so accepting a vector
-would make the two scans disagree without either one raising.</pre></section><section class="api-symbol"><h2 id="log_joint">log_joint</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 201.</p><pre><code>log_joint(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None) -&gt; jax.Array</code></pre><pre class="docstring">The joint log-density of the graph at ``values``.
+would make the two scans disagree without either one raising.</pre></section><section class="api-symbol"><h2 id="log_joint">log_joint</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 437.</p><pre><code>log_joint(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None) -&gt; jax.Array</code></pre><pre class="docstring">The joint log-density of the graph at ``values``.
 
 Every probabilistic node contributes ``log_prob`` of its value under the
 distribution its parents parameterise; deterministic nodes contribute
@@ -69,6 +81,6 @@ side -- there is no infinite scale to take a limit of, because a sample
 that was not observed contributes no term rather than a term whose width
 went to infinity, and the two differ by exactly the ``log sigma`` that
 would have sent the joint to ``-inf``.</pre></section></article><footer><p>Version 0.10.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
-<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#Env">Env</a><a href="#apply_deterministic">apply_deterministic</a><a href="#apply_probabilistic">apply_probabilistic</a><a href="#evaluate">evaluate</a><a href="#graph_density">graph_density</a><a href="#log_joint">log_joint</a></aside></div>
+<aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#Env">Env</a><a href="#apply_deterministic">apply_deterministic</a><a href="#apply_probabilistic">apply_probabilistic</a><a href="#distribution_batch_shape">distribution_batch_shape</a><a href="#evaluate">evaluate</a><a href="#graph_density">graph_density</a><a href="#log_joint">log_joint</a></aside></div>
 <dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
 </body></html>

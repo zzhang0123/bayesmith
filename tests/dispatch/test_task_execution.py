@@ -30,7 +30,7 @@ import numpyro.distributions as dist
 import pytest
 
 from bayesmith import compile as compile_graph
-from bayesmith import const, det, observe, optimize, sample, trace
+from bayesmith import const, det, observe, optimize, plate, sample, trace
 from bayesmith.artifacts.base import (
     ApproximationClass,
     ArtifactKind,
@@ -965,3 +965,136 @@ def test_a_simulation_result_this_module_produced_round_trips():
         key=jax.random.key(5),
     )
     assert canonical_loads(canonical_dumps(result), expected=SimulationResult) == result
+
+
+def _observation_chain():
+    def model():
+        w = sample("w", lambda: dist.Normal(0.0, 0.01))
+        a = observe("a", lambda v: dist.Normal(v, 0.1), w, obs=10.0)
+        centre = det("centre", lambda v: 2.0 * v, a)
+        observe("b", lambda v: dist.Normal(v, 0.1), centre, obs=20.0)
+        observe("c", lambda v: dist.Normal(v, 0.1), centre, obs=20.0)
+
+    return trace(model)
+
+
+@pytest.mark.parametrize("source_kind", ["prior", "fixed", "posterior"])
+def test_joint_simulation_follows_observed_parents_and_uses_independent_noise(source_kind):
+    n = 1024
+    graph = _observation_chain()
+    posterior = None
+    if source_kind == "prior":
+        source = ParameterSource.prior()
+    elif source_kind == "fixed":
+        source = ParameterSource.fixed((NamedArray("w", np.asarray(0.0), ()),))
+    else:
+        budget = ComputeBudget(draws=n, warmup=8, chains=1)
+        posterior = execute_task(
+            planned_for(graph, posterior_task(budget=budget)),
+            key=jax.random.key(2),
+        )
+        source = ParameterSource.from_posterior_result(_source_ref(posterior))
+
+    task = _simulation_task(
+        source, observed_sites=("a", "b", "c"), budget=ComputeBudget(draws=n)
+    )
+    result = execute_task(
+        planned_for(graph, task), key=jax.random.key(3), source_posterior=posterior
+    )
+    obs = {arr.name: arr.value for arr in result.observation_draws}
+    # Conditional residuals are independent standard Normals. Check the
+    # joint law to six sampling standard errors for the mean, variance and
+    # cross moment; copied draws or recorded parent values violate it.
+    eb = (obs["b"] - 2 * obs["a"]) / 0.1
+    ec = (obs["c"] - 2 * obs["a"]) / 0.1
+    assert abs(eb.mean()) < 6 / np.sqrt(n)
+    assert abs(eb.var(ddof=1) - 1) < 6 * np.sqrt(2 / (n - 1))
+    assert abs(np.mean(eb * ec)) < 6 / np.sqrt(n)
+
+
+def test_prediction_conditions_only_on_unreplicated_ancestors_and_scores_recorded_data():
+    graph = _observation_chain()
+    posterior = execute_task(planned_for(graph, posterior_task()), key=jax.random.key(2))
+
+    def predict(replicate):
+        task = _predictive_task(
+            posterior, conditioned_sites=("a",), replicated_sites=replicate
+        )
+        return execute_task(
+            planned_for(graph, task), key=jax.random.key(3), source_posterior=posterior
+        )
+
+    conditional = predict(("b", "c"))
+    joint = predict(("a", "b", "c"))
+    a, b, c = (arr.value for arr in joint.replicated_draws)
+    assert np.all(np.abs(conditional.replicated_draws[0].value - 20.0) < 0.6)
+    assert not np.array_equal(b, c)
+    assert np.all(np.abs(b - 2 * a) < 0.6)
+    same(joint.pointwise_log_density.value, conditional.pointwise_log_density.value)
+    expected = float(dist.Normal(20.0, 0.1).log_prob(20.0))
+    np.testing.assert_allclose(joint.pointwise_log_density.value[:, 1:], expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize("plated", [False, True])
+def test_prior_and_fixed_simulation_preserve_recorded_batch_and_event_axes(plated):
+    def model():
+        group = plate("rows", 4) if plated else None
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        observe(
+            "d", lambda x: dist.Normal(jnp.stack([x, x]), 1.0).to_event(1), w,
+            obs=jnp.zeros((4, 2)), plate=group,
+        )
+
+    graph = trace(model)
+    for source in (
+        ParameterSource.prior(),
+        ParameterSource.fixed((NamedArray("w", np.asarray(0.0), ()),)),
+    ):
+        result = execute_task(
+            planned_for(graph, _simulation_task(source)), key=jax.random.key(5)
+        )
+        (d,) = result.observation_draws
+        assert d.value.shape == (64, 4, 2)
+        assert not np.array_equal(d.value[:, 0], d.value[:, 1])
+
+
+@pytest.mark.parametrize("batch,event", [(2, ()), (3, (2,))])
+def test_simulated_and_scored_axes_name_the_rightmost_batch_plate(batch, event):
+    from bayesmith.dispatch.predictive import pointwise_log_likelihood
+
+    def model():
+        instrument = plate("instrument", 3)
+        w = sample("w", lambda: dist.Normal(0.0, 1.0))
+        observe(
+            "d", lambda x: dist.Normal(x + jnp.zeros((batch, 1, *event)), 1.).to_event(len(event)),
+            w, obs=jnp.zeros((batch, 3, *event)), plate=instrument,
+        )
+
+    graph = trace(model)
+    fixed = ParameterSource.fixed((NamedArray("w", np.asarray(0.0), ()),))
+    for source in (ParameterSource.prior(), fixed):
+        result = execute_task(planned_for(graph, _simulation_task(source)), key=jax.random.key(5))
+        (observed,) = result.observation_draws
+        density = pointwise_log_likelihood(graph, {"w": np.zeros(64)})
+        for arr in (observed, density):
+            assert arr.value.shape == (64, batch, 3, *event)
+            assert arr.dims == ("draw", "d_dim0", "instrument") + (("d_dim1",) if event else ())
+
+
+def test_simulation_names_event_axes_from_generated_ancestors():
+    def model():
+        instrument = plate("instrument", 3)
+        w = sample("w", lambda: dist.Normal(0., 1.))
+        parent = observe("a", lambda x: dist.Normal(x + jnp.zeros(2), 1.), w, obs=0.)
+        observe(
+            "d", lambda a: dist.Normal(jnp.zeros((3, 3)), 1.).to_event(a.ndim),
+            parent, obs=jnp.zeros((3, 3)), plate=instrument,
+        )
+
+    graph = trace(model)
+    for source in (ParameterSource.prior(),
+                   ParameterSource.fixed((NamedArray("w", np.asarray(0.), ()),))):
+        result = execute_task(planned_for(graph, _simulation_task(source)), key=jax.random.key(1))
+        (draws,) = result.observation_draws
+        # The generated parent is a vector, although its recorded datum is scalar.
+        assert draws.dims == ("draw", "instrument", "d_dim0")

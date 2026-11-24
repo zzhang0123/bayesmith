@@ -149,7 +149,7 @@ from bayesmith.dispatch.execute import (
 from bayesmith.dispatch.plan import Block, InferencePlan, kappa_upper
 from bayesmith.dispatch.plan import compile as compile_plan
 from bayesmith.dispatch.predictive import (
-    _dims,
+    _named_arrays,
     forward_draws,
     pointwise_log_likelihood,
     prior_draws,
@@ -2040,12 +2040,6 @@ def compile_task(
 # --------------------------------------------------------------- execute_task
 
 
-def _named(graph: Graph, name: str, value: Any, *, draw: bool) -> NamedArray:
-    return NamedArray(
-        name=name, value=np.asarray(value), dims=_dims(graph, name, value, draw=draw)
-    )
-
-
 def _measured(value: float | None) -> float | None:
     """A diagnostic that was taken, or ``None`` where it could not be.
 
@@ -2422,10 +2416,7 @@ def _run_posterior(planned: PlannedTask, key: jax.Array | None) -> Result:
     graph = runtime.graph
     names = tuple(name for name in graph.latents if name in posterior.samples)
     values = [posterior.samples[name] for name in names]
-    draws = tuple(
-        _named(graph, name, value, draw=True)
-        for name, value in zip(names, values, strict=True)
-    )
+    draws = _named_arrays(graph, dict(zip(names, values, strict=True)), posterior.samples, draw=True)
     chained = _ran_a_chain(runtime, posterior)
 
     pointwise = None
@@ -2498,6 +2489,7 @@ def _run_posterior(planned: PlannedTask, key: jax.Array | None) -> Result:
             target_fidelity=(runtime.target_fidelity if _is_proposal_plan(runtime)
                              else TargetFidelity.EXACT),
             details=(
+                ("model_identifier", planned.record.model_ref.identifier),
                 ("method", posterior.method),
                 ("planned_method", _planned_method(runtime)),
                 ("requested_backend", task.backend),
@@ -2594,10 +2586,7 @@ def _run_posterior_mean(planned: PlannedTask) -> Result:
         meta=_result_meta(planned, run, "the posterior mean of a whole-graph solve"),
         run=run,
         estimand=task.estimand,
-        values=tuple(
-            _named(graph, name, value, draw=False)
-            for name, value in zip(names, values, strict=True)
-        ),
+        values=_named_arrays(graph, dict(zip(names, values, strict=True)), estimate.values, draw=False),
         residual=float(estimate.residual),
         iterations=iterations,
     )
@@ -2681,10 +2670,7 @@ def _run_map(planned: PlannedTask) -> Result | Refusal:
         meta=_result_meta(planned, run, "a local mode of the graph's posterior"),
         run=run,
         estimand=task.estimand,
-        values=tuple(
-            _named(graph, name, value, draw=False)
-            for name, value in zip(names, values, strict=True)
-        ),
+        values=_named_arrays(graph, dict(zip(names, values, strict=True)), found, draw=False),
         objective=float(outcome.objective),
         gradient_norm=(
             float(outcome.gradient_norm) if isinstance(outcome, MapEstimate) else None
@@ -2858,16 +2844,21 @@ def _run_predictive(
     started = utc_timestamp()
     clock = time.perf_counter()
     try:
-        replicated = replicated_draws(graph, latent_values, key)
+        replicated = replicated_draws(
+            graph,
+            latent_values,
+            key,
+            conditioned_sites=frozenset(task.conditioned_sites) - set(task.replicated_sites),
+        )
         pointwise = pointwise_log_likelihood(graph, latent_values)
     except NotGaussian as exc:
         return _noise_refusal(task, expected, exc, "predictive")
     elapsed = time.perf_counter() - clock
     finished = utc_timestamp()
 
-    replicated_named = tuple(
-        _named(graph, name, replicated[name], draw=True)
-        for name in task.replicated_sites
+    replicated_named = _named_arrays(
+        graph, {name: replicated[name] for name in task.replicated_sites}, latent_values,
+        draw=True, generated=replicated,
     )
     carried = tuple(
         array for array in representation.draws if array.name in set(task.latent_sites)
@@ -2877,7 +2868,7 @@ def _run_predictive(
     run = _run_record(
         planned,
         key=key,
-        values=list(replicated.values()),
+        values=list(replicated.values()) or list(latent_values.values()),
         budget=ComputeBudget(draws=draw_count),
         termination=TerminationRecord(
             reason=TerminationReason.COMPLETED,
@@ -2888,7 +2879,14 @@ def _run_predictive(
             representation_class=ApproximationClass.MONTE_CARLO,
             target_fidelity=TargetFidelity.EXACT,
             details=(
+                ("model_identifier", planned.record.model_ref.identifier),
                 ("method", representation.method),
+                (
+                    "source_weighting",
+                    "importance"
+                    if isinstance(representation, WeightedDrawsPosterior)
+                    else "equal",
+                ),
                 ("requested_backend", task.backend),
             ),
         ),
@@ -3040,12 +3038,15 @@ def _run_simulation(
     finished = utc_timestamp()
 
     reported = [name for name in task.latent_sites if name in latents]
-    latent_named = tuple(
-        _named(graph, name, latents[name], draw=True) for name in reported
+    latent_named = _named_arrays(
+        graph, {n: latents[n] for n in reported}, latents, draw=True,
+        generated=observations if source.kind is ParameterSourceKind.PRIOR else None,
     )
-    observation_named = tuple(
-        _named(graph, name, observations[name], draw=True)
-        for name in task.observed_sites
+    fixed = source.kind is ParameterSourceKind.FIXED
+    axis_values = {a.name: a.value for a in source.values} if fixed else latents
+    observation_named = _named_arrays(
+        graph, {n: observations[n] for n in task.observed_sites}, axis_values,
+        draw=True, fixed=fixed, generated=observations,
     )
     if not latent_named and not observation_named:
         # Reachable, and the artifact's own validation would say something

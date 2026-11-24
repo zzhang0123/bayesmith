@@ -71,7 +71,7 @@ identical for x = -2.0, 0.0 and +2.0. The module&#x27;s own docstrings had alway
 named `check_linearity` as the thing that says a non-affine map &quot;cannot be
 folded at all&quot; -- nothing called it. :func:`factorize` does now, before the
 leakage probe, because a leakage score is meaningless on a map whose jacobian
-does not describe it.</pre></details><div class="symbol-index"><a href="#LEAK_RTOL">LEAK_RTOL</a> <a href="#Factorization">Factorization</a> <a href="#epoch_leakage">epoch_leakage</a> <a href="#factorize">factorize</a></div><section class="api-symbol"><h2 id="LEAK_RTOL">LEAK_RTOL</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 83.</p><pre><code>LEAK_RTOL: float = 1e-10</code></pre></section><section class="api-symbol"><h2 id="Factorization">Factorization</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 86.</p><pre><code>class Factorization(eqx.Module)
+does not describe it.</pre></details><div class="symbol-index"><a href="#LEAK_RTOL">LEAK_RTOL</a> <a href="#Factorization">Factorization</a> <a href="#epoch_leakage">epoch_leakage</a> <a href="#factorize">factorize</a></div><section class="api-symbol"><h2 id="LEAK_RTOL">LEAK_RTOL</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 85.</p><pre><code>LEAK_RTOL: float = 1e-10</code></pre></section><section class="api-symbol"><h2 id="Factorization">Factorization</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 88.</p><pre><code>class Factorization(eqx.Module)
 epoch_plate: str = eqx.field(static=True)
 survivors: tuple[str, ...] = eqx.field(static=True)
 per_epoch: tuple[str, ...] = eqx.field(static=True)</code></pre><pre class="docstring">A campaign&#x27;s latents, split by the extent of data they are constant over.
@@ -81,7 +81,7 @@ Attributes:
     survivors: latents outside that plate -- constant over the whole
         campaign, so they are what a streamed term is over.
     per_epoch: latents inside it -- integrated away within their own
-        epoch, and therefore never accumulated.</pre></section><section class="api-symbol"><h2 id="epoch_leakage">epoch_leakage</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 102.</p><pre><code>epoch_leakage(graph: Graph, name: str, epoch_plate: str, at: dict[str, Any]) -&gt; float</code></pre><pre class="docstring">How far outside its own epoch a per-epoch latent reaches, relatively.
+        epoch, and therefore never accumulated.</pre></section><section class="api-symbol"><h2 id="epoch_leakage">epoch_leakage</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 104.</p><pre><code>epoch_leakage(graph: Graph, name: str, epoch_plate: str, at: dict[str, Any]) -&gt; float</code></pre><pre class="docstring">How far outside its own epoch a per-epoch latent reaches, relatively.
 
 ``0.0`` means the latent touches only its own epoch&#x27;s observations, which
 is what makes integrating it once per epoch the same as integrating it
@@ -93,12 +93,14 @@ design from -- so it asks about the model the fold will actually see,
 not about a declaration.
 
 Returns:
-    ``max |off-epoch| / max |any|`` over every observed node, or ``0.0``
+    the largest off-epoch absolute sum of a plated observation (or
+    largest absolute entry of an unplated one), divided by the largest
+    absolute sensitivity across all observations, or ``0.0``
     if the latent moves nothing at all. Relative to the latent&#x27;s OWN
     largest sensitivity, so a latent the model barely uses is judged on
     the same scale as one it leans on -- an absolute floor would wave
     through a leak in a weakly-used nuisance and refuse a well-used one
-    for roundoff.</pre></section><section class="api-symbol"><h2 id="factorize">factorize</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 184.</p><pre><code>factorize(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, rtol: float=LEAK_RTOL) -&gt; Factorization</code></pre><pre class="docstring">Derive the campaign&#x27;s factorization from the graph, and check it.
+    for roundoff.</pre></section><section class="api-symbol"><h2 id="factorize">factorize</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 185.</p><pre><code>factorize(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, rtol: float=LEAK_RTOL) -&gt; Factorization</code></pre><pre class="docstring">Derive the campaign&#x27;s factorization from the graph, and check it.
 
 Plate membership gives the partition; :func:`epoch_leakage` and
 :func:`~bayesmith.exact.linearity.check_linearity` decide whether it is

@@ -262,3 +262,88 @@ def test_a_plateref_from_a_different_trace_is_refused():
 
     with pytest.raises(GraphError, match="different trace"):
         trace(outer_model)
+
+
+def test_overlapping_thread_traces_keep_their_own_recorder():
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    opened = Event()
+    declared = Event()
+
+    def inner():
+        opened.set()
+        assert declared.wait(5)
+        const("inner", 0.)
+
+    with ThreadPoolExecutor(1) as pool:
+        def outer():
+            inner_graph = pool.submit(trace, inner)
+            assert opened.wait(5)
+            try:
+                const("outer", 0.)
+            finally:
+                declared.set()
+            assert inner_graph.result(5).names == ("inner",)
+        assert trace(outer).names == ("outer",)
+
+
+def test_nested_trace_restores_outer_recorder_after_exception():
+    def inner():
+        const("inner", 0.0)
+        raise RuntimeError("inner model failed")
+
+    def outer():
+        const("before", 0.0)
+        with pytest.raises(RuntimeError, match="inner model failed"):
+            trace(inner)
+        const("after", 0.0)
+
+    assert trace(outer).names == ("before", "after")
+    with pytest.raises(TraceError):
+        const("outside", 0.0)
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_scheduled_declaration_cannot_outlive_its_trace(fail):
+    import asyncio
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        finished = loop.create_future()
+
+        def late():
+            try:
+                const("late", 1)
+            except TraceError:
+                finished.set_result(True)
+            else:
+                finished.set_result(False)
+
+        def model():
+            const("inside", 0)
+            loop.call_soon(late)
+            if fail:
+                raise ValueError("model failed")
+
+        if fail:
+            with pytest.raises(ValueError, match="model failed"):
+                trace(model)
+        else:
+            assert trace(model).names == ("inside",)
+        assert await finished, "a closed recorder accepted a new node"
+
+    asyncio.run(run())
+
+
+def test_a_copied_context_cannot_append_from_a_different_thread():
+    from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        def model():
+            with pytest.raises(TraceError):
+                pool.submit(copy_context().run, const, "foreign", 1).result(timeout=5)
+            const("local", 0)
+
+        assert trace(model).names == ("local",)

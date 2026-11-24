@@ -527,3 +527,52 @@ class TestAJointlyNonAffineCampaignIsRefused:
             terms = epoch_terms(graph, "epoch", factorization=declared)
         assert float(jnp.abs(jnp.asarray(terms[0].factor)).max()) == 0.0
 
+
+
+@pytest.mark.parametrize("correlated", [False, True])
+def test_batch_and_event_axes_remain_inside_each_epoch(correlated):
+    """Each epoch contains two vector observations and a vector nuisance."""
+    from scipy.linalg import block_diag, circulant
+    from scipy.stats import multivariate_normal
+
+    channels, epochs, nin, nout = 2, 3, 2, 3
+    rng = np.random.default_rng(783)
+    b = rng.normal(size=(channels * nout, channels * nin))
+    h = rng.normal(size=(channels, nout))
+    means = rng.normal(size=(channels, epochs, nin))
+    scales = rng.uniform(0.2, 1.1, size=means.shape)
+    data = rng.normal(size=(channels, epochs, nout))
+    sigma = rng.uniform(0.5, 1.3, size=data.shape)
+    kernels = np.stack([np.array([1.0 + j, .15, .15]) for j in range(channels)])
+
+    def model():
+        epoch = plate("epoch", epochs)
+        g = sample("g", lambda: ndist.Normal(0., 2.))
+        n = sample("n", lambda: ndist.Normal(means, scales).to_event(1), plate=epoch)
+        errors = const("errors", jnp.moveaxis(sigma, 1, 0), plate=epoch)
+
+        def likelihood(g_, n_, err):
+            loc = g_ * h + (b @ n_.ravel()).reshape(channels, nout)
+            if correlated:
+                return ndist.CirculantNormal(loc, covariance_row=jnp.asarray(kernels))
+            return ndist.Normal(loc, err).to_event(1)
+
+        observe("d", likelihood, g, n, errors, obs=data, plate=epoch)
+
+    with jax.enable_x64(True):
+        graph = trace(model)
+        terms = epoch_terms(graph, "epoch")
+        folded = compress_campaign(graph, "epoch")
+        for g in (-0.7, 1.2):
+            expected = []
+            for epoch, term in enumerate(terms):
+                m = g * h.ravel() + b @ means[:, epoch].ravel()
+                noise = (
+                    block_diag(*(circulant(row) for row in kernels)) if correlated
+                    else np.diag(sigma[:, epoch].ravel() ** 2)
+                )
+                design = b * scales[:, epoch].ravel()
+                truth = multivariate_normal.logpdf(data[:, epoch].ravel(), m, noise + design @ design.T)
+                expected.append(truth)
+                assert float(term.log_prob({"g": jnp.asarray(g)})) == pytest.approx(truth, abs=1e-9)
+            assert float(folded.log_prob({"g": jnp.asarray(g)})) == pytest.approx(sum(expected), abs=1e-9)

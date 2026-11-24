@@ -384,7 +384,10 @@ def _conjugate_solve(
 
     solution, _ = jax.scipy.sparse.linalg.cg(normal, rhs, tol=tol, maxiter=maxiter)
     misfit = jax.tree.map(jnp.subtract, normal(solution), rhs)
-    residual = tree_norm(misfit) / jnp.maximum(tree_norm(rhs), 1e-30)
+    rhs_norm = tree_norm(rhs)
+    misfit_norm = tree_norm(misfit)
+    relative = misfit_norm / jnp.where(rhs_norm == 0, 1.0, rhs_norm)
+    residual = jnp.where((rhs_norm == 0) & (misfit_norm != 0), jnp.inf, relative)
 
     if require_convergence is not None:
         # jax's cg reports no convergence status of its own, so an unconverged
@@ -555,8 +558,9 @@ def wiener_solve(
 
     Returns:
         ``(x_hat, relative_residual)``, the residual being
-        ``||M x_hat - b|| / ||b||``. Note this is the residual, not the error;
-        multiply by :func:`condition_bound` for the error bound.
+        ``||M x_hat - b|| / ||b||``. For a zero right-hand side an exact
+        solution has residual zero and a nonzero misfit has infinite relative
+        residual. Multiply by :func:`condition_bound` for the error bound.
 
     Note:
         **Where S comes from.** Each latent's own ``dist_fn`` is this

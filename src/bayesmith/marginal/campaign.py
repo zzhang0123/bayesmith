@@ -37,10 +37,15 @@ import numpy as np
 from bayesmith.errors import StructureError
 from bayesmith.exact.block import isolate, unchecked_operator
 from bayesmith.exact.gaussian import gaussian_parts, precision_at
+from bayesmith.exact.precision import (
+    CirculantPrecision,
+    DiagonalPrecision,
+    per_sample_sigma,
+)
 from bayesmith.graph.evaluate import evaluate
 from bayesmith.graph.graph import Graph
 from bayesmith.marginal.compress import epoch_joint
-from bayesmith.marginal.factorize import Factorization, factorize
+from bayesmith.marginal.factorize import Factorization, _epoch_axis, factorize
 from bayesmith.marginal.sqrtinfo import SqrtInfo, marginalise_arrays
 
 
@@ -92,80 +97,71 @@ def epoch_terms(
     constant = forward(zeros)[observed]
     jacobian = jax.jacfwd(forward)(zeros)[observed]
 
-    data = jnp.asarray(node.observed)
-    per_epoch_rows = int(jnp.asarray(data[0]).size)
+    data = jnp.broadcast_to(node.observed, constant.shape)
+    per_epoch_rows = data.size // size
     precision = precision_at(graph, {**zeros, **(at or {})})[observed]
     env = evaluate(graph, {**zeros, **(at or {})})
 
-    # The WHOLE per-epoch declaration, not its first entry.
-    #
-    # This read `jnp.reshape(scale, (-1,))[0]` and broadcast that one number to
-    # every epoch, so a campaign declaring `tau = [0.5, 1, 2, 4]` integrated
-    # three of its four epochs against a prior the model does not declare. What
-    # came back was finite, plausible and wrong by 2.75 nats on four epochs,
-    # with no warning and no refusal, and the comment that stood here
-    # acknowledged the limitation while naming no ledger row.
-    #
-    # The information was never missing. `gaussian_parts` returns the whole
-    # per-epoch vector, `nuisance_prior` already broadcasts a per-component
-    # std, and `one_epoch` below is already vmapped -- so the only change is
-    # that the prior stops being a closed-over scalar and becomes a mapped
-    # argument, which is what the vectorisation was for.
-    #
-    # Broadcast to `(size, *per-epoch shape)` rather than passed through: a
-    # latent declaring one width for the whole campaign is still legal and
-    # still means the same thing, and it must stay bitwise where it was.
-    prior_locs = {}
-    prior_scales = {}
-    for name in found.per_epoch:
-        loc, scale = gaussian_parts(graph, graph.node(name), env)
-        target = (size, *domain.shape[name][1:])
-        prior_locs[name] = jnp.broadcast_to(jnp.asarray(loc), target)
-        prior_scales[name] = jnp.broadcast_to(jnp.asarray(scale), target)
+    observed_axis = _epoch_axis(graph, observed, env, data.ndim)
 
-    # VECTORISED, not looped. Measured on a 1000-epoch campaign: the Python
-    # loop this replaces cost 2.82 ms per epoch, all of it eager QR, and an
-    # unrolled `jit` of it compiled in 5.4 s. Every epoch does the same
-    # arithmetic on the same shapes, which is what `vmap` is for -- and
-    # `compress` traces now, so it can be.
-    #
-    # The per-epoch design is the jacobian's DIAGONAL in the two epoch axes:
-    # entry `[e, ..., e, ...]`, i.e. how epoch e's data moves with epoch e's
-    # own latent. `jnp.diagonal` takes all E at once.
+    def epoch_rows(array):
+        return jnp.moveaxis(array, observed_axis, 0).reshape(size, per_epoch_rows)
+
+    if isinstance(precision, CirculantPrecision):
+        kernels = jnp.broadcast_to(precision.first_column, data.shape)
+        epoch_noise = CirculantPrecision(jnp.moveaxis(kernels, observed_axis, 0))
+        if not bool(jnp.all(jnp.isfinite(epoch_noise.log_spectrum()))):
+            raise StructureError("the campaign covariance has a non-finite log-normaliser")
+    else:
+        sigma = per_sample_sigma({observed: precision})[observed]
+        epoch_noise = DiagonalPrecision(epoch_rows(sigma))
+
+    stacked_data = epoch_rows(data)
+    stacked_constant = epoch_rows(constant)
     stacked_globals = {
-        name: jnp.reshape(jacobian[name], (size, per_epoch_rows, -1))
+        name: jnp.moveaxis(jacobian[name], observed_axis, 0).reshape(size, per_epoch_rows, -1)
         for name in found.survivors
     }
-    stacked_nuisances = {
-        name: jnp.moveaxis(
-            jnp.diagonal(
-                jnp.reshape(
-                    jacobian[name], (size, per_epoch_rows, size, -1)
-                ),
-                axis1=0,
-                axis2=2,
-            ),
-            -1,
-            0,
-        )
-        for name in found.per_epoch
-    }
-    stacked_data = jnp.reshape(data, (size, per_epoch_rows))
-    stacked_constant = jnp.reshape(constant, (size, per_epoch_rows))
-    stacked_precision = _stack_precision(precision, size, per_epoch_rows)
-
     global_shapes = {name: domain.shape[name] for name in found.survivors}
-    nuisance_shapes = {
-        name: domain.shape[name][1:] for name in found.per_epoch
-    }
+
+    # jacfwd appends the latent's full shape to the observation's shape.
+    # Group both plate axes before extracting blocks whose epoch indices match.
+    stacked_nuisances, nuisance_shapes = {}, {}
+    prior_locs, prior_scales = {}, {}
+    epochs = jnp.arange(size)
+    for name in found.per_epoch:
+        shape = domain.shape[name]
+        axis = _epoch_axis(graph, name, env, len(shape))
+        blocks = jnp.moveaxis(jacobian[name], (observed_axis, data.ndim + axis), (0, 1))
+        stacked_nuisances[name] = blocks[epochs, epochs].reshape(size, per_epoch_rows, -1)
+        nuisance_shapes[name] = shape[:axis] + shape[axis + 1:]
+        loc, scale = gaussian_parts(graph, graph.node(name), env)
+        for param, dest in ((loc, prior_locs), (scale, prior_scales)):
+            dest[name] = jnp.moveaxis(jnp.broadcast_to(param, shape), axis, 0).reshape(size, -1)
 
     nuisance_width = sum(
         int(np.prod(nuisance_shapes[name], dtype=int)) for name in found.per_epoch
     )
 
     def one_epoch(
-        globals_, nuisances, values, offset_prediction, noise, locs, scales
+        globals_, nuisances, values, offset_prediction, epoch, locs, scales
     ):
+        noise = _slice_precision(epoch_noise, epoch, size)
+        logdet = 0.
+        if isinstance(noise, CirculantPrecision):
+            # Whiten each independent circulant on its own Fourier axis.
+            # The compressor's row index flattens all of them into one vector.
+            def whiten(vector):
+                return noise.whiten(vector.reshape(noise.first_column.shape)).reshape(-1)
+
+            whiten_columns = jax.vmap(whiten, in_axes=1, out_axes=1)
+            globals_ = jax.tree.map(whiten_columns, globals_)
+            nuisances = jax.tree.map(whiten_columns, nuisances)
+            values = whiten(values)
+            offset_prediction = whiten(offset_prediction)
+            logdet = jnp.sum(noise.log_spectrum())
+            noise = DiagonalPrecision(sigma=jnp.ones_like(values))
+
         joint, _ = epoch_joint(
             globals_,
             values,
@@ -185,7 +181,7 @@ def epoch_terms(
         # No permutation: `epoch_joint` puts the nuisances first, which is the
         # layout `marginalise_arrays` documents.
         return marginalise_arrays(
-            joint.factor, joint.target, joint.offset, nuisance_width
+            joint.factor, joint.target, joint.offset - 0.5 * logdet, nuisance_width
         )
 
     factors, targets, offsets, pivots = jax.vmap(one_epoch)(
@@ -193,7 +189,7 @@ def epoch_terms(
         stacked_nuisances,
         stacked_data,
         stacked_constant,
-        stacked_precision,
+        epochs,
         prior_locs,
         prior_scales,
     )
@@ -355,31 +351,6 @@ def _refuse_unconstrained_epochs(
             "per-epoch latent is integrated exactly once, so its prior has to "
             "be part of the model rather than an optional regulariser."
         )
-
-
-def _stack_precision(precision: Any, size: int, rows: int) -> Any:
-    """The whole node's covariance as ``size`` per-epoch ones, stacked.
-
-    ``vmap`` maps over the leading axis of a pytree leaf, and a ``Precision``
-    is an ``eqx.Module`` whose leaves are its arrays -- so a batched one IS
-    the stack. This only has to check that the batch axis is the epoch axis
-    and reshape the rest, which :func:`_slice_precision` states the reasons
-    for one epoch at a time.
-    """
-    from bayesmith.exact.precision import CirculantPrecision, DiagonalPrecision
-
-    first = _slice_precision(precision, 0, size)
-    if isinstance(first, DiagonalPrecision):
-        return DiagonalPrecision(
-            sigma=jnp.reshape(precision.sigma, (size, rows))
-        )
-    if isinstance(first, CirculantPrecision):
-        return CirculantPrecision(
-            first_column=jnp.reshape(precision.first_column, (size, -1))
-        )
-    raise StructureError(  # pragma: no cover - the gate admits two rows
-        f"no rule for stacking a {type(precision).__name__} by epoch."
-    )
 
 
 def _slice_precision(precision: Any, epoch: int, size: int) -> Any:

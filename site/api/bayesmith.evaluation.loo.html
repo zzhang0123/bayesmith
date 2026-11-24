@@ -77,7 +77,7 @@ actually is.
 exists because the last such claim went stale; a later arviz that computes
 ``loo`` in-house again would walk straight past it. :func:`_estimator_origin`
 asks ``az.loo`` where it lives instead, so the finding is true by
-construction rather than by maintenance.</pre></details><div class="symbol-index"><a href="#REPORT_KIND">REPORT_KIND</a> <a href="#loo_report">loo_report</a></div><section class="api-symbol"><h2 id="REPORT_KIND">REPORT_KIND</h2><p class="source-note">Defined in <code>bayesmith.evaluation.loo</code>, line 100.</p><pre><code>REPORT_KIND = &#x27;loo_psis&#x27;</code></pre></section><section class="api-symbol"><h2 id="loo_report">loo_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.loo</code>, line 264.</p><pre><code>loo_report(result: Any, *, graph: Graph, chain_shape: tuple[int, int] | None=None, source_posterior: Any=None) -&gt; EvaluationReport</code></pre><pre class="docstring">Judge one result&#x27;s PSIS-LOO, via ``arviz.loo`` over R2&#x27;s export.
+construction rather than by maintenance.</pre></details><div class="symbol-index"><a href="#REPORT_KIND">REPORT_KIND</a> <a href="#loo_report">loo_report</a></div><section class="api-symbol"><h2 id="REPORT_KIND">REPORT_KIND</h2><p class="source-note">Defined in <code>bayesmith.evaluation.loo</code>, line 112.</p><pre><code>REPORT_KIND = &#x27;loo_psis&#x27;</code></pre></section><section class="api-symbol"><h2 id="loo_report">loo_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.loo</code>, line 354.</p><pre><code>loo_report(result: Any, *, graph: Graph, chain_shape: tuple[int, int] | None=None, source_posterior: Any=None, model_ref: ModelRef | None=None, extra_data: tuple[tuple[str, Any], ...]=()) -&gt; EvaluationReport</code></pre><pre class="docstring">Judge one result&#x27;s PSIS-LOO, via ``arviz.loo`` over R2&#x27;s export.
 
 Args:
     result: a :class:`~bayesmith.artifacts.results.PosteriorResult` or
@@ -90,12 +90,16 @@ Args:
         holding the source posterior&#x27;s may supply it here; left out, an
         unchained result is exported as one chain.
     source_posterior: the :class:`~bayesmith.artifacts.results.PosteriorResult`
-        a predictive result came from, read ONLY for its representation --
-        it is what says whether the sample is importance-weighted, and a
-        ``source_posterior_ref`` is a pointer, not a representation. It
+        a predictive result came from. Its ID and revision must match.
+        It supplies weighting provenance for older predictives and any latent
+        draws omitted from the predictive that the ArviZ export needs. It
         deliberately does not supply ``chain_shape``: that override already
         has a home above, and one argument quietly feeding two decisions is
         how the second one stops being visible.
+
+    model_ref: original model reference for older results which do not record
+        their model identifier. When supplied, its source fingerprint is checked.
+    extra_data: additional conditioning data supplied to compile_task, if any.
 
 Returns:
     An :class:`~bayesmith.artifacts.reports.EvaluationReport` of kind

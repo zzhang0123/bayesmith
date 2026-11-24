@@ -190,12 +190,13 @@ def ornstein_uhlenbeck(
     :class:`LinearGaussianTransition`. An OU is a way of constructing one, and
     this package spells constructors in lower case.
     """
-    phi_scalar = jnp.exp(-1.0 / jnp.asarray(tau))
+    decay = -1.0 / jnp.asarray(tau)
+    phi_scalar = jnp.exp(decay)
     spread = jnp.asarray(sigma)
     return LinearGaussianTransition(
         phi=phi_scalar * jnp.eye(width),
         process_std=jnp.broadcast_to(
-            spread * jnp.sqrt(1.0 - phi_scalar**2), (width,)
+            spread * jnp.sqrt(-jnp.expm1(2.0 * decay)), (width,)
         ),
         initial_std=jnp.broadcast_to(spread, (width,)),
         hyper=hyper,

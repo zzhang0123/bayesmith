@@ -88,7 +88,7 @@ def _observed_data(graph: Graph, values: dict) -> tuple[dict, dict]:
     for name in graph.observed:
         value = np.array(data[name], copy=True)
         arrays[name] = value
-        dims[name] = list(_dims(graph, name, value, draw=False))
+        dims[name] = list(_dims(graph, name, value, draw=False, environment=lambda: env))
     return arrays, dims
 
 

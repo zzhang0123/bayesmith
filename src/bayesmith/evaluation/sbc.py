@@ -11,45 +11,23 @@ middle too often; one that is too narrow pushes it into the tails.
 **What a PASS here does NOT say: that the route read the data.**  A "posterior"
 that ignores ``y`` and hands back prior draws is uniform in rank BY
 CONSTRUCTION -- the position of a prior draw among prior draws is uniform -- so
-it scores APPLICABLE x PASS from this harness.  Measured on this checkout with
-a sampler that discards its ``datum`` and returns ``2.0 * normal(key, (n,))``,
-N = 100 replicates on the straight-line fixture: KS p = 0.9532, 0.7265, 0.6004
-and 0.1842 at seeds 0, 1, 3 and 4 -- PASS at every one -- with seed 2's 0.0474
-the false positive ``ALPHA = 0.05`` declares in advance.  SBC asks whether a
-route's stated uncertainty is consistent with its stated prior; a route that is
-trivially self-consistent answers yes.  Something that reads the observation --
-a posterior predictive check, a held-out score -- has to be reported alongside
-it before anyone says a route works.  This is the discipline the R3 plan's
-§0.3 already imposes on PPC ("do not tell a PASS as 'the model is correct'"),
-and it is owed here for the same reason.  The cell that pins it is
+it can pass this calibration check. A posterior predictive check or a held-out
+score can independently test whether the result predicts the observations.
+The cell that pins this limit is
 ``test_a_posterior_that_ignores_the_data_is_still_calibrated``.
 
-A second limit of the same shape, and a property of the FIXTURE rather than of
-this harness: where the likelihood dominates the prior, a posterior computed
-under the WRONG prior still passes.  Measured on the same fixture at N = 100, a
-conjugate sampler told the prior is ``N(0, 0.5)`` while the model declares
-``N(0, 2)`` gives p = 0.1166 / 0.4411 / 0.4049 at seeds 0 / 1 / 2 -- PASS at
-all three -- and is only caught once the sampler's prior is wrong by a further
-factor of five (``N(0, 0.1)``: p = 2.5e-15 / 2.6e-16 / 6.8e-24).  What SBC has
-power against is set by the fixture as much as by the replicate count, and
-D106 is a floor measured against a 2x WIDTH error, not a promise about every
-error.
+Power against an incorrect prior depends on the model: when a likelihood
+dominates the prior, even a large prior error can have little effect on the
+posterior ranks. D106 was measured on a particular 2x width error and draw
+budget.
 
-**Three rulings from the R3 plan's §0.6 are implemented here literally, and
-none of them is re-decided in this module.**
-
-*The rank is continuous and weighted.*  ``r = sum_i w_i * 1[theta_i <
-theta_true]`` in ``[0, 1]``, with ``w_i = 1/n`` for an equally weighted sample
-and the posterior's own normalised weights for an importance-weighted one.
-The classical integer rank would need a resample to accept weights, and R2
-§0.5 already ruled that a weighted result is not resampled on the way into a
-judgement -- a resample would make the check's answer depend on a second RNG
-that nothing declared.
-
-*Uniformity is tested with :func:`scipy.stats.kstest`,* one test per scalar
-latent coordinate, against a Bonferroni-corrected level ``alpha / K`` for the
-``K`` coordinates.  ``alpha`` is D104 and lives in this package's ``__init__``;
-the Bonferroni factor is a derivation from it, not a second threshold.
+*Two quantities are retained.* The weighted fraction below the truth is a
+descriptive empirical CDF. For M iid posterior draws the truth's ordinal
+rank is uniform over M+1 slots. An independent uniform variate selects a
+point in its slot (or in the combined slots occupied by tied values), giving
+a continuous uniform null for the one-sample KS test. Importance-weighted and
+chain draws have no such exchangeability guarantee and receive no KS verdict.
+One test per scalar coordinate uses the Bonferroni level alpha / K.
 
 *A replicate that did not finish makes the whole report ABSTAIN, with a
 count.*  Never a silently dropped replicate.  SBC checks the algorithm AND its
@@ -69,10 +47,7 @@ being measured over ten seeds instead of one.
 executes a real :class:`~bayesmith.artifacts.tasks.PosteriorTask` per
 replicate, so exact and sampled routes are covered by the same harness.  The
 sampler arm takes any ``sampler(datum, key, n) -> draws`` and is what an
-amortized estimator is scored through.  Both reach
-:func:`sbc_report` with the same :class:`SbcRanks`, which is the point: a
-comparison between a NUTS posterior and a neural one is only a comparison if
-the two were judged by identical arithmetic.
+amortized estimator is scored through. Both return :class:`SbcRanks`.
 
 Layering: this module reads ``dispatch``, ``graph`` and ``artifacts`` and is
 read by none of them (§0.1).  It creates no Result and modifies none: the
@@ -234,10 +209,9 @@ def continuous_rank(
     """§0.6's rank: ``sum_i w_i * 1[theta_i < truth]``, in ``[0, 1]``.
 
     ``draws`` is one scalar coordinate's draws and ``weights`` the posterior's
-    normalised weights over the same draw axis.  Strict ``<`` matches the
-    classical rank statistic's convention; for a continuous posterior the tie
-    set has probability zero, and for a discrete one the choice would have to
-    be made by whoever owns that discreteness rather than here.
+    normalised weights over the same draw axis. Strict ``<`` excludes ties
+    from this descriptive quantity. The iid uniformity test separately
+    randomises over the truth's possible tied slots.
     """
     below = np.asarray(draws) < truth
     return float(np.sum(np.asarray(weights) * below))
@@ -267,6 +241,9 @@ class SbcRanks:
     route: str
     subject_ref: ArtifactRef
     fingerprints: FingerprintBundle
+    # Continuous PIT values with a justified uniform null. Raw empirical CDFs
+    # from older or manually constructed runs cannot establish it on their own.
+    uniformity_ranks: tuple[tuple[float, ...], ...] | None = None
 
     @property
     def unusable(self) -> int:
@@ -404,8 +381,7 @@ def _sampler_draws(
     draws = {name: np.asarray(value) for name, value in drawn.items()}
     if not _covers(draws, truths):
         return None
-    n = int(draws[next(iter(truths))].shape[0])
-    return draws, np.full(n, 1.0 / n, dtype=np.float64)
+    return draws, np.full(count, 1.0 / count, dtype=np.float64)
 
 
 def sbc_ranks(
@@ -419,6 +395,7 @@ def sbc_ranks(
     nuts_on_collapse: bool = False,
     sampler: Sampler | None = None,
     sampler_draws: int = 0,
+    sampler_iid: bool = True,
     subject_ref: ArtifactRef | None = None,
 ) -> SbcRanks | Refusal:
     """Run the replicate loop and return its ranks, unjudged.
@@ -443,6 +420,9 @@ def sbc_ranks(
             route -- SBC is a statement about one route.
         sampler: the §0.11 arm. ``sampler(datum, key, n) -> {name: draws}``.
         sampler_draws: ``n`` for the sampler arm.
+        sampler_iid: the plain sampler contract supplies independent posterior
+            draws given the datum. Set False for dependent draws to keep their
+            empirical ranks without issuing a uniformity verdict.
         subject_ref: required with ``sampler``, which produces no Result to
             point at; ignored by the route arm, which uses the first usable
             replicate's posterior (§0.2's "routing representative").
@@ -496,6 +476,12 @@ def sbc_ranks(
         coordinates.extend(_flat_coordinates(array.name, array.value.shape[1:]))
     collected: dict[str, list[float]] = {name: [] for name in coordinates}
 
+    # Reserve a separate PRNG stream so randomising ranks never changes a
+    # simulated truth, observation, or posterior draw.
+    jitter_key = jax.random.fold_in(replicate_key, 0xFFFFFFFF)
+    jitter = np.random.default_rng(np.asarray(jax.random.key_data(jitter_key)))
+    uniformity = {name: [] for name in coordinates}
+    independent = sampler is None or sampler_iid
     refused = 0
     unconverged = 0
     undrawn = 0
@@ -530,14 +516,20 @@ def sbc_ranks(
             if drawn is not None and not _covers(drawn[0], truths):
                 drawn = None
             if drawn is not None:
+                independent = independent and (
+                    isinstance(result.representation, DrawsPosterior)
+                    and result.representation.chain_shape is None
+                )
                 if representative is None:
                     representative = _result_ref(result)
                 if not route:
                     route = result.representation.method
-        if drawn is None:
+        if drawn is None or not _valid_rank_inputs(drawn, truths, index):
             undrawn += 1
             continue
-        _accumulate(collected, drawn, truths, index)
+        _accumulate(
+            collected, uniformity if independent else None, jitter, drawn, truths, index
+        )
 
     if representative is None:
         # No replicate produced a posterior, so §0.2's "routing representative"
@@ -549,6 +541,11 @@ def sbc_ranks(
     return SbcRanks(
         coordinates=tuple(coordinates),
         ranks=tuple(tuple(collected[name]) for name in coordinates),
+        uniformity_ranks=(
+            tuple(tuple(uniformity[name]) for name in coordinates)
+            if independent and coordinates
+            else None
+        ),
         requested=count,
         usable=count - refused - unconverged - undrawn,
         refused=refused,
@@ -560,8 +557,30 @@ def sbc_ranks(
     )
 
 
+def _valid_rank_inputs(
+    drawn: tuple[Mapping[str, np.ndarray], np.ndarray],
+    truths: Mapping[str, np.ndarray],
+    index: int,
+) -> bool:
+    draws, weights = drawn
+    return (
+        len(weights) > 0
+        and np.isfinite(weights).all()
+        and all(
+            np.isrealobj(draws[name])
+            and np.isrealobj(truth)
+            and draws[name].shape == (len(weights), *truth.shape[1:])
+            and np.isfinite(draws[name]).all()
+            and np.isfinite(truth[index]).all()
+            for name, truth in truths.items()
+        )
+    )
+
+
 def _accumulate(
     collected: dict[str, list[float]],
+    uniformity: dict[str, list[float]] | None,
+    jitter: np.random.Generator,
     drawn: tuple[Mapping[str, np.ndarray], np.ndarray],
     truths: Mapping[str, np.ndarray],
     index: int,
@@ -575,9 +594,13 @@ def _accumulate(
         for position, coordinate in enumerate(
             _flat_coordinates(name, truth.shape[1:])
         ):
-            collected[coordinate].append(
-                continuous_rank(flat[:, position], weights, float(flat_truth[position]))
-            )
+            values, target = flat[:, position], flat_truth[position]
+            collected[coordinate].append(continuous_rank(values, weights, target))
+            if uniformity is not None:
+                lower = np.count_nonzero(values < target)
+                tied = np.count_nonzero(values == target)
+                pit = (lower + jitter.random() * (tied + 1)) / (len(values) + 1)
+                uniformity[coordinate].append(float(pit))
 
 
 def _accounting(ranks: SbcRanks, floor: int) -> Finding:
@@ -607,14 +630,20 @@ def _uniformity_findings(
 ) -> tuple[tuple[Finding, ...], bool]:
     """One KS finding per coordinate, and whether every one of them passed."""
     findings: list[Finding] = []
-    # True with no evidence only when there are no ranks at all, which is
-    # reachable only on a path that has already decided to ABSTAIN; a verdict
-    # is never read off an empty sample.
     calibrated = True
-    for coordinate, values in zip(ranks.coordinates, ranks.ranks, strict=True):
+    if ranks.uniformity_ranks is None:
+        return (), False
+    for coordinate, values in zip(
+        ranks.coordinates, ranks.uniformity_ranks, strict=True
+    ):
+        if len(values) != ranks.usable:
+            raise ValueError(f"{coordinate} needs one PIT rank per usable replicate")
         if not values:
             continue
-        test = stats.kstest(np.asarray(values), "uniform")
+        sample = np.asarray(values)
+        if not np.all((sample >= 0) & (sample <= 1)):
+            raise ValueError(f"{coordinate} PIT ranks must be finite values in [0, 1]")
+        test = stats.kstest(sample, "uniform")
         statistic = float(test.statistic)
         p_value = float(test.pvalue)
         if not ranks_are_uniform(p_value, level):
@@ -624,7 +653,7 @@ def _uniformity_findings(
                 code="sbc_rank_uniformity",
                 message=(
                     f"{coordinate}: KS D={statistic:.4f} p={p_value:.4g} over "
-                    f"{len(values)} ranks, against alpha/K={level:.4g}"
+                    f"{len(values)} continuous PIT ranks, against alpha/K={level:.4g}"
                 ),
                 observed=(coordinate, statistic, p_value, len(values)),
                 expected=level,
@@ -647,6 +676,8 @@ def sbc_report(
       45" are different facts and the first is the one worth reporting.
     * Fewer usable replicates than D106 -> APPLICABLE x ABSTAIN, finding
       ``replicates_below_floor``.
+    * With no continuous PIT ranks -> APPLICABLE x ABSTAIN, finding
+      ``sbc_rank_null_unavailable``.
     * Otherwise every coordinate's KS p against ``alpha / K`` decides:
       all at or above -> PASS, any below -> FAIL.
 
@@ -657,7 +688,7 @@ def sbc_report(
     §8's gate G8, and the reason the level is in ``expected`` rather than only
     in the message.
     """
-    level = alpha / len(ranks.coordinates)
+    level = alpha / len(ranks.coordinates) if ranks.coordinates else alpha
     findings, calibrated = _uniformity_findings(ranks, level)
     accounting = _accounting(ranks, floor)
 
@@ -701,6 +732,19 @@ def sbc_report(
             ),
             "below the replicate floor",
         )
+    if ranks.uniformity_ranks is None or not ranks.coordinates:
+        return _report(
+            ranks,
+            Conclusion.ABSTAIN,
+            (
+                accounting,
+                Finding(
+                    code="sbc_rank_null_unavailable",
+                    message="A finite-rank uniform null requires iid draws for each latent coordinate.",
+                ),
+            ),
+            "no verified rank-uniformity null",
+        )
     return _report(
         ranks,
         Conclusion.PASS if calibrated else Conclusion.FAIL,
@@ -742,6 +786,7 @@ def simulation_based_calibration(
     nuts_on_collapse: bool = False,
     sampler: Sampler | None = None,
     sampler_draws: int = 0,
+    sampler_iid: bool = True,
     subject_ref: ArtifactRef | None = None,
     alpha: float = ALPHA,
     floor: int = REPLICATE_FLOOR,
@@ -763,6 +808,7 @@ def simulation_based_calibration(
         nuts_on_collapse=nuts_on_collapse,
         sampler=sampler,
         sampler_draws=sampler_draws,
+        sampler_iid=sampler_iid,
         subject_ref=subject_ref,
     )
     if isinstance(ranks, Refusal):

@@ -9,7 +9,7 @@ from scipy.integrate import dblquad
 
 from bayesmith import observe, plate, sample, trace
 from bayesmith.dispatch.preflight import likelihood_information
-from bayesmith.errors import GraphError
+from bayesmith.errors import GraphError, StructureError
 from bayesmith.graph.evaluate import log_joint
 from examples.inference import power_law as demo
 from examples.inference.jeffreys_priors import with_jeffreys_prior
@@ -193,7 +193,8 @@ def test_reference_cannot_hide_nonfinite_later_channel(monkeypatch):
         "stopped_shape",
     ],
 )
-def test_nonregular_or_changed_pareto_is_not_certified(mode):
+@pytest.mark.parametrize("plated", [False, True])
+def test_nonregular_or_changed_pareto_is_not_certified(mode, plated):
     def law(value):
         scale = 1 + value**2 if mode == "moving_cutoff" else 1.0
         shape = (
@@ -214,12 +215,20 @@ def test_nonregular_or_changed_pareto_is_not_certified(mode):
         return result
 
     def model():
-        value = sample("value", lambda: dist.Uniform(1, 4))
-        observe("obs", law, value, obs=jnp.ones(4) * 10)
+        rows = plate("rows", 4) if plated else None
+        value = sample("value", lambda: dist.Uniform(1, 4), plate=rows)
+        observe("obs", law, value, obs=jnp.ones(4) * 10, plate=rows)
 
     graph = trace(model)
-    with pytest.raises(GraphError):
-        likelihood_information(graph, ("value",), {"value": jnp.array(2.0)})
+    point = {"value": jnp.full((4,) if plated else (), 2.0)}
+    if plated and mode in ("custom_density", "transform_density"):
+        with pytest.raises(StructureError, match="plated"):
+            log_joint(graph, point)
+        with pytest.raises(StructureError, match="plated"):
+            likelihood_information(graph, ("value",), point)
+    else:
+        with pytest.raises(GraphError):
+            likelihood_information(graph, ("value",), point)
 
 
 @pytest.mark.parametrize("layout", ["plate", "expanded", "event", "masked"])
@@ -253,3 +262,47 @@ def test_pareto_information_preserves_replication_and_mask_semantics(layout):
         else np.array([[0.5 if layout == "masked" else 0.75]])
     )
     np.testing.assert_allclose(information, expected, atol=1e-14)
+
+@pytest.mark.parametrize("batches", [2, 3])
+def test_plated_pareto_reads_the_declared_density_with_a_leading_batch(batches):
+    cutoff = jnp.arange(1., batches + 1.)
+    data = 1. + cutoff[:, None] + jnp.arange(3.)
+    mask = jnp.arange(batches * 3).reshape(batches, 3) % 3 != jnp.arange(batches)[:, None]
+
+    def model():
+        rows = plate("rows", 3)
+        a = sample("a", lambda: dist.Uniform(1., 4.), plate=rows)
+
+        def law(x):
+            result = dist.Pareto(cutoff, x * cutoff)
+            # Its effective Pareto shape is the exponential rate. Reading the
+            # convenience attribute alpha instead would miss a factor of four in Fisher.
+            result.base_dist = dist.Exponential((x * cutoff) ** 2)
+            return result
+
+        observe("obs", law, a, obs=data, mask=mask, plate=rows)
+
+    graph = trace(model)
+    alpha = jnp.array([1.5, 2., 3.])
+    rate = (alpha * cutoff[:, None]) ** 2
+    density = jnp.log(rate) + rate * jnp.log(cutoff[:, None]) - (rate + 1) * jnp.log(data)
+    expected = jnp.where(mask, density, 0).sum() - 3 * jnp.log(3.)
+    actual = jax.jit(lambda a: log_joint(graph, {"a": a}))(alpha)
+    np.testing.assert_allclose(actual, expected, rtol=1e-12)
+    fisher = likelihood_information(graph, ("a",), {"a": alpha})
+    np.testing.assert_allclose(fisher, np.diag(mask.sum(0) * 4 / alpha**2), rtol=1e-12)
+
+def test_plated_composed_pareto_cannot_drop_an_overridden_jacobian():
+    def law(a):
+        result = dist.Pareto(1., a)
+        result.transforms[-1].log_abs_det_jacobian = lambda x, y, intermediates=None: 1.
+        result.transforms = [dist.transforms.ComposeTransform(result.transforms)]
+        return result
+
+    def model():
+        epochs = plate("epoch", 2)
+        a = sample("a", lambda: dist.Uniform(1., 4.), plate=epochs)
+        observe("d", law, a, obs=jnp.array([2., 3.]), plate=epochs)
+
+    with pytest.raises(StructureError, match="plated transform"):
+        jax.jit(lambda a: log_joint(trace(model), {"a": a}))(jnp.array([2., 3.]))

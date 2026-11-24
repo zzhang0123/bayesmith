@@ -1113,3 +1113,32 @@ def test_a_circulant_precision_draws_at_the_right_posterior_width():
     exact = 1.0 / (design.T @ inverse @ design + np.eye(1) / 25.0).item()
     band = 4.0 * math.sqrt(2.0 / (draws - 1))
     assert abs(sample_set.var() / exact - 1.0) < band
+
+
+@pytest.mark.parametrize("scale", [1.0, 1e-40, 0.0])
+def test_wiener_residual_tracks_the_rhs_scale(scale):
+    from bayesmith import det, observe, sample, trace
+
+    def model(y):
+        x = sample("x", lambda: dist.Normal(jnp.zeros(2), 1).to_event(1))
+        mu = det("mu", lambda v: jnp.array([1.0, 3.0]) * v, x, linear_in=("x",))
+        observe("y", lambda m: dist.Normal(m, 1), mu, obs=y)
+
+    with jax.enable_x64():
+        graph = trace(model, scale * jnp.ones(2))
+        block = linear_operator(graph, ("x",), at={})
+        settings = {
+            "precision": _precision(graph, {"x": jnp.zeros(2)}),
+            "maxiter": 1,
+            "tol": 1e-12,
+        }
+        solution, residual = wiener_solve(block, **settings)
+        if scale == 0.0:
+            assert float(residual) == 0.0
+            wiener_solve(block, **settings, require_convergence=1e-4)
+        else:
+            scaled_misfit = np.array([2.0, 10.0]) * (np.asarray(solution["x"]) / scale) - [1.0, 3.0]
+            expected = np.linalg.norm(scaled_misfit) / math.sqrt(10.0)
+            assert float(residual) == pytest.approx(expected, rel=1e-12)
+            with pytest.raises(Exception, match="did not converge"):
+                wiener_solve(block, **settings, require_convergence=1e-4)

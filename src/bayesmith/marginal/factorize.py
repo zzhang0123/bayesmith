@@ -73,8 +73,10 @@ import jax
 import jax.numpy as jnp
 
 from bayesmith.errors import AffinityRefused, StructureError
+from bayesmith.exact._environment import prior_environment
 from bayesmith.exact.block import isolate
 from bayesmith.exact.linearity import check_linearity
+from bayesmith.graph.evaluate import apply_probabilistic, evaluate
 from bayesmith.graph.graph import Graph
 
 #: Relative leakage above which a latent is refused as not epoch-local. The
@@ -117,7 +119,9 @@ def epoch_leakage(
     not about a declaration.
 
     Returns:
-        ``max |off-epoch| / max |any|`` over every observed node, or ``0.0``
+        the largest off-epoch absolute sum of a plated observation (or
+        largest absolute entry of an unplated one), divided by the largest
+        absolute sensitivity across all observations, or ``0.0``
         if the latent moves nothing at all. Relative to the latent's OWN
         largest sensitivity, so a latent the model barely uses is judged on
         the same scale as one it leans on -- an absolute floor would wave
@@ -125,16 +129,13 @@ def epoch_leakage(
         for roundoff.
     """
     size = graph.plate_size(epoch_plate)
-    outside = {
-        latent: jnp.zeros(_domain_shape(graph, latent, epoch_plate, size))
-        for latent in graph.latents
-        if latent != name
-    }
-    outside.update({k: jnp.asarray(v) for k, v in at.items() if k != name})
-    forward = isolate(graph, (name,), outside)
-    jacobian = jax.jacfwd(forward)(
-        {name: jnp.zeros(_domain_shape(graph, name, epoch_plate, size))}
-    )
+    centres = prior_environment(graph)
+    zeros = {latent: jnp.zeros(jnp.shape(centres[latent])) for latent in graph.latents}
+    point = {**zeros, **at, name: zeros[name]}
+    env = evaluate(graph, point)
+    input_axis = _epoch_axis(graph, name, env, zeros[name].ndim)
+    forward = isolate(graph, (name,), {k: v for k, v in point.items() if k != name})
+    jacobian = jax.jacfwd(forward)({name: zeros[name]})
 
     worst, largest = 0.0, 0.0
     for observed, block in jacobian.items():
@@ -163,22 +164,22 @@ def epoch_leakage(
             largest = max(largest, float(jnp.max(jnp.abs(entry))))
             worst = max(worst, float(jnp.max(jnp.abs(entry))))
             continue
-        # Row epoch axis first, column epoch axis last: `isolate` returns the
-        # observed node's own shape, and `jacfwd` appends the latent's.
-        flat = jnp.reshape(entry, (size, -1, size))
-        rows = jnp.arange(size)
-        diagonal = flat[rows, :, rows]
-        off = jnp.sum(jnp.abs(flat)) - jnp.sum(jnp.abs(diagonal))
+        output_rank = entry.ndim - zeros[name].ndim
+        output_axis = _epoch_axis(graph, observed, env, output_rank)
+        by_epoch = jnp.moveaxis(entry, (output_axis, output_rank + input_axis), (0, -1))
+        flat = jnp.reshape(by_epoch, (size, -1, size))
+        epochs = jnp.arange(size)
+        off_epoch = epochs[:, None, None] != epochs[None, None, :]
+        off = jnp.sum(jnp.where(off_epoch, jnp.abs(flat), 0))
         largest = max(largest, float(jnp.max(jnp.abs(entry))))
         worst = max(worst, float(off))
     return 0.0 if largest == 0.0 else worst / largest
 
 
-def _domain_shape(
-    graph: Graph, name: str, epoch_plate: str, size: int
-) -> tuple[int, ...]:
-    node = graph.node(name)
-    return (size,) if epoch_plate in node.plate else ()
+def _epoch_axis(graph: Graph, name: str, env: dict[str, Any], rank: int) -> int:
+    """Index the plate after any extra batch axes and before the event axes."""
+    distribution = apply_probabilistic(graph, graph.node(name), env)
+    return rank - distribution.event_dim - 1
 
 
 def factorize(

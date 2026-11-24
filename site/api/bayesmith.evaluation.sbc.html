@@ -21,45 +21,23 @@ middle too often; one that is too narrow pushes it into the tails.
 **What a PASS here does NOT say: that the route read the data.**  A &quot;posterior&quot;
 that ignores ``y`` and hands back prior draws is uniform in rank BY
 CONSTRUCTION -- the position of a prior draw among prior draws is uniform -- so
-it scores APPLICABLE x PASS from this harness.  Measured on this checkout with
-a sampler that discards its ``datum`` and returns ``2.0 * normal(key, (n,))``,
-N = 100 replicates on the straight-line fixture: KS p = 0.9532, 0.7265, 0.6004
-and 0.1842 at seeds 0, 1, 3 and 4 -- PASS at every one -- with seed 2&#x27;s 0.0474
-the false positive ``ALPHA = 0.05`` declares in advance.  SBC asks whether a
-route&#x27;s stated uncertainty is consistent with its stated prior; a route that is
-trivially self-consistent answers yes.  Something that reads the observation --
-a posterior predictive check, a held-out score -- has to be reported alongside
-it before anyone says a route works.  This is the discipline the R3 plan&#x27;s
-§0.3 already imposes on PPC (&quot;do not tell a PASS as &#x27;the model is correct&#x27;&quot;),
-and it is owed here for the same reason.  The cell that pins it is
+it can pass this calibration check. A posterior predictive check or a held-out
+score can independently test whether the result predicts the observations.
+The cell that pins this limit is
 ``test_a_posterior_that_ignores_the_data_is_still_calibrated``.
 
-A second limit of the same shape, and a property of the FIXTURE rather than of
-this harness: where the likelihood dominates the prior, a posterior computed
-under the WRONG prior still passes.  Measured on the same fixture at N = 100, a
-conjugate sampler told the prior is ``N(0, 0.5)`` while the model declares
-``N(0, 2)`` gives p = 0.1166 / 0.4411 / 0.4049 at seeds 0 / 1 / 2 -- PASS at
-all three -- and is only caught once the sampler&#x27;s prior is wrong by a further
-factor of five (``N(0, 0.1)``: p = 2.5e-15 / 2.6e-16 / 6.8e-24).  What SBC has
-power against is set by the fixture as much as by the replicate count, and
-D106 is a floor measured against a 2x WIDTH error, not a promise about every
-error.
+Power against an incorrect prior depends on the model: when a likelihood
+dominates the prior, even a large prior error can have little effect on the
+posterior ranks. D106 was measured on a particular 2x width error and draw
+budget.
 
-**Three rulings from the R3 plan&#x27;s §0.6 are implemented here literally, and
-none of them is re-decided in this module.**
-
-*The rank is continuous and weighted.*  ``r = sum_i w_i * 1[theta_i &lt;
-theta_true]`` in ``[0, 1]``, with ``w_i = 1/n`` for an equally weighted sample
-and the posterior&#x27;s own normalised weights for an importance-weighted one.
-The classical integer rank would need a resample to accept weights, and R2
-§0.5 already ruled that a weighted result is not resampled on the way into a
-judgement -- a resample would make the check&#x27;s answer depend on a second RNG
-that nothing declared.
-
-*Uniformity is tested with :func:`scipy.stats.kstest`,* one test per scalar
-latent coordinate, against a Bonferroni-corrected level ``alpha / K`` for the
-``K`` coordinates.  ``alpha`` is D104 and lives in this package&#x27;s ``__init__``;
-the Bonferroni factor is a derivation from it, not a second threshold.
+*Two quantities are retained.* The weighted fraction below the truth is a
+descriptive empirical CDF. For M iid posterior draws the truth&#x27;s ordinal
+rank is uniform over M+1 slots. An independent uniform variate selects a
+point in its slot (or in the combined slots occupied by tied values), giving
+a continuous uniform null for the one-sample KS test. Importance-weighted and
+chain draws have no such exchangeability guarantee and receive no KS verdict.
+One test per scalar coordinate uses the Bonferroni level alpha / K.
 
 *A replicate that did not finish makes the whole report ABSTAIN, with a
 count.*  Never a silently dropped replicate.  SBC checks the algorithm AND its
@@ -79,15 +57,12 @@ being measured over ten seeds instead of one.
 executes a real :class:`~bayesmith.artifacts.tasks.PosteriorTask` per
 replicate, so exact and sampled routes are covered by the same harness.  The
 sampler arm takes any ``sampler(datum, key, n) -&gt; draws`` and is what an
-amortized estimator is scored through.  Both reach
-:func:`sbc_report` with the same :class:`SbcRanks`, which is the point: a
-comparison between a NUTS posterior and a neural one is only a comparison if
-the two were judged by identical arithmetic.
+amortized estimator is scored through. Both return :class:`SbcRanks`.
 
 Layering: this module reads ``dispatch``, ``graph`` and ``artifacts`` and is
 read by none of them (§0.1).  It creates no Result and modifies none: the
 posteriors it ranks are produced by ``dispatch.task`` exactly as any other
-caller would produce them.</pre></details><div class="symbol-index"><a href="#REPLICATE_FLOOR">REPLICATE_FLOOR</a> <a href="#REPORT_KIND">REPORT_KIND</a> <a href="#SbcRanks">SbcRanks</a> <a href="#continuous_rank">continuous_rank</a> <a href="#ranks_are_uniform">ranks_are_uniform</a> <a href="#replicates_meet_floor">replicates_meet_floor</a> <a href="#sbc_ranks">sbc_ranks</a> <a href="#sbc_report">sbc_report</a> <a href="#simulation_based_calibration">simulation_based_calibration</a></div><section class="api-symbol"><h2 id="REPLICATE_FLOOR">REPLICATE_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 149.</p><pre><code>REPLICATE_FLOOR = 100</code></pre></section><section class="api-symbol"><h2 id="REPORT_KIND">REPORT_KIND</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 140.</p><pre><code>REPORT_KIND = &#x27;sbc&#x27;</code></pre></section><section class="api-symbol"><h2 id="SbcRanks">SbcRanks</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 247.</p><pre><code>class SbcRanks
+caller would produce them.</pre></details><div class="symbol-index"><a href="#REPLICATE_FLOOR">REPLICATE_FLOOR</a> <a href="#REPORT_KIND">REPORT_KIND</a> <a href="#SbcRanks">SbcRanks</a> <a href="#continuous_rank">continuous_rank</a> <a href="#ranks_are_uniform">ranks_are_uniform</a> <a href="#replicates_meet_floor">replicates_meet_floor</a> <a href="#sbc_ranks">sbc_ranks</a> <a href="#sbc_report">sbc_report</a> <a href="#simulation_based_calibration">simulation_based_calibration</a></div><section class="api-symbol"><h2 id="REPLICATE_FLOOR">REPLICATE_FLOOR</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 124.</p><pre><code>REPLICATE_FLOOR = 100</code></pre></section><section class="api-symbol"><h2 id="REPORT_KIND">REPORT_KIND</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 115.</p><pre><code>REPORT_KIND = &#x27;sbc&#x27;</code></pre></section><section class="api-symbol"><h2 id="SbcRanks">SbcRanks</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 221.</p><pre><code>class SbcRanks
 coordinates: tuple[str, ...]
 ranks: tuple[tuple[float, ...], ...]
 requested: int
@@ -97,7 +72,8 @@ unconverged: int
 undrawn: int
 route: str
 subject_ref: ArtifactRef
-fingerprints: FingerprintBundle</code></pre><pre class="docstring">What the replicate loop measured, with no verdict attached.
+fingerprints: FingerprintBundle
+uniformity_ranks: tuple[tuple[float, ...], ...] | None = None</code></pre><pre class="docstring">What the replicate loop measured, with no verdict attached.
 
 Separated from :func:`sbc_report` so that the two arms of §0.11 -- a
 compiled route and an arbitrary sampler -- reach one judgement through one
@@ -106,13 +82,12 @@ a plot) does not have to reach inside a report to get them.
 
 ``ranks`` is one tuple per coordinate, each holding one rank per USABLE
 replicate; the failure counts say how many replicates are missing from
-those tuples and why.</pre><h3 id="SbcRanks.unusable">SbcRanks.unusable</h3><pre><code>unusable(self) -&gt; int</code></pre><pre class="docstring">Replicates that produced no rank, whatever the reason.</pre></section><section class="api-symbol"><h2 id="continuous_rank">continuous_rank</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 231.</p><pre><code>continuous_rank(draws: np.ndarray, weights: np.ndarray, truth: float) -&gt; float</code></pre><pre class="docstring">§0.6&#x27;s rank: ``sum_i w_i * 1[theta_i &lt; truth]``, in ``[0, 1]``.
+those tuples and why.</pre><h3 id="SbcRanks.unusable">SbcRanks.unusable</h3><pre><code>unusable(self) -&gt; int</code></pre><pre class="docstring">Replicates that produced no rank, whatever the reason.</pre></section><section class="api-symbol"><h2 id="continuous_rank">continuous_rank</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 206.</p><pre><code>continuous_rank(draws: np.ndarray, weights: np.ndarray, truth: float) -&gt; float</code></pre><pre class="docstring">§0.6&#x27;s rank: ``sum_i w_i * 1[theta_i &lt; truth]``, in ``[0, 1]``.
 
 ``draws`` is one scalar coordinate&#x27;s draws and ``weights`` the posterior&#x27;s
-normalised weights over the same draw axis.  Strict ``&lt;`` matches the
-classical rank statistic&#x27;s convention; for a continuous posterior the tie
-set has probability zero, and for a discrete one the choice would have to
-be made by whoever owns that discreteness rather than here.</pre></section><section class="api-symbol"><h2 id="ranks_are_uniform">ranks_are_uniform</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 209.</p><pre><code>ranks_are_uniform(p_value: float, level: float) -&gt; bool</code></pre><pre class="docstring">``p_value &gt;= level`` -- this coordinate&#x27;s ranks are uniform enough.
+normalised weights over the same draw axis. Strict ``&lt;`` excludes ties
+from this descriptive quantity. The iid uniformity test separately
+randomises over the truth&#x27;s possible tied slots.</pre></section><section class="api-symbol"><h2 id="ranks_are_uniform">ranks_are_uniform</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 184.</p><pre><code>ranks_are_uniform(p_value: float, level: float) -&gt; bool</code></pre><pre class="docstring">``p_value &gt;= level`` -- this coordinate&#x27;s ranks are uniform enough.
 
 The comparison that turns the KS test into a verdict, given its own name
 so that it can be exercised and mutated directly rather than only through
@@ -128,7 +103,7 @@ and it is why this function takes the level rather than reaching for it.
 ``&gt;=`` rather than ``&gt;``: alpha is the size of the test -- the probability
 of rejecting a CORRECT posterior -- so the rejection region is ``p &lt;
 alpha``, and a p-value landing exactly on the level is inside the region
-the test was declared to accept.</pre></section><section class="api-symbol"><h2 id="replicates_meet_floor">replicates_meet_floor</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 173.</p><pre><code>replicates_meet_floor(usable: int, floor: int=REPLICATE_FLOOR) -&gt; bool</code></pre><pre class="docstring">D106: ``usable &gt;= floor`` -- enough replicates to detect a 2x width error.
+the test was declared to accept.</pre></section><section class="api-symbol"><h2 id="replicates_meet_floor">replicates_meet_floor</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 148.</p><pre><code>replicates_meet_floor(usable: int, floor: int=REPLICATE_FLOOR) -&gt; bool</code></pre><pre class="docstring">D106: ``usable &gt;= floor`` -- enough replicates to detect a 2x width error.
 
 Closed on purpose, and at 100 rather than at the 50 the R3 plan proposed.
 
@@ -158,7 +133,7 @@ this docstring is the record.
 ``&gt;=`` rather than ``&gt;``: the floor is the smallest count that was measured
 to work, so a run that reaches it exactly has what the measurement asked
 for.  An open boundary would refuse the very count the number was chosen
-to name.</pre></section><section class="api-symbol"><h2 id="sbc_ranks">sbc_ranks</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 411.</p><pre><code>sbc_ranks(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, subject_ref: ArtifactRef | None=None) -&gt; SbcRanks | Refusal</code></pre><pre class="docstring">Run the replicate loop and return its ranks, unjudged.
+to name.</pre></section><section class="api-symbol"><h2 id="sbc_ranks">sbc_ranks</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 387.</p><pre><code>sbc_ranks(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, sampler_iid: bool=True, subject_ref: ArtifactRef | None=None) -&gt; SbcRanks | Refusal</code></pre><pre class="docstring">Run the replicate loop and return its ranks, unjudged.
 
 Args:
     graph: the model, used for the prior simulation. Its own observed data
@@ -180,6 +155,9 @@ Args:
         route -- SBC is a statement about one route.
     sampler: the §0.11 arm. ``sampler(datum, key, n) -&gt; {name: draws}``.
     sampler_draws: ``n`` for the sampler arm.
+    sampler_iid: the plain sampler contract supplies independent posterior
+        draws given the datum. Set False for dependent draws to keep their
+        empirical ranks without issuing a uniformity verdict.
     subject_ref: required with ``sampler``, which produces no Result to
         point at; ignored by the route arm, which uses the first usable
         replicate&#x27;s posterior (§0.2&#x27;s &quot;routing representative&quot;).
@@ -189,7 +167,7 @@ Returns:
     simulation. A REPLICATE&#x27;s refusal is never returned: §0.6 says a
     refused replicate is COUNTED and the report abstains, so propagating
     one would replace a verdict about a calibration run with a verdict
-    about its first bad draw.</pre></section><section class="api-symbol"><h2 id="sbc_report">sbc_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 636.</p><pre><code>sbc_report(ranks: SbcRanks, *, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -&gt; EvaluationReport</code></pre><pre class="docstring">Judge one :class:`SbcRanks`, on §0.2&#x27;s two axes.
+    about its first bad draw.</pre></section><section class="api-symbol"><h2 id="sbc_report">sbc_report</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 665.</p><pre><code>sbc_report(ranks: SbcRanks, *, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -&gt; EvaluationReport</code></pre><pre class="docstring">Judge one :class:`SbcRanks`, on §0.2&#x27;s two axes.
 
 * Any replicate that produced no rank -&gt; APPLICABLE x ABSTAIN, finding
   ``replicates_not_completed``, with all three counts. Checked BEFORE the
@@ -197,6 +175,8 @@ Returns:
   45&quot; are different facts and the first is the one worth reporting.
 * Fewer usable replicates than D106 -&gt; APPLICABLE x ABSTAIN, finding
   ``replicates_below_floor``.
+* With no continuous PIT ranks -&gt; APPLICABLE x ABSTAIN, finding
+  ``sbc_rank_null_unavailable``.
 * Otherwise every coordinate&#x27;s KS p against ``alpha / K`` decides:
   all at or above -&gt; PASS, any below -&gt; FAIL.
 
@@ -205,7 +185,7 @@ coordinates; it is a derivation from D104 and carries no threshold of its
 own. The per-coordinate findings record the level they were compared
 against, so the verdict can be recomputed from the report -- which is
 §8&#x27;s gate G8, and the reason the level is in ``expected`` rather than only
-in the message.</pre></section><section class="api-symbol"><h2 id="simulation_based_calibration">simulation_based_calibration</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 734.</p><pre><code>simulation_based_calibration(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, subject_ref: ArtifactRef | None=None, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -&gt; EvaluationReport | Refusal</code></pre><pre class="docstring">Run the replicates and judge them: :func:`sbc_ranks` then :func:`sbc_report`.
+in the message.</pre></section><section class="api-symbol"><h2 id="simulation_based_calibration">simulation_based_calibration</h2><p class="source-note">Defined in <code>bayesmith.evaluation.sbc</code>, line 778.</p><pre><code>simulation_based_calibration(graph: Graph, *, key: jax.Array, replicates: int, model_ref: ModelRef, build: GraphBuilder | None=None, budget: ComputeBudget | None=None, nuts_on_collapse: bool=False, sampler: Sampler | None=None, sampler_draws: int=0, sampler_iid: bool=True, subject_ref: ArtifactRef | None=None, alpha: float=ALPHA, floor: int=REPLICATE_FLOOR) -&gt; EvaluationReport | Refusal</code></pre><pre class="docstring">Run the replicates and judge them: :func:`sbc_ranks` then :func:`sbc_report`.
 
 The convenience the gate runner calls. It decides nothing the two halves
 do not: everything about which arm runs is in the first, everything about

@@ -486,3 +486,10 @@ class TestWhatItRefuses:
         blocks = _blocks(n_theta=3)
         with pytest.raises(StructureError, match="columns wide"):
             chain_log_likelihood(blocks, _transition(), _theta(), NAMES, SHAPES)
+
+
+@pytest.mark.parametrize("dtype,tau", [(jnp.float32, 1e9), (jnp.float64, 1e18)])
+def test_slow_ou_innovation_remains_resolved(dtype, tau):
+    chain = ornstein_uhlenbeck(jnp.array(tau, dtype=dtype), sigma=0.75)
+    expected = 0.75 * np.sqrt(-np.expm1(-2.0 / tau))
+    assert float(chain.process_std[0]) == pytest.approx(expected, rel=2e-7, abs=0)

@@ -38,8 +38,9 @@ from bayesmith.exact.fisher import (
     _weighted_design,
     dense_operator,
 )
-from bayesmith.exact.gaussian import precision_at
+from bayesmith.exact.gaussian import check_observed, precision_at
 from bayesmith.exact.gls import precision_from_graph
+from bayesmith.exact.precision import CirculantPrecision, PrecisionMismatch
 from bayesmith.graph.evaluate import apply_probabilistic, evaluate
 
 _UNAVAILABLE = (
@@ -184,11 +185,38 @@ def _bernoulli_information(graph, names, values):
     return np.asarray((matrix + matrix.T) / 2)
 
 
+def _check_circulant_base_derivative(graph, name, names, values):
+    """The Fisher uses first parameter derivatives of the declared covariance."""
+    point, shapes, spans = flat_view(values, names)
+    node = graph.node(name)
+
+    def difference(vector):
+        at = {**values, **unflatten(vector, names, shapes, spans)}
+        law = _bernoulli_base(apply_probabilistic(graph, node, evaluate(graph, at)))
+        base = law.base_dist
+        if type(base) is not dist.Independent or type(base.base_dist) is not dist.Normal:
+            raise GraphError(f"Circulant factor {name!r} requires its Fourier-space Normal base.")
+        # NumPyro owns the real/imaginary Fourier normalization, including the
+        # special treatment of the Nyquist coefficient for even event sizes.
+        reference = dist.CirculantNormal(law.loc, covariance_rfft=law.covariance_rfft)
+        actual, expected = base.base_dist, reference.base_dist.base_dist
+        return actual.loc - expected.loc, actual.scale - expected.scale
+
+    if any(np.any(delta) for delta in jax.jacfwd(difference)(point)):
+        raise GraphError(
+            f"Circulant covariance for {name!r} has different parameter derivatives "
+            "from its scored Fourier-space Normal."
+        )
+
+
 def likelihood_information(graph, names, values):
     """Expected Fisher of direct Gaussian, Bernoulli or fixed-cutoff Pareto data.
 
     Gaussian information includes covariance derivatives using JeffreysPrior's
     implementation, without requiring the user to remove their chosen prior.
+    Circulant covariance must agree with the scored density at the evaluation
+    point and its Fourier-space Normal parameters must have the same first
+    derivatives as NumPyro's declared covariance with respect to the named latents.
     Bernoulli information uses differentiated logits and an analytic expectation;
     it is not the observed-data Hessian for an arbitrary nonlinear logit.
     Latent density factors and marginal hierarchical information are excluded.
@@ -217,6 +245,15 @@ def likelihood_information(graph, names, values):
     # Check the likelihood family before linearization accesses its loc.
     # Non-Gaussian observations must produce an applicability finding.
     precision = precision_at(graph, values)
+    for name, operator in precision.items():
+        if isinstance(operator, CirculantPrecision):
+            # A transformed law can retain its public covariance row after
+            # its actual base density changes. Certify it before using its Fisher.
+            try:
+                check_observed(graph, graph.node(name), env)
+            except PrecisionMismatch as exc:
+                raise GraphError(f"Circulant covariance for {name!r} disagrees with its density: {exc}") from exc
+            _check_circulant_base_derivative(graph, name, names, values)
     block = local_block(graph, names, values)
     design = dense_operator(block)
     refuse_single_precision(design, doing="automatic likelihood geometry")

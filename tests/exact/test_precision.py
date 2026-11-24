@@ -1055,3 +1055,121 @@ class TestABatchedCirculantKernel:
                 kernel.size * math.log(2.0 * math.pi) + float(jnp.sum(spectrum)),
                 rel=1e-12,
             )
+
+@pytest.mark.parametrize("batches,size,spectrum", [(2, 4, False), (3, 5, True)])
+def test_plated_circulant_law_and_precision_follow_the_member_kernels(batches, size, spectrum):
+    import numpyro.distributions as dist
+
+    from bayesmith import observe, plate, sample, trace
+    from bayesmith.exact.gaussian import precision_at
+    from bayesmith.graph.evaluate import apply_probabilistic, evaluate
+
+    with jax.enable_x64(True):
+        kernels = jnp.stack([_kernel(size, amplitude=1. + i) for i in range(batches)])
+        data = jnp.arange(batches * 3 * size).reshape((batches, 3, size)) / 4.
+
+        def model():
+            epochs = plate("epoch", 3)
+            theta = sample("theta", lambda: dist.Normal(0., 1.), plate=epochs)
+
+            def law(t):
+                rows = kernels * (1. + t**2)
+                centre = jnp.full(size, t)
+                if spectrum:
+                    return dist.CirculantNormal(centre, covariance_rfft=jnp.fft.rfft(rows).real)
+                return dist.CirculantNormal(centre, covariance_row=rows)
+
+            observe("d", law, theta, obs=data, plate=epochs)
+
+        graph = trace(model)
+        point = {"theta": jnp.array([0.25, 1., 2.])}
+        env = evaluate(graph, point)
+        law = apply_probabilistic(graph, graph.node("d"), env)
+        assert type(law) is dist.CirculantNormal
+        row = np.asarray(kernels)[:, None, :] * (1. + np.asarray(point["theta"])[None, :, None]**2)
+        idx = np.arange(size)
+        cov = row[..., (idx[:, None] - idx[None, :]) % size]
+        residual = data - point["theta"][:, None]
+        expected = np.linalg.solve(cov, np.asarray(residual)[..., None])[..., 0]
+        density = -0.5 * ((residual * expected).sum(-1) + np.linalg.slogdet(2 * np.pi * cov)[1])
+        np.testing.assert_allclose(law.log_prob(data), density, rtol=1e-12)
+        np.testing.assert_allclose(precision_at(graph, point)["d"].apply(residual), expected, atol=1e-12)
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_fisher_certifies_the_scored_circulant_when_a_kernel_is_shared(changed):
+    import numpyro.distributions as dist
+
+    from bayesmith import observe, plate, sample, trace
+    from bayesmith.dispatch.preflight import likelihood_information
+    from bayesmith.errors import GraphError
+
+    with jax.enable_x64(True):
+        def model():
+            epochs = plate("epoch", 3)
+            theta = sample("theta", lambda: dist.Normal(0., 1.), plate=epochs)
+
+            def law(t):
+                q = dist.CirculantNormal(jnp.array([t, 2*t]), covariance_row=jnp.array([1., 0.]))
+                if changed:
+                    base = q.base_dist.base_dist
+                    q.base_dist = dist.Normal(base.loc, 2 * base.scale).to_event(1)
+                return q
+
+            # Two independent replicates share each epoch's kernel.
+            observe("d", law, theta, obs=jnp.zeros((2, 3, 2)), plate=epochs)
+
+        graph = trace(model)
+        values = {"theta": jnp.array([0., 1., 2.])}
+        if changed:
+            with pytest.raises(GraphError, match="disagrees with its density"):
+                likelihood_information(graph, ("theta",), values)
+        else:
+            fisher = likelihood_information(graph, ("theta",), values)
+            np.testing.assert_allclose(fisher, np.eye(3) * 10.)
+
+def test_fisher_counts_each_repetition_of_a_parameter_dependent_circulant():
+    import numpyro.distributions as dist
+
+    from bayesmith import observe, plate, sample, trace
+    from bayesmith.dispatch.preflight import likelihood_information
+
+    with jax.enable_x64(True):
+        def model():
+            epochs = plate("epoch", 3)
+            theta = sample("theta", lambda: dist.Normal(0., 1.), plate=epochs)
+            observe(
+                "d", lambda t: dist.CirculantNormal(
+                    jnp.zeros(2), covariance_row=jnp.array([jnp.exp(t), 0.])
+                ), theta, obs=jnp.zeros((4, 3, 2)), plate=epochs,
+            )
+
+        values = {"theta": jnp.array([0., 1., 2.])}
+        # Each of four events contributes 0.5 tr[(Σ⁻¹ dΣ)²] = 1 per epoch.
+        fisher = likelihood_information(trace(model), ("theta",), values)
+        np.testing.assert_allclose(fisher, 4 * np.eye(3), atol=1e-12)
+
+def test_equal_circulant_density_at_one_parameter_value_does_not_certify_its_fisher():
+    import numpyro.distributions as dist
+
+    from bayesmith import observe, plate, sample, trace
+    from bayesmith.dispatch.preflight import likelihood_information
+    from bayesmith.errors import GraphError
+
+    with jax.enable_x64(True):
+        def model():
+            epochs = plate("epoch", 3)
+            theta = sample("theta", lambda: dist.Normal(0., 1.), plate=epochs)
+
+            def law(t):
+                q = dist.CirculantNormal(jnp.zeros(2), covariance_row=jnp.array([1., 0.]))
+                base = q.base_dist.base_dist
+                q.base_dist = dist.Normal(base.loc, jnp.exp(t) * base.scale).to_event(1)
+                return q
+
+            observe("d", law, theta, obs=jnp.zeros((3, 2)), plate=epochs)
+
+        # The scored covariance is exp(2θ) I₂. At zero it agrees with I₂,
+        # while its Fisher is 4 per parameter and the public row predicts zero.
+        with pytest.raises(GraphError, match="different parameter derivatives"):
+            likelihood_information(trace(model), ("theta",), {"theta": jnp.zeros(3)})

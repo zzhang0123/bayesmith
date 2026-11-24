@@ -1171,7 +1171,7 @@ def _newton_logdet(
     lambda_matrix: Any,
     perturbation: Any,
     *,
-    termination: int,
+    certificate: _FactorProjectionCertificate | None = None,
     factors: LowRankFactors | None,
     require_finite_stability: bool,
 ) -> float:
@@ -1192,7 +1192,8 @@ def _newton_logdet(
     if not _is_positive_definite(sigma):
         raise ValueError("Sigma must be symmetric positive definite")
     if factors is not None:
-        certificate = _factor_projection_certificate(perturb, factors, lam)
+        if certificate is None:
+            certificate = _factor_projection_certificate(perturb, factors, lam)
         if not certificate.valid:
             raise ValueError(certificate.reason)
         work_dtype = np.result_type(
@@ -1248,6 +1249,7 @@ def _newton_logdet(
             )
         return base_logdet + float(log_absolute_determinant)
     if require_finite_stability:
+        termination = _algebraic_rank_bound(perturb)
         stable, rho = _newton_stability(lam, perturb, termination)
         if not stable:
             raise ValueError(
@@ -1269,12 +1271,9 @@ def low_rank_logdet(
     factors: LowRankFactors | None = None,
 ) -> float:
     """Rung 1: stable rank-``k`` factorization of the finite e-polynomial."""
-    lam, perturb = _matrix_pair(lambda_matrix, perturbation)
-    termination = _algebraic_rank_bound(perturb, factors, lam)
     return _newton_logdet(
         lambda_matrix,
-        perturb,
-        termination=termination,
+        perturbation,
         factors=factors,
         require_finite_stability=False,
     )
@@ -1287,12 +1286,9 @@ def finite_perturbation_logdet(
     factors: LowRankFactors | None = None,
 ) -> float:
     """Rung 5: stable factored evaluation of the finite e-polynomial."""
-    lam, perturb = _matrix_pair(lambda_matrix, perturbation)
-    termination = _algebraic_rank_bound(perturb, factors, lam)
     return _newton_logdet(
         lambda_matrix,
-        perturb,
-        termination=termination,
+        perturbation,
         factors=factors,
         require_finite_stability=True,
     )

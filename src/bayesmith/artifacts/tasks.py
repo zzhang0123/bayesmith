@@ -478,6 +478,11 @@ class PredictiveTask:
     rather than in prose (§0.4): a predictive task conditions on data, names
     the posterior it came from, and distinguishes the sites it replicates from
     the latents it carries forward. A simulation has none of those.
+
+    During generation a site listed only in ``conditioned_sites`` supplies its
+    recorded value to descendants. Other observed parents are drawn jointly,
+    including sites listed in both fields. ``replicated_sites`` selects the
+    observations returned to the caller. Pointwise scoring uses recorded data.
     """
 
     meta: TaskMeta

@@ -265,3 +265,163 @@ class TestTheCostIsKnownBeforeTheWork:
         """An unbounded default would make the refusal above unreachable in
         practice, which is the same as not having it."""
         assert math.isfinite(ENUMERATION_BUDGET) and ENUMERATION_BUDGET > 1
+
+
+@pytest.mark.parametrize("event", [False, True])
+def test_vector_coordinates_share_one_layout_for_count_evidence_and_marginals(event):
+    probs = jnp.array([0.2, 0.8])
+
+    def model():
+        sample("z", lambda: dist.Bernoulli(probs).to_event(int(event)), support=Discrete(2))
+
+    graph = trace(model)
+    assert enumeration_states(graph) == 4
+    with pytest.raises(ValueError, match="4 joint assignments"):
+        marginal_log_likelihood(graph, budget=3)
+    assert float(marginal_log_likelihood(graph)) == pytest.approx(0, abs=2e-7)
+    assert jnp.allclose(posterior_marginals(graph)["z"], jnp.stack((1 - probs, probs), axis=-1))
+
+
+def test_independent_vector_events_replicated_in_a_plate():
+    probs = jnp.array([0.2, 0.8])
+
+    def model():
+        i = plate("i", 3)
+        sample("z", lambda: dist.Bernoulli(probs).to_event(1), support=Discrete(2), plate=i)
+
+    graph = trace(model)
+    assert enumeration_states(graph) == 2**6
+    posterior = posterior_marginals(graph)["z"]
+    assert posterior.shape == (3, 2, 2)
+    assert jnp.allclose(posterior[..., 1], probs)
+
+
+def test_discrete_children_inherit_discrete_and_conditioned_parent_shapes():
+    probs = jnp.array([0.2, 0.8])
+
+    def model():
+        p = sample("p", lambda: dist.Uniform(jnp.zeros(2), 1).to_event(1))
+        z = sample("z", lambda q: dist.Bernoulli(q), p, support=Discrete(2))
+        q = det("q", lambda s: 0.25 + 0.5 * s, z)
+        sample("k", lambda r: dist.Bernoulli(r).to_event(1), q, support=Discrete(2))
+
+    graph = trace(model)
+    assert enumeration_states(graph) == 16
+    posterior = posterior_marginals(graph, {"p": probs})
+    assert jnp.allclose(posterior["z"][..., 1], probs)
+    assert jnp.allclose(posterior["k"][..., 1], 0.25 + 0.5 * probs)
+
+
+def test_a_jointly_constrained_vector_support_is_refused_before_enumeration():
+    def model():
+        sample("z", lambda: dist.Multinomial(2, probs=jnp.array([0.2, 0.8])), support=Discrete(3))
+
+    graph = trace(model)
+    with pytest.raises(ValueError, match=r"z.*(Cartesian|coordinate)"):
+        marginal_log_likelihood(graph)
+
+
+@pytest.mark.parametrize("event_dims", [0, 1])
+def test_enumeration_rejects_state_labels_outside_the_declared_coordinates(event_dims):
+    def model():
+        sample(
+            "z",
+            lambda: dist.DiscreteUniform(3, 4).expand((2,)).to_event(event_dims),
+            support=Discrete(2),
+        )
+
+    graph = trace(model)
+    with pytest.raises(ValueError, match="z.*state"):
+        enumeration_states(graph)
+
+
+def test_plated_distribution_batch_axis_aligns_with_the_plate():
+    probs = jnp.array([[0.15, 0.4], [0.5, 0.75]])
+
+    def model():
+        i = plate("i", 2)
+        sample("z", lambda: dist.Bernoulli(probs).to_event(1), support=Discrete(2), plate=i)
+
+    graph = trace(model)
+    assert enumeration_states(graph) == 16
+    assert jnp.allclose(posterior_marginals(graph)["z"][..., 1], probs)
+
+
+def test_conditioned_value_shapes_are_used_by_the_budget_and_the_sum():
+    probs = jnp.array([0.2, 0.8])
+
+    def model():
+        p = sample("p", lambda: dist.Uniform(0, 1))
+        sample("z", lambda q: dist.Bernoulli(q), p, support=Discrete(2))
+
+    graph = trace(model)
+    assert enumeration_states(graph) == 2
+    assert enumeration_states(graph, {"p": probs}) == 4
+    with pytest.raises(ValueError, match="4 joint assignments"):
+        marginal_log_likelihood(graph, {"p": probs}, budget=3)
+    assert jnp.allclose(posterior_marginals(graph, {"p": probs})["z"][..., 1], probs)
+
+
+def test_fixed_binomial_bounds_are_concrete_during_shape_inference():
+    def model():
+        p = sample("p", lambda: dist.Uniform(0., 1.))
+        sample("z", lambda prob: dist.Binomial(jnp.array([2, 2]), probs=prob).to_event(1),
+               p, support=Discrete(3))
+
+    graph = trace(model)
+    assert enumeration_states(graph) == 9
+    result = posterior_marginals(graph, {"p": jnp.array(0.25)})
+    expected = jnp.array([0.75**2, 2 * 0.25 * 0.75, 0.25**2])
+    assert jnp.allclose(result["z"], jnp.broadcast_to(expected, (2, 3)))
+
+
+def test_enumeration_budget_needs_no_draw_from_an_improper_conditioning_prior():
+    def model():
+        x = sample("x", lambda: dist.ImproperUniform(dist.constraints.real, (), (2,)))
+        sample("z", lambda v: dist.Bernoulli(logits=v), x, support=Discrete(2))
+
+    graph = trace(model)
+    assert enumeration_states(graph) == 4
+    assert float(marginal_log_likelihood(graph, {"x": jnp.zeros(2)})) == pytest.approx(0.)
+
+
+def test_large_vector_still_reports_the_node_and_budget():
+    def model():
+        sample("z", lambda: dist.Bernoulli(0.3).expand((15000,)).to_event(1),
+               support=Discrete(2))
+
+    with pytest.raises(ValueError, match=r"z.*2\*\*15000.*budget of 3"):
+        marginal_log_likelihood(trace(model), budget=3)
+
+
+@pytest.mark.parametrize("width", [2, 3])
+def test_mapped_discrete_batch_and_plate_are_separate_coordinates(width):
+    import jax
+    from numpyro.infer.util import log_density
+
+    from bayesmith.bridge.numpyro_bridge import to_numpyro
+
+    def model():
+        group = plate("group", 2)
+        x = sample("x", lambda: dist.Normal(0., 1.), plate=group)
+        sample("z", lambda v: dist.Bernoulli(logits=jnp.arange(width) + v), x,
+               support=Discrete(2), plate=group)
+
+    graph = trace(model)
+    x = jnp.array([-2., 0.])
+    logits = jnp.arange(width)[:, None] + x
+    log_prior = dist.Normal(0., 1.).log_prob(x).sum()
+    states = 2 ** (width * len(x))
+    assert enumeration_states(graph, {"x": x}) == states
+    with pytest.raises(ValueError, match=f"{states} joint assignments"):
+        marginal_log_likelihood(graph, {"x": x}, budget=states - 1)
+    assert marginal_log_likelihood(graph, {"x": x}) == pytest.approx(float(log_prior), abs=1e-6)
+    marginals = posterior_marginals(graph, {"x": x})["z"]
+    assert marginals.shape == (width, len(x), 2)
+    assert jnp.allclose(marginals[..., 1], jax.nn.sigmoid(logits))
+
+    z = jnp.arange(width * len(x)).reshape(width, len(x)) % 2
+    log_mass = log_prior + dist.Bernoulli(logits=logits).log_prob(z).sum()
+    assert log_joint(graph, {"x": x, "z": z}) == pytest.approx(float(log_mass))
+    bridge_mass, _ = log_density(to_numpyro(graph), (), {}, {"x": x, "z": z})
+    assert bridge_mass == pytest.approx(float(log_mass))

@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Predictive and simulation tasks draw independent noise at each observed site.
+  A replicated observation feeds its descendants, while a conditioned-only
+  observation supplies its recorded value. Prior simulation preserves repeated
+  observations and event dimensions. Concurrent model traces have separate
+  recorders. Delayed callbacks cannot add nodes after their trace has finished.
+- Exact discrete inference enumerates every coordinate of supported independent
+  vector events and budgets the full joint support. Conditional distributions,
+  posterior marginals and campaign compression use the declared plate axis.
+  Plated Pareto and circulant Gaussian observations retain their Fisher and
+  covariance calculations. Wiener solves measure
+  residuals relative to the actual right-hand side. SNIS normalizes across
+  every weight axis. OU transitions retain small innovations in float32, and
+  ComplexNormal distributions can be passed as arguments to JIT-compiled functions.
+- Identifiability and PSIS-LOO use the observations retained by the likelihood.
+  Predictive artifacts record their source weighting and LOO checks a supplied
+  source's ID and revision. LOO also verifies the graph and data used to fit
+  the result and abstains when omitting one observation would change another
+  fitted density. SBC uses randomized finite-sample ranks for iid
+  draws and reports when a uniformity verdict is unavailable.
+- Sampling checkpoints reuse per-coordinate ESS and split R-hat. They name
+  sites with undefined diagnostics and record the affected aggregate as missing.
+  Neural posterior training validates paired banks and keeps their standardization
+  fixed. Neural posteriors check feature and parameter widths at use time.
+  Eager logdet dispatch reuses its factor certificate within each call.
+
 - **The structural affinity prover refuses an unknown primitive only where a
   block-dependent value reaches it.** `diagnose.structure._walk` flagged every
   primitive outside its tables as unsupported, whichever latent fed it, so a

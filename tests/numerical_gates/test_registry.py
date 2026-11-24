@@ -121,8 +121,9 @@ def test_raw_ast_baseline_is_explicit() -> None:
     # dispatch/task.py, which is not in SOURCE_PATHS -- worth saying out loud,
     # because "the raise count did not move" would otherwise read as evidence
     # that no refusal was added.
-    assert family_counts[CandidateFamily.RAISE] == 197
-    assert family_counts[CandidateFamily.COMPARE] == 399
+    # T-006 re-count after the finite-rank input checks and certificate reuse.
+    assert family_counts[CandidateFamily.RAISE] == 199
+    assert family_counts[CandidateFamily.COMPARE] == 412
 
 
 def test_every_raw_candidate_has_exactly_one_code_classification() -> None:

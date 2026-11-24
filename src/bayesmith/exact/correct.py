@@ -280,7 +280,7 @@ def self_normalise(log_weights: Any) -> tuple[jax.Array, jax.Array]:
     Returns:
         ``(weights, ess)``. ``weights`` sums to 1; ``ess`` is a scalar.
     """
-    weights = jax.nn.softmax(log_weights)
+    weights = jax.nn.softmax(log_weights, axis=None)
     return weights, 1.0 / jnp.sum(weights**2)
 
 

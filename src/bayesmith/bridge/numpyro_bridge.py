@@ -19,8 +19,8 @@ from numpyro.infer import MCMC, NUTS
 
 from bayesmith.distributions import ComplexNormal
 from bayesmith.graph.evaluate import (
-    apply_deterministic,
-    apply_probabilistic,
+    _apply_deterministic,
+    _law_builder,
     graph_density,
 )
 from bayesmith.graph.graph import Graph
@@ -75,15 +75,16 @@ def to_numpyro(graph: Graph | ReducedGraph) -> Callable[..., dict[str, Any]]:
             return observed.get(node.name)
 
         env: dict[str, Any] = {}
+        law_for = _law_builder(graph, env)
         for node in graph.nodes:
             if isinstance(node, Const):
                 env[node.name] = node.value
             elif isinstance(node, Deterministic):
                 env[node.name] = numpyro.deterministic(
-                    node.name, apply_deterministic(graph, node, env)
+                    node.name, _apply_deterministic(graph, node, env, law_for)
                 )
             elif isinstance(node, Probabilistic):
-                distribution = apply_probabilistic(graph, node, env)
+                distribution = law_for(node.name)
                 if isinstance(distribution, ComplexNormal):
                     env[node.name] = _complex_site(node, distribution)
                 elif node.plate:

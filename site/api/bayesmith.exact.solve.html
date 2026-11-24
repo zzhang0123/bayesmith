@@ -125,7 +125,7 @@ Returns:
     The measured condition number, floored so that ``lambda_min`` can
     never fall below the prior&#x27;s own curvature -- ``A^T N^-1 A`` is
     positive semi-definite, so that floor is rigorous even where the
-    measurement is not.</pre></section><section class="api-symbol"><h2 id="wiener_solve">wiener_solve</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 481.</p><pre><code>wiener_solve(block: LinearBlock, *, precision: dict[str, Precision], tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Posterior mean of a linear-Gaussian block -- the Wiener filter, by CG.
+    measurement is not.</pre></section><section class="api-symbol"><h2 id="wiener_solve">wiener_solve</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 484.</p><pre><code>wiener_solve(block: LinearBlock, *, precision: dict[str, Precision], tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Posterior mean of a linear-Gaussian block -- the Wiener filter, by CG.
 
 This is the posterior **mean**, not a sample. For a draw see
 :func:`gcr_sample`, which adds a fluctuation term to this same right-hand
@@ -194,15 +194,16 @@ Args:
 
 Returns:
     ``(x_hat, relative_residual)``, the residual being
-    ``||M x_hat - b|| / ||b||``. Note this is the residual, not the error;
-    multiply by :func:`condition_bound` for the error bound.
+    ``||M x_hat - b|| / ||b||``. For a zero right-hand side an exact
+    solution has residual zero and a nonzero misfit has infinite relative
+    residual. Multiply by :func:`condition_bound` for the error bound.
 
 Note:
     **Where S comes from.** Each latent&#x27;s own ``dist_fn`` is this
     package&#x27;s one statement of what it is a priori, and it is the
     statement ``to_numpyro`` reads. So it is the statement this solve
     reads too -- there is no keyword to override it, and therefore no way
-    for the exact exit and NUTS to target different posteriors.</pre></section><section class="api-symbol"><h2 id="gcr_sample">gcr_sample</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 578.</p><pre><code>gcr_sample(block: LinearBlock, *, precision: dict[str, Precision], key: jax.Array, tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Draw an EXACT posterior sample of a linear-Gaussian block.
+    for the exact exit and NUTS to target different posteriors.</pre></section><section class="api-symbol"><h2 id="gcr_sample">gcr_sample</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 582.</p><pre><code>gcr_sample(block: LinearBlock, *, precision: dict[str, Precision], key: jax.Array, tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Draw an EXACT posterior sample of a linear-Gaussian block.
 
 The constrained-realization identity: solve the same system
 :func:`wiener_solve` does, with two white-noise terms added to the

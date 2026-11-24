@@ -49,7 +49,11 @@ import numpyro.distributions as dist
 
 from bayesmith.distributions import ComplexNormal
 from bayesmith.errors import NotGaussian, StructureError
-from bayesmith.graph.evaluate import apply_probabilistic, evaluate
+from bayesmith.graph.evaluate import (
+    apply_probabilistic,
+    distribution_batch_shape,
+    evaluate,
+)
 from bayesmith.graph.graph import Graph
 from bayesmith.graph.nodes import Node, Probabilistic
 
@@ -116,7 +120,14 @@ def gaussian_parts(
         StructureError: if ``loc`` has an integer dtype. That one IS a fault --
             a conjugate solve differentiates through ``loc``.
     """
-    distribution = unwrap(apply_probabilistic(graph, node, env))
+    distribution = _diagonal_gaussian(node, apply_probabilistic(graph, node, env))
+    loc = _checked_loc(node, distribution.loc)
+    return loc, jnp.broadcast_to(jnp.asarray(distribution.scale), loc.shape)
+
+
+def _diagonal_gaussian(node: Node, distribution: Any) -> dist.Normal | ComplexNormal:
+    """Return the scalar-event base law used for diagonal Gaussian observations."""
+    distribution = unwrap(distribution)
     if not isinstance(distribution, (dist.Normal, ComplexNormal)):
         raise NotGaussian(
             f"node {node.name!r} returns {type(distribution).__name__}; the exact "
@@ -129,9 +140,7 @@ def gaussian_parts(
             node=node.name,
             found=type(distribution).__name__,
         )
-    return _checked_loc(node, distribution.loc), jnp.broadcast_to(
-        jnp.asarray(distribution.scale), jnp.shape(jnp.asarray(distribution.loc))
-    )
+    return distribution
 
 
 def _checked_loc(node: Node, loc: Any) -> jax.Array:
@@ -189,33 +198,8 @@ def node_shape(graph: Graph, node: Node, env: dict[str, Any]) -> tuple[int, ...]
     """
     distribution = apply_probabilistic(graph, node, env)
     loc = _checked_loc(node, unwrap(distribution).loc)
-    shapes: list[tuple[int, ...]] = [
-        jnp.shape(loc),
-        tuple(distribution.batch_shape) + tuple(distribution.event_shape),
-    ]
-    if node.plate:
-        shapes.append((graph.plate_size(node.plate[0]),))
-    if isinstance(node, Probabilistic) and node.observed is not None:
-        shapes.append(jnp.shape(node.observed))
-    try:
-        return tuple(jnp.broadcast_shapes(*shapes))
-    except ValueError as exc:
-        raise StructureError(
-            f"node {node.name!r} has shapes that cannot be reconciled: its "
-            f"distribution's loc is {jnp.shape(loc)}"
-            + (
-                f", its plate is {(graph.plate_size(node.plate[0]),)}"
-                if node.plate
-                else ""
-            )
-            + (
-                f", its data is {jnp.shape(node.observed)}"
-                if isinstance(node, Probabilistic) and node.observed is not None
-                else ""
-            )
-            + ". A node's value has one shape; these disagree. Raw broadcasting "
-            "would report the same clash without naming the node."
-        ) from exc
+    batch = distribution_batch_shape(graph, node, distribution)
+    return tuple(jnp.broadcast_shapes(jnp.shape(loc), batch + distribution.event_shape))
 
 
 def check_gaussian(
@@ -408,10 +392,7 @@ def check_observed(
     assert isinstance(precision, CirculantPrecision)  # the only correlated row
     check_positive_definite(precision)
     return check_precision(
-        distribution,
-        precision,
-        jnp.broadcast_to(loc, node_shape(graph, node, env)),
-        rtol=rtol,
+        distribution, precision, jnp.broadcast_to(loc, node_shape(graph, node, env)), rtol=rtol
     )
 
 
@@ -469,10 +450,10 @@ def precision_parts(
     circulant = getattr(dist, "CirculantNormal", None)
     if circulant is not None and isinstance(distribution, circulant):
         loc = _checked_loc(node, distribution.loc)
-        return loc, _with_mask(
-            node,
-            CirculantPrecision(first_column=jnp.asarray(distribution.covariance_row)),
-        )
+        # Each independent repetition contributes its own normalizer and
+        # covariance derivative, even when all repetitions share one kernel.
+        row = jnp.broadcast_to(distribution.covariance_row, node_shape(graph, node, env))
+        return loc, _with_mask(node, CirculantPrecision(first_column=row))
     if not isinstance(distribution, dist.Normal):
         raise NotGaussian(
             f"node {node.name!r} returns {type(distribution).__name__}; the exact "

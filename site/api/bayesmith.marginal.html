@@ -277,7 +277,7 @@ where ``sigma`` is finite.
 
 Reads through :func:`~bayesmith.exact.precision.per_sample_sigma`, which
 is the one place in the package that asks which implementation a
-``Precision`` is, rather than adding a second.</pre></section><section class="api-symbol"><h2 id="Factorization">Factorization</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 86.</p><pre><code>class Factorization(eqx.Module)
+``Precision`` is, rather than adding a second.</pre></section><section class="api-symbol"><h2 id="Factorization">Factorization</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 88.</p><pre><code>class Factorization(eqx.Module)
 epoch_plate: str = eqx.field(static=True)
 survivors: tuple[str, ...] = eqx.field(static=True)
 per_epoch: tuple[str, ...] = eqx.field(static=True)</code></pre><pre class="docstring">A campaign&#x27;s latents, split by the extent of data they are constant over.
@@ -287,7 +287,7 @@ Attributes:
     survivors: latents outside that plate -- constant over the whole
         campaign, so they are what a streamed term is over.
     per_epoch: latents inside it -- integrated away within their own
-        epoch, and therefore never accumulated.</pre></section><section class="api-symbol"><h2 id="factorize">factorize</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 184.</p><pre><code>factorize(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, rtol: float=LEAK_RTOL) -&gt; Factorization</code></pre><pre class="docstring">Derive the campaign&#x27;s factorization from the graph, and check it.
+        epoch, and therefore never accumulated.</pre></section><section class="api-symbol"><h2 id="factorize">factorize</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 185.</p><pre><code>factorize(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, rtol: float=LEAK_RTOL) -&gt; Factorization</code></pre><pre class="docstring">Derive the campaign&#x27;s factorization from the graph, and check it.
 
 Plate membership gives the partition; :func:`epoch_leakage` and
 :func:`~bayesmith.exact.linearity.check_linearity` decide whether it is
@@ -319,7 +319,7 @@ Raises:
         survives the epoch, which would leave nothing to accumulate; if
         the observed predictions are not jointly affine in the survivors
         and per-epoch latents; or if a per-epoch latent is not
-        epoch-local.</pre></section><section class="api-symbol"><h2 id="epoch_leakage">epoch_leakage</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 102.</p><pre><code>epoch_leakage(graph: Graph, name: str, epoch_plate: str, at: dict[str, Any]) -&gt; float</code></pre><pre class="docstring">How far outside its own epoch a per-epoch latent reaches, relatively.
+        epoch-local.</pre></section><section class="api-symbol"><h2 id="epoch_leakage">epoch_leakage</h2><p class="source-note">Defined in <code>bayesmith.marginal.factorize</code>, line 104.</p><pre><code>epoch_leakage(graph: Graph, name: str, epoch_plate: str, at: dict[str, Any]) -&gt; float</code></pre><pre class="docstring">How far outside its own epoch a per-epoch latent reaches, relatively.
 
 ``0.0`` means the latent touches only its own epoch&#x27;s observations, which
 is what makes integrating it once per epoch the same as integrating it
@@ -331,16 +331,18 @@ design from -- so it asks about the model the fold will actually see,
 not about a declaration.
 
 Returns:
-    ``max |off-epoch| / max |any|`` over every observed node, or ``0.0``
+    the largest off-epoch absolute sum of a plated observation (or
+    largest absolute entry of an unplated one), divided by the largest
+    absolute sensitivity across all observations, or ``0.0``
     if the latent moves nothing at all. Relative to the latent&#x27;s OWN
     largest sensitivity, so a latent the model barely uses is judged on
     the same scale as one it leans on -- an absolute floor would wave
     through a leak in a weakly-used nuisance and refuse a well-used one
-    for roundoff.</pre></section><section class="api-symbol"><h2 id="compress_campaign">compress_campaign</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 273.</p><pre><code>compress_campaign(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None) -&gt; SqrtInfo</code></pre><pre class="docstring">Fold every epoch into one term over the survivors.
+    for roundoff.</pre></section><section class="api-symbol"><h2 id="compress_campaign">compress_campaign</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 269.</p><pre><code>compress_campaign(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None) -&gt; SqrtInfo</code></pre><pre class="docstring">Fold every epoch into one term over the survivors.
 
 Holds one epoch&#x27;s term at a time, which is the point of the exercise: the
 raw data and the forward evaluation are gone by the end, and what remains
-is a sufficient statistic whose size does not grow with the campaign.</pre></section><section class="api-symbol"><h2 id="epoch_terms">epoch_terms</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 47.</p><pre><code>epoch_terms(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None, stacked_only: bool=False) -&gt; list[SqrtInfo]</code></pre><pre class="docstring">One ``[R | z]`` term per epoch, over the survivors.
+is a sufficient statistic whose size does not grow with the campaign.</pre></section><section class="api-symbol"><h2 id="epoch_terms">epoch_terms</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 52.</p><pre><code>epoch_terms(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None, stacked_only: bool=False) -&gt; list[SqrtInfo]</code></pre><pre class="docstring">One ``[R | z]`` term per epoch, over the survivors.
 
 Each epoch&#x27;s own per-epoch latents are integrated out inside it, at the
 prior the graph declares for them -- so what comes back is a list of terms
@@ -362,7 +364,7 @@ Args:
 Raises:
     StructureError: from :func:`factorize`; or if the graph does not have
         exactly one observed node plated on ``epoch_plate``, which is what
-        makes &quot;one epoch&#x27;s data&quot; a thing that can be sliced.</pre></section><section class="api-symbol"><h2 id="epoch_observation">epoch_observation</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 296.</p><pre><code>epoch_observation(graph: Graph, epoch_plate: str) -&gt; str</code></pre><pre class="docstring">The one observed node whose data IS this plate&#x27;s epochs, or a refusal.
+        makes &quot;one epoch&#x27;s data&quot; a thing that can be sliced.</pre></section><section class="api-symbol"><h2 id="epoch_observation">epoch_observation</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 292.</p><pre><code>epoch_observation(graph: Graph, epoch_plate: str) -&gt; str</code></pre><pre class="docstring">The one observed node whose data IS this plate&#x27;s epochs, or a refusal.
 
 PUBLIC because a caller deciding *whether* to fold needs the same
 structural verdict the fold itself makes, and cannot get it from

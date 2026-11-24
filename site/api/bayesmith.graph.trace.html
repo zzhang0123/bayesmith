@@ -23,30 +23,33 @@ and ordered, which is what ``fn`` and ``dist_fn`` are called with. A
 refused rather than silently resolving by name against whatever the active
 trace happens to have declared -- see ``_parent_names`` and ``_plate_names``.
 
-**Not thread-safe.** ``_STACK`` is a single process-global list. It supports
-nested ``trace(...)`` calls on one thread (an inner trace pushes and pops its
-own recorder around the outer one), but concurrent ``trace(...)`` calls from
-multiple threads race on the same stack and can attribute one thread&#x27;s nodes
-to another thread&#x27;s graph. Confine tracing to a single thread at a time.</pre></details><div class="symbol-index"><a href="#NodeRef">NodeRef</a> <a href="#PlateRef">PlateRef</a> <a href="#plate">plate</a> <a href="#const">const</a> <a href="#det">det</a> <a href="#sample">sample</a> <a href="#observe">observe</a> <a href="#joint_prior">joint_prior</a> <a href="#trace">trace</a></div><section class="api-symbol"><h2 id="NodeRef">NodeRef</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 35.</p><pre><code>NodeRef(name: str, owner: _Recorder) -&gt; None</code></pre><pre class="docstring">A handle to a declared node. Pass one to declare an edge.
+Each trace owns its recorder in the current execution context. Nested traces
+restore the enclosing recorder when they return or raise.</pre></details><div class="symbol-index"><a href="#NodeRef">NodeRef</a> <a href="#PlateRef">PlateRef</a> <a href="#plate">plate</a> <a href="#const">const</a> <a href="#det">det</a> <a href="#sample">sample</a> <a href="#observe">observe</a> <a href="#joint_prior">joint_prior</a> <a href="#trace">trace</a></div><section class="api-symbol"><h2 id="NodeRef">NodeRef</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 34.</p><pre><code>NodeRef(name: str, owner: _Recorder) -&gt; None</code></pre><pre class="docstring">A handle to a declared node. Pass one to declare an edge.
 
 Bound to the recorder of the ``trace(...)`` call that created it. A
 parent must be a ``NodeRef`` minted by the *currently active* trace --
 enforced in ``_parent_names`` -- so a handle leaked in from an outer or
 an earlier trace is refused instead of silently resolving against a
-same-named node the active trace happens to declare.</pre></section><section class="api-symbol"><h2 id="PlateRef">PlateRef</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 55.</p><pre><code>PlateRef(name: str, owner: _Recorder) -&gt; None</code></pre><pre class="docstring">A handle to a declared plate. Pass one as ``plate=`` to place a node.
+same-named node the active trace happens to declare.</pre></section><section class="api-symbol"><h2 id="PlateRef">PlateRef</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 54.</p><pre><code>PlateRef(name: str, owner: _Recorder) -&gt; None</code></pre><pre class="docstring">A handle to a declared plate. Pass one as ``plate=`` to place a node.
 
 Owner-checked the same way as :class:`NodeRef`, for the same reason:
 without it, a plate name that merely *coincides* with one declared by a
 different (or an outer) trace would bind silently -- enforced in
-``_plate_names``.</pre></section><section class="api-symbol"><h2 id="plate">plate</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 160.</p><pre><code>plate(name: str, size: int) -&gt; PlateRef</code></pre><pre class="docstring">Declare a repetition axis and return a handle to it.</pre></section><section class="api-symbol"><h2 id="const">const</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 170.</p><pre><code>const(name: str, value: Any, *, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a fixed input node.</pre></section><section class="api-symbol"><h2 id="det">det</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 185.</p><pre><code>det(name: str, fn: Callable[..., Any], *parents: NodeRef, linear_in: Iterable[str]=(), plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a deterministic node; ``linear_in`` is optional legacy metadata.
+``_plate_names``.</pre></section><section class="api-symbol"><h2 id="plate">plate</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 162.</p><pre><code>plate(name: str, size: int) -&gt; PlateRef</code></pre><pre class="docstring">Declare a repetition axis and return a handle to it.
+
+At a probabilistic site the plate is the last batch axis, immediately
+before any event axes. For example, a Normal with parameters of shape
+``(epochs, components)`` and ``.to_event(1)`` has one vector per epoch.
+With scalar events, use ``(components, epochs)`` for the same plate.
+Constants and deterministic outputs in a plate carry it on axis zero.</pre></section><section class="api-symbol"><h2 id="const">const</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 179.</p><pre><code>const(name: str, value: Any, *, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a fixed input node.</pre></section><section class="api-symbol"><h2 id="det">det</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 194.</p><pre><code>det(name: str, fn: Callable[..., Any], *parents: NodeRef, linear_in: Iterable[str]=(), plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a deterministic node; ``linear_in`` is optional legacy metadata.
 
 The compiler discovers supported affine structure from the computation,
-even when no parent is named in ``linear_in``.</pre></section><section class="api-symbol"><h2 id="sample">sample</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 209.</p><pre><code>sample(name: str, dist_fn: Callable[..., Any], *parents: NodeRef, support: Support | None=None, depends_on_prediction: bool=True, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a latent probabilistic node.
+even when no parent is named in ``linear_in``.</pre></section><section class="api-symbol"><h2 id="sample">sample</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 218.</p><pre><code>sample(name: str, dist_fn: Callable[..., Any], *parents: NodeRef, support: Support | None=None, depends_on_prediction: bool=True, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a latent probabilistic node.
 
 ``support`` and ``depends_on_prediction`` are dispatch-axis claims about
 the model, exactly like ``det``&#x27;s ``linear_in`` -- see
 :class:`~bayesmith.graph.nodes.Probabilistic` for what each default
-means and why. Nothing in P1 reads either.</pre></section><section class="api-symbol"><h2 id="observe">observe</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 238.</p><pre><code>observe(name: str, dist_fn: Callable[..., Any], *parents: NodeRef, obs: Any, mask: Any=None, support: Support | None=None, depends_on_prediction: bool=True, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a probabilistic node conditioned on data.
+means and why. Nothing in P1 reads either.</pre></section><section class="api-symbol"><h2 id="observe">observe</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 247.</p><pre><code>observe(name: str, dist_fn: Callable[..., Any], *parents: NodeRef, obs: Any, mask: Any=None, support: Support | None=None, depends_on_prediction: bool=True, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a probabilistic node conditioned on data.
 
 ``support`` and ``depends_on_prediction`` are dispatch-axis claims about
 the model, exactly like ``det``&#x27;s ``linear_in`` -- see
@@ -56,7 +59,7 @@ means and why. Nothing in P1 reads either.
 ``mask`` is boolean and shaped like ``obs``, ``True`` where the sample was
 actually taken; see
 :attr:`~bayesmith.graph.nodes.Probabilistic.observed_mask` for why an
-unobserved sample is declared here and not as an infinite scale.</pre></section><section class="api-symbol"><h2 id="joint_prior">joint_prior</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 275.</p><pre><code>joint_prior(prior: Any) -&gt; None</code></pre><pre class="docstring">Declare a prior over SEVERAL latents at once -- one per graph.
+unobserved sample is declared here and not as an infinite scale.</pre></section><section class="api-symbol"><h2 id="joint_prior">joint_prior</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 284.</p><pre><code>joint_prior(prior: Any) -&gt; None</code></pre><pre class="docstring">Declare a prior over SEVERAL latents at once -- one per graph.
 
 A latent&#x27;s own ``dist_fn`` is the prior on that one quantity. A Jeffreys
 prior is a different shape of object: one density over a named block, read
@@ -81,7 +84,7 @@ Raises:
         difference. One block, named explicitly, is the declaration this
         package can be held to. A model that genuinely wants both blocks
         covered declares ONE prior over their union, which is a different
-        (and often non-existent) density -- see ``JeffreysPrior.over``.</pre></section><section class="api-symbol"><h2 id="trace">trace</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 319.</p><pre><code>trace(model_fn: Callable[..., Any], *args: Any, **kwargs: Any) -&gt; Graph</code></pre><pre class="docstring">Run ``model_fn`` once and return the graph it declared.</pre></section></article><footer><p>Version 0.10.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+        (and often non-existent) density -- see ``JeffreysPrior.over``.</pre></section><section class="api-symbol"><h2 id="trace">trace</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 328.</p><pre><code>trace(model_fn: Callable[..., Any], *args: Any, **kwargs: Any) -&gt; Graph</code></pre><pre class="docstring">Run ``model_fn`` once and return the graph it declared.</pre></section></article><footer><p>Version 0.10.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
 <aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#NodeRef">NodeRef</a><a href="#PlateRef">PlateRef</a><a href="#plate">plate</a><a href="#const">const</a><a href="#det">det</a><a href="#sample">sample</a><a href="#observe">observe</a><a href="#joint_prior">joint_prior</a><a href="#trace">trace</a></aside></div>
 <dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
 </body></html>

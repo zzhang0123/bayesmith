@@ -12,15 +12,15 @@
 
 Deterministic operators propagate dependence; probabilistic ones contribute a
 conditional density. The graph&#x27;s structure is what selects the inference
-method -- exact where a subgraph permits one, NUTS where it does not.</pre></details><div class="symbol-index"><a href="#trace">trace</a> <a href="#const">const</a> <a href="#det">det</a> <a href="#sample">sample</a> <a href="#observe">observe</a> <a href="#plate">plate</a> <a href="#joint_prior">joint_prior</a> <a href="#NodeRef">NodeRef</a> <a href="#PlateRef">PlateRef</a> <a href="#Graph">Graph</a> <a href="#Plate">Plate</a> <a href="#Node">Node</a> <a href="#Const">Const</a> <a href="#Deterministic">Deterministic</a> <a href="#Probabilistic">Probabilistic</a> <a href="#evaluate">evaluate</a> <a href="#log_joint">log_joint</a> <a href="#compile">compile</a> <a href="#compile_task">compile_task</a> <a href="#execute_task">execute_task</a> <a href="#factor_partition">factor_partition</a> <a href="#sample_factors">sample_factors</a> <a href="#declared_partition">declared_partition</a> <a href="#estimate_factors">estimate_factors</a> <a href="#SweepReport">SweepReport</a> <a href="#SweepEstimate">SweepEstimate</a> <a href="#Posterior">Posterior</a> <a href="#Estimate">Estimate</a> <a href="#to_numpyro">to_numpyro</a> <a href="#nuts">nuts</a> <a href="#predict">predict</a> <a href="#linear_operator">linear_operator</a> <a href="#check_linearity">check_linearity</a> <a href="#check_log_linearity">check_log_linearity</a> <a href="#log_linear_operator">log_linear_operator</a> <a href="#log_space">log_space</a> <a href="#multiplicative_log_data">multiplicative_log_data</a> <a href="#wiener_solve">wiener_solve</a> <a href="#gcr_sample">gcr_sample</a> <a href="#condition_bound">condition_bound</a> <a href="#condition_estimate">condition_estimate</a> <a href="#orthonormal_transform">orthonormal_transform</a> <a href="#orthonormalise">orthonormalise</a> <a href="#numerical_rank">numerical_rank</a> <a href="#select_svd">select_svd</a> <a href="#select_greedy">select_greedy</a> <a href="#LinearGaussianTransition">LinearGaussianTransition</a> <a href="#HyperTransition">HyperTransition</a> <a href="#ornstein_uhlenbeck">ornstein_uhlenbeck</a> <a href="#chain_marginal">chain_marginal</a> <a href="#chain_log_likelihood">chain_log_likelihood</a> <a href="#smooth">smooth</a> <a href="#iterative_gls">iterative_gls</a> <a href="#sigma_from_graph">sigma_from_graph</a> <a href="#noise_std_at">noise_std_at</a> <a href="#precision_at">precision_at</a> <a href="#fisher_information">fisher_information</a> <a href="#parameter_covariance">parameter_covariance</a> <a href="#identifiability">identifiability</a> <a href="#prior_sensitivity">prior_sensitivity</a> <a href="#JeffreysPrior">JeffreysPrior</a> <a href="#init_to_declared">init_to_declared</a> <a href="#propagate_covariance">propagate_covariance</a> <a href="#push_forward">push_forward</a> <a href="#fit">fit</a> <a href="#minimize">minimize</a> <a href="#Fit">Fit</a> <a href="#check_loss_sense">check_loss_sense</a> <a href="#MINIMIZE">MINIMIZE</a> <a href="#MAXIMIZE">MAXIMIZE</a> <a href="#residual_summary">residual_summary</a> <a href="#ResidualSummary">ResidualSummary</a> <a href="#epoch_residuals">epoch_residuals</a> <a href="#template_modes">template_modes</a> <a href="#held_out_z">held_out_z</a> <a href="#shrinkage_power">shrinkage_power</a> <a href="#shrinkage_report">shrinkage_report</a> <a href="#systematic_floor">systematic_floor</a> <a href="#NeuralPosterior">NeuralPosterior</a> <a href="#train_posterior">train_posterior</a> <a href="#TrainingHistory">TrainingHistory</a> <a href="#MIN_SCALE">MIN_SCALE</a> <a href="#BayesmithError">BayesmithError</a> <a href="#GraphError">GraphError</a> <a href="#TraceError">TraceError</a> <a href="#StructureError">StructureError</a> <a href="#AffinityRefused">AffinityRefused</a> <a href="#ConvergenceError">ConvergenceError</a> <a href="#NotGaussian">NotGaussian</a> <a href="#NotLogLinear">NotLogLinear</a> <a href="#NOT_GAUSSIAN_REASONS">NOT_GAUSSIAN_REASONS</a> <a href="#NOT_LOG_LINEAR_REASONS">NOT_LOG_LINEAR_REASONS</a> <a href="#ComplexNormal">ComplexNormal</a></div><section class="api-symbol"><h2 id="trace">trace</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 319.</p><pre><code>trace(model_fn: Callable[..., Any], *args: Any, **kwargs: Any) -&gt; Graph</code></pre><pre class="docstring">Run ``model_fn`` once and return the graph it declared.</pre></section><section class="api-symbol"><h2 id="const">const</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 170.</p><pre><code>const(name: str, value: Any, *, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a fixed input node.</pre></section><section class="api-symbol"><h2 id="det">det</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 185.</p><pre><code>det(name: str, fn: Callable[..., Any], *parents: NodeRef, linear_in: Iterable[str]=(), plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a deterministic node; ``linear_in`` is optional legacy metadata.
+method -- exact where a subgraph permits one, NUTS where it does not.</pre></details><div class="symbol-index"><a href="#trace">trace</a> <a href="#const">const</a> <a href="#det">det</a> <a href="#sample">sample</a> <a href="#observe">observe</a> <a href="#plate">plate</a> <a href="#joint_prior">joint_prior</a> <a href="#NodeRef">NodeRef</a> <a href="#PlateRef">PlateRef</a> <a href="#Graph">Graph</a> <a href="#Plate">Plate</a> <a href="#Node">Node</a> <a href="#Const">Const</a> <a href="#Deterministic">Deterministic</a> <a href="#Probabilistic">Probabilistic</a> <a href="#evaluate">evaluate</a> <a href="#log_joint">log_joint</a> <a href="#compile">compile</a> <a href="#compile_task">compile_task</a> <a href="#execute_task">execute_task</a> <a href="#factor_partition">factor_partition</a> <a href="#sample_factors">sample_factors</a> <a href="#declared_partition">declared_partition</a> <a href="#estimate_factors">estimate_factors</a> <a href="#SweepReport">SweepReport</a> <a href="#SweepEstimate">SweepEstimate</a> <a href="#Posterior">Posterior</a> <a href="#Estimate">Estimate</a> <a href="#to_numpyro">to_numpyro</a> <a href="#nuts">nuts</a> <a href="#predict">predict</a> <a href="#linear_operator">linear_operator</a> <a href="#check_linearity">check_linearity</a> <a href="#check_log_linearity">check_log_linearity</a> <a href="#log_linear_operator">log_linear_operator</a> <a href="#log_space">log_space</a> <a href="#multiplicative_log_data">multiplicative_log_data</a> <a href="#wiener_solve">wiener_solve</a> <a href="#gcr_sample">gcr_sample</a> <a href="#condition_bound">condition_bound</a> <a href="#condition_estimate">condition_estimate</a> <a href="#orthonormal_transform">orthonormal_transform</a> <a href="#orthonormalise">orthonormalise</a> <a href="#numerical_rank">numerical_rank</a> <a href="#select_svd">select_svd</a> <a href="#select_greedy">select_greedy</a> <a href="#LinearGaussianTransition">LinearGaussianTransition</a> <a href="#HyperTransition">HyperTransition</a> <a href="#ornstein_uhlenbeck">ornstein_uhlenbeck</a> <a href="#chain_marginal">chain_marginal</a> <a href="#chain_log_likelihood">chain_log_likelihood</a> <a href="#smooth">smooth</a> <a href="#iterative_gls">iterative_gls</a> <a href="#sigma_from_graph">sigma_from_graph</a> <a href="#noise_std_at">noise_std_at</a> <a href="#precision_at">precision_at</a> <a href="#fisher_information">fisher_information</a> <a href="#parameter_covariance">parameter_covariance</a> <a href="#identifiability">identifiability</a> <a href="#prior_sensitivity">prior_sensitivity</a> <a href="#JeffreysPrior">JeffreysPrior</a> <a href="#init_to_declared">init_to_declared</a> <a href="#propagate_covariance">propagate_covariance</a> <a href="#push_forward">push_forward</a> <a href="#fit">fit</a> <a href="#minimize">minimize</a> <a href="#Fit">Fit</a> <a href="#check_loss_sense">check_loss_sense</a> <a href="#MINIMIZE">MINIMIZE</a> <a href="#MAXIMIZE">MAXIMIZE</a> <a href="#residual_summary">residual_summary</a> <a href="#ResidualSummary">ResidualSummary</a> <a href="#epoch_residuals">epoch_residuals</a> <a href="#template_modes">template_modes</a> <a href="#held_out_z">held_out_z</a> <a href="#shrinkage_power">shrinkage_power</a> <a href="#shrinkage_report">shrinkage_report</a> <a href="#systematic_floor">systematic_floor</a> <a href="#NeuralPosterior">NeuralPosterior</a> <a href="#train_posterior">train_posterior</a> <a href="#TrainingHistory">TrainingHistory</a> <a href="#MIN_SCALE">MIN_SCALE</a> <a href="#BayesmithError">BayesmithError</a> <a href="#GraphError">GraphError</a> <a href="#TraceError">TraceError</a> <a href="#StructureError">StructureError</a> <a href="#AffinityRefused">AffinityRefused</a> <a href="#ConvergenceError">ConvergenceError</a> <a href="#NotGaussian">NotGaussian</a> <a href="#NotLogLinear">NotLogLinear</a> <a href="#NOT_GAUSSIAN_REASONS">NOT_GAUSSIAN_REASONS</a> <a href="#NOT_LOG_LINEAR_REASONS">NOT_LOG_LINEAR_REASONS</a> <a href="#ComplexNormal">ComplexNormal</a></div><section class="api-symbol"><h2 id="trace">trace</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 328.</p><pre><code>trace(model_fn: Callable[..., Any], *args: Any, **kwargs: Any) -&gt; Graph</code></pre><pre class="docstring">Run ``model_fn`` once and return the graph it declared.</pre></section><section class="api-symbol"><h2 id="const">const</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 179.</p><pre><code>const(name: str, value: Any, *, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a fixed input node.</pre></section><section class="api-symbol"><h2 id="det">det</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 194.</p><pre><code>det(name: str, fn: Callable[..., Any], *parents: NodeRef, linear_in: Iterable[str]=(), plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a deterministic node; ``linear_in`` is optional legacy metadata.
 
 The compiler discovers supported affine structure from the computation,
-even when no parent is named in ``linear_in``.</pre></section><section class="api-symbol"><h2 id="sample">sample</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 209.</p><pre><code>sample(name: str, dist_fn: Callable[..., Any], *parents: NodeRef, support: Support | None=None, depends_on_prediction: bool=True, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a latent probabilistic node.
+even when no parent is named in ``linear_in``.</pre></section><section class="api-symbol"><h2 id="sample">sample</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 218.</p><pre><code>sample(name: str, dist_fn: Callable[..., Any], *parents: NodeRef, support: Support | None=None, depends_on_prediction: bool=True, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a latent probabilistic node.
 
 ``support`` and ``depends_on_prediction`` are dispatch-axis claims about
 the model, exactly like ``det``&#x27;s ``linear_in`` -- see
 :class:`~bayesmith.graph.nodes.Probabilistic` for what each default
-means and why. Nothing in P1 reads either.</pre></section><section class="api-symbol"><h2 id="observe">observe</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 238.</p><pre><code>observe(name: str, dist_fn: Callable[..., Any], *parents: NodeRef, obs: Any, mask: Any=None, support: Support | None=None, depends_on_prediction: bool=True, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a probabilistic node conditioned on data.
+means and why. Nothing in P1 reads either.</pre></section><section class="api-symbol"><h2 id="observe">observe</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 247.</p><pre><code>observe(name: str, dist_fn: Callable[..., Any], *parents: NodeRef, obs: Any, mask: Any=None, support: Support | None=None, depends_on_prediction: bool=True, plate: PlateRef | Iterable[PlateRef] | None=None) -&gt; NodeRef</code></pre><pre class="docstring">Declare a probabilistic node conditioned on data.
 
 ``support`` and ``depends_on_prediction`` are dispatch-axis claims about
 the model, exactly like ``det``&#x27;s ``linear_in`` -- see
@@ -30,7 +30,13 @@ means and why. Nothing in P1 reads either.
 ``mask`` is boolean and shaped like ``obs``, ``True`` where the sample was
 actually taken; see
 :attr:`~bayesmith.graph.nodes.Probabilistic.observed_mask` for why an
-unobserved sample is declared here and not as an infinite scale.</pre></section><section class="api-symbol"><h2 id="plate">plate</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 160.</p><pre><code>plate(name: str, size: int) -&gt; PlateRef</code></pre><pre class="docstring">Declare a repetition axis and return a handle to it.</pre></section><section class="api-symbol"><h2 id="joint_prior">joint_prior</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 275.</p><pre><code>joint_prior(prior: Any) -&gt; None</code></pre><pre class="docstring">Declare a prior over SEVERAL latents at once -- one per graph.
+unobserved sample is declared here and not as an infinite scale.</pre></section><section class="api-symbol"><h2 id="plate">plate</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 162.</p><pre><code>plate(name: str, size: int) -&gt; PlateRef</code></pre><pre class="docstring">Declare a repetition axis and return a handle to it.
+
+At a probabilistic site the plate is the last batch axis, immediately
+before any event axes. For example, a Normal with parameters of shape
+``(epochs, components)`` and ``.to_event(1)`` has one vector per epoch.
+With scalar events, use ``(components, epochs)`` for the same plate.
+Constants and deterministic outputs in a plate carry it on axis zero.</pre></section><section class="api-symbol"><h2 id="joint_prior">joint_prior</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 284.</p><pre><code>joint_prior(prior: Any) -&gt; None</code></pre><pre class="docstring">Declare a prior over SEVERAL latents at once -- one per graph.
 
 A latent&#x27;s own ``dist_fn`` is the prior on that one quantity. A Jeffreys
 prior is a different shape of object: one density over a named block, read
@@ -55,13 +61,13 @@ Raises:
         difference. One block, named explicitly, is the declaration this
         package can be held to. A model that genuinely wants both blocks
         covered declares ONE prior over their union, which is a different
-        (and often non-existent) density -- see ``JeffreysPrior.over``.</pre></section><section class="api-symbol"><h2 id="NodeRef">NodeRef</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 35.</p><pre><code>NodeRef(name: str, owner: _Recorder) -&gt; None</code></pre><pre class="docstring">A handle to a declared node. Pass one to declare an edge.
+        (and often non-existent) density -- see ``JeffreysPrior.over``.</pre></section><section class="api-symbol"><h2 id="NodeRef">NodeRef</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 34.</p><pre><code>NodeRef(name: str, owner: _Recorder) -&gt; None</code></pre><pre class="docstring">A handle to a declared node. Pass one to declare an edge.
 
 Bound to the recorder of the ``trace(...)`` call that created it. A
 parent must be a ``NodeRef`` minted by the *currently active* trace --
 enforced in ``_parent_names`` -- so a handle leaked in from an outer or
 an earlier trace is refused instead of silently resolving against a
-same-named node the active trace happens to declare.</pre></section><section class="api-symbol"><h2 id="PlateRef">PlateRef</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 55.</p><pre><code>PlateRef(name: str, owner: _Recorder) -&gt; None</code></pre><pre class="docstring">A handle to a declared plate. Pass one as ``plate=`` to place a node.
+same-named node the active trace happens to declare.</pre></section><section class="api-symbol"><h2 id="PlateRef">PlateRef</h2><p class="source-note">Defined in <code>bayesmith.graph.trace</code>, line 54.</p><pre><code>PlateRef(name: str, owner: _Recorder) -&gt; None</code></pre><pre class="docstring">A handle to a declared plate. Pass one as ``plate=`` to place a node.
 
 Owner-checked the same way as :class:`NodeRef`, for the same reason:
 without it, a plate name that merely *coincides* with one declared by a
@@ -182,20 +188,22 @@ Attributes:
         step it actually needed -- the same &quot;claim nothing, unlock no
         shortcut&quot; reasoning behind ``linear_in``&#x27;s empty-tuple default
         and ``support``&#x27;s ``None`` default above, applied to a boolean
-        gate instead of a name set or a closed type.</pre><h3 id="Probabilistic.is_latent">Probabilistic.is_latent</h3><pre><code>is_latent(self) -&gt; bool</code></pre><pre class="docstring">Whether this node is inferred rather than conditioned on.</pre></section><section class="api-symbol"><h2 id="evaluate">evaluate</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 106.</p><pre><code>evaluate(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None) -&gt; Env</code></pre><pre class="docstring">Compute every node&#x27;s value.
+        gate instead of a name set or a closed type.</pre><h3 id="Probabilistic.is_latent">Probabilistic.is_latent</h3><pre><code>is_latent(self) -&gt; bool</code></pre><pre class="docstring">Whether this node is inferred rather than conditioned on.</pre></section><section class="api-symbol"><h2 id="evaluate">evaluate</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 334.</p><pre><code>evaluate(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None, *, observed_value: Callable[[Probabilistic, Env], Any] | None=None) -&gt; Env</code></pre><pre class="docstring">Compute every node&#x27;s value.
 
 Args:
     graph: the graph to run.
-    values: values for the latent nodes. Observed nodes take their own
-        data and must not appear here; deterministic and constant nodes
+    values: values for the latent nodes. Deterministic and constant nodes
         are computed.
+    observed_value: an optional forward generator called at each observed
+        node with its parents already evaluated. By default each node
+        takes its recorded data.
 
 Returns:
     A mapping from node name to value, covering every node in the graph.
 
 Raises:
     GraphError: if a latent node has no value, or ``values`` names
-        something that is not a latent node.</pre></section><section class="api-symbol"><h2 id="log_joint">log_joint</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 201.</p><pre><code>log_joint(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None) -&gt; jax.Array</code></pre><pre class="docstring">The joint log-density of the graph at ``values``.
+        something that is not a latent node.</pre></section><section class="api-symbol"><h2 id="log_joint">log_joint</h2><p class="source-note">Defined in <code>bayesmith.graph.evaluate</code>, line 437.</p><pre><code>log_joint(graph: Graph | ReducedGraph, values: Mapping[str, Any] | None=None) -&gt; jax.Array</code></pre><pre class="docstring">The joint log-density of the graph at ``values``.
 
 Every probabilistic node contributes ``log_prob`` of its value under the
 distribution its parents parameterise; deterministic nodes contribute
@@ -260,7 +268,7 @@ Args:
         function&#x27;s own default in place, so a task compiled without a key
         and a graph compiled directly agree block for block.
     extra_data: data the caller conditions on that the graph does not
-        carry, hashed into the DATA slot.</pre></section><section class="api-symbol"><h2 id="execute_task">execute_task</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 3104.</p><pre><code>execute_task(planned: PlannedTask, *, key: jax.Array | None=None, source_posterior: PosteriorResult | None=None) -&gt; Result | Refusal</code></pre><pre class="docstring">Run a compiled task and project what came back into a Result.
+        carry, hashed into the DATA slot.</pre></section><section class="api-symbol"><h2 id="execute_task">execute_task</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 3105.</p><pre><code>execute_task(planned: PlannedTask, *, key: jax.Array | None=None, source_posterior: PosteriorResult | None=None) -&gt; Result | Refusal</code></pre><pre class="docstring">Run a compiled task and project what came back into a Result.
 
 One call to one seam, with the key it was given and no extra split, timed
 from just before to just after. Nothing here decides a number: the method,
@@ -647,7 +655,7 @@ over a model whose ``obs=`` is baked in returns the observed node&#x27;s DATA,
 identical in every draw -- standard deviation ``0`` across 3000 draws
 against a prediction spread of 0.26. That is correct of NumPyro and is
 not what &quot;posterior predictive&quot; usually means, so the mode that gives the
-other reading has to exist rather than be assumed.</pre></section><section class="api-symbol"><h2 id="nuts">nuts</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 241.</p><pre><code>nuts(graph: Graph | ReducedGraph, key: jax.Array, *, num_warmup: int=1000, num_samples: int=2000, num_chains: int=1, chain_method: str=&#x27;sequential&#x27;, progress_bar: bool=False, nuts_options: Mapping[str, Any] | None=None, _control: Any=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Sample the posterior of ``graph`` with NUTS.
+other reading has to exist rather than be assumed.</pre></section><section class="api-symbol"><h2 id="nuts">nuts</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 242.</p><pre><code>nuts(graph: Graph | ReducedGraph, key: jax.Array, *, num_warmup: int=1000, num_samples: int=2000, num_chains: int=1, chain_method: str=&#x27;sequential&#x27;, progress_bar: bool=False, nuts_options: Mapping[str, Any] | None=None, _control: Any=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Sample the posterior of ``graph`` with NUTS.
 
 ``chain_method`` and ``nuts_options`` are here because
 :meth:`~bayesmith.dispatch.plan.InferencePlan.sample` promises them on
@@ -697,7 +705,7 @@ Args:
         was the sentence saying so.
 
 Returns:
-    A mapping from latent node name to its draws.</pre></section><section class="api-symbol"><h2 id="predict">predict</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 320.</p><pre><code>predict(graph: Graph | ReducedGraph, samples: Mapping[str, Any], key: jax.Array | None=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Posterior predictive: every node&#x27;s value over a stack of draws.
+    A mapping from latent node name to its draws.</pre></section><section class="api-symbol"><h2 id="predict">predict</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 321.</p><pre><code>predict(graph: Graph | ReducedGraph, samples: Mapping[str, Any], key: jax.Array | None=None) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Posterior predictive: every node&#x27;s value over a stack of draws.
 
 Args:
     graph: the model the draws came from.
@@ -890,7 +898,7 @@ Positivity of ``observed`` is the CALLER&#x27;s obligation here, stated
 rather than checked: this is the seam another package&#x27;s own data
 handling (masks, flags) delegates its arithmetic to, and a check on this
 side would force that caller to pre-fill values it is about to weight by
-zero anyway. :func:`log_space`, which owns whole graphs, does check.</pre></section><section class="api-symbol"><h2 id="wiener_solve">wiener_solve</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 481.</p><pre><code>wiener_solve(block: LinearBlock, *, precision: dict[str, Precision], tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Posterior mean of a linear-Gaussian block -- the Wiener filter, by CG.
+zero anyway. :func:`log_space`, which owns whole graphs, does check.</pre></section><section class="api-symbol"><h2 id="wiener_solve">wiener_solve</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 484.</p><pre><code>wiener_solve(block: LinearBlock, *, precision: dict[str, Precision], tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Posterior mean of a linear-Gaussian block -- the Wiener filter, by CG.
 
 This is the posterior **mean**, not a sample. For a draw see
 :func:`gcr_sample`, which adds a fluctuation term to this same right-hand
@@ -959,15 +967,16 @@ Args:
 
 Returns:
     ``(x_hat, relative_residual)``, the residual being
-    ``||M x_hat - b|| / ||b||``. Note this is the residual, not the error;
-    multiply by :func:`condition_bound` for the error bound.
+    ``||M x_hat - b|| / ||b||``. For a zero right-hand side an exact
+    solution has residual zero and a nonzero misfit has infinite relative
+    residual. Multiply by :func:`condition_bound` for the error bound.
 
 Note:
     **Where S comes from.** Each latent&#x27;s own ``dist_fn`` is this
     package&#x27;s one statement of what it is a priori, and it is the
     statement ``to_numpyro`` reads. So it is the statement this solve
     reads too -- there is no keyword to override it, and therefore no way
-    for the exact exit and NUTS to target different posteriors.</pre></section><section class="api-symbol"><h2 id="gcr_sample">gcr_sample</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 578.</p><pre><code>gcr_sample(block: LinearBlock, *, precision: dict[str, Precision], key: jax.Array, tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Draw an EXACT posterior sample of a linear-Gaussian block.
+    for the exact exit and NUTS to target different posteriors.</pre></section><section class="api-symbol"><h2 id="gcr_sample">gcr_sample</h2><p class="source-note">Defined in <code>bayesmith.exact.solve</code>, line 582.</p><pre><code>gcr_sample(block: LinearBlock, *, precision: dict[str, Precision], key: jax.Array, tol: float=1e-06, maxiter: int | None=None, require_convergence: float | None=None) -&gt; tuple[dict[str, jax.Array], jax.Array]</code></pre><pre class="docstring">Draw an EXACT posterior sample of a linear-Gaussian block.
 
 The constrained-realization identity: solve the same system
 :func:`wiener_solve` does, with two white-noise terms added to the
@@ -1187,7 +1196,7 @@ builds these from theta, and under NUTS theta goes wherever it likes.
 Parameterise the builder so positivity is structural -- return
 ``jnp.exp(log_sigma)``, never a raw sampled scale -- which is why this
 class takes standard deviations rather than a covariance.</pre><h3 id="LinearGaussianTransition.width">LinearGaussianTransition.width</h3><pre><code>width(self) -&gt; int</code></pre><pre class="docstring">How many components the chain carries.</pre><h3 id="LinearGaussianTransition.at">LinearGaussianTransition.at</h3><pre><code>at(self, values: dict[str, jax.Array]) -&gt; LinearGaussianTransition</code></pre><pre class="docstring">Itself. A fixed transition does not depend on theta -- that is the
-claim it is making, and the reason its posterior is exact.</pre></section><section class="api-symbol"><h2 id="HyperTransition">HyperTransition</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 205.</p><pre><code>class HyperTransition(eqx.Module)
+claim it is making, and the reason its posterior is exact.</pre></section><section class="api-symbol"><h2 id="HyperTransition">HyperTransition</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 206.</p><pre><code>class HyperTransition(eqx.Module)
 build: Callable[[dict[str, jax.Array]], LinearGaussianTransition] = eqx.field(static=True)
 width: int = eqx.field(static=True)
 hyper: tuple[str, ...] = eqx.field(static=True, default=())</code></pre><pre class="docstring">A transition whose blocks are FUNCTIONS of theta.
@@ -1217,7 +1226,7 @@ pins it.
 A FUNCTION, not a class: the type the filter consumes -- and the type a
 :class:`HyperTransition` builder must return -- is
 :class:`LinearGaussianTransition`. An OU is a way of constructing one, and
-this package spells constructors in lower case.</pre></section><section class="api-symbol"><h2 id="chain_marginal">chain_marginal</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 356.</p><pre><code>chain_marginal(blocks: tuple[jax.Array, jax.Array, jax.Array], transition: Any, values: dict[str, jax.Array], names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; SqrtInfo</code></pre><pre class="docstring">``zeta_1:N`` integrated out exactly, leaving a quadratic form in theta.
+this package spells constructors in lower case.</pre></section><section class="api-symbol"><h2 id="chain_marginal">chain_marginal</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 357.</p><pre><code>chain_marginal(blocks: tuple[jax.Array, jax.Array, jax.Array], transition: Any, values: dict[str, jax.Array], names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; SqrtInfo</code></pre><pre class="docstring">``zeta_1:N`` integrated out exactly, leaving a quadratic form in theta.
 
 Args:
     blocks: ``(factor (N, w, w), target (N, w), offset (N,))`` -- one
@@ -1244,7 +1253,7 @@ one over its own argument, so its normalisation and the extra
 marginalisation&#x27;s constant cancel term for term. The reason to stop one
 short is COST, one QR per call, not correctness. What it does change is the
 COUNT of each constant, which is what the constant tests notice and the
-exactness tests cannot.</pre></section><section class="api-symbol"><h2 id="chain_log_likelihood">chain_log_likelihood</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 449.</p><pre><code>chain_log_likelihood(blocks: tuple[jax.Array, jax.Array, jax.Array], transition: Any, values: dict[str, jax.Array], names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; jax.Array</code></pre><pre class="docstring">``log p(d_1:N | theta)``, the chain integrated out exactly. No prior.</pre></section><section class="api-symbol"><h2 id="smooth">smooth</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 555.</p><pre><code>smooth(blocks: tuple[jax.Array, jax.Array, jax.Array], transition: Any, values: dict[str, jax.Array], names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; tuple[jax.Array, jax.Array]</code></pre><pre class="docstring">``p(zeta_e | d_1:N, theta)`` for every epoch -- mean and variance.
+exactness tests cannot.</pre></section><section class="api-symbol"><h2 id="chain_log_likelihood">chain_log_likelihood</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 450.</p><pre><code>chain_log_likelihood(blocks: tuple[jax.Array, jax.Array, jax.Array], transition: Any, values: dict[str, jax.Array], names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; jax.Array</code></pre><pre class="docstring">``log p(d_1:N | theta)``, the chain integrated out exactly. No prior.</pre></section><section class="api-symbol"><h2 id="smooth">smooth</h2><p class="source-note">Defined in <code>bayesmith.marginal.chain</code>, line 556.</p><pre><code>smooth(blocks: tuple[jax.Array, jax.Array, jax.Array], transition: Any, values: dict[str, jax.Array], names: tuple[str, ...], shapes: tuple[tuple[int, ...], ...]) -&gt; tuple[jax.Array, jax.Array]</code></pre><pre class="docstring">``p(zeta_e | d_1:N, theta)`` for every epoch -- mean and variance.
 
 ``theta`` is **conditioned on**, not marginalised: the question a smoother
 answers is &quot;given this receiver model, what did the drift do?&quot;, and
@@ -1346,13 +1355,13 @@ Note:
 
 Taking the seam as a callable rather than the graph keeps this module
 independent of the graph layer for testing, and lets P3b hand in a sigma
-frozen somewhere else without this module needing to know.</pre></section><section class="api-symbol"><h2 id="noise_std_at">noise_std_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 572.</p><pre><code>noise_std_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">``{obs: scale}`` with the latents at ``values`` -- the GLS seam.
+frozen somewhere else without this module needing to know.</pre></section><section class="api-symbol"><h2 id="noise_std_at">noise_std_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 553.</p><pre><code>noise_std_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">``{obs: scale}`` with the latents at ``values`` -- the GLS seam.
 
 ``iterative_gls`` iterates this: solve at the current sigma, recompute
 sigma at the new solution, repeat. Whether it moves at all is what
 separates a single Wiener solve from a reweighting loop, and
 ``test_noise_std_at_moves_with_the_latent_only_for_a_prediction_dependent_node``
-exercises both sides.</pre></section><section class="api-symbol"><h2 id="precision_at">precision_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 585.</p><pre><code>precision_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, Any]</code></pre><pre class="docstring">``{obs: Precision}`` with the latents at ``values`` -- the OPERATOR seam.
+exercises both sides.</pre></section><section class="api-symbol"><h2 id="precision_at">precision_at</h2><p class="source-note">Defined in <code>bayesmith.exact.gaussian</code>, line 566.</p><pre><code>precision_at(graph: Graph, values: dict[str, Any]) -&gt; dict[str, Any]</code></pre><pre class="docstring">``{obs: Precision}`` with the latents at ``values`` -- the OPERATOR seam.
 
 The counterpart of :func:`noise_std_at`, and deliberately **not** its
 replacement. The seam SPLITS rather than renames, because the two sides
@@ -1490,6 +1499,7 @@ Raises:
 
 The diagnostic that sees ACROSS blocks. See the module docstring for why
 no per-block guard can, and for the measured case that motivates it.
+Only rows retained by each observation mask enter the rank calculation.
 
 Args:
     graph: the model.
@@ -1672,7 +1682,7 @@ Arguments are :meth:`information`&#x27;s.</pre><h3 id="JeffreysPrior.half_log_de
 Separate from :meth:`log_density` so a caller holding an information
 matrix already -- or a test pinning this against ``slogdet`` and
 ``cholesky`` on the same array -- can reach the arithmetic without
-re-differentiating the model.</pre></section><section class="api-symbol"><h2 id="init_to_declared">init_to_declared</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 201.</p><pre><code>init_to_declared(graph: Graph | ReducedGraph) -&gt; Any</code></pre><pre class="docstring">A NumPyro init strategy that starts where the graph&#x27;s priors sit.
+re-differentiating the model.</pre></section><section class="api-symbol"><h2 id="init_to_declared">init_to_declared</h2><p class="source-note">Defined in <code>bayesmith.bridge.numpyro_bridge</code>, line 202.</p><pre><code>init_to_declared(graph: Graph | ReducedGraph) -&gt; Any</code></pre><pre class="docstring">A NumPyro init strategy that starts where the graph&#x27;s priors sit.
 
 Pass it as ``nuts(graph, key, nuts_options={&quot;init_strategy&quot;:
 init_to_declared(graph)})``.
@@ -2208,7 +2218,7 @@ Raises:
     StructureError: for a campaign of no epochs, a floor naming a latent
         the term is not over, a floor that is not a finite positive width,
         a prior of the wrong shape, or information that is not positive
-        definite.</pre></section><section class="api-symbol"><h2 id="NeuralPosterior">NeuralPosterior</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 106.</p><pre><code>class NeuralPosterior(eqx.Module)
+        definite.</pre></section><section class="api-symbol"><h2 id="NeuralPosterior">NeuralPosterior</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 118.</p><pre><code>class NeuralPosterior(eqx.Module)
 net: eqx.nn.MLP
 embed: Callable[[jax.Array], jax.Array] = eqx.field(static=True)
 n_components: int = eqx.field(static=True)
@@ -2235,7 +2245,7 @@ Attributes:
         posterior, which is what makes the linear-Gaussian check sharp.
     n_params: length of the latent vector (static).
     theta_mean, theta_scale, data_mean, data_scale: standardization,
-        derived from the bank.
+        derived from the bank and held fixed during training.
     min_scale: floor on a component&#x27;s standardized scale (static).</pre><h3 id="NeuralPosterior.create">NeuralPosterior.create</h3><pre><code>create(cls, thetas: jax.Array, data: jax.Array, *, key: jax.Array, embed: Callable[[jax.Array], jax.Array]=jnp.ravel, n_components: int=4, width: int=64, depth: int=3, min_scale: float=MIN_SCALE) -&gt; NeuralPosterior</code></pre><pre class="docstring">Build an untrained estimator sized and standardized to a bank.
 
 Args:
@@ -2250,9 +2260,9 @@ Args:
 
 Raises:
     StructureError: if ``thetas`` is not a two-dimensional stack, if
-        the two halves disagree on how many simulations there are, if
+        the bank is empty or the two halves disagree in length, if
         ``n_components`` is not positive, or if ``min_scale`` is
-        negative.</pre><h3 id="NeuralPosterior.log_prob">NeuralPosterior.log_prob</h3><pre><code>log_prob(self, theta: jax.Array, datum: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``log q(theta | x)`` for one pair, in the latent&#x27;s own units.</pre><h3 id="NeuralPosterior.sample">NeuralPosterior.sample</h3><pre><code>sample(self, datum: jax.Array, key: jax.Array, n_samples: int) -&gt; jax.Array</code></pre><pre class="docstring">Draw ``(n_samples, n_params)`` from ``q(theta | x)``.</pre></section><section class="api-symbol"><h2 id="train_posterior">train_posterior</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 290.</p><pre><code>train_posterior(posterior: NeuralPosterior, thetas: jax.Array, data: jax.Array, *, key: jax.Array, n_steps: int=3000, batch_size: int=256, learning_rate: float=0.001, validation_fraction: float=0.1, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; tuple[NeuralPosterior, TrainingHistory]</code></pre><pre class="docstring">Maximize the mean ``log q(theta | x)`` over the simulation bank.
+        negative or nonfinite.</pre><h3 id="NeuralPosterior.log_prob">NeuralPosterior.log_prob</h3><pre><code>log_prob(self, theta: jax.Array, datum: jax.Array) -&gt; jax.Array</code></pre><pre class="docstring">``log q(theta | x)`` for one pair, in the latent&#x27;s own units.</pre><h3 id="NeuralPosterior.sample">NeuralPosterior.sample</h3><pre><code>sample(self, datum: jax.Array, key: jax.Array, n_samples: int) -&gt; jax.Array</code></pre><pre class="docstring">Draw ``(n_samples, n_params)`` from ``q(theta | x)``.</pre></section><section class="api-symbol"><h2 id="train_posterior">train_posterior</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 296.</p><pre><code>train_posterior(posterior: NeuralPosterior, thetas: jax.Array, data: jax.Array, *, key: jax.Array, n_steps: int=3000, batch_size: int=256, learning_rate: float=0.001, validation_fraction: float=0.1, beta1: float=0.9, beta2: float=0.999, eps: float=1e-08) -&gt; tuple[NeuralPosterior, TrainingHistory]</code></pre><pre class="docstring">Maximize the mean ``log q(theta | x)`` over the simulation bank.
 
 That objective is what makes ``q`` a posterior rather than a fit to
 anything else: its population optimum is the true ``p(theta | x)``, because
@@ -2264,7 +2274,7 @@ package does not depend on optax.
 Args:
     posterior: from :meth:`NeuralPosterior.create` (or a partly trained one;
         training resumes from wherever it is).
-    thetas, data: the bank.
+    thetas, data: paired simulations with the parameter width of the estimator.
     key: PRNG key for the split and the minibatching.
     n_steps: Adam steps.
     batch_size: simulations per step; capped at the training split.
@@ -2280,14 +2290,14 @@ Returns:
     a :class:`TrainingHistory`.
 
 Raises:
-    StructureError: for a non-positive step count, a ``validation_fraction``
-        outside ``[0, 1)``, or a fraction that holds out zero simulations.
+    StructureError: for an invalid bank, step count, batch size or split.
     Exception: from ``eqx.error_if`` if the returned estimator is not
         finite. See the second note.
 
 Note:
     **Over-fitting an NPE makes it over-confident, which is the failure that
-    does not look like one.** Measured here, on the linear-Gaussian problem
+    does not look like one.** A historical run (before bank standardization
+    was frozen) on the linear-Gaussian problem
     this module&#x27;s tests use (exact posterior width 0.134): a bank of 512
     with four components, run 8000 steps with ``validation_fraction=0.0``,
     returns a posterior **0.271** of the exact width while its training loss
@@ -2329,7 +2339,7 @@ Note:
 
     Divergence does not always reach NaN -- at a rate a further thousandfold
     higher the same run came back finite with a hopeless loss. Nothing here
-    refuses a bad fit, only an absent one.</pre></section><section class="api-symbol"><h2 id="TrainingHistory">TrainingHistory</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 262.</p><pre><code>class TrainingHistory(NamedTuple)
+    refuses a bad fit, only an absent one.</pre></section><section class="api-symbol"><h2 id="TrainingHistory">TrainingHistory</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 268.</p><pre><code>class TrainingHistory(NamedTuple)
 train: jax.Array
 validation: jax.Array
 best_step: jax.Array</code></pre><pre class="docstring">Per-step losses from :func:`train_posterior`.
@@ -2351,7 +2361,7 @@ visibly bad one.
 Non-finite entries are left in place rather than scrubbed. A diverged run
 is a fact about the run, and the only record of it is here -- the returned
 estimator, having been selected on the held-out split, is usually finite
-and says nothing.</pre></section><section class="api-symbol"><h2 id="MIN_SCALE">MIN_SCALE</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 86.</p><pre><code>MIN_SCALE: float = 0.001</code></pre></section><section class="api-symbol"><h2 id="BayesmithError">BayesmithError</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 32.</p><pre><code>class BayesmithError(Exception)</code></pre><pre class="docstring">Base class for every error bayesmith raises.</pre></section><section class="api-symbol"><h2 id="GraphError">GraphError</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 50.</p><pre><code>class GraphError(BayesmithError, ValueError)</code></pre><pre class="docstring">A graph was declared or evaluated inconsistently.
+and says nothing.</pre></section><section class="api-symbol"><h2 id="MIN_SCALE">MIN_SCALE</h2><p class="source-note">Defined in <code>bayesmith.amortize</code>, line 87.</p><pre><code>MIN_SCALE: float = 0.001</code></pre></section><section class="api-symbol"><h2 id="BayesmithError">BayesmithError</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 32.</p><pre><code>class BayesmithError(Exception)</code></pre><pre class="docstring">Base class for every error bayesmith raises.</pre></section><section class="api-symbol"><h2 id="GraphError">GraphError</h2><p class="source-note">Defined in <code>bayesmith.errors</code>, line 50.</p><pre><code>class GraphError(BayesmithError, ValueError)</code></pre><pre class="docstring">A graph was declared or evaluated inconsistently.
 
 Covers: a node naming a parent that was not declared before it, a
 duplicate node name, a latent node left without a value, and a plate
@@ -2546,7 +2556,8 @@ the magnitude form is the same number and hides which convention is
 in force.</pre><h3 id="ComplexNormal.mean">ComplexNormal.mean</h3><pre><code>mean(self) -&gt; jax.Array</code></pre><h3 id="ComplexNormal.variance">ComplexNormal.variance</h3><pre><code>variance(self) -&gt; jax.Array</code></pre><pre class="docstring">``2 * scale**2`` -- the TOTAL, both parts.
 
 Not ``scale**2``. A reader who takes this for one part&#x27;s variance gets
-the sqrt(2) this module&#x27;s docstring is about, so it says which.</pre><pre><code>support = constraints.real</code></pre></section></article><footer><p>Version 0.10.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
+the sqrt(2) this module&#x27;s docstring is about, so it says which.</pre><pre><code>support = constraints.real
+pytree_data_fields = (&#x27;loc&#x27;, &#x27;scale&#x27;)</code></pre></section></article><footer><p>Version 0.10.0 · <a href="../project.html">Release status</a>.</p><a href="#main">Back to top</a></footer></main>
 <aside class="local-toc" aria-label="On this page"><p>On this page</p><a href="#trace">trace</a><a href="#const">const</a><a href="#det">det</a><a href="#sample">sample</a><a href="#observe">observe</a><a href="#plate">plate</a><a href="#joint_prior">joint_prior</a><a href="#NodeRef">NodeRef</a><a href="#PlateRef">PlateRef</a><a href="#Graph">Graph</a><a href="#Plate">Plate</a><a href="#Node">Node</a><a href="#Const">Const</a><a href="#Deterministic">Deterministic</a><a href="#Probabilistic">Probabilistic</a><a href="#evaluate">evaluate</a><a href="#log_joint">log_joint</a><a href="#compile">compile</a><a href="#compile_task">compile_task</a><a href="#execute_task">execute_task</a><a href="#factor_partition">factor_partition</a><a href="#sample_factors">sample_factors</a><a href="#declared_partition">declared_partition</a><a href="#estimate_factors">estimate_factors</a><a href="#SweepReport">SweepReport</a><a href="#SweepEstimate">SweepEstimate</a><a href="#Posterior">Posterior</a><a href="#Estimate">Estimate</a><a href="#to_numpyro">to_numpyro</a><a href="#nuts">nuts</a><a href="#predict">predict</a><a href="#linear_operator">linear_operator</a><a href="#check_linearity">check_linearity</a><a href="#check_log_linearity">check_log_linearity</a><a href="#log_linear_operator">log_linear_operator</a><a href="#log_space">log_space</a><a href="#multiplicative_log_data">multiplicative_log_data</a><a href="#wiener_solve">wiener_solve</a><a href="#gcr_sample">gcr_sample</a><a href="#condition_bound">condition_bound</a><a href="#condition_estimate">condition_estimate</a><a href="#orthonormal_transform">orthonormal_transform</a><a href="#orthonormalise">orthonormalise</a><a href="#numerical_rank">numerical_rank</a><a href="#select_svd">select_svd</a><a href="#select_greedy">select_greedy</a><a href="#LinearGaussianTransition">LinearGaussianTransition</a><a href="#HyperTransition">HyperTransition</a><a href="#ornstein_uhlenbeck">ornstein_uhlenbeck</a><a href="#chain_marginal">chain_marginal</a><a href="#chain_log_likelihood">chain_log_likelihood</a><a href="#smooth">smooth</a><a href="#iterative_gls">iterative_gls</a><a href="#sigma_from_graph">sigma_from_graph</a><a href="#noise_std_at">noise_std_at</a><a href="#precision_at">precision_at</a><a href="#fisher_information">fisher_information</a><a href="#parameter_covariance">parameter_covariance</a><a href="#identifiability">identifiability</a><a href="#prior_sensitivity">prior_sensitivity</a><a href="#JeffreysPrior">JeffreysPrior</a><a href="#init_to_declared">init_to_declared</a><a href="#propagate_covariance">propagate_covariance</a><a href="#push_forward">push_forward</a><a href="#fit">fit</a><a href="#minimize">minimize</a><a href="#Fit">Fit</a><a href="#check_loss_sense">check_loss_sense</a><a href="#MINIMIZE">MINIMIZE</a><a href="#MAXIMIZE">MAXIMIZE</a><a href="#residual_summary">residual_summary</a><a href="#ResidualSummary">ResidualSummary</a><a href="#epoch_residuals">epoch_residuals</a><a href="#template_modes">template_modes</a><a href="#held_out_z">held_out_z</a><a href="#shrinkage_power">shrinkage_power</a><a href="#shrinkage_report">shrinkage_report</a><a href="#systematic_floor">systematic_floor</a><a href="#NeuralPosterior">NeuralPosterior</a><a href="#train_posterior">train_posterior</a><a href="#TrainingHistory">TrainingHistory</a><a href="#MIN_SCALE">MIN_SCALE</a><a href="#BayesmithError">BayesmithError</a><a href="#GraphError">GraphError</a><a href="#TraceError">TraceError</a><a href="#StructureError">StructureError</a><a href="#AffinityRefused">AffinityRefused</a><a href="#ConvergenceError">ConvergenceError</a><a href="#NotGaussian">NotGaussian</a><a href="#NotLogLinear">NotLogLinear</a><a href="#NOT_GAUSSIAN_REASONS">NOT_GAUSSIAN_REASONS</a><a href="#NOT_LOG_LINEAR_REASONS">NOT_LOG_LINEAR_REASONS</a><a href="#ComplexNormal">ComplexNormal</a></aside></div>
 <dialog id="search-dialog" aria-labelledby="search-label"><form method="dialog"><button class="close-search" aria-label="Close search">Close</button></form><label id="search-label" for="search-input">Search documentation and API</label><input id="search-input" type="search" placeholder="Graph, EvidenceTask, masking…" autocomplete="off"><p id="search-status" aria-live="polite">Type a concept or API name.</p><ol id="search-results"></ol></dialog>
 </body></html>

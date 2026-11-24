@@ -63,18 +63,18 @@ The model&#x27;s identifier travels with it because a structure is somebody&#x27
 structure -- two models that happen to declare the same shape are two
 models -- while the source digest and the build arguments stay in the
 MODEL_SOURCE slot, so reformatting a model does not read as restructuring
-it.</pre></section><section class="api-symbol"><h2 id="data_manifest">data_manifest</h2><p class="source-note">Defined in <code>bayesmith.dispatch._task_identity</code>, line 178.</p><pre><code>data_manifest(graph: Graph, extra_data: tuple[tuple[str, Any], ...]=()) -&gt; dict[str, Any]</code></pre><pre class="docstring">What the DATA slot is taken over: every Const, observation and mask.
+it.</pre></section><section class="api-symbol"><h2 id="data_manifest">data_manifest</h2><p class="source-note">Defined in <code>bayesmith.dispatch._task_identity</code>, line 183.</p><pre><code>data_manifest(graph: Graph, extra_data: tuple[tuple[str, Any], ...]=()) -&gt; dict[str, Any]</code></pre><pre class="docstring">What the DATA slot is taken over: every Const, observation and mask.
 
 In declaration order, which is the graph&#x27;s own topological order, plus any
 ``extra_data`` the caller conditions on that the graph does not carry. The
 bytes are what is hashed, so a single flipped bit is a different data set
 -- and so is the same array at a different dtype, which is why the bytes
-are hashed rather than the values.</pre></section><section class="api-symbol"><h2 id="model_identity_gap">model_identity_gap</h2><p class="source-note">Defined in <code>bayesmith.dispatch._task_identity</code>, line 202.</p><pre><code>model_identity_gap(graph: Graph, model_ref: ModelRef) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The nodes whose operator this package cannot identify, or ``()``.
+are hashed rather than the values.</pre></section><section class="api-symbol"><h2 id="model_identity_gap">model_identity_gap</h2><p class="source-note">Defined in <code>bayesmith.dispatch._task_identity</code>, line 207.</p><pre><code>model_identity_gap(graph: Graph, model_ref: ModelRef) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The nodes whose operator this package cannot identify, or ``()``.
 
 Empty whenever the caller pinned the model&#x27;s own source: a ``ModelRef``
 carrying a ``source_digest`` identifies the whole text the callables were
 written in, which is the explicit answer §0.3 offers where
-``inspect.getsource`` cannot serve.</pre></section><section class="api-symbol"><h2 id="input_fingerprints">input_fingerprints</h2><p class="source-note">Defined in <code>bayesmith.dispatch._task_identity</code>, line 226.</p><pre><code>input_fingerprints(graph: Graph, task: Task, *, model_ref: ModelRef, extra_data: tuple[tuple[str, Any], ...]=()) -&gt; FingerprintBundle</code></pre><pre class="docstring">The four slots every artifact has, taken over this graph and this task.
+``inspect.getsource`` cannot serve.</pre></section><section class="api-symbol"><h2 id="input_fingerprints">input_fingerprints</h2><p class="source-note">Defined in <code>bayesmith.dispatch._task_identity</code>, line 231.</p><pre><code>input_fingerprints(graph: Graph, task: Task, *, model_ref: ModelRef, extra_data: tuple[tuple[str, Any], ...]=()) -&gt; FingerprintBundle</code></pre><pre class="docstring">The four slots every artifact has, taken over this graph and this task.
 
 ``compilation``, ``evaluation`` and ``environment`` are left empty here:
 nothing has been compiled, judged or run yet, and a slot holding a digest
@@ -115,7 +115,7 @@ Args:
         function&#x27;s own default in place, so a task compiled without a key
         and a graph compiled directly agree block for block.
     extra_data: data the caller conditions on that the graph does not
-        carry, hashed into the DATA slot.</pre></section><section class="api-symbol"><h2 id="execute_task">execute_task</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 3104.</p><pre><code>execute_task(planned: PlannedTask, *, key: jax.Array | None=None, source_posterior: PosteriorResult | None=None) -&gt; Result | Refusal</code></pre><pre class="docstring">Run a compiled task and project what came back into a Result.
+        carry, hashed into the DATA slot.</pre></section><section class="api-symbol"><h2 id="execute_task">execute_task</h2><p class="source-note">Defined in <code>bayesmith.dispatch.task</code>, line 3105.</p><pre><code>execute_task(planned: PlannedTask, *, key: jax.Array | None=None, source_posterior: PosteriorResult | None=None) -&gt; Result | Refusal</code></pre><pre class="docstring">Run a compiled task and project what came back into a Result.
 
 One call to one seam, with the key it was given and no extra split, timed
 from just before to just after. Nothing here decides a number: the method,

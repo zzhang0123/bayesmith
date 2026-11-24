@@ -20,7 +20,7 @@ from numpyro.util import is_prng_key
 
 from bayesmith.artifacts import InitializationPolicy, NamedArray
 from bayesmith.bridge.numpyro_bridge import to_numpyro
-from bayesmith.dispatch.execute import Posterior, _diagnostics_or_none, chain_ess
+from bayesmith.dispatch.execute import Posterior, _posterior_diagnostics
 from bayesmith.dispatch.initialization import complete_initial_values
 from bayesmith.dispatch.sampling import (
     SamplingControl,
@@ -249,7 +249,7 @@ def _collect(mcmc, graph, compiled, key, control):
                 np.asarray(getattr(extra["proposal_diagnostics"], field)), axis=(0, 1)
             )
         count += size
-        passed, metrics = checkpoint_diagnostics(grouped, divergences, policy)
+        passed, metrics = checkpoint_diagnostics(grouped, divergences, policy, control=control)
         control.checkpoints.append(
             (("draws_per_chain", count), ("passed", passed), *metrics)
         )
@@ -366,13 +366,14 @@ def run_proposal_mcmc(
         )
     if compiled.remainder:
         reason += f"; NUTS remainder {list(compiled.remainder)}"
+    ess, diagnostics = _posterior_diagnostics(samples, num_chains, control)
     return Posterior(
         samples,
         None,
-        chain_ess(samples, num_chains=num_chains),
+        ess,
         None,
         False,
         method,
         reason,
-        _diagnostics_or_none(samples, num_chains),
+        diagnostics,
     )

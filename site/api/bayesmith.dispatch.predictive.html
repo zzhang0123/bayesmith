@@ -10,13 +10,9 @@
 <main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="../index.html">Docs</a><span>/</span><span>Reference</span><span>/</span><span aria-current="page">bayesmith.dispatch.predictive</span></nav>
 <article><h1>bayesmith.dispatch.predictive</h1><p class="lede">Source-derived signatures and contracts. See the <a href="../reference.html">reference index</a> for coverage and conventions.</p><details><summary>Module contract</summary><pre class="docstring">Predictive forward generation: push posterior draws onto observations.
 
-The two primitives of the R2 predictive seam, both built on the SAME loc/scale
-:func:`bayesmith.exact.gaussian.observation_parts` reads (§0.1): replay and
-replicate differ only by log_prob vs sample, never by a second, parallel
-forward model.  This module is part of the dispatch bridge -- it reads a Graph
-and JAX, and returns a :class:`~bayesmith.artifacts.base.NamedArray` for the
-pointwise log-likelihood -- and it never reaches the higher artifact protocol
-(results, tasks, identity, refusal): those are `dispatch.task`&#x27;s business.
+Prediction samples each observed site&#x27;s declared distribution. Pointwise
+replay scores the recorded observation under the same diagonal Gaussian law
+at each posterior draw. The dispatch layer packages these arrays in artifacts.
 
 R3 §0.7 adds the two remaining forward primitives -- `prior_draws`, which
 walks the whole graph from its priors, and `forward_draws`, which pushes ONE
@@ -26,34 +22,28 @@ is structural, not asserted: the fixed arm IS the replicate arm at a parameter
 that happens not to vary, and `tests/dispatch/test_predictive_seam.py` compares
 them at `rtol=0`.
 
-**Generation law (§0.3).**  A replicated draw is `Normal(loc, scale).sample`
-at the node&#x27;s own observation distribution, one per source posterior draw
-(draw axis one-to-one, no resampling).  This is the node&#x27;s own distribution --
-for a diagonal Gaussian it is exactly `apply_probabilistic(...).sample` -- so
-density and generator are one object, not a hand-written simulator.
-
-**Coverage domain (§0.4).**  `observation_parts` is a diagonal walk, so a
-correlated or non-Gaussian observed node raises
-:class:`~bayesmith.errors.NotGaussian` here rather than being silently
-approximated.  The caller turns that into a typed Refusal.</pre></details><div class="symbol-index"><a href="#replicated_draws">replicated_draws</a> <a href="#pointwise_log_likelihood">pointwise_log_likelihood</a> <a href="#prior_draws">prior_draws</a> <a href="#forward_draws">forward_draws</a></div><section class="api-symbol"><h2 id="replicated_draws">replicated_draws</h2><p class="source-note">Defined in <code>bayesmith.dispatch.predictive</code>, line 104.</p><pre><code>replicated_draws(graph: Graph, latent_draws: Mapping[str, Any], key: jax.Array) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">`{obs: draws}` -- one replicated draw per source draw, per observed node.
+The predictive seam accepts diagonal Gaussian observations, including
+independent complex components. Unsupported observation noise raises
+:class:`~bayesmith.errors.NotGaussian`, which the task converts into a refusal.</pre></details><div class="symbol-index"><a href="#replicated_draws">replicated_draws</a> <a href="#pointwise_log_likelihood">pointwise_log_likelihood</a> <a href="#prior_draws">prior_draws</a> <a href="#forward_draws">forward_draws</a></div><section class="api-symbol"><h2 id="replicated_draws">replicated_draws</h2><p class="source-note">Defined in <code>bayesmith.dispatch.predictive</code>, line 123.</p><pre><code>replicated_draws(graph: Graph, latent_draws: Mapping[str, Any], key: jax.Array, *, conditioned_sites: frozenset[str]=frozenset()) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">`{obs: draws}` -- one replicated draw per source draw, per observed node.
 
 Args:
     graph: the model.
     latent_draws: every latent&#x27;s posterior draws, each with the draw axis
         leading.  They must cover every latent `evaluate` needs.
-    key: PRNG key, split once per source draw so the replicated draws do
-        not share a stream.
+    key: PRNG key, split per draw and per observed site.
+    conditioned_sites: sites held at their recorded values while generating
+        descendants. All other observations are drawn in graph order.
 
 Returns:
-    One array per observed node, shape `(draws, *node_shape)`, sampled from
+    One array per generated site, shape `(draws, *node_shape)`, sampled from
     the node&#x27;s own observation distribution at each source draw&#x27;s loc/scale.
 
 Raises:
     NotGaussian: for a correlated or non-Gaussian observed node (§0.4) --
         a classification outcome the caller turns into a Refusal, not a
-        silent approximation.</pre></section><section class="api-symbol"><h2 id="pointwise_log_likelihood">pointwise_log_likelihood</h2><p class="source-note">Defined in <code>bayesmith.dispatch.predictive</code>, line 143.</p><pre><code>pointwise_log_likelihood(graph: Graph, latent_draws: Mapping[str, Any]) -&gt; NamedArray | None</code></pre><pre class="docstring">The observed-data replay: pointwise log-likelihood, indexed by draw first.
+        silent approximation.</pre></section><section class="api-symbol"><h2 id="pointwise_log_likelihood">pointwise_log_likelihood</h2><p class="source-note">Defined in <code>bayesmith.dispatch.predictive</code>, line 182.</p><pre><code>pointwise_log_likelihood(graph: Graph, latent_draws: Mapping[str, Any]) -&gt; NamedArray | None</code></pre><pre class="docstring">The observed-data replay: pointwise log-likelihood, indexed by draw first.
 
-For every source posterior draw, evaluates `Normal(loc, scale).log_prob(data)`
+For every source posterior draw, evaluates the declared scalar log density
 at the observed node&#x27;s own data -- the conditioning half, NOT a posterior
 predictive (§0.1) -- zeroing masked positions.  The leading axis is `draw`;
 the remaining axes are observation units named by `_dims` (a single
@@ -66,7 +56,7 @@ Returns:
     abstains rather than fabricating a pointwise density.
 
 Raises:
-    NotGaussian: for a correlated or non-Gaussian observed node (§0.4).</pre></section><section class="api-symbol"><h2 id="prior_draws">prior_draws</h2><p class="source-note">Defined in <code>bayesmith.dispatch.predictive</code>, line 231.</p><pre><code>prior_draws(graph: Graph, key: jax.Array, n: int) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">`{node: draws}` for EVERY node, drawn from the model&#x27;s priors forward.
+    NotGaussian: for a correlated or non-Gaussian observed node (§0.4).</pre></section><section class="api-symbol"><h2 id="prior_draws">prior_draws</h2><p class="source-note">Defined in <code>bayesmith.dispatch.predictive</code>, line 244.</p><pre><code>prior_draws(graph: Graph, key: jax.Array, n: int) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">`{node: draws}` for EVERY node, drawn from the model&#x27;s priors forward.
 
 Observed nodes are drawn too, from their own distributions rather than
 carried as data -- so this is the prior PREDICTIVE, and the same primitive
@@ -94,7 +84,7 @@ Args:
         §0.7 puts it in the task&#x27;s ``budget.draws``.
 
 Returns:
-    One array per node, shape `(n, *node_shape)`, keyed by node name.</pre></section><section class="api-symbol"><h2 id="forward_draws">forward_draws</h2><p class="source-note">Defined in <code>bayesmith.dispatch.predictive</code>, line 285.</p><pre><code>forward_draws(graph: Graph, values: Mapping[str, Any], key: jax.Array, n: int) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">`{obs: draws}` -- `n` observations generated at ONE parameter setting.
+    One array per node, shape `(n, *node_shape)`, keyed by node name.</pre></section><section class="api-symbol"><h2 id="forward_draws">forward_draws</h2><p class="source-note">Defined in <code>bayesmith.dispatch.predictive</code>, line 300.</p><pre><code>forward_draws(graph: Graph, values: Mapping[str, Any], key: jax.Array, n: int) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">`{obs: draws}` -- `n` observations generated at ONE parameter setting.
 
 §0.7&#x27;s fixed arm.  Implemented by repeating the setting along a draw axis
 and calling :func:`replicated_draws`, which is the point rather than a

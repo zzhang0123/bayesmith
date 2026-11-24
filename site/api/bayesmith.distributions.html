@@ -77,7 +77,8 @@ the magnitude form is the same number and hides which convention is
 in force.</pre><h3 id="ComplexNormal.mean">ComplexNormal.mean</h3><pre><code>mean(self) -&gt; jax.Array</code></pre><h3 id="ComplexNormal.variance">ComplexNormal.variance</h3><pre><code>variance(self) -&gt; jax.Array</code></pre><pre class="docstring">``2 * scale**2`` -- the TOTAL, both parts.
 
 Not ``scale**2``. A reader who takes this for one part&#x27;s variance gets
-the sqrt(2) this module&#x27;s docstring is about, so it says which.</pre><pre><code>support = constraints.real</code></pre></section><section class="api-symbol"><h2 id="EdgeworthExpansion">EdgeworthExpansion</h2><p class="source-note">Defined in <code>bayesmith.distributions</code>, line 40.</p><pre><code>EdgeworthExpansion(loc: Any, scale: Any, *, cumulants: Sequence[Any]=(), order: int=2, validate_args: bool | None=None)</code></pre><pre class="docstring">A scalar conditional likelihood with a manually truncated Edgeworth series.
+the sqrt(2) this module&#x27;s docstring is about, so it says which.</pre><pre><code>support = constraints.real
+pytree_data_fields = (&#x27;loc&#x27;, &#x27;scale&#x27;)</code></pre></section><section class="api-symbol"><h2 id="EdgeworthExpansion">EdgeworthExpansion</h2><p class="source-note">Defined in <code>bayesmith.distributions</code>, line 40.</p><pre><code>EdgeworthExpansion(loc: Any, scale: Any, *, cumulants: Sequence[Any]=(), order: int=2, validate_args: bool | None=None)</code></pre><pre class="docstring">A scalar conditional likelihood with a manually truncated Edgeworth series.
 
 ``order=N`` consumes cumulants through kappa_N and retains products of
 standardized cumulants whose total Edgeworth weight is at most N-2;

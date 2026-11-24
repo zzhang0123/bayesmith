@@ -14,6 +14,7 @@ from bayesmith.marginal._logdet_eager import (
     _circulant_eigenvalues,
     _condition_certificate,
     _factor_projection_certificate,
+    _FactorProjectionCertificate,
     _is_block_chain,
     _is_circulant,
     _is_diagonal,
@@ -21,14 +22,13 @@ from bayesmith.marginal._logdet_eager import (
     _is_symmetric,
     _is_toeplitz,
     _n,
+    _newton_logdet,
     _power_traces_match,
     _symmetric_roundoff_representative,
     _two_sum_error,
     dense_cholesky_logdet,
-    finite_perturbation_logdet,
     frozen_hutchinson_trace_logdet,
     lambda_logdet,
-    low_rank_logdet,
     spectral_radius,
     state_space_logdet,
     structured_logdet,
@@ -154,6 +154,14 @@ def check_logdet_premises(
 ) -> tuple[PremiseVerdict, ...]:
     """Judge all nine premises from inputs, without computing any logdet."""
     config = LadderConfig() if config is None else config
+    verdicts, _ = _check_logdet_premises(problem, config)
+    return verdicts
+
+
+def _check_logdet_premises(
+    problem: LogDetProblem, config: LadderConfig
+) -> tuple[tuple[PremiseVerdict, ...], _FactorProjectionCertificate | None]:
+    factor_certificate = None
     lam = problem.lambda_matrix
     perturb = problem.perturbation
     n = _n(lam)
@@ -614,7 +622,7 @@ def check_logdet_premises(
             False,
             "per-call resampling is always refused because noisy logdet breaks HMC reversibility",
         ),
-    )
+    ), factor_certificate
 
 
 def dispatch_logdet(
@@ -622,7 +630,7 @@ def dispatch_logdet(
 ) -> LadderResult:
     """Run the first satisfied row, preserving every preceding rejection."""
     config = LadderConfig() if config is None else config
-    verdicts = check_logdet_premises(problem, config=config)
+    verdicts, certificate = _check_logdet_premises(problem, config)
     if not any(verdict.satisfied for verdict in verdicts):
         raise ResamplingRefused(
             "No deterministic log-determinant rung qualified; per-call resampling "
@@ -648,10 +656,12 @@ def dispatch_logdet(
         if verdict.level == 0:
             value = lambda_logdet(problem.lambda_matrix)
         elif verdict.level == 1:
-            value = low_rank_logdet(
+            value = _newton_logdet(
                 problem.lambda_matrix,
                 problem.perturbation,
                 factors=problem.low_rank_factors,
+                certificate=certificate,
+                require_finite_stability=False,
             )
         elif verdict.level == 2:
             value = state_space_logdet(
@@ -676,7 +686,7 @@ def dispatch_logdet(
                 if verdict.details["determinant_lemma_payload"]
                 else None
             )
-            value = finite_perturbation_logdet(
+            value = _newton_logdet(
                 problem.lambda_matrix,
                 (
                     problem.perturbation
@@ -684,6 +694,8 @@ def dispatch_logdet(
                     else sigma_payload - problem.lambda_matrix
                 ),
                 factors=factors,
+                certificate=certificate,
+                require_finite_stability=True,
             )
         elif verdict.level == 6:
             value = truncated_trace_logdet(

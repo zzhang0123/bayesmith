@@ -48,7 +48,7 @@ model: conditionally independent assignments factorise, so the sum is
 specialisations of exactly the kind this package dispatches on, and both are
 P4&#x27;s remaining half. Enumeration is the general fallback they must agree with,
 and is deliberately built first so that they have an oracle to be checked
-against.</pre></details><div class="symbol-index"><a href="#ENUMERATION_BUDGET">ENUMERATION_BUDGET</a> <a href="#discrete_latents">discrete_latents</a> <a href="#enumeration_states">enumeration_states</a> <a href="#marginal_log_likelihood">marginal_log_likelihood</a> <a href="#posterior_marginals">posterior_marginals</a></div><section class="api-symbol"><h2 id="ENUMERATION_BUDGET">ENUMERATION_BUDGET</h2><p class="source-note">Defined in <code>bayesmith.exact.discrete</code>, line 66.</p><pre><code>ENUMERATION_BUDGET: int = 65536</code></pre></section><section class="api-symbol"><h2 id="discrete_latents">discrete_latents</h2><p class="source-note">Defined in <code>bayesmith.exact.discrete</code>, line 77.</p><pre><code>discrete_latents(graph: Graph) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The latent nodes declaring :class:`~bayesmith.graph.nodes.Discrete`.
+against.</pre></details><div class="symbol-index"><a href="#ENUMERATION_BUDGET">ENUMERATION_BUDGET</a> <a href="#discrete_latents">discrete_latents</a> <a href="#enumeration_states">enumeration_states</a> <a href="#marginal_log_likelihood">marginal_log_likelihood</a> <a href="#posterior_marginals">posterior_marginals</a></div><section class="api-symbol"><h2 id="ENUMERATION_BUDGET">ENUMERATION_BUDGET</h2><p class="source-note">Defined in <code>bayesmith.exact.discrete</code>, line 75.</p><pre><code>ENUMERATION_BUDGET: int = 65536</code></pre></section><section class="api-symbol"><h2 id="discrete_latents">discrete_latents</h2><p class="source-note">Defined in <code>bayesmith.exact.discrete</code>, line 86.</p><pre><code>discrete_latents(graph: Graph) -&gt; tuple[str, ...]</code></pre><pre class="docstring">The latent nodes declaring :class:`~bayesmith.graph.nodes.Discrete`.
 
 In graph order, which is topological, so the enumeration below is
 reproducible rather than set-ordered.
@@ -62,12 +62,13 @@ Three exclusions, each of which would be a different wrong answer:
   continuity and not a claim of discreteness -- the field&#x27;s own docstring
   says it must be ineligible for any support-specific method. So such a
   node is not enumerated, and, having no value either, it is refused by
-  the graph&#x27;s existing check, which names it.</pre></section><section class="api-symbol"><h2 id="enumeration_states">enumeration_states</h2><p class="source-note">Defined in <code>bayesmith.exact.discrete</code>, line 114.</p><pre><code>enumeration_states(graph: Graph) -&gt; int</code></pre><pre class="docstring">How many joint assignments enumeration would visit. Exact, and cheap.
+  the graph&#x27;s existing check, which names it.</pre></section><section class="api-symbol"><h2 id="enumeration_states">enumeration_states</h2><p class="source-note">Defined in <code>bayesmith.exact.discrete</code>, line 193.</p><pre><code>enumeration_states(graph: Graph, values: Mapping[str, Any] | None=None) -&gt; int</code></pre><pre class="docstring">How many joint assignments enumeration would visit before evaluating any density.
 
-One when there are no discrete latents -- the empty product. That is not a
-quibble: a sum over zero assignments returns ``-inf``, which is a silent
-and entirely wrong answer for a graph that simply has nothing to
-marginalise.</pre></section><section class="api-symbol"><h2 id="marginal_log_likelihood">marginal_log_likelihood</h2><p class="source-note">Defined in <code>bayesmith.exact.discrete</code>, line 182.</p><pre><code>marginal_log_likelihood(graph: Graph, values: Mapping[str, Any] | None=None, *, budget: int=ENUMERATION_BUDGET) -&gt; jax.Array</code></pre><pre class="docstring">``log sum_z exp log_joint``, summing every declared discrete latent out.
+Each scalar coordinate in a site&#x27;s batch, plate and independent event
+dimensions contributes a factor of its declared cardinality. The empty
+product is one. Each coordinate must have the fixed integer support
+``0, ..., n-1``. Supply conditioned ancestors in ``values`` if their
+shapes differ from the model&#x27;s own sample shapes.</pre></section><section class="api-symbol"><h2 id="marginal_log_likelihood">marginal_log_likelihood</h2><p class="source-note">Defined in <code>bayesmith.exact.discrete</code>, line 251.</p><pre><code>marginal_log_likelihood(graph: Graph, values: Mapping[str, Any] | None=None, *, budget: int=ENUMERATION_BUDGET) -&gt; jax.Array</code></pre><pre class="docstring">``log sum_z exp log_joint``, summing every declared discrete latent out.
 
 Args:
     graph: the graph. Its discrete latents are summed over; every other
@@ -83,9 +84,9 @@ Raises:
     GraphError: from ``log_joint``, if a latent that is not being
         marginalised has no value. Deliberately not re-raised here: the
         graph&#x27;s own message already names the node and lists the latents,
-        and a second wording would be a second thing to keep true.</pre></section><section class="api-symbol"><h2 id="posterior_marginals">posterior_marginals</h2><p class="source-note">Defined in <code>bayesmith.exact.discrete</code>, line 210.</p><pre><code>posterior_marginals(graph: Graph, values: Mapping[str, Any] | None=None, *, budget: int=ENUMERATION_BUDGET) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Per-site posterior probabilities over the states, exactly.
+        and a second wording would be a second thing to keep true.</pre></section><section class="api-symbol"><h2 id="posterior_marginals">posterior_marginals</h2><p class="source-note">Defined in <code>bayesmith.exact.discrete</code>, line 279.</p><pre><code>posterior_marginals(graph: Graph, values: Mapping[str, Any] | None=None, *, budget: int=ENUMERATION_BUDGET) -&gt; dict[str, jax.Array]</code></pre><pre class="docstring">Per-site posterior probabilities over the states, exactly.
 
-``{site: probabilities}`` where each array has the site&#x27;s plate shape with
+``{site: probabilities}`` where each array has the site&#x27;s complete value shape with
 the ``n`` states as its LAST axis, so ``result[&quot;z&quot;][..., k]`` is
 ``P(z = k | data)`` and the axis a caller reduces over is the one numpy
 conventions put last.

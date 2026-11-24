@@ -13,16 +13,15 @@ and ordered, which is what ``fn`` and ``dist_fn`` are called with. A
 refused rather than silently resolving by name against whatever the active
 trace happens to have declared -- see ``_parent_names`` and ``_plate_names``.
 
-**Not thread-safe.** ``_STACK`` is a single process-global list. It supports
-nested ``trace(...)`` calls on one thread (an inner trace pushes and pops its
-own recorder around the outer one), but concurrent ``trace(...)`` calls from
-multiple threads race on the same stack and can attribute one thread's nodes
-to another thread's graph. Confine tracing to a single thread at a time.
+Each trace owns its recorder in the current execution context. Nested traces
+restore the enclosing recorder when they return or raise.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
+from contextvars import ContextVar
+from threading import get_ident
 from typing import Any
 
 import jax.numpy as jnp
@@ -73,6 +72,8 @@ class PlateRef:
 
 class _Recorder:
     def __init__(self) -> None:
+        self.thread_id = get_ident()
+        self.closed = False
         self.nodes: list[Node] = []
         self.plates: list[Plate] = []
         self.names: set[str] = set()
@@ -85,16 +86,17 @@ class _Recorder:
         self.nodes.append(node)
 
 
-_STACK: list[_Recorder] = []
+_RECORDER: ContextVar[_Recorder | None] = ContextVar("bayesmith_recorder", default=None)
 
 
 def _active() -> _Recorder:
-    if not _STACK:
+    recorder = _RECORDER.get()
+    if recorder is None or recorder.closed or recorder.thread_id != get_ident():
         raise TraceError(
             "bayesmith tracing primitives must be called inside trace(model). "
             "Outside it there is no graph to record into."
         )
-    return _STACK[-1]
+    return recorder
 
 
 def _parent_names(parents: Sequence[NodeRef], recorder: _Recorder) -> tuple[str, ...]:
@@ -158,7 +160,14 @@ def _plate_names(
 # rename the parameter first (every call site passes it by keyword, so the
 # rename is a mechanical `plate=` find-and-replace).
 def plate(name: str, size: int) -> PlateRef:
-    """Declare a repetition axis and return a handle to it."""
+    """Declare a repetition axis and return a handle to it.
+
+    At a probabilistic site the plate is the last batch axis, immediately
+    before any event axes. For example, a Normal with parameters of shape
+    ``(epochs, components)`` and ``.to_event(1)`` has one vector per epoch.
+    With scalar events, use ``(components, epochs)`` for the same plate.
+    Constants and deterministic outputs in a plate carry it on axis zero.
+    """
     recorder = _active()
     for existing in recorder.plates:
         if existing.name == name:
@@ -319,11 +328,13 @@ def joint_prior(prior: Any) -> None:
 def trace(model_fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Graph:
     """Run ``model_fn`` once and return the graph it declared."""
     recorder = _Recorder()
-    _STACK.append(recorder)
+    token = _RECORDER.set(recorder)
     try:
         model_fn(*args, **kwargs)
     finally:
-        _STACK.pop()
+        # Scheduled callbacks may retain a copy of this context after reset.
+        recorder.closed = True
+        _RECORDER.reset(token)
     return Graph(
         nodes=tuple(recorder.nodes),
         plates=tuple(recorder.plates),

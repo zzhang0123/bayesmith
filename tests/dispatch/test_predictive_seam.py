@@ -23,7 +23,7 @@ import numpyro.distributions as dist
 import pytest
 
 from bayesmith import compile as compile_graph
-from bayesmith import const, det, observe, sample, trace
+from bayesmith import const, det, observe, plate, sample, trace
 from bayesmith.artifacts.base import NamedArray
 from bayesmith.dispatch.predictive import (
     forward_draws,
@@ -332,3 +332,168 @@ def test_forward_draws_refuse_a_correlated_observation_like_their_sibling():
     graph = _correlated_graph()
     with pytest.raises(NotGaussian):
         forward_draws(graph, {"w": jnp.asarray(2.0)}, jax.random.key(0), 4)
+
+
+@pytest.mark.parametrize("plated", [False, True])
+@pytest.mark.parametrize("law", [
+    lambda: dist.Bernoulli(0.5),
+    lambda: dist.Normal(jnp.zeros(2), 1.0).to_event(1),
+])
+def test_prior_generation_broadcasts_recorded_batch_shape_and_preserves_events(law, plated):
+    event = law().event_shape
+
+    def model():
+        group = plate("groups", 4) if plated else None
+        observe("obs", law, obs=jnp.zeros((4, *event)), plate=group)
+
+    obs = prior_draws(trace(model), jax.random.key(3), 32)["obs"]
+    assert obs.shape == (32, 4, *event)
+    assert not np.array_equal(obs[:, 0], obs[:, 1])
+
+
+def test_unknown_conditioned_site_is_refused_before_drawing():
+    with pytest.raises(ValueError, match="misspelt"):
+        replicated_draws(
+            straight_line(), {"w": jnp.zeros(2)}, jax.random.key(1),
+            conditioned_sites=frozenset({"misspelt"}),
+        )
+
+
+def test_complex_pointwise_scores_both_parts_and_keeps_event_coordinates():
+    from bayesmith import observe, sample, trace
+    from bayesmith.distributions import ComplexNormal
+
+    data = np.array([0.0 + 0.0j, 0.0 + 0.5j])
+    scale = 0.1
+
+    def model():
+        x = sample("x", lambda: dist.Normal(0.0, 1.0))
+        observe("z", lambda v: ComplexNormal(jnp.stack([v, v]) + 0j, scale).to_event(1),
+                x, obs=data)
+
+    draws = {"x": jnp.zeros(4)}
+    density = pointwise_log_likelihood(trace(model), draws)
+    expected = -np.abs(data) ** 2 / (2 * scale**2) - np.log(2 * np.pi * scale**2)
+    assert expected[0] > 0 > expected[1]
+    assert np.isrealobj(density.value)
+    np.testing.assert_allclose(density.value, np.broadcast_to(expected, (4, 2)), rtol=2e-6)
+
+
+def test_predictive_scores_and_samples_a_scalar_mean_with_different_observation_widths():
+    widths = np.array([0.5, 2.0])
+    datum = np.array([1.0, 1.0])
+
+    def model():
+        x = sample("x", lambda: dist.Normal(0.0, 1.0))
+        observe("y", lambda v: dist.Normal(v, widths), x, obs=datum)
+
+    graph = trace(model)
+    draws = {"x": jnp.zeros(2048)}
+    scores = pointwise_log_likelihood(graph, draws)
+    expected = -0.5 * (datum / widths) ** 2 - np.log(widths * np.sqrt(2 * np.pi))
+    np.testing.assert_allclose(scores.value, np.broadcast_to(expected, (2048, 2)), rtol=2e-6)
+    replicated = replicated_draws(graph, draws, jax.random.key(31))["y"]
+    np.testing.assert_allclose(np.std(replicated, axis=0), widths, rtol=0.08)
+
+
+def test_predictive_scores_and_replicates_a_gaussian_with_a_discrete_parent():
+    def model():
+        k = sample("k", lambda: dist.Bernoulli(0.25))
+        observe("y", lambda k: dist.Normal(k, 0.5), k, obs=1.0)
+
+    graph = trace(model)
+    draws = {"k": jnp.tile(jnp.array([0, 1]), 1024)}
+    scores = pointwise_log_likelihood(graph, draws)
+    expected = -2 * (1 - draws["k"]) ** 2 - np.log(0.5 * np.sqrt(2 * np.pi))
+    np.testing.assert_allclose(scores.value, expected, atol=2e-6)
+    y = replicated_draws(graph, draws, jax.random.key(18))["y"]
+    np.testing.assert_allclose([y[::2].mean(), y[1::2].mean()], [0, 1], atol=0.06)
+
+
+@pytest.mark.parametrize("rows", [2, 3])
+def test_plated_children_receive_their_own_batch_and_event_coordinates(rows):
+    groups, width = 3, 2
+
+    def model():
+        group = plate("group", groups)
+        x = sample("x", lambda: dist.Normal(
+            10 * jnp.arange(rows)[:, None, None] + jnp.arange(width), .1
+        ).to_event(1), plate=group)
+        total = det("total", jnp.sum, x, plate=group)
+        observe("y", lambda v, t: dist.Normal(v[:, 0] + t, .1),
+                x, total, obs=jnp.zeros((rows, groups)), plate=group)
+
+    graph = trace(model)
+    draw = prior_draws(graph, jax.random.key(0), 12)
+    assert draw["x"].shape == (12, rows, groups, width)
+    expected_total = draw["x"].sum(axis=(1, 3))
+    np.testing.assert_allclose(draw["total"], expected_total, rtol=1e-6)
+    expected_mean = draw["x"][..., 0] + expected_total[:, None, :]
+    assert draw["y"].shape == expected_mean.shape
+    assert np.max(np.abs(draw["y"] - expected_mean)) < .7
+    scores = pointwise_log_likelihood(graph, {"x": draw["x"]})
+    assert scores.dims == ("draw", "y_dim0", "group")
+    np.testing.assert_allclose(scores.value, dist.Normal(expected_mean, .1).log_prob(0.), rtol=1e-6)
+
+
+@pytest.mark.parametrize("matrix", [False, True])
+def test_transformed_member_laws_keep_vector_and_matrix_parameters(matrix):
+    from numpyro.infer.util import log_density
+
+    from bayesmith.bridge.numpyro_bridge import to_numpyro
+    from bayesmith.graph.evaluate import log_joint
+
+    def model():
+        group = plate("group", 3)
+        centres = const("centres", 10. * jnp.arange(3), plate=group)
+
+        def member(centre):
+            loc = centre + jnp.arange(4)
+            transform = (
+                dist.transforms.LowerCholeskyAffine(loc, 0.1 * jnp.eye(4)) if matrix
+                else dist.transforms.AffineTransform(loc, 0.1)
+            )
+            return dist.TransformedDistribution(dist.Normal(jnp.zeros((2, 4)), 1.).to_event(1),
+                                                transform)
+
+        sample("y", member, centres, plate=group)
+
+    graph = trace(model)
+    loc = 10. * jnp.arange(3)[:, None] + jnp.arange(4)
+    y = prior_draws(graph, jax.random.key(7), 8)["y"]
+    assert y.shape == (8, 2, 3, 4)
+    assert np.max(np.abs(y - loc)) < .7
+    expected = dist.Normal(loc, .1).log_prob(y[0]).sum()
+    assert log_joint(graph, {"y": y[0]}) == pytest.approx(float(expected), abs=2e-5)
+    actual, _ = log_density(to_numpyro(graph), (), {}, {"y": y[0]})
+    assert actual == pytest.approx(float(expected), abs=2e-5)
+
+
+def test_shared_plated_ancestors_are_built_once_per_forward_scan():
+    from numpyro.infer.util import log_density
+
+    from bayesmith.bridge.numpyro_bridge import to_numpyro
+    from bayesmith.graph.evaluate import log_joint
+
+    calls = []
+
+    def member(*parents):
+        calls.append(None)
+        return dist.Normal(sum(parents, 0.), 1.)
+
+    def model():
+        group = plate("group", 3)
+        nodes = []
+        for i in range(8):
+            nodes.append(sample(f"x{i}", member, *nodes[-2:], plate=group))
+
+    graph = trace(model)
+    values = {name: jnp.zeros(3) for name in graph.latents}
+    for scan in (
+        lambda: log_joint(graph, values),
+        lambda: prior_draws(graph, jax.random.key(1), 2),
+        lambda: log_density(to_numpyro(graph), (), {}, values),
+    ):
+        calls.clear()
+        scan()
+        assert len(calls) == len(values)

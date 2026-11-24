@@ -408,7 +408,12 @@ quality_gate: str | None = None</code></pre><pre class="docstring">Push an exist
 What separates this from :class:``SimulationTask`` is stated in the fields
 rather than in prose (§0.4): a predictive task conditions on data, names
 the posterior it came from, and distinguishes the sites it replicates from
-the latents it carries forward. A simulation has none of those.</pre></section><section class="api-symbol"><h2 id="PointEstimateTask">PointEstimateTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 520.</p><pre><code>class PointEstimateTask
+the latents it carries forward. A simulation has none of those.
+
+During generation a site listed only in ``conditioned_sites`` supplies its
+recorded value to descendants. Other observed parents are drawn jointly,
+including sites listed in both fields. ``replicated_sites`` selects the
+observations returned to the caller. Pointwise scoring uses recorded data.</pre></section><section class="api-symbol"><h2 id="PointEstimateTask">PointEstimateTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 525.</p><pre><code>class PointEstimateTask
 meta: TaskMeta
 estimand: Estimand
 names: tuple[str, ...] | None = None
@@ -420,7 +425,7 @@ quality_gate: str | None = None</code></pre><pre class="docstring">One point of 
 ``names=None`` is &quot;every latent&quot; and an empty tuple is refused: an empty
 request and an unrestricted one are different questions, and a field that
 could mean either would make the answer depend on how the caller spelled
-&quot;I do not care&quot;.</pre></section><section class="api-symbol"><h2 id="SimulationTask">SimulationTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 553.</p><pre><code>class SimulationTask
+&quot;I do not care&quot;.</pre></section><section class="api-symbol"><h2 id="SimulationTask">SimulationTask</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 558.</p><pre><code>class SimulationTask
 meta: TaskMeta
 parameter_source: ParameterSource
 prediction_design: Fingerprint | None = None
@@ -433,11 +438,11 @@ backend_options: tuple[tuple[str, CanonicalValue], ...] = ()</code></pre><pre cl
 §0.4 gives the other four tasks a ``quality_gate`` and this one none, and
 the omission is deliberate rather than an oversight to be tidied up: a
 simulation makes no statistical claim to check -- it produced what the
-model says, and whether that is a good model is what the OTHER four ask.</pre></section><section class="api-symbol"><h2 id="Task">Task</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 591.</p><pre><code>Task = PosteriorTask | EvidenceTask | PredictiveTask | PointEstimateTask | SimulationTask</code></pre></section><section class="api-symbol"><h2 id="TASK_CLASSES">TASK_CLASSES</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 596.</p><pre><code>TASK_CLASSES: dict[TaskKind, type] = {TaskKind.POSTERIOR: PosteriorTask, TaskKind.EVIDENCE: EvidenceTask, TaskKind.PREDICTIVE: PredictiveTask, TaskKind.POINT_ESTIMATE: PointEstimateTask, TaskKind.SIMULATION: SimulationTask}</code></pre></section><section class="api-symbol"><h2 id="task_kind">task_kind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 607.</p><pre><code>task_kind(task: Task) -&gt; TaskKind</code></pre><pre class="docstring">Which of the five ``task`` is.
+model says, and whether that is a good model is what the OTHER four ask.</pre></section><section class="api-symbol"><h2 id="Task">Task</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 596.</p><pre><code>Task = PosteriorTask | EvidenceTask | PredictiveTask | PointEstimateTask | SimulationTask</code></pre></section><section class="api-symbol"><h2 id="TASK_CLASSES">TASK_CLASSES</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 601.</p><pre><code>TASK_CLASSES: dict[TaskKind, type] = {TaskKind.POSTERIOR: PosteriorTask, TaskKind.EVIDENCE: EvidenceTask, TaskKind.PREDICTIVE: PredictiveTask, TaskKind.POINT_ESTIMATE: PointEstimateTask, TaskKind.SIMULATION: SimulationTask}</code></pre></section><section class="api-symbol"><h2 id="task_kind">task_kind</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 612.</p><pre><code>task_kind(task: Task) -&gt; TaskKind</code></pre><pre class="docstring">Which of the five ``task`` is.
 
 By exact type, not ``isinstance``: a subclass of one task carrying extra
 state would be reported as the base kind and executed as it, which is the
-quiet half of §0 ruling 4.</pre></section><section class="api-symbol"><h2 id="task_fingerprint">task_fingerprint</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 623.</p><pre><code>task_fingerprint(task: Task) -&gt; Fingerprint</code></pre><pre class="docstring">The §0.3 task-slot digest of ``task``.
+quiet half of §0 ruling 4.</pre></section><section class="api-symbol"><h2 id="task_fingerprint">task_fingerprint</h2><p class="source-note">Defined in <code>bayesmith.artifacts.tasks</code>, line 628.</p><pre><code>task_fingerprint(task: Task) -&gt; Fingerprint</code></pre><pre class="docstring">The §0.3 task-slot digest of ``task``.
 
 The kind is IN the payload, so two tasks that agree field for field but ask
 different questions are different. ``meta`` is not: its id is minted, its

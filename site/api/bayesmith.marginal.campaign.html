@@ -33,7 +33,7 @@ the nuisance priors  the per-epoch latents&#x27; own ``dist_fn``
 
 The last row is the one rheplicant cannot have: its ``Factorization`` carries
 per-epoch priors separately from the ``ParameterSpace`` that declares them,
-and &quot;the same space declared twice&quot; is the error class this kills.</pre></details><div class="symbol-index"><a href="#epoch_terms">epoch_terms</a> <a href="#fold_epochs">fold_epochs</a> <a href="#compress_campaign">compress_campaign</a> <a href="#epoch_observation">epoch_observation</a></div><section class="api-symbol"><h2 id="epoch_terms">epoch_terms</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 47.</p><pre><code>epoch_terms(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None, stacked_only: bool=False) -&gt; list[SqrtInfo]</code></pre><pre class="docstring">One ``[R | z]`` term per epoch, over the survivors.
+and &quot;the same space declared twice&quot; is the error class this kills.</pre></details><div class="symbol-index"><a href="#epoch_terms">epoch_terms</a> <a href="#fold_epochs">fold_epochs</a> <a href="#compress_campaign">compress_campaign</a> <a href="#epoch_observation">epoch_observation</a></div><section class="api-symbol"><h2 id="epoch_terms">epoch_terms</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 52.</p><pre><code>epoch_terms(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None, stacked_only: bool=False) -&gt; list[SqrtInfo]</code></pre><pre class="docstring">One ``[R | z]`` term per epoch, over the survivors.
 
 Each epoch&#x27;s own per-epoch latents are integrated out inside it, at the
 prior the graph declares for them -- so what comes back is a list of terms
@@ -55,7 +55,7 @@ Args:
 Raises:
     StructureError: from :func:`factorize`; or if the graph does not have
         exactly one observed node plated on ``epoch_plate``, which is what
-        makes &quot;one epoch&#x27;s data&quot; a thing that can be sliced.</pre></section><section class="api-symbol"><h2 id="fold_epochs">fold_epochs</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 218.</p><pre><code>fold_epochs(designs: jax.Array, targets: jax.Array, offsets: jax.Array, width: int) -&gt; SqrtInfo | tuple[jax.Array, jax.Array, jax.Array]</code></pre><pre class="docstring">Fold ``E`` stacked ``[R | z]`` terms into one, under ``lax.scan``.
+        makes &quot;one epoch&#x27;s data&quot; a thing that can be sliced.</pre></section><section class="api-symbol"><h2 id="fold_epochs">fold_epochs</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 214.</p><pre><code>fold_epochs(designs: jax.Array, targets: jax.Array, offsets: jax.Array, width: int) -&gt; SqrtInfo | tuple[jax.Array, jax.Array, jax.Array]</code></pre><pre class="docstring">Fold ``E`` stacked ``[R | z]`` terms into one, under ``lax.scan``.
 
 Traceable, and that is the point. The Python loop it replaces costs one
 eager QR per epoch and an unrolled ``jit`` of it compiles in time
@@ -75,11 +75,11 @@ Args:
     width: the column count, needed statically for the carry&#x27;s shape.
 
 Returns:
-    ``(factor, target, offset)`` of the folded term.</pre></section><section class="api-symbol"><h2 id="compress_campaign">compress_campaign</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 273.</p><pre><code>compress_campaign(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None) -&gt; SqrtInfo</code></pre><pre class="docstring">Fold every epoch into one term over the survivors.
+    ``(factor, target, offset)`` of the folded term.</pre></section><section class="api-symbol"><h2 id="compress_campaign">compress_campaign</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 269.</p><pre><code>compress_campaign(graph: Graph, epoch_plate: str, *, at: dict[str, Any] | None=None, factorization: Factorization | None=None) -&gt; SqrtInfo</code></pre><pre class="docstring">Fold every epoch into one term over the survivors.
 
 Holds one epoch&#x27;s term at a time, which is the point of the exercise: the
 raw data and the forward evaluation are gone by the end, and what remains
-is a sufficient statistic whose size does not grow with the campaign.</pre></section><section class="api-symbol"><h2 id="epoch_observation">epoch_observation</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 296.</p><pre><code>epoch_observation(graph: Graph, epoch_plate: str) -&gt; str</code></pre><pre class="docstring">The one observed node whose data IS this plate&#x27;s epochs, or a refusal.
+is a sufficient statistic whose size does not grow with the campaign.</pre></section><section class="api-symbol"><h2 id="epoch_observation">epoch_observation</h2><p class="source-note">Defined in <code>bayesmith.marginal.campaign</code>, line 292.</p><pre><code>epoch_observation(graph: Graph, epoch_plate: str) -&gt; str</code></pre><pre class="docstring">The one observed node whose data IS this plate&#x27;s epochs, or a refusal.
 
 PUBLIC because a caller deciding *whether* to fold needs the same
 structural verdict the fold itself makes, and cannot get it from
