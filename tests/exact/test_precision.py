@@ -855,12 +855,13 @@ class TestTheLogSpectrumIsTheFourthOperation:
         binary, and `log(sigma**2)` is not `2 log sigma`.
         """
         with jax.enable_x64(True):
-            sigma = jnp.asarray([1e-8, 0.3, 1.0, 7.5, 1e6])
+            # Both powers of two are normal binary64 values with finite logs.
+            # Squaring them first underflows to zero or overflows to infinity.
+            sigma = jnp.asarray([2.0**-600, 1e-8, 0.3, 1.0, 7.5, 1e6, 2.0**600])
             precision = DiagonalPrecision(sigma=sigma)
-            assert bool(jnp.all(0.5 * precision.log_spectrum() == jnp.log(sigma)))
-            # ...and the tidier spelling would NOT have been bitwise, which is
-            # the whole reason for the one above.
-            assert not bool(jnp.all(jnp.log(sigma**2) == 2.0 * jnp.log(sigma)))
+            actual = np.asarray(0.5 * precision.log_spectrum())
+            expected = np.asarray(jnp.log(sigma))
+            np.testing.assert_array_equal(actual.view(np.uint64), expected.view(np.uint64))
 
     def test_the_circulant_log_spectrum_is_the_kernels_own_fft(self):
         """Against `scipy.linalg`'s eigenvalues, not against our FFT again."""

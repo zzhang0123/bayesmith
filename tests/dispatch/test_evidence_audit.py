@@ -19,6 +19,7 @@ Every bypass below was built and run.
 from __future__ import annotations
 
 import itertools
+import math
 
 import jax
 import jax.numpy as jnp
@@ -238,9 +239,9 @@ def test_numpyro_does_not_mask_its_own_support_and_that_is_why_we_read_it():
     with jax.enable_x64(True):
         far = jnp.asarray([-100.0, 100.0])
         proper = dist.Uniform(-2.0, 5.0)
-        assert float(proper.log_prob(far)[0]) == pytest.approx(-jnp.log(7.0), abs=1e-9)
+        assert proper.log_prob(far).tolist() == pytest.approx([-math.log(7.0)] * 2, abs=1e-9)
         flat = dist.ImproperUniform(dist.constraints.interval(-2.0, 5.0), (), ())
-        assert float(flat.log_prob(far)[0]) == 0.0
+        assert flat.log_prob(far).tolist() == [0.0, 0.0]
 
 
 def test_a_density_too_large_to_integrate_is_unverifiable_not_improper():

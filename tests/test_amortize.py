@@ -22,6 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from scipy.stats import binomtest
 
 from bayesmith.amortize import MIN_SCALE, NeuralPosterior, train_posterior
 from bayesmith.errors import StructureError
@@ -336,25 +337,47 @@ class TestOverFittingIsVisibleOnlyInTheHeldOutSplit:
         watched = train_posterior(start, theta, data, validation_fraction=0.2, **common)
         return blind, watched
 
-    def _width_ratio(self, q) -> float:
-        x = observation(0.5)
-        _, sd = exact_posterior(x)
-        return float(jnp.std(q.sample(x, jax.random.key(5), 20_000))) / sd
+    @pytest.fixture(scope="class")
+    def held_out_metrics(self, two_runs):
+        theta, data = draw_bank(jax.random.key(440), 256)
+        keys = jax.random.split(jax.random.key(5), len(data))
+        # In this linear-Gaussian model the posterior width is independent of x.
+        _, exact_sd = exact_posterior(data[0])
 
-    def test_without_a_split_the_fit_becomes_over_confident(self, two_runs):
-        (q, history), _ = two_runs
-        # Measured: 0.271. A factor, not a tolerance.
-        assert self._width_ratio(q) < 0.5
+        def metrics(q):
+            samples = jax.vmap(lambda x, key: q.sample(x, key, 999))(data, keys)
+            draws = np.asarray(samples[..., 0])
+            widths = np.std(draws, axis=1) / exact_sd
+            # Under the exact posterior, theta and the 999 draws are exchangeable.
+            # Exactly 800 of their 1,000 possible ranks lie in the central interval.
+            ranks = (draws < np.asarray(theta)).sum(axis=1)
+            covered = np.count_nonzero((ranks >= 100) & (ranks < 900))
+            return widths, covered, mean_log_density(q, theta, data)
+
+        (blind, _), (watched, _) = two_runs
+        return metrics(blind), metrics(watched)
+
+    def test_without_a_split_the_fit_becomes_over_confident(self, two_runs, held_out_metrics):
+        (_, history), _ = two_runs
+        (blind_widths, covered, _), _ = held_out_metrics
+        # At least three quarters of fresh observations get an overly narrow posterior.
+        assert np.quantile(blind_widths, 0.75) < 1.0
+        assert binomtest(covered, len(blind_widths), p=0.8, alternative="less").pvalue < 0.01
         # ... while the training loss is still improving, which is the whole
         # point: the only instrument that was watching says everything is fine.
         assert float(history.train[-1]) < float(history.train[0])
         assert history.validation.shape == (0,)
 
-    def test_the_split_catches_it(self, two_runs):
-        _, (q, history) = two_runs
-        # Measured: 0.844.
-        assert 0.6 < self._width_ratio(q) < 1.4
-        # Measured: step 423 of 8000.
+    def test_the_split_catches_it(self, two_runs, held_out_metrics):
+        _, (_, history) = two_runs
+        blind, watched = held_out_metrics
+        blind_widths, blind_covered, blind_score = blind
+        watched_widths, watched_covered, watched_score = watched
+        watched_width = np.median(watched_widths)
+        assert 0.6 < watched_width < 1.4
+        assert abs(watched_width - 1.0) < abs(np.median(blind_widths) - 1.0)
+        assert watched_covered > blind_covered
+        assert watched_score > blind_score
         assert 1 < int(history.best_step) < self.N_STEPS // 4
 
     def test_the_validation_curve_turns_around(self, two_runs):
