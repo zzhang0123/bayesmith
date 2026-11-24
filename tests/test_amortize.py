@@ -338,7 +338,8 @@ class TestOverFittingIsVisibleOnlyInTheHeldOutSplit:
         return blind, watched
 
     @pytest.fixture(scope="class")
-    def held_out_metrics(self, two_runs):
+    @classmethod
+    def held_out_metrics(cls, two_runs):
         theta, data = draw_bank(jax.random.key(440), 256)
         keys = jax.random.split(jax.random.key(5), len(data))
         # In this linear-Gaussian model the posterior width is independent of x.
